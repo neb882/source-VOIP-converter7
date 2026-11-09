@@ -17,7 +17,7 @@ The app reads demos itself ([`demo.js`](../../demo.js)): load a `.dem` in step 1
 This needs Node 22 and the repository's `pnpm install`.
 
 ```sh
-node tests/demovoice/extract.mjs voicetest.dem --out tests/demovoice/out
+node tests/demovoice/extract.mjs voicetest.dem
 ```
 
 It prints the demo's header and, for each speaker:
@@ -27,14 +27,14 @@ It prints the demo's header and, for each speaker:
 - the bitrate while coding
 - the Opus TOC configurations (13 = hybrid super-wideband, 20 ms)
 
-It writes, per speaker, into `--out` (the demo's folder by default):
+It writes, per speaker, into `tests/demovoice/out/` (wherever the demo is; `--out <folder>` chooses another folder) and prints the folder:
 - `<demo>.<speaker>.wav`: 16-bit at the codec's rate (24 kHz for Steam), each talk spurt at its demo tick
 - `<demo>.<speaker>.packets.tsv`: every packet with its tick, kind (`opus`, `end`, `silence`, `celt`), sequence number and size
 - `<demo>.<speaker>.frames.tsv`: the decoded frame log, one row per frame: its start, its code (0 nothing sent, 1 SILK, 2 hybrid, 3 CELT, 4 DTX, 5 lost and concealed) and its size
 
 Lost frames are concealed, DTX frames give comfort noise, and each end-of-transmission marker resets the decoder, as Steam's receiver does. When the packet carrying a marker was lost, the next spurt shows as a sequence number going backwards; if its tick is more than four frames after the write position, it starts a new spurt at its tick with a fresh decoder (`demo.js` explains the rule).
 
-Speakers are named by SteamID. Demos and everything extracted from them contain players' SteamIDs and voices. Keep them out of the repository; `.gitignore` covers this folder's demos, WAVs, TSVs and `out/`.
+Speakers are named by SteamID. Demos and everything extracted from them contain players' SteamIDs and voices. Keep them out of the repository; `.gitignore` covers this folder's demos, WAVs, TSVs and `out/`, but not a folder you choose with `--out` inside the repository.
 
 ## History
 

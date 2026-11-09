@@ -226,6 +226,21 @@ const same = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buf
       && packetRows.length === 1 + 32 && frameRows.length === 1 + decoded.frameLog.length,
       `${(wav.readUInt32LE(40) / 2 / rate).toFixed(2)} s, ${packetRows.length - 1} packets, ${frameRows.length - 1} frames`);
   } finally { fs.rmSync(out, { recursive: true, force: true }); }
+  // Without --out it writes to tests/demovoice/out/ (git-ignored), never
+  // beside the demo, wherever the demo is and whatever the working folder.
+  const away = fs.mkdtempSync(path.join(os.tmpdir(), 'tf2ve-demo-')), base = `tf2ve-check-${process.pid}`;
+  const outDir = fileURLToPath(new URL('./demovoice/out/', import.meta.url)), existed = fs.existsSync(outDir);
+  try {
+    fs.copyFileSync(fixture, path.join(away, `${base}.dem`));
+    const printed = execFileSync(process.execPath, [fileURLToPath(new URL('./demovoice/extract.mjs', import.meta.url)), `${base}.dem`], { cwd: away, encoding: 'utf8' });
+    const beside = fs.readdirSync(away), written = (fs.existsSync(outDir) ? fs.readdirSync(outDir) : []).filter(f => f.startsWith(`${base}.`));
+    check('Without --out the tool writes into tests/demovoice/out/ and nothing beside the demo', beside.join() === `${base}.dem` && written.length === 6
+      && printed.includes(`writing to ${path.resolve(outDir)}`), `${beside.length - 1} files beside the demo, ${written.length} in tests/demovoice/out/`);
+  } finally {
+    fs.rmSync(away, { recursive: true, force: true });
+    if (fs.existsSync(outDir)) for (const f of fs.readdirSync(outDir)) if (f.startsWith(`${base}.`)) fs.rmSync(path.join(outDir, f));
+    if (!existed && fs.existsSync(outDir) && !fs.readdirSync(outDir).length) fs.rmdirSync(outDir);
+  }
 }
 
 // Legacy engine codec: bare 64-byte CELT packets, no SteamID or CRC.
@@ -234,16 +249,26 @@ const celtTone = Float32Array.from({ length: 512 * 20 }, (_, i) => .3 * Math.sin
 const celtPackets = Array.from({ length: 20 }, (_, k) => celt.encode(celtTone.subarray(512 * k, 512 * (k + 1))));
 celt.free();
 const join = (list) => { const out = new Uint8Array(list.reduce((n, p) => n + p.length, 0)); list.reduce((at, p) => { out.set(p, at); return at + p.length; }, 0); return out; };
-const legacy = D.parse(demoFile([
+const legacyBytes = demoFile([
   { tick: 10, messages: [msg.voiceInit('vaudio_celt', 5)] },
   { tick: 20, messages: [msg.voice(4, join(celtPackets.slice(0, 10)))] },
   { tick: 21, messages: [msg.pause, msg.voice(4, join(celtPackets.slice(10)))] }
-]));
+]);
+const legacy = D.parse(legacyBytes);
 const ls = legacy.speakers[0];
 check('A vaudio_celt demo gives its 64-byte packets at 22050 Hz', legacy.codecs[0].rate === 22050 && ls && ls.codec === 'vaudio_celt' && ls.frames === 20,
   ls ? `${ls.frames} packets` : 'no speaker');
 const legacyAudio = await D.decode(legacy, ls, { celt: (r, f, b) => createCodec(r, f, { packetBytes: b }) });
 check('and decodes with CELT 0.11 into one talk spurt', legacyAudio.samples.length === 20 * 512 && legacyAudio.spurts === 1 && legacyAudio.frameLog.every(c => c === 3));
+{
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'tf2ve-extract-'));
+  try {
+    fs.writeFileSync(path.join(out, 'legacy.dem'), legacyBytes);
+    const line = execFileSync(process.execPath, [fileURLToPath(new URL('./demovoice/extract.mjs', import.meta.url)), path.join(out, 'legacy.dem'), '--out', out], { encoding: 'utf8' })
+      .split('\n').find(l => l.includes('client 4:')) || '';
+    check('and the tool counts its talk spurts from the decode', /20 frames in 1 talk spurt \(from gaps in ticks\)/.test(line), line.trim());
+  } finally { fs.rmSync(out, { recursive: true, force: true }); }
+}
 
 // A demo recorded with `record` keeps voice messages without their payloads.
 const client = D.parse(demoFile([{ tick: 5, messages: [msg.voiceInit('steam'), msg.voice(1, new Uint8Array(0))] }]));

@@ -5,8 +5,8 @@
 //
 // Prints the demo's header and, per speaker, the frames, talk spurts, DTX
 // frames, frames lost before the server, the bitrate while coding and the
-// Opus TOC configurations. Writes per speaker, into --out (default: the
-// demo's folder):
+// Opus TOC configurations. Writes per speaker, into --out (default:
+// tests/demovoice/out/, which .gitignore covers, wherever the demo is):
 //   <demo>.<speaker>.wav          16-bit, at the codec's rate, each spurt at its tick
 //   <demo>.<speaker>.packets.tsv  every packet: tick, kind, sequence number, bytes
 //   <demo>.<speaker>.frames.tsv   the decoded frame log: frame, start (s), code, bytes
@@ -18,6 +18,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import * as opus from '../../vendor/libopus-1.1/index.mjs';
 import { createCodec } from '../../vendor/celt-0.11/index.mjs';
 
@@ -31,7 +32,9 @@ if (!input || (outAt >= 0 && !outDir)) {
   console.error('usage: node tests/demovoice/extract.mjs <demo.dem> [--out <folder>]');
   process.exit(2);
 }
-const folder = outDir || path.dirname(input), base = path.basename(input).replace(/\.dem$/i, '');
+// Never beside the demo: a demo in the repository's root would leave voices
+// and SteamIDs where .gitignore does not reach.
+const folder = outDir || fileURLToPath(new URL('./out/', import.meta.url)), base = path.basename(input).replace(/\.dem$/i, '');
 fs.mkdirSync(folder, { recursive: true });
 
 const parsed = D.parse(fs.readFileSync(input));
@@ -39,6 +42,7 @@ const h = parsed.header;
 const codecs = parsed.codecs.map(c => `${c.codec}${c.rate ? ` (${c.rate} Hz)` : ''}`).join(' / ') || 'none announced';
 console.log(`${h.server || 'server'} on ${h.map}, ${h.seconds.toFixed(1)} s, ${h.ticks} ticks of ${(parsed.intervalPerTick * 1000).toFixed(1)} ms; voice codec ${codecs}`);
 console.log(`${parsed.voice.length} voice messages, ${parsed.unreadable} unreadable, ${parsed.errors} packets with unreadable messages; ${parsed.speakers.length} speaker${parsed.speakers.length === 1 ? '' : 's'}`);
+console.log(`writing to ${path.resolve(folder)}`);
 if (parsed.voice.length && !parsed.speakers.length) console.log('  no voice payloads: a client demo (`record`) keeps the messages but not the audio');
 
 function writeWav(file, samples, rate) {
@@ -60,8 +64,15 @@ for (const sp of parsed.speakers) {
   const coded = sp.packets.filter(p => p.data && p.data.length > 2);
   const kbps = coded.length ? coded.reduce((n, p) => n + p.data.length, 0) * 8 / (coded.length * decoded.frameSeconds) / 1000 : 0;
   const tocs = Object.entries(sp.tocs).map(([c, n]) => `${c}: ${n}`).join(', ');
-  console.log(`  ${sp.id}: ${sp.frames} frames in ${sp.spurts} talk spurt${sp.spurts === 1 ? '' : 's'}, ${sp.dtx} DTX, ${sp.lost} lost before the server, `
-    + `${kbps.toFixed(1)} kbps while coding${sp.codec === 'steam' ? `, TOC configurations {${tocs}}` : ''}; codec ${sp.codec} at ${decoded.rate} Hz`);
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  // Steam packets say where spurts start and what was lost; the legacy
+  // codecs' bare packets do not, so their spurts come from the decode (gaps
+  // in ticks) and their losses are unknown.
+  console.log(sp.codec === 'steam'
+    ? `  ${sp.id}: ${sp.frames} frames in ${plural(sp.spurts, 'talk spurt')}, ${sp.dtx} DTX, ${sp.lost} lost before the server, `
+      + `${kbps.toFixed(1)} kbps while coding, TOC configurations {${tocs}}; codec ${sp.codec} at ${decoded.rate} Hz`
+    : `  ${sp.id}: ${sp.frames} frames in ${plural(decoded.spurts, 'talk spurt')} (from gaps in ticks), losses before the server unknown (no sequence numbers), `
+      + `${kbps.toFixed(1)} kbps; codec ${sp.codec} at ${decoded.rate} Hz`);
   console.log(`    decoded: ${(decoded.samples.length / decoded.rate).toFixed(2)} s in ${decoded.spurts} spurt${decoded.spurts === 1 ? '' : 's'} placed at their ticks, ${decoded.concealed} lost frame${decoded.concealed === 1 ? '' : 's'} concealed`);
   const name = path.join(folder, `${base}.${sp.id.replace(/[^\w-]+/g, '')}`);
   writeWav(`${name}.wav`, decoded.samples, decoded.rate);
