@@ -208,20 +208,28 @@ console.log('\n[Speex] Determinism, and the sender gate when it is turned on');
   const x = voiceBand(1, NB);
   const c = await opus.speexRoundTrip(x, NB), d = await opus.speexRoundTrip(x, NB);
   check('the round trip is deterministic', same(c.samples, d.samples));
-  // The same burst twice, each after silence and on a frame boundary, far
-  // enough apart for two talk spurts. Each spurt starts a fresh encoder and
-  // decoder, so both send the same packets.
-  const burst = voiceBand(0.5, NB), bursts = new Float32Array(3 * NB);
-  bursts.set(burst, 0.4 * NB);
-  bursts.set(burst, 1.8 * NB);
+  // The same 70 frames twice: a quiet noise floor under the gate's
+  // threshold, a burst of voice from frame 20, then the floor again. The gate
+  // sends frames 14-66 of each (pre-roll 6, hold 22), so two talk spurts.
+  // Each starts a fresh encoder and decoder, so the second sends the same
+  // packets and plays the same samples as the first. Without the restart the
+  // floor would leave the codec in another state.
+  const part = new Float32Array(70 * 160);
+  let s = 5;
+  for (let i = 0; i < part.length; i++) { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; part[i] = 0.003 * (s / 2 ** 32 * 2 - 1); }
+  voiceBand(0.5, NB).forEach((v, i) => { part[20 * 160 + i] += v; });
+  const bursts = new Float32Array(2 * part.length);
+  bursts.set(part);
+  bursts.set(part, part.length);
   const sent = [];
   const g = await opus.speexRoundTrip(bursts, NB, { gate: { thresholdDb: -40, prerollFrames: 6, holdFrames: 22 },
     onPacket: (f, packet) => sent.push({ f, packet }) });
   const spurt = (from, to) => sent.filter(p => p.f >= from && p.f < to).map(p => Array.from(p.packet).join());
-  const one = spurt(0, 75), two = spurt(75, 150);
-  check('with the gate on, closed frames are not sent and each talk spurt restarts the codec',
-    g.info.spurts === 2 && g.info.gatedFrames > 10 && g.info.frameBytes.every((n, f) => (g.info.frameLog[f] === FRAME.gated) === (n === 0))
-    && one.length > 20 && one.length === two.length && one.every((p, i) => p === two[i]),
+  const one = spurt(0, 70), two = spurt(70, 140);
+  const played = (f0) => g.samples.subarray(f0 * 160 - 80, (f0 + 53) * 160 - 80);
+  check('with the gate on, closed frames are not sent and each talk spurt restarts the encoder and decoder',
+    g.info.spurts === 2 && g.info.gatedFrames === g.info.frames - 2 * 53 && g.info.frameBytes.every((n, f) => (g.info.frameLog[f] === FRAME.gated) === (n === 0))
+    && one.length === 53 && two.length === 53 && one.every((p, i) => p === two[i]) && same(played(14), played(84)),
     `${g.info.spurts} spurts of ${one.length} and ${two.length} frames, ${g.info.gatedFrames} of ${g.info.frames} frames gated`);
   const viaProfile = await A.process(buffer(src), { codec: 'speex', gate: true });
   check('the profile\'s gate switch reaches the Speex round trip', viaProfile.codecInfo.gate === -39.5 && viaProfile.codecInfo.spurts >= 1,

@@ -48,10 +48,10 @@ Leaked engine source was deliberately not used. Valve's public Source SDK 2013 h
 Next to the stand-in, at the default settings in a 48 kHz render:
 
 - **Band edge.** On white noise, relative to 0.5–2 kHz, Speex is down 3 dB at 3.6 kHz and 20 dB at 4.2 kHz. The stand-in sagged 2.6–3.3 dB from 2.5 to 3.5 kHz and was down 3 dB at 3.1 kHz; its 20 dB point was also 4.2 kHz. Neither passes anything from 4.5 to 6 kHz (−63 dB of the total).
-- **Low end.** Speex's high-pass filters take 4.7 dB off at 100 Hz and 1.6 dB at 200 Hz. The stand-in was flat there.
+- **Low end.** On the same noise, Speex is down 4.7 dB at 100 Hz and 1.6 dB at 200 Hz, where its high-pass filters act. The stand-in was flat there (+0.6 and +1.2 dB).
 - **Level.** For the tests' speech-like signal at −20 dBFS, the render is −13.9 dBFS with Speex and −14.0 dBFS with the stand-in, and −21.1 against −21.6 dBFS without the receiver's auto-gain. For a voice-band signal at −21.2 dBFS without auto-gain, Speex keeps −21.4 dBFS and the stand-in kept −23.1 dBFS.
 - **Spectrum.** On that voice-band signal, Speex is 1.7–2.0 dB louder than the stand-in from 250 Hz to 2 kHz, 1.1 dB at 2–3 kHz and level at 3–3.4 kHz. Speex also adds noise just under its band edge, 3.4 dB more than the stand-in at 3.4–3.8 kHz. In 50 Hz bands from 0.1 to 3.8 kHz the two differ by 3.0 dB RMS.
-- **Waveform.** Both follow a voice-band source about equally: r 0.89 for Speex and 0.92 for the stand-in.
+- **Waveform.** Both follow a voice-band source about equally: r 0.89 for Speex and 0.92 for the stand-in. The tests' speech-like signal is different: its strongest part is a 115 Hz fundamental, whose phase Speex's high-pass filters turn. Through Speex its waveform matches the source less well (r 0.22, against 0.66 through the stand-in), though the two spectra are within 1 dB of each other below 2.5 kHz.
 
 ## Also unknown, for all three
 
