@@ -465,9 +465,11 @@
   // clock against the game's is steady; finding 15); each segment gets its
   // own offset. Segments map source time t to take time a + b * t.
   //
-  // options.reference, { samples, rate, frames }: the app's render of the
-  // source (same timeline) and, optionally, its codec's frame log (one
-  // code per 20 ms, opus-codec.mjs FRAME). When given, the take is matched
+  // options.reference, { samples, rate, frames, frameSeconds }: the app's
+  // render of the source (same timeline) and, optionally, its codec's frame
+  // log (one code per frame, opus-codec.mjs FRAME; frameSeconds is 0.02 for
+  // Opus, the default, and 512/22050 or 256/44100 for the CELT profiles).
+  // When given, the take is matched
   // against the render rather than the raw source: it has the take's
   // gating, comfort noise and codec phase, so envelopes and waveforms agree
   // far better (a low tone that Opus turns into a near-DC plateau, a tone
@@ -488,16 +490,17 @@
     const esB = envelope(source, sourceRate, step, true), etB = envelope(take, takeRate, step, true);
     const lo = 2000, s2 = narrow(source, sourceRate, lo), t2 = narrow(take, takeRate, lo);
     const frameLog = ref && ref.frames && ref.frames.length ? ref.frames : null;
+    const frameSeconds = ref && ref.frameSeconds > 0 ? ref.frameSeconds : .02;
     // Share of the render's energy over [t0, t1) in frames the codec coded
     // (SILK, hybrid or CELT), not comfort noise.
     const frameEnergy = frameLog ? Float64Array.from(frameLog, (_, f) => {
       let e = 0;
-      for (let i = f * 40; i < Math.min(s2.length, (f + 1) * 40); i++) e += s2[i] * s2[i];
+      for (let i = Math.round(f * frameSeconds * lo); i < Math.min(s2.length, Math.round((f + 1) * frameSeconds * lo)); i++) e += s2[i] * s2[i];
       return e;
     }) : null;
     const coded = (t0, t1) => {
       if (!frameLog) return 1;
-      const f0 = Math.max(0, Math.floor(t0 * 50)), f1 = Math.min(frameLog.length, Math.ceil(t1 * 50));
+      const f0 = Math.max(0, Math.floor(t0 / frameSeconds)), f1 = Math.min(frameLog.length, Math.ceil(t1 / frameSeconds));
       let all = 0, kept = 0;
       for (let f = f0; f < f1; f++) { all += frameEnergy[f]; if (frameLog[f] >= 1 && frameLog[f] <= 3) kept += frameEnergy[f]; }
       return all > 0 ? kept / all : 0;
@@ -530,7 +533,7 @@
       // frames above the floor) does not count; quiet DTX is the silence
       // between sounds and does.
       const quiet = fs(-1000) + 6;
-      const envKeep = (k) => !frameLog || frameLog[Math.floor(k * step * 50)] !== 4 || es[k] <= quiet;
+      const envKeep = (k) => !frameLog || frameLog[Math.floor(k * step / frameSeconds)] !== 4 || es[k] <= quiet;
       let mean = 0, n = 0;
       for (let k = from; k < to; k++) if (envKeep(k)) { mean += fs(es[k]); n++; }
       if (n < 20) return { lag: 0, value: -2 };

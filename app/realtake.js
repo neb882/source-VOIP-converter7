@@ -53,7 +53,7 @@ function takeTrackOptions(o = renderOptions()) {
 function renderGuide() {
   const info = state.lastCodecInfo;
   if (!state.processedBuffer || !info || info.lostFrames || info.underrunFrames) return null;
-  return { samples: state.processedBuffer, rate: state.processedRate, frames: info.frameLog || null };
+  return { samples: state.processedBuffer, rate: state.processedRate, frames: info.frameLog || null, frameSeconds: (info.frameMs || 20) / 1000 };
 }
 
 // The search and the warp, in a worker when there is one. The aligned take

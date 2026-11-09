@@ -104,7 +104,7 @@ async function measureInPage({ takeUrl, sourceUrl, settings, takeChannelName, ta
   const random = opts.lossPct > 0 || opts.jitterMs > 0;
   const guide = random ? await TF2Audio.process(source, { ...opts, lossPct: 0, jitterMs: 0 }) : rendered;
   const captured = TF2Audio.bufferToMono(source, opts.captureChannel);
-  const trackOptions = { ...takeTrackOptions(opts), reference: { samples: guide.samples, rate, frames: guide.codecInfo.frameLog } };
+  const trackOptions = { ...takeTrackOptions(opts), reference: { samples: guide.samples, rate, frames: guide.codecInfo.frameLog, frameSeconds: (guide.codecInfo.frameMs || 20) / 1000 } };
   const timeline = TF2Reference.track(take, rate, captured, rate, trackOptions);
   const aligned = TF2Reference.warpSegments(take, rate, timeline.segments, rate, captured.length);
   const sim = rendered.samples;
@@ -161,7 +161,7 @@ async function takeStatsInPage({ takeUrl, sourceUrl, segmentsUrl, settings }) {
   const opts = { ...renderOptions(), ...settings };
   const rendered = await TF2Audio.process(source, opts);
   const captured = TF2Audio.bufferToMono(source, opts.captureChannel);
-  const trackOptions = { ...takeTrackOptions(opts), reference: { samples: rendered.samples, rate, frames: rendered.codecInfo.frameLog } };
+  const trackOptions = { ...takeTrackOptions(opts), reference: { samples: rendered.samples, rate, frames: rendered.codecInfo.frameLog, frameSeconds: (rendered.codecInfo.frameMs || 20) / 1000 } };
   const timeline = TF2Reference.track(take, rate, captured, rate, trackOptions);
   const aligned = TF2Reference.warpSegments(take, rate, timeline.segments, rate, captured.length);
   const from = Math.max(0, Math.round(timeline.overlap.t0 * rate)), to = Math.min(aligned.length, Math.round(timeline.overlap.t1 * rate));

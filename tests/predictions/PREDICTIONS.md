@@ -147,6 +147,8 @@ The rules were changed several times before registration, each after seeing a co
 
 SHA-256 of predictions.json: `e7de7a477c5b629d1a9f1664fd3f44146c995bd0e5036e18fd40374fb9432b43`
 
+Changed after registration, before any predicted take existed: `reference.js` now reads a render's frame log on its codec's frame grid (23.2 ms for `vaudio_celt`, 5.8 ms for `vaudio_celt_high`). It had assumed 20 ms, so for P1 and P2 it judged the wrong frames when choosing which windows refine a take's alignment. That changes how CELT takes are lined up, not any predicted value. The dry run above was not repeated after the change; it needs a real take for its game sound.
+
 ## Results
 
 Not recorded yet.
