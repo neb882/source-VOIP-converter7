@@ -15,7 +15,8 @@
     "build:celt": "node tests/celt011/build.mjs",
     "test:all": "pnpm test:vendor && pnpm test && pnpm test:browser",
     "analyze:reference": "node tests/reference.analyze.mjs",
-    "compare:reference": "node tests/reference.compare.mjs --compact"
+    "compare:reference": "node tests/reference.compare.mjs --compact",
+    "demo:extract": "node tests/demovoice/extract.mjs"
   },
   "devDependencies": {
     "libopus-wasm": "0.4.0",

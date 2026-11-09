@@ -4,7 +4,7 @@
   "stands": {
     "live": "https://neb882.github.io/source-VOIP-converter7/ serves main (GitHub Pages from the branch root).",
     "model": "The Steam profile, the voice gate and the receiver are measured (tests/REFERENCE_2026.md, findings 1-21). vaudio_celt runs the real CELT 0.11 at settings three public decoders agree on; vaudio_celt_high and the rooms are unconfirmed.",
-    "last_merged": "The code review's fixes (pull request 1, 2026-11-09): demo files past 256 MiB and cut-off demos, fragmented MP4s without base offsets, renders above 48 kHz in a MOV, long PCM tracks, stale renders after a source change, the live chain's delay, worker scripts in the service worker, CELT frame grids in take alignment.",
+    "last_merged": "W1-02 (2026-11-09): one demo reader. A talk spurt whose end marker was lost starts at its tick; tests/demovoice/extract.mjs replaces the Rust tool (docs/reports/W1-02-demo-reader.md). Before it, the code review's fixes (pull request 1).",
     "ci": "The tests workflow runs on every push and can be started by hand. Actions was off in this repository until 2026-11-09. One browser check (the live recording's lag) fails by chance about once in ten runs; W1-04 fixes it. Until it merges, a red run that fails only there is re-read, not trusted either way."
   },
   "in_flight": [
@@ -13,12 +13,6 @@
       "branch": "claude/w1-01-speex",
       "stage": "building",
       "report": "docs/reports/W1-01-speex.md"
-    },
-    {
-      "order": "W1-02-demo-reader",
-      "branch": "claude/w1-02-demo-reader",
-      "stage": "built, CI green on its branch (2026-11-09); in review",
-      "report": "docs/reports/W1-02-demo-reader.md"
     },
     {
       "order": "W1-04-live-check-probe",
@@ -60,6 +54,10 @@
     {
       "finding": "tests/verify.js section 10b checks the live chain's loss model against the render's frame for frame, but the live chain draws the mask only for frames the gate sends, so with the gate on the two lose different frames for the same seed (found by the W1-03 planner).",
       "why": "Neither is wrong, and the rates agree; the check just does not cover the chain as it runs. Fix the wording or the check when the live chain is next touched."
+    },
+    {
+      "finding": "demo.js: after a pause with no end marker in which the sequence numbers continue, one duplicated or out-of-order packet counts as a sequence break that arrives late, so the run is split and the rest placed at its tick (W1-02's review, finding 6).",
+      "why": "It needs both an unmarked pause with continuing numbers and a duplicate or reordered voice packet, which Source's network channel is believed to drop before SourceTV records them. Not verified on a real demo. A fix would be to ignore a number that falls just behind the expected one."
     }
   ],
   "retired_rules": [
