@@ -12,8 +12,9 @@
  * with its demo tick. decode(...) turns one speaker's packets back into
  * audio as the receiving game would: talk spurts at their tick, frames back
  * to back, lost frames concealed, DTX frames as comfort noise, the decoder
- * reset at each end of transmission. Same record layout and results as
- * tests/demovoice (Rust).
+ * reset at each end of transmission, and a new spurt at its tick when the
+ * sequence breaks late (an end marker lost with its packet).
+ * tests/demovoice/extract.mjs prints and writes the same for a demo file.
  *
  * Message layouts follow tf-demo-parser 0.6 (MIT or Apache-2.0).
  */
@@ -232,7 +233,12 @@
             const frame = d.slice(j, Math.min(j + len, stop));
             j += len;
             if (sp.nextSeq === null) sp.spurts++;
-            else if (seq > sp.nextSeq) sp.lost += seq - sp.nextSeq;
+            else {
+              // Sequence numbers are 16-bit: a forward step of under half
+              // the range is frames lost, including across the wrap.
+              const ahead = (seq - sp.nextSeq) & 0xFFFF;
+              if (ahead < 0x8000) sp.lost += ahead;
+            }
             sp.nextSeq = (seq + 1) & 0xFFFF;
             sp.frames++;
             sp.bytes += frame.length;
@@ -257,6 +263,28 @@
     return [...byId.values()].map(({ nextSeq, ...s }) => ({ ...s, codec: s.codec || 'steam' }));
   }
 
+  // A Steam packet that finds the decoder open belongs to the run when its
+  // sequence number is the expected one or jumps forward by no more frames
+  // than the time since the previous packet's tick holds plus SEQ_SLACK.
+  // The slack absorbs bunching in the ticks: the gate sends its 120 ms of
+  // pre-roll with the spurt's first frame (7 frames at one tick, finding 12),
+  // SourceTV writes voice every 4 ticks (60 ms, about 3 frames per batch)
+  // with about ±30 ms of arrival jitter (Set D, finding 21), and the test
+  // fixture puts up to 10 frames at one tick. Half a second (25 frames) is
+  // over twice the largest of these, and far below a wrapped or corrupt
+  // number, which implies thousands of frames.
+  const SEQ_SLACK = .5;
+  // Any other packet (a number going backwards, as after a lost end marker,
+  // or a jump the elapsed time cannot hold) breaks the sequence and conceals
+  // nothing. It starts a new talk spurt at its tick when the tick is more
+  // than LATE_FRAMES after the write position, as the legacy branch does on
+  // a gap. Within a spurt the write position runs ahead of the ticks (the
+  // pre-roll burst), so a packet of the same stream sits at or before it,
+  // and one SourceTV batch plus jitter stays under four frames (80 ms). A
+  // split needs the break as well, so an intact run is never split on its
+  // tick, however late its packets arrive.
+  const LATE_FRAMES = 4;
+
   // One speaker's audio at the codec's rate. `codecs` supplies the decoders:
   // { opus: (rate) => decoder (vendor/libopus-1.1 createDecoder),
   //   celt: (rate, frame, bytes) => codec (vendor/celt-0.11 createCodec) }.
@@ -277,10 +305,16 @@
       for (const p of speaker.packets) {
         if (p.kind === 'end') { if (decoder) decoder.free(); decoder = null; next = null; continue; }
         if (p.kind !== 'opus') continue;
+        if (decoder) {
+          const jump = (p.seq - next) & 0xFFFF, elapsed = (p.tick - lastTick) * tickSeconds;
+          if (jump < 0x8000 && jump * spec.frame <= (elapsed + SEQ_SLACK) * rate) {
+            for (let k = 0; k < jump; k++, concealed++) put(decoder.decodePacketLossFloat(spec.frame), 5, 0);
+          } else if (at(p.tick) > pos + spec.frame * LATE_FRAMES) { decoder.free(); decoder = null; }
+        }
         if (!decoder) { decoder = await codecs.opus(rate); pos = Math.max(pos, at(p.tick)); spurts++; }
-        else if (next !== null && p.seq > next) for (let s = next; s < p.seq; s++, concealed++) put(decoder.decodePacketLossFloat(spec.frame), 5, 0);
         put(decoder.decodeFloat(p.data, { frameSize: spec.frame }), p.data.length <= 2 ? 4 : mode(p.data[0]), p.data.length);
-        next = p.seq + 1;
+        next = (p.seq + 1) & 0xFFFF;
+        lastTick = p.tick;
       }
       if (decoder) decoder.free();
     } else {

@@ -102,7 +102,7 @@ The demo holds 1 816 voice messages from one speaker:
 - no sequence gaps
 - one end-of-transmission marker after each talk spurt
 
-[`tests/demovoice/`](demovoice/) extracts and decodes them.
+[`tests/demovoice/extract.mjs`](demovoice/) extracts and decodes them with `demo.js`.
 
 The decoded packets were aligned to the test signal spurt by spurt by cross-correlation. Each recording was aligned to the packets in 100 ms windows every 50 ms, following the delay.
 
