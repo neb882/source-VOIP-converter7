@@ -252,4 +252,17 @@ their own signals; no file outside the three named was changed.
 
 ## CI
 
-Pending at the time of this commit; the result of the run on the branch is added below once it has finished.
+Run 42721246456 of the `tests` workflow on head f6a7ddf (the report's first commit, after the merge of main):
+**success**, 23:32:21 to 23:34:51 UTC, `pnpm test:all` (vendor check, Node suites, browser suite). From its log:
+
+```
+  ok    speech-like with pauses, 60 s at 48 kHz: equal in every split   [-34.33 LUFS, -16.47 dBTP, 597 values]
+  ok    six hours of history: the loudness maxima need no engine argument limit   [215997 values, maxima -32.83 / -41.58 LUFS]
+[Meter 7] The analyzer's memory
+  ok    60 minutes at 48 kHz in 1 s chunks: under 200 MB above the start (today's analyze: about 2.6 GB)   [10.9 MB peak (VmHWM), 35997 momentary values, 3.8 s]
+41 passed, 0 failed
+170 browser checks passed
+```
+
+The meter file ran from 23:34:01 to 23:34:15 on the runner, about as long as here. The commit that adds this section
+changes only the report.
