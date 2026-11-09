@@ -17,12 +17,18 @@
     {
       "order": "W1-04-live-check-probe",
       "branch": "claude/w1-04-live-check-probe",
-      "stage": "building",
+      "stage": "review (built; CI green on 88f4a4a)",
       "report": "docs/reports/W1-04-live-check-probe.md"
+    },
+    {
+      "order": "W2-01-stream-meter",
+      "branch": "claude/w2-01-stream-meter",
+      "stage": "building",
+      "report": "docs/reports/W2-01-stream-meter.md"
     }
   ],
   "next": [
-    "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (may start as soon as a builder slot is free; meter.js only); W2-02 render-stream (after W1-01 merges; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
+    "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (in flight; meter.js only); W2-02 render-stream (after W1-01 merges; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
     "After W2-03 has been live for a while: an order that makes process() a thin wrapper over the stream, so there is one render path, proved by the golden hashes W2-02 records.",
     "Score the six registered predictions when their takes exist (tests/predictions/PREDICTIONS.md).",
     "Repeat the predictions scorer's dry run after the 2026-11-09 change to reference.js; it needs a real take for its game sound."
