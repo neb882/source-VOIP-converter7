@@ -16,6 +16,10 @@ marker can be lost. The next spurt is then decoded straight after the previous o
 decoder state, and everything up to the next marker is early with it. The legacy-codec branch already starts a new
 spurt on a gap in ticks; the Steam branch does not.
 
+*Amended 2026-11-09 after the builder stopped on a contradiction: the fixture's second speaker has packets with
+consecutive sequence numbers arriving three seconds apart with no marker between them, which rule 1 as first written
+would split, against "decodes exactly as before". Rules 1 and 2 below are the amended ones.*
+
 ## Files
 
 May touch: `demo.js`, `tests/demo.verify.mjs`, `tests/demovoice/` (remove the Rust: `Cargo.toml`, `Cargo.lock`,
@@ -28,20 +32,31 @@ May not touch: `tests/demo/synthetic.dem` (the browser suite loads it; build new
 
 ## Spec
 
-1. **A spurt that arrives late starts at its tick.** In the Steam branch of `decode()`: when a packet's tick puts
-   it more than a threshold after the write position, and the decoder is still open, the packet starts a new talk
-   spurt: the old decoder is freed, a fresh one made, the spurt placed at its tick and counted. Lost frames are not
-   concealed across that gap.
-   - Choose the threshold from the data, and say how in a comment: SourceTV writes voice every few ticks, so
-     packets of one spurt arrive in batches and their ticks jitter against the 20 ms frame grid. The synthetic demo
-     and the layouts in `tests/demo.verify.mjs` show the batching; the legacy branch uses four frames. A threshold
-     too low would split intact spurts; too high would glue ones a short pause apart.
-   - A demo whose markers are all present must decode to exactly the samples it gives today. Prove it: the
-     fixture's decode is byte-identical before and after (compare a hash of the samples and the frame log for both
-     speakers).
-2. **Concealment is bounded.** A jump in sequence numbers conceals at most the frames that fit before the packet's
-   tick, so a corrupt or wrapped sequence number cannot insert minutes of concealment. Sequence numbers are 16-bit:
-   handle the wrap in `decode()` as `speakers()` does (a frame lost exactly at the wrap is concealed).
+1. **A spurt that arrives late, on a broken sequence, starts at its tick.** In the Steam branch of `decode()`,
+   for a packet that finds the decoder open:
+   - **The sequence says what the packet is.** Take the forward distance from the expected number, 16-bit and
+     wrap-aware. A packet that continues the run, or jumps forward by a number of frames that fits in the time since
+     the previous packet's tick plus a slack, belongs to the run: the jump is concealed as lost frames and the packet
+     is decoded back to back, as today, however late its tick is. Anything else (a number that goes backwards, or a
+     jump too large for the time that passed) is a sequence break: nothing is concealed.
+   - **On a sequence break, lateness decides.** If the packet's tick puts it more than a threshold after the write
+     position, it starts a new talk spurt: the old decoder is freed, a fresh one made, the spurt placed at its tick
+     and counted. If it is not that late, it is decoded in place with the open decoder, as today.
+   - [Why the sequence and not the tick alone: a stream whose numbers continue has not restarted, so splitting it on
+     its tick would change demos whose markers are all present (the fixture's second speaker, and any demo with a
+     real loss longer than the threshold). Public Steam voice decoders restart the frame count at each end marker,
+     so a spurt after a lost marker shows as a number going backwards. If Steam's numbers turn out to continue
+     across spurts, a lost marker on its own is not caught by this rule; `docs/PROGRESS.json` carries that question.]
+   - Choose the threshold and the slack from the data, and say how in a comment. SourceTV writes voice every few
+     ticks, so a spurt's packets arrive in batches; a spurt's first packet carries the gate's 120 ms of pre-roll at
+     once, so within a spurt the write position runs ahead of the ticks. The legacy branch uses four frames as its
+     threshold. The slack must cover such a burst with room to spare.
+   - A demo whose markers are all present and whose sequence numbers are unbroken must decode to exactly the samples
+     it gives today. Prove it: the fixture's decode is byte-identical before and after for both speakers (compare a
+     hash of the samples, the frame log and the frame bytes).
+2. **Concealment is bounded** by the rule above: a jump the elapsed time cannot hold is a sequence break and
+   conceals nothing, so a corrupt or wrapped number cannot insert minutes of concealment. Handle the 16-bit wrap in
+   `decode()` as `speakers()` does: a frame lost exactly at the wrap is concealed.
 3. **One tool.** Replace the Rust tool and `decode.mjs` with a Node script, `tests/demovoice/extract.mjs`, built on
    `demo.js` and the bundled codecs:
    `node tests/demovoice/extract.mjs <demo.dem> [--out <folder>]` prints the header and, per speaker, what the old
@@ -56,10 +71,12 @@ May not touch: `tests/demo/synthetic.dem` (the browser suite loads it; build new
 
 ## Done means
 
-- `node tests/demo.verify.mjs` passes with new checks for: a spurt after a lost end marker sits at its tick (and
-  the decoder was restarted: the spurt count says so); a demo with intact markers decodes as before; a sequence jump
-  far larger than the tick gap conceals only what fits; a frame lost at the 16-bit wrap is concealed. Each new check
-  fails on the code before the change (say how you verified).
+- `node tests/demo.verify.mjs` passes with new checks for: a spurt after a lost end marker, its numbers starting
+  again, sits at its tick (and the decoder was restarted: the spurt count says so); the same spurt arriving within
+  the threshold is decoded in place; a run whose numbers continue is not split however late its packets are; a real
+  loss longer than the threshold, with the numbers jumping by as much, is concealed and not split; a jump far
+  larger than the time that passed conceals nothing; a frame lost at the 16-bit wrap is concealed. Each new check
+  fails on the code before the change, or on a break of the new rule (say how you verified).
 - The fixture's decoded samples and frame logs are byte-identical before and after, shown by hash in the report.
 - `node tests/demovoice/extract.mjs tests/demo/synthetic.dem --out <scratch>` runs and its summary matches what
   `tests/demo.verify.mjs` asserts about that demo (frames, spurts, DTX, lost).
