@@ -89,7 +89,7 @@ Every profile runs a real codec; nothing is a hand-made approximation. The Steam
 - libopus 1.1.5, frame by frame, with the loss and jitter model
 - the receiver auto-gain and the output
 
-The Node tests check each streaming stage against its offline counterpart sample for sample, and the whole chain against a render (r 0.99, within 0.1 dB).
+The Node tests check each streaming stage against its offline counterpart sample for sample, and the whole chain against a render (r 0.99, within 0.1 dB, lined up to the sample once the chain's stated delay is removed).
 
 **Latency.** About 230 ms from microphone to speaker. The largest part is authentic: Steam's gate sends the 120 ms before a word, so it has to hold that much back. The rest is the capture filter, Opus lookahead, a 40 ms jitter buffer and the audio device.
 
@@ -270,8 +270,9 @@ pnpm test:all
   - talk spurts sit at their tick
   - the voice decodes back to the tone
   - received voice skips the sender and codec, and its codec lane is the demo's
-  - the browser test loads the same demo (`tests/demo/synthetic.dem`) and switches speakers
-- **`tests/video.verify.mjs`:** the video remux on ffmpeg-made fixtures in `tests/video/`: H.264 with AAC (regular, fragmented, and with delayed audio), H.264 with PCM in MOV, and VP9 with Opus. Every video sample comes out byte for byte with its timing, the index comes first, and the new audio decodes back on time and starts where the old audio did. A stand-in WebCodecs encoder checks the AAC path: frames land unchanged, the AudioSpecificConfig goes into the `esds` box, and the edit list skips the priming.
+  - a demo cut off at any byte keeps the voice before the cut, and voice more than 256 MiB into a demo is read
+  - the browser test loads the same demo (`tests/demo/synthetic.dem`), switches speakers, finds the demo's frames in the codec lane, and keeps the loaded source ready after a demo that cannot be read
+- **`tests/video.verify.mjs`:** the video remux on ffmpeg-made fixtures in `tests/video/`: H.264 with AAC (regular, fragmented, fragmented with the audio first and no base offsets, and with delayed audio), H.264 with PCM in MOV, and VP9 with Opus. Every video sample comes out byte for byte with its timing, the index comes first, and the new audio decodes back on time and starts where the old audio did. A 96 kHz render goes into a MOV at 48 kHz, and a MOV with 10 minutes of PCM is inspected without listing its audio samples. A stand-in WebCodecs encoder checks the AAC path: frames land unchanged, the AudioSpecificConfig goes into the `esds` box, and the edit list skips the priming; an encoder that fails after saying it can encode leaves the voice to Opus.
 - **`tests/formats.verify.mjs`:** download formats and ZIPs.
   - FLAC decodes bit-exact with valid frame CRCs, through an independent decoder in the test.
   - The MP3 module matches its documented build. Its files are byte-identical to a native gcc build of LAME 3.100. Decoded with mpg123, they keep level and waveform, and their LAME tag accounts for every sample.
@@ -295,7 +296,9 @@ pnpm test:all
   - batch queueing: picker, step 1 multi-select, drop on the batch panel, single-file drop as source
   - batch rendering with loudness per file, and ZIPs in all three formats, with FLAC decoded in the browser to exactly the WAV's samples
   - stale-render marking and remembered format
+  - a source dropped during a render stops that render, and the new source renders as itself
   - the chain strip, presets, console completion, `net_graph`, accessibility and mobile layout
+  - the service worker: a worker update keeps the loaded audio, and workers and audio worklets get fresh scripts, as the page does
   - the 44.1/48 kHz file × decode-rate matrix
 
   Set `CHROMIUM_EXECUTABLE` to use a preinstalled browser whose build differs from Playwright's pin.
