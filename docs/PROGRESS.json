@@ -3,29 +3,24 @@
   "about": "Where the TF2 Voice Emulator stands. Read CLAUDE.md first, then this. The orchestrating session keeps this file; builders do not edit it.",
   "stands": {
     "live": "https://neb882.github.io/source-VOIP-converter7/ serves main (GitHub Pages from the branch root).",
-    "model": "The Steam profile, the voice gate and the receiver are measured (tests/REFERENCE_2026.md, findings 1-21). vaudio_celt runs the real CELT 0.11 at settings three public decoders agree on; vaudio_celt_high and the rooms are unconfirmed.",
-    "last_merged": "W1-04 (2026-11-09): the browser suite's live-recording check plays a seeded noise probe through the fake microphone and no longer fails by chance (docs/reports/W1-04-live-check-probe.md). Before it, W1-02: one demo reader; a talk spurt whose end marker was lost starts at its tick (docs/reports/W1-02-demo-reader.md).",
+    "model": "The Steam profile, the voice gate and the receiver are measured (tests/REFERENCE_2026.md, findings 1-21). vaudio_celt runs the real CELT 0.11 at settings three public decoders agree on. The speex profile runs the real Speex 1.2.1 at assumed settings (quality 4, 8 kbps). vaudio_celt_high, the Speex settings and the rooms are unconfirmed.",
+    "last_merged": "W1-01 (2026-11-09): the speex profile runs real Speex 1.2.1, with its own frame code, in the render and the live chain (docs/reports/W1-01-speex.md). Before it, W1-04: the browser suite's live-recording check no longer fails by chance.",
     "ci": "The tests workflow runs on every push and can be started by hand. Until 2026-11-09 one browser check (the live recording's lag) failed by chance about once in thirty runs; W1-04 removed the cause, so a red run is a real failure. A branch made before W1-04 still has the old check until it merges main."
   },
   "in_flight": [
     {
-      "order": "W1-01-speex",
-      "branch": "claude/w1-01-speex",
-      "stage": "review (built; CI green on 15d662e)",
-      "report": "docs/reports/W1-01-speex.md"
-    },
-    {
       "order": "W2-01-stream-meter",
       "branch": "claude/w2-01-stream-meter",
-      "stage": "building",
+      "stage": "review (built; CI green on 489b4e2)",
       "report": "docs/reports/W2-01-stream-meter.md"
     }
   ],
   "next": [
-    "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (in flight; meter.js only); W2-02 render-stream (after W1-01 merges; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
+    "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (in flight; meter.js only); W2-02 render-stream (next; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
     "After W2-03 has been live for a while: an order that makes process() a thin wrapper over the stream, so there is one render path, proved by the golden hashes W2-02 records.",
     "Score the six registered predictions when their takes exist (tests/predictions/PREDICTIONS.md).",
-    "Repeat the predictions scorer's dry run after the 2026-11-09 change to reference.js; it needs a real take for its game sound."
+    "Repeat the predictions scorer's dry run after the 2026-11-09 change to reference.js; it needs a real take for its game sound.",
+    "Where the stronger model would pay most is the measured model itself (what a take shows, which constant the evidence supports), and that is blocked: the owner's takes are not on any machine a session can reach (waiting_on_the_owner)."
   ],
   "waiting_on_the_owner": [
     {
@@ -38,13 +33,15 @@
     }
   ],
   "open_questions": [
-    "Do Steam's voice sequence numbers start again at each talk spurt? Public decoders restart their frame count at each end marker, and demo.js relies on that to tell a spurt after a lost marker from a run that continues (W1-02). The owner can check on a real demo: tests/demovoice/extract.mjs writes each packet's number."
+    "Do Steam's voice sequence numbers start again at each talk spurt? Public decoders restart their frame count at each end marker, and demo.js relies on that to tell a spurt after a lost marker from a run that continues (W1-02). The owner can check on a real demo: tests/demovoice/extract.mjs writes each packet's number.",
+    "Which Speex quality and release did Source's vaudio_speex use? The profile assumes quality 4 of Speex 1.2.1; a packet from a demo of that era would settle the quality by its size (20 bytes a frame at quality 3 or 4)."
   ],
   "ideas_not_started": [
     "Steam's own decoder as a reference: the public Steamworks call DecompressVoice on a demo's packets would settle the exact libopus build and the comfort noise bit for bit, if the demo payload is the format it takes. Untested.",
     "Old public SourceTV demos as packet evidence for the Speex and CELT years, read with demo.js, if they kept their voice.",
     "Page scripts as ES modules instead of classic scripts sharing globals (no build step is needed for either). Migrate gradually.",
-    "Decode sources at the file's own sample rate instead of the audio device's, so the same file renders the same on every machine."
+    "Decode sources at the file's own sample rate instead of the audio device's, so the same file renders the same on every machine.",
+    "The Node suites load audio.js and constants.js in a vm context, which makes Math-heavy code about 12 times slower than the page runs it (found by W2-01's builder). Loading them another way could cut pnpm test's minute, if the results stay bit for bit the same."
   ],
   "deferred": [
     {
@@ -90,9 +87,10 @@
   ],
   "process_notes": [
     "2026-11-09: adopted docs/PIPELINE.md, adapted from the owner's song-charting project.",
-    "This session has no usage meter; the owner's other project caps unattended work by one. Ask before a large wave.",
     "2026-11-09: the planner's measurement jobs kept queuing on the heavy lock after it reported, holding the builders up. A planner's brief should say: stop your queued jobs before you report.",
-    "2026-11-09: the fake microphone file's path must not contain a percent sign (Chromium reads it as an option suffix, as in %noloop); os.tmpdir() never has one on CI or here."
+    "2026-11-09: the fake microphone file's path must not contain a percent sign (Chromium reads it as an option suffix, as in %noloop); os.tmpdir() never has one on CI or here.",
+    "2026-11-09: corrected an earlier note that said the session has no usage meter. The session tool reports a running cost for the session; whether agents' usage is counted in it is not known. Ask before a large wave.",
+    "2026-11-09: the times in docs/reports/W1-03-long-renders-plan.md read slow. The planner loaded the code in a Node vm context, where every Math call crosses the sandbox: the meter's 60 minutes took 87 s that way and 6.9 s loaded with require (W2-01's builder). The render's times (about 6x faster than real time) were taken the same way and have not been re-measured; its memory figures are unaffected, and the new limits rest on memory. W2-02's builder re-measures the render's time outside a vm context."
   ],
   "decisions": [
     {
@@ -109,6 +107,11 @@
       "date": "2026-11-09",
       "what": "Long sources are still decoded by the browser's decodeAudioData, at the audio device's rate.",
       "why": "Decoding another way gives different samples from the same file. It stays an idea (ideas_not_started) until the owner wants it."
+    },
+    {
+      "date": "2026-11-09",
+      "what": "Work is split by model (docs/PIPELINE.md, 'Which model does what'): builders and reviewers on the builders' model, where a written check says whether the work is right; plans, the skeptic, the reading of evidence and the last read of each diff on the stronger model the orchestrating session runs on. The orchestrator works at high effort.",
+      "why": "The owner asked that the stronger model be used to the full. Its vendor's published comparison puts the two models a few points apart on agentic coding and far apart on long unattended work, scientific computing and research, at twice the price per token. W1-03's plan was written on the builders' model and reviewed on the stronger one; from now on it is the other way round."
     }
   ]
 }

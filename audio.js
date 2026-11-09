@@ -708,7 +708,7 @@
   }
 
   // opus-codec.mjs FRAME: what happened to each codec frame.
-  const FRAME_CODES = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6 };
+  const FRAME_CODES = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6, speex: 7 };
 
   // Frame statistics for voice that arrived already coded (opts.received),
   // in the shape roundTrip's info takes, for the codec lane and net_graph.
@@ -842,6 +842,8 @@
       const result = codec.engine === 'celt011'
         ? await opus.celtRoundTrip(samples, codecRate, { ...common, frameSize: codec.frameSize, complexity: codec.complexity,
           packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)) })
+        : codec.engine === 'speex'
+        ? await opus.speexRoundTrip(samples, codecRate, { ...common, bitrate: codec.bitrate * bits / 16 })
         : await opus.roundTrip(samples, codecRate, bitrate, { ...common,
           application: codec.application, signal: codec.signal,
           runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
@@ -1146,6 +1148,8 @@
       voice = codec.engine === 'celt011'
         ? await opus.createCeltStream(codecRate, { frameSize: codec.frameSize, complexity: codec.complexity,
           packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)) })
+        : codec.engine === 'speex'
+        ? await opus.createSpeexStream(codecRate, { bitrate: codec.bitrate * bits / 16 })
         : await opus.createVoiceStream(codecRate, Math.max(6000, Math.round(codec.bitrate * bits / 16)), {
           application: codec.application, signal: codec.signal,
           runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
@@ -1172,7 +1176,7 @@
     const firDelay = (taps) => (taps ? (taps.length - 1) / 2 : 0);
     const delaySeconds = (firDelay(captureEq) + firDelay(decoderEq) + (voice ? voice.lookahead : 0)) / codecRate + firDelay(engine.outputFir) / mixRate;
     const contentDelay = Math.round(delaySeconds * ioRate);
-    const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0 }, dtx: 0, lost: 0, late: 0,
+    const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0 }, dtx: 0, lost: 0, late: 0,
       bytes: 0, gateOpen: false, lastMode: null, inputPeak: 0, outputPeak: 0, spurts: 0, talking,
       latencyMs: 1000 * (preroll * frameSeconds + delaySeconds) };
 
@@ -1196,7 +1200,7 @@
       const miss = lossMask();
       if (miss === 1) { stats.lost++; codes.push(5); return voice.conceal().slice(); }
       if (miss === 2) { stats.late++; codes.push(6); return new Float32Array(frameSize); }
-      codes.push(encoded.dtx ? 4 : { silk: 1, hybrid: 2, celt: 3 }[encoded.mode]);
+      codes.push(encoded.dtx ? FRAME_CODES.dtx : FRAME_CODES[encoded.mode]);
       return voice.decode(encoded.packet).slice();
     }
 
@@ -1247,7 +1251,8 @@
     }
 
     return { process, stats, contentDelay, codecRate, frameSize, frameSeconds, version: voice ? voice.version : null,
-      bitrate: Math.max(6000, Math.round(codec.bitrate * bits / 16)), vbr: !!codec.encoder?.vbr, dtx: !!codec.encoder?.dtx,
+      // Speex reports the bitrate of the quality it runs at.
+      bitrate: voice?.bitrate ?? Math.max(6000, Math.round(codec.bitrate * bits / 16)), vbr: !!codec.encoder?.vbr, dtx: !!codec.encoder?.dtx,
       gateDb: gateOn ? gateDb : null, autoGain, voiceRate: codec.voiceRate, realOpus: !!voice,
       setTalking(on) { talking = !!on; stats.talking = talking; },
       takeFrameCodes() { return codes.splice(0); },

@@ -15,6 +15,10 @@ gate sent about 75% of frames (10 minutes: 107 spurts, 7,610 of 30,001 frames he
 V8 heap, so the heap cap alone does not bound them). Peak memory is `process.resourceUsage().maxRSS`; "float
 buffers" is the RSS above the loaded source in units of one source-sized `Float32Array`.
 
+*Added 2026-11-09: the times in this table read slow. The code ran in a Node `vm` context, where every `Math`
+call crosses the sandbox; W2-01's builder measured the meter's 60 minutes at 6.9 s loaded with `require`, against
+the 87.6 s below. The render's times have not been re-measured. The memory figures are unaffected.*
+
 | What | Length | Time | Peak RSS | Above the source |
 |---|---|---|---|---|
 | `TF2Audio.process` | 1 min | 10.1 s (5.9x real time) | 158 MB | 8.5 float buffers (small run, GC noise) |

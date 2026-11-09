@@ -868,7 +868,8 @@ const FRAME_STYLE = [
   { name: 'CELT', color: '#9a6ad6', text: 'CELT: transform coding, full band' },
   { name: 'DTX', color: '#9a7414', text: 'DTX: no speech detected; the decoder plays comfort noise' },
   { name: 'lost', color: '#ff4040', text: 'lost: the decoder conceals the gap (PLC)' },
-  { name: 'late', color: '#ff9d2e', text: 'late: arrived after its playout time, played as silence' }
+  { name: 'late', color: '#ff9d2e', text: 'late: arrived after its playout time, played as silence' },
+  { name: 'Speex', color: '#c8609a', text: 'Speex: CELP speech coding, narrowband up to 4 kHz' }
 ];
 const FRAME_LOST = 5, FRAME_LATE = 6;
 

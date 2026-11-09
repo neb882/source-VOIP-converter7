@@ -1,13 +1,16 @@
 // Real Opus packets, 20 ms framing, and decoder packet-loss concealment.
 // Two pinned libopus builds: 1.1.5, the release Steam's voice packets match
-// (tests/REFERENCE_2026.md), and 1.6.1 from libopus-wasm for the other profiles.
+// (tests/REFERENCE_2026.md), and 1.6.1 from libopus-wasm for a video's audio
+// track and as roundTrip's default. Source's engine codecs run their own
+// libraries: CELT 0.11 and Speex 1.2.1.
 const RUNTIMES = {
   '1.6.1': () => import('./vendor/libopus/index.mjs'),
   '1.1.5': () => import('./vendor/libopus-1.1/index.mjs')
 };
 const loaded = new Map();
-let celtModule = null;
+let celtModule = null, speexModule = null;
 const loadCelt = () => (celtModule ??= import('./vendor/celt-0.11/index.mjs'));
+const loadSpeex = () => (speexModule ??= import('./vendor/speex/index.mjs'));
 function runtime(version) {
   if (!(version in RUNTIMES)) throw new RangeError(`Unknown libopus runtime "${version}"`);
   if (!loaded.has(version)) loaded.set(version, RUNTIMES[version]());
@@ -20,7 +23,7 @@ const SIGNALS = { auto: -1000, voice: 3001, music: 3002 };
 
 // Codes in roundTrip's info.frameLog, one per 20 ms frame (info.frameBytes
 // holds each frame's packet size; 0 when the gate held it back).
-export const FRAME = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6 };
+export const FRAME = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6, speex: 7 };
 
 // RFC 6716 section 3.1: the TOC configuration number selects the coding mode.
 function packetMode(packet) {
@@ -250,6 +253,89 @@ export async function createCeltStream(sampleRate, options = {}) {
     frameSize, version, lookahead: codec.lookahead,
     async restart() { codec.restart(); },
     encode(frame) { const packet = codec.encode(frame); return { bytes: packet.byteLength, mode: 'celt', dtx: false, packet }; },
+    decode(packet) { return codec.decode(packet); },
+    conceal() { return codec.conceal(); },
+    free() { codec.free(); }
+  };
+}
+
+// Source's vaudio_speex: Speex 1.2.1 narrowband at 8 kHz, one 160-sample
+// (20 ms) frame per packet at constant bitrate. options.quality (0-10), or
+// else the quality whose bitrate is nearest options.bitrate; quality 4, the
+// 8 kbps mode, by default.
+async function openSpeex(sampleRate, options) {
+  const speex = await loadSpeex();
+  if (sampleRate !== speex.sampleRate) throw new RangeError(`Speex narrowband runs at ${speex.sampleRate} Hz, not ${sampleRate}`);
+  const quality = options.quality ?? (options.bitrate != null ? await speex.qualityForBitrate(options.bitrate) : 4);
+  return speex.createCodec(quality);
+}
+
+// The same gate, loss and delay handling as roundTrip. Coded frames are
+// logged as FRAME.speex, and counted in modes.speex.
+export async function speexRoundTrip(samples, sampleRate, options = {}) {
+  const codec = await openSpeex(sampleRate, options);
+  try {
+    const { frameSize, lookahead } = codec;
+    const frames = Math.ceil((samples.length + lookahead) / frameSize);
+    const lossMask = options.makeLossMask ? options.makeLossMask(frames) : null;
+    const output = new Float32Array(samples.length);
+    const input = new Float32Array(frameSize);
+    const gate = options.gate ? {
+      threshold: 10 ** (Number(options.gate.thresholdDb) / 20),
+      preroll: Math.max(0, Math.round(Number(options.gate.prerollFrames) || 0)),
+      hold: Math.max(0, Math.round(Number(options.gate.holdFrames) || 0))
+    } : null;
+    const plan = gate ? gatePlan(samples, frames, frameSize, gate) : null;
+    const frameLog = new Uint8Array(frames), frameBytes = new Uint16Array(frames);
+    let encodedBytes = 0, lostFrames = 0, underrunFrames = 0, gatedFrames = 0, spurts = 0, coded = 0, open = false;
+    for (let f = 0; f < frames; f++) {
+      if (plan && !plan[f]) { gatedFrames++; open = false; continue; }
+      if (!open) { if (spurts > 0) codec.restart(); spurts++; open = true; }
+      input.fill(0);
+      const start = f * frameSize;
+      if (start < samples.length) input.set(samples.subarray(start, Math.min(samples.length, start + frameSize)));
+      const packet = codec.encode(input);
+      encodedBytes += packet.byteLength;
+      frameBytes[f] = packet.byteLength;
+      frameLog[f] = FRAME.speex;
+      coded++;
+      options.onPacket?.(f, packet);
+      const miss = lossMask ? lossMask[f] : 0;
+      if (miss === 1) { lostFrames++; frameLog[f] = FRAME.lost; }
+      else if (miss === 2) { underrunFrames++; frameLog[f] = FRAME.late; }
+      if (miss !== 2) {
+        const decoded = miss === 1 ? codec.conceal() : codec.decode(packet);
+        const destStart = start - lookahead;
+        const begin = Math.max(0, -destStart), end = Math.min(frameSize, samples.length - destStart);
+        if (end > begin) output.set(decoded.subarray(begin, end), destStart + begin);
+      }
+      if ((f & 31) === 31) {
+        options.onProgress?.((f + 1) / frames);
+        if (options.yieldControl) await options.yieldControl();
+      }
+    }
+    options.onProgress?.(1);
+    return { samples: output, info: { backend: 'speex', version: codec.version, runtime: 'speex-1.2.1', sampleRate,
+      bitrate: codec.bitrate, quality: codec.quality, application: 'speex', signal: 'auto', complexity: codec.complexity,
+      vbr: false, dtx: false, enhancement: codec.enhancement, frameSamples: frameSize, frameMs: 1000 * frameSize / sampleRate,
+      packetBytes: Math.ceil(codec.bitrate * frameSize / sampleRate / 8),
+      lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts,
+      gate: gate ? Number(options.gate.thresholdDb) : null,
+      prerollFrames: gate ? gate.preroll : 0, holdFrames: gate ? gate.hold : 0,
+      encodedBytes, modes: { silk: 0, hybrid: 0, celt: 0, speex: coded }, plc: 'speex', frameLog, frameBytes } };
+  } finally {
+    codec.free();
+  }
+}
+
+// One Speex frame at a time with speexRoundTrip's settings, for the live
+// monitor; the same interface as createVoiceStream.
+export async function createSpeexStream(sampleRate, options = {}) {
+  const codec = await openSpeex(sampleRate, options);
+  return {
+    frameSize: codec.frameSize, version: codec.version, lookahead: codec.lookahead, quality: codec.quality, bitrate: codec.bitrate,
+    async restart() { codec.restart(); },
+    encode(frame) { const packet = codec.encode(frame); return { bytes: packet.byteLength, mode: 'speex', dtx: false, packet }; },
     decode(packet) { return codec.decode(packet); },
     conceal() { return codec.conceal(); },
     free() { codec.free(); }

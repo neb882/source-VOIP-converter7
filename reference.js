@@ -468,7 +468,7 @@
   // options.reference, { samples, rate, frames, frameSeconds }: the app's
   // render of the source (same timeline) and, optionally, its codec's frame
   // log (one code per frame, opus-codec.mjs FRAME; frameSeconds is 0.02 for
-  // Opus, the default, and 512/22050 or 256/44100 for the CELT profiles).
+  // Opus and Speex, the default, and 512/22050 or 256/44100 for the CELT profiles).
   // When given, the take is matched
   // against the render rather than the raw source: it has the take's
   // gating, comfort noise and codec phase, so envelopes and waveforms agree
@@ -492,7 +492,7 @@
     const frameLog = ref && ref.frames && ref.frames.length ? ref.frames : null;
     const frameSeconds = ref && ref.frameSeconds > 0 ? ref.frameSeconds : .02;
     // Share of the render's energy over [t0, t1) in frames the codec coded
-    // (SILK, hybrid or CELT), not comfort noise.
+    // (SILK, hybrid, CELT or Speex), not comfort noise.
     const frameEnergy = frameLog ? Float64Array.from(frameLog, (_, f) => {
       let e = 0;
       for (let i = Math.round(f * frameSeconds * lo); i < Math.min(s2.length, Math.round((f + 1) * frameSeconds * lo)); i++) e += s2[i] * s2[i];
@@ -502,7 +502,7 @@
       if (!frameLog) return 1;
       const f0 = Math.max(0, Math.floor(t0 / frameSeconds)), f1 = Math.min(frameLog.length, Math.ceil(t1 / frameSeconds));
       let all = 0, kept = 0;
-      for (let f = f0; f < f1; f++) { all += frameEnergy[f]; if (frameLog[f] >= 1 && frameLog[f] <= 3) kept += frameEnergy[f]; }
+      for (let f = f0; f < f1; f++) { all += frameEnergy[f]; if ((frameLog[f] >= 1 && frameLog[f] <= 3) || frameLog[f] === 7) kept += frameEnergy[f]; }
       return all > 0 ? kept / all : 0;
     };
     const hi = 8000, s8 = narrow(source, sourceRate, hi), t8 = narrow(take, takeRate, hi);
