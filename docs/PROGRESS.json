@@ -1,0 +1,86 @@
+{
+  "updated": "2026-11-09",
+  "about": "Where the TF2 Voice Emulator stands. Read CLAUDE.md first, then this. The orchestrating session keeps this file; builders do not edit it.",
+  "stands": {
+    "live": "https://neb882.github.io/source-VOIP-converter7/ serves main (GitHub Pages from the branch root).",
+    "model": "The Steam profile, the voice gate and the receiver are measured (tests/REFERENCE_2026.md, findings 1-21). vaudio_celt runs the real CELT 0.11 at settings three public decoders agree on; vaudio_celt_high and the rooms are unconfirmed.",
+    "last_merged": "The code review's fixes (pull request 1, 2026-11-09): demo files past 256 MiB and cut-off demos, fragmented MP4s without base offsets, renders above 48 kHz in a MOV, long PCM tracks, stale renders after a source change, the live chain's delay, worker scripts in the service worker, CELT frame grids in take alignment.",
+    "ci": "The tests workflow runs on every push and can be started by hand. Actions was off in this repository until 2026-11-09."
+  },
+  "in_flight": [
+    {
+      "order": "W1-01-speex",
+      "branch": "claude/w1-01-speex",
+      "stage": "building",
+      "report": "docs/reports/W1-01-speex.md"
+    },
+    {
+      "order": "W1-02-demo-reader",
+      "branch": "claude/w1-02-demo-reader",
+      "stage": "building",
+      "report": "docs/reports/W1-02-demo-reader.md"
+    },
+    {
+      "order": "W1-03-long-renders-plan",
+      "branch": "claude/w1-03-long-renders-plan",
+      "stage": "planning; the orchestrator reviews the plan before any build",
+      "report": "docs/reports/W1-03-long-renders-plan.md"
+    }
+  ],
+  "next": [
+    "W2: build the long-render orders once W1-03's plan is reviewed (audio.js is shared with W1-01, so after it merges).",
+    "Score the six registered predictions when their takes exist (tests/predictions/PREDICTIONS.md).",
+    "Repeat the predictions scorer's dry run after the 2026-11-09 change to reference.js; it needs a real take for its game sound."
+  ],
+  "waiting_on_the_owner": [
+    {
+      "question": "Do TF2's debug commands give a digital tap? In a local game with voice_loopback 1: voice_recordtofile 1 (writes voice_micrecord.wav and voice_decompressed.wav), voice_inputfromfile 1 (reads voice_input.wav in place of the microphone; may need sv_allow_voice_from_file 1), and voice_writevoices 1 with a 'voice' folder in tf/.",
+      "why": "Every open question waits on a hand-made loopback recording. A file written by the game would have no recorder clock, no game sound and no level guesswork. The sources for these commands are old and mostly about other Source games, and they may not work with Steam's voice codec: it is a five-minute test."
+    },
+    {
+      "question": "Where may the takes live so that sessions and CI can use them? Options: a private repository attached to sessions (keeps them private); publishing only the takes of the synthetic test signal.",
+      "why": "tests/accuracy.mjs cannot run where the takes are not, so no session can check a model change against real data and the predictions dry run could not be repeated."
+    }
+  ],
+  "ideas_not_started": [
+    "Steam's own decoder as a reference: the public Steamworks call DecompressVoice on a demo's packets would settle the exact libopus build and the comfort noise bit for bit, if the demo payload is the format it takes. Untested.",
+    "Old public SourceTV demos as packet evidence for the Speex and CELT years, read with demo.js, if they kept their voice.",
+    "Page scripts as ES modules instead of classic scripts sharing globals (no build step is needed for either). Migrate gradually.",
+    "Decode sources at the file's own sample rate instead of the audio device's, so the same file renders the same on every machine."
+  ],
+  "deferred": [
+    {
+      "finding": "video.js writes every kept track with sample description 1 (the review's finding 15).",
+      "why": "Only files with more than one sample description are affected, and none is at hand to prove it."
+    }
+  ],
+  "retired_rules": [
+    {
+      "rule": "Sources are cut at 10 minutes.",
+      "retired": "2026-11-09",
+      "why": "From the first version, for memory. A 1 GB video and a whole-match demo are allowed but only 10 minutes of them rendered. W1-03 plans what replaces it."
+    },
+    {
+      "rule": "A profile models only what current TF2 can confirm, so Speex stays a stand-in.",
+      "retired": "2026-11-09",
+      "why": "It contradicted 'every profile runs a real codec'. A real codec at documented, unconfirmed settings is how vaudio_celt_high already ships. W1-01."
+    },
+    {
+      "rule": "demo.js must match the Rust tool byte for byte.",
+      "retired": "2026-11-09",
+      "why": "The Rust tool was written first; demo.js is what users run and CI tests. The rule was used as a reason to leave a defect alone. W1-02."
+    }
+  ],
+  "rules_challenged_and_kept": [
+    "No leaked engine source: it would answer the legacy codecs' settings and the receiver's queue rules quickly, but the repository is public under the owner's name and its claims rest on recordings and public packets.",
+    "Pinned codecs, seeded renders, registered predictions, the source timeline by default, no uploads, a failing test with every fix."
+  ],
+  "dead_ends": [
+    "Loading the game's own codec libraries through their interface: the interface header (ivoicecodec.h) is not in Valve's public SDK (checked 2026-11-09).",
+    "Holding the browser's live-recording check to exactly zero samples of lag: the live chain and the offline render start their codec and gate at different points, which spreads that measurement by about half a sample. tests/verify.js pins the delay to the sample instead."
+  ],
+  "process_notes": [
+    "2026-11-09: adopted docs/PIPELINE.md, adapted from the owner's song-charting project.",
+    "This session has no usage meter; the owner's other project caps unattended work by one. Ask before a large wave."
+  ]
+}
