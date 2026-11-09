@@ -6,7 +6,8 @@
     "model": "The Steam profile, the voice gate and the receiver are measured (tests/REFERENCE_2026.md, findings 1-21). vaudio_celt runs the real CELT 0.11 at settings three public decoders agree on. The speex profile runs the real Speex 1.2.1 at assumed settings (quality 4, 8 kbps). vaudio_celt_high, the Speex settings and the rooms are unconfirmed.",
     "last_merged": "W1-01 (2026-11-09): the speex profile runs real Speex 1.2.1, with its own frame code, in the render and the live chain (docs/reports/W1-01-speex.md). Before it, W1-04: the browser suite's live-recording check no longer fails by chance.",
     "ci": "The tests workflow runs on every push and can be started by hand. Until 2026-11-09 one browser check (the live recording's lag) failed by chance about once in thirty runs; W1-04 removed the cause, so a red run is a real failure. A branch made before W1-04 still has the old check until it merges main.",
-    "takes": "Since 2026-11-09 the owner's takes are in a private repository a session can attach (the owner knows its name; it is not named here). It holds Sets A to F as FLAC, the Set D demo, the source speech and clip, and the three test signals as played; the checksums of the Set D and F files match tests/REFERENCE_2026.md. Not found: take1_default.flac (only the voice_maxgain 10 take of that pair), the two songs played for Set A, and the six prediction takes, which are not recorded yet. tests/accuracy.mjs and tests/retiming.mjs can run wherever that repository is cloned: pass its folder with --takes, and copy its signals folder into tests/testsignal/ (ignored by git)."
+    "takes": "Since 2026-11-09 the owner's takes are in a private repository a session can attach (the owner knows its name; it is not named here). It holds Sets A to F as FLAC, the Set D demo, the source speech and clip, and the three test signals as played; the checksums of the Set D and F files match tests/REFERENCE_2026.md. The two songs played for Set A are there too. Not found: take1_default.flac (only the voice_maxgain 10 take of that pair; the tests accept either). The six prediction takes are not recorded yet. tests/accuracy.mjs and tests/retiming.mjs can run wherever that repository is cloned: pass its folder with --takes, and copy its signals folder into tests/testsignal/ (ignored by git).",
+    "baseline": "2026-11-09, main at 61fcb92: tests/accuracy.mjs on the 16 takes of Sets B to F gives every figure of the 'Every take' table in tests/REFERENCE_2026.md to the last digit shown, so the review fixes, the demo reader and Speex moved nothing in the measured model. The Set D demo answered W1-02's open question: Steam's sequence numbers restart at 0 after each end marker (REFERENCE finding 11)."
   },
   "in_flight": [
     {
@@ -36,7 +37,6 @@
     }
   ],
   "open_questions": [
-    "Do Steam's voice sequence numbers start again at each talk spurt? Public decoders restart their frame count at each end marker, and demo.js relies on that to tell a spurt after a lost marker from a run that continues (W1-02). The owner can check on a real demo: tests/demovoice/extract.mjs writes each packet's number.",
     "Which Speex quality and release did Source's vaudio_speex use? The profile assumes quality 4 of Speex 1.2.1; a packet from a demo of that era would settle the quality by its size (20 bytes a frame at quality 3 or 4)."
   ],
   "ideas_not_started": [

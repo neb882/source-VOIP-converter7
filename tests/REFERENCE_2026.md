@@ -228,6 +228,7 @@ Every frame in the demo is a 20 ms Opus packet with TOC configuration 13: hybrid
 - **DTX:** 693 of the 5 109 frames are 1-byte packets. The decoder answers these with comfort noise.
 - **No in-band FEC:** the LBRR flag is never set.
 - **Spurt ends:** each talk spurt ends with Steam's end-of-transmission marker, which resets the receiver's decoder, and a silence record of 62.5 ms (sometimes 31 ms).
+- **Sequence numbers:** each frame carries a 16-bit number that starts again at 0 after every end-of-transmission marker. In the demo all 20 talk spurts start at 0 and the number falls 19 times, once at each spurt after the first (the longest spurt reaches 975). So a number that goes backwards means a new talk spurt, which is how `demo.js` recognises a spurt whose end marker was lost (checked 2026-11-09 with `tests/demovoice/extract.mjs`).
 
 libopus 1.6.1 reproduces Steam's DTX decisions only at complexity 6 or below, where it decides from the SILK voice detector. From complexity 7 its tonality analysis decides:
 
