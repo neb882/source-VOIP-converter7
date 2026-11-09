@@ -142,6 +142,18 @@ A render of 30 minutes takes about 5 minutes at the measured 6x real time; the p
 4. Should a recording be allowed 30 minutes?
 5. Which devices must long files work on (desktop only, or phones)?
 
+## Results that arrived after the report
+
+The queued runs finished after the planner had reported; the orchestrator read them from the scratch files on
+2026-11-09 (two of the queued runs, the 44.1 kHz comparison among them, were removed from the queue and did not run).
+
+| What | Result |
+|---|---|
+| piece-by-piece vs `process()`, 6 min at 48 kHz, chunks of 960, 10% loss and 50 ms jitter | 0 samples differ, WAV identical |
+| piece-by-piece vs `process()`, 9.5 min at 48 kHz, chunks of one second | 0 samples differ of 27,360,000, WAV identical |
+| the naive split (each piece through `process()` on its own), 6 min | 338,057 samples differ, by up to 0.092 of full scale: rejected, as reasoned |
+| piece-by-piece render alone, 30 min at 48 kHz | 752 MB peak RSS |
+
 ## Not done
 
 No code outside `docs/` was changed. The queued runs listed above did not finish within the budget; no browser
