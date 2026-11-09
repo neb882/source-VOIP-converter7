@@ -551,7 +551,8 @@ async function main() {
 
     // The whole chain, 20 ms at a time, against a render of the same audio:
     // the same level, and the same waveform once the live chain's own delay
-    // (capture EQ 127 samples at 24 kHz, Opus lookahead) is allowed for.
+    // (capture EQ 127 samples at 24 kHz, Opus lookahead, output FIR 1 sample
+    // at 44.1 kHz) is allowed for.
     const src = speechLike(3, SR, -20);
     const opts = { codec: 'steam', volume: 1 };
     const chain = await TF2Audio.createLiveChain(opts, SR);
@@ -561,14 +562,21 @@ async function main() {
     parts.reduce((o, p) => { live.set(p, o); return o + p.length; }, 0);
     chain.free();
     const offline = (await TF2Audio.process(mkBuffer(src, SR), opts)).samples;
-    const shift = Math.round((127 / 24000 + 156 / 24000) * SR);
-    let dot = 0, ea = 0, eb = 0;
-    for (let i = SR / 2; i < live.length - shift - SR / 2; i++) { dot += offline[i] * live[i + shift]; ea += offline[i] ** 2; eb += live[i + shift] ** 2; }
-    const r = dot / Math.sqrt(ea * eb), levelDb = 10 * Math.log10(eb / ea);
+    const delay = (127 + 156) / 24000 + 1 / 44100, shift = Math.round(delay * SR);
+    const correlate = (d) => {
+      let dot = 0, ea = 0, eb = 0;
+      for (let i = SR / 2; i < live.length - shift - SR / 2; i++) { dot += offline[i] * live[i + shift + d]; ea += offline[i] ** 2; eb += live[i + shift + d] ** 2; }
+      return { r: dot / Math.sqrt(ea * eb), levelDb: 10 * Math.log10(eb / ea) };
+    };
+    const { r, levelDb } = correlate(0);
     check('live chain reproduces the render (waveform and level)', r > 0.9 && Math.abs(levelDb) < 0.5, `r ${r.toFixed(3)}, ${levelDb.toFixed(2)} dB`);
+    let peak = 0;
+    for (let d = -3; d <= 3; d++) if (correlate(d).r > correlate(peak).r) peak = d;
+    check('live chain output lines up with the render to the sample once its stated delay is removed',
+      chain.contentDelay === shift && peak === 0, `contentDelay ${chain.contentDelay} samples, peak at ${peak}`);
     check('live chain holds back the gate pre-roll (120 ms) and reports its delay',
-      offline.length - live.length >= 0.12 * SR && Math.abs(chain.stats.latencyMs - (120 + 1000 * 283 / 24000)) < 0.5,
-      `${chain.stats.latencyMs.toFixed(1)} ms; ${chain.stats.sent} of ${chain.stats.frames} frames sent`);
+      offline.length - live.length >= 0.12 * SR && Math.abs(chain.stats.latencyMs - 1000 * (0.12 + delay)) < 0.01,
+      `${chain.stats.latencyMs.toFixed(2)} ms; ${chain.stats.sent} of ${chain.stats.frames} frames sent`);
   }
 
   console.log('\n[10c] Receiver talk-spurt re-timing (voice_retime)');

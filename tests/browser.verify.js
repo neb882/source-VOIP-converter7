@@ -521,9 +521,11 @@ async function verifyLiveMonitor(page) {
   // The live chain and a render of the same microphone audio cut it into
   // frames at different points, and the fake microphone beeps about as often
   // as the gate's hold, so they can differ on whether two beeps are one talk
-  // spurt; their correlation varies from run to run (0.5-0.85). Timing does
-  // not: the cross-correlation peaks within 0.1 ms of zero lag (1-2 samples
-  // at 44.1 kHz; a recording 1 ms off peaks at 45).
+  // spurt; their correlation varies from run to run (0.5-0.92). Timing does
+  // not: the cross-correlation peaks within 0.1 ms of zero lag (0-1 sample at
+  // 44.1 kHz, as the two start their codec and gate at different points; a
+  // recording 1 ms off peaks at 45). tests/verify.js pins the live chain's
+  // delay to the sample.
   const take = await page.evaluate(async () => {
     const dry = state.decodedSource.getChannelData(0), wet = state.processedBuffer, rate = state.processedRate;
     const render = (await TF2Audio.process(state.decodedSource, renderOptions())).samples;

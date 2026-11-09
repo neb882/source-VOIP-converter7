@@ -1165,12 +1165,16 @@
     let talking = true;
     const codes = [];   // opus-codec.mjs FRAME codes of the frames since takeFrameCodes()
     // The output is the input this many samples (at ioRate) later: the
-    // capture EQ's causal delay and the Opus lookahead, which a render trims.
-    // The pre-roll only holds output back; it does not shift it.
-    const contentDelay = Math.round(((captureEq ? (captureEq.length - 1) / 2 : 0) + (voice ? voice.lookahead : 0)) / codecRate * ioRate);
+    // group delay of the causal FIRs (capture and decoder EQ at the codec
+    // rate, the output FIR at the mix rate), which a render applies
+    // zero-phase, and the Opus lookahead, which a render trims. The pre-roll
+    // only holds output back; it does not shift it.
+    const firDelay = (taps) => (taps ? (taps.length - 1) / 2 : 0);
+    const delaySeconds = (firDelay(captureEq) + firDelay(decoderEq) + (voice ? voice.lookahead : 0)) / codecRate + firDelay(engine.outputFir) / mixRate;
+    const contentDelay = Math.round(delaySeconds * ioRate);
     const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0 }, dtx: 0, lost: 0, late: 0,
       bytes: 0, gateOpen: false, lastMode: null, inputPeak: 0, outputPeak: 0, spurts: 0, talking,
-      latencyMs: 1000 * (preroll * frameSeconds + (captureEq ? (captureEq.length - 1) / 2 / codecRate : 0) + (voice ? voice.lookahead / codecRate : 0)) };
+      latencyMs: 1000 * (preroll * frameSeconds + delaySeconds) };
 
     async function codecFrame(frame, sent) {
       stats.frames++;
