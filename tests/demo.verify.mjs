@@ -205,5 +205,6 @@ const rms = (x) => 10 * Math.log10(x.reduce((t, v) => t + v * v, 0) / x.length +
 check('Received voice runs through the receiver only: the sender gate does not apply', rms(received.samples) > rms(full.samples) + 20,
   `${rms(received.samples).toFixed(1)} dBFS against ${rms(full.samples).toFixed(1)} dBFS through the full chain`);
 check('and its codec lane is the demo\'s frames', received.codecInfo.backend === 'demo' && received.codecInfo.frames === decoded.frameLog.length
-  && received.codecInfo.lostFrames === 1 && received.codecInfo.dtxFrames === 1 && received.codecInfo.modes.hybrid + received.codecInfo.modes.silk + received.codecInfo.modes.celt === 29);
+  && received.codecInfo.lostFrames === 1 && received.codecInfo.dtxFrames === 1 && received.codecInfo.modes.hybrid + received.codecInfo.modes.silk + received.codecInfo.modes.celt === 29
+  && received.codecInfo.lookahead === 0);   // the lane places frame f at (f * frame - lookahead) / rate
 console.log(`\n${passed} demo checks passed`);

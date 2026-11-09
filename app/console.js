@@ -522,6 +522,7 @@ function runPreset(name) {
   execCommand('snd_bits 16');
   execCommand('snd_codec 1');
   execCommand('voice_agc 1');
+  execCommand('voice_retime 0');
   execCommand(`voice_maxgain ${VOICE_ENGINE.autoGain.maxGain}`);
   execCommand(`voice_avggain ${VOICE_ENGINE.autoGain.avgGain}`);
   execCommand('voice_capture_channel left');

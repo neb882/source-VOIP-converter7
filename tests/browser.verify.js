@@ -438,10 +438,44 @@ async function verifyDemo(page) {
     dtx: state.lastCodecInfo.dtxFrames, log: [...document.querySelectorAll('#console-log .line, #console-log div')].map(e => e.textContent).join('\n') }));
   check(info.backend === 'demo' && info.frames === 160 && info.lost === 1 && info.dtx === 1,
     'Process runs the receiver only, and the codec lane shows the demo\'s own frames', `${info.frames} frames, ${info.lost} lost, ${info.dtx} DTX`);
+  // The lane places frame f at (f * frame - lookahead) / rate.
+  const lane = await page.evaluate(() => ({ at: frameAt(state.lastCodecInfo, 1.0), frame: Math.floor(1.0 * state.lastCodecInfo.sampleRate / state.lastCodecInfo.frameSamples) }));
+  check(lane.at === lane.frame, 'the codec lane finds the demo\'s frame at a given time', `frame ${lane.at} at 1 s`);
   // Any other source clears the demo.
   await page.locator('#file').setInputFiles({ name: 'after-demo.wav', mimeType: 'audio/wav', buffer: wavTone(.5) });
   await page.waitForFunction(() => state.sourceName === 'after-demo.wav');
   check(await page.evaluate(() => state.sourceDemo === null && els.demoSpeaker.hidden), 'loading audio afterwards leaves demo mode');
+  // A demo that cannot be read leaves the current source ready to process.
+  await page.locator('#file').setInputFiles({ name: 'broken.dem', mimeType: 'application/octet-stream', buffer: Buffer.alloc(4096, 7) });
+  await page.waitForFunction(() => /Could not read the demo/.test(els.status.textContent));
+  const after = await page.evaluate(() => ({ source: state.sourceName, process: !els.process.disabled }));
+  check(after.source === 'after-demo.wav' && after.process, 'a demo that cannot be read leaves the loaded source ready to process', after.source);
+}
+
+async function verifySourceDuringRender(page) {
+  console.log('\n[Browser 3i] A new source during a render');
+  await page.locator('#file').setInputFiles({ name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(30) });
+  await page.waitForFunction(() => state.sourceName === 'long.wav' && !els.process.disabled);
+  await page.locator('#process').click();
+  await page.waitForFunction(() => state.processing);
+  // Dropped outside the batch panel, one file becomes the source (batch.js).
+  await page.evaluate((bytes) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array(bytes)], 'short.wav', { type: 'audio/wav' }));
+    document.body.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  }, [...wavTone(1, 48000, 880)]);
+  await page.waitForFunction(() => state.sourceName === 'short.wav' && !state.processing, null, { timeout: 60000 });
+  const after = await page.evaluate(() => ({ render: !!state.processedBuffer, download: !els.dl.disabled, process: !els.process.disabled,
+    status: els.status.textContent }));
+  check(!after.render && !after.download && after.process && after.status.startsWith('short.wav'),
+    'a source dropped during a render stops that render; the new source waits to be processed', after.status);
+  await page.locator('#process').click();
+  await page.waitForFunction(() => state.processedBuffer && !state.processing, null, { timeout: 60000 });
+  const seconds = await page.evaluate(() => state.processedBuffer.length / state.processedRate);
+  check(Math.abs(seconds - 1) < .01, 'and then renders as itself', `${seconds.toFixed(3)} s`);
+  // Presets reset every receiver setting, re-timing included.
+  const retime = await page.evaluate(() => { execCommand('voice_retime 1'); execCommand('exec preset_modern'); return els.retime.value; });
+  check(retime === '0', 'a preset turns talk-spurt re-timing back off', `voice_retime ${retime}`);
 }
 
 async function verifyLiveMonitor(page) {
@@ -828,6 +862,7 @@ async function main() {
     await verifyLiveMonitor(page);
     await verifyVideo(page);
     await verifyDemo(page);
+    await verifySourceDuringRender(page);
 
     await page.locator('#file').setInputFiles({ name: 'long-tone.wav', mimeType: 'audio/wav', buffer: wavTone(20) });
     await page.waitForFunction(() => !document.getElementById('process').disabled);

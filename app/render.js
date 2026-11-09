@@ -345,6 +345,9 @@ els.process.addEventListener('click', async () => {
   setStatus(`Processing ${state.decodedSource.duration.toFixed(1)}s of audio in the background…`);
   logLine(`S_StartSound: initializing render...`);
 
+  // A new source (a dropped file, another demo speaker, a live recording)
+  // can mount while this runs; its render is then not this one.
+  const source = state.decodedSource;
   try {
     // A demo's voice arrives already coded: only the receiver runs, with the
     // demo's own codec (audio.js opts.received).
@@ -364,12 +367,18 @@ els.process.addEventListener('click', async () => {
       : `MIX: codec=${opts.codec} pos=${opts.listenerPos || 'manual:'+opts.dspRoom} gain=${opts.micGain} vs=${opts.voiceScale}`);
 
     const t0 = performance.now();
-    const result = await runAudioProcess(state.decodedSource, opts);
+    const result = await runAudioProcess(source, opts);
     const took = Math.round(performance.now() - t0);
 
+    if (state.decodedSource !== source) {
+      logLine('S_StopSound: the source changed during the render; its result was dropped.', 'warn');
+      return;
+    }
     presentRender(result, took, codecKey);
   } catch (e) {
-    if (e.name === 'AbortError') {
+    if (state.decodedSource !== source) {
+      logLine('S_StopSound: render of the previous source stopped.', 'warn');
+    } else if (e.name === 'AbortError') {
       logLine('S_StopSound: render cancelled.', 'warn');
       setStatus('Processing cancelled. Your source audio is still loaded.');
     } else {
@@ -380,7 +389,7 @@ els.process.addEventListener('click', async () => {
   } finally {
     state.processing = false;
     state.cancelProcessing = null;
-    els.process.disabled = false;
+    els.process.disabled = !state.decodedSource;
     els.dl.disabled = !state.lastWav;
     els.file.disabled = false;
     if (els.mic) els.mic.disabled = false;

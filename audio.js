@@ -722,7 +722,7 @@
       gatedFrames: count(FRAME_CODES.gated), dtxFrames: count(FRAME_CODES.dtx), lostFrames: count(FRAME_CODES.lost), underrunFrames: 0,
       spurts: finiteOr(received.spurts, 0), encodedBytes: frameBytes.reduce((n, b) => n + b, 0), gate: null,
       modes: { silk: count(FRAME_CODES.silk), hybrid: count(FRAME_CODES.hybrid), celt: count(FRAME_CODES.celt) },
-      plc: 'opus', frameLog, frameBytes };
+      plc: 'opus', frameLog, frameBytes, lookahead: 0 };
   }
 
   /**

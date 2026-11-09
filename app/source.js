@@ -13,6 +13,8 @@ function mountSource(mono, sampleRate, name, left = null) {
   const duration = mono.length / sampleRate;
   if (!Number.isFinite(duration) || duration <= 0) throw new Error('the clip has no decodable audio');
   if (duration > MAX_AUDIO_SECONDS) throw new Error('the clip exceeds the 10 minute limit');
+  // A render of the previous source is of no use now (app/render.js drops it).
+  if (state.processing && state.cancelProcessing) state.cancelProcessing();
   state.sourceName = name;
   state.sourceVideo = null;
   state.sourceDemo = null;
@@ -324,6 +326,7 @@ async function loadDemoFile(f, speakerId = null) {
     if (selection !== sourceLoadId) return;
     setStatus(`Could not read the demo's voice: ${error.message}`, 'error');
     logLine(`demo: ${error.message}`, 'err');
+    els.process.disabled = !state.decodedSource;
   }
 }
 
