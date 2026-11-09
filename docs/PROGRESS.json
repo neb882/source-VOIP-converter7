@@ -4,25 +4,25 @@
   "stands": {
     "live": "https://neb882.github.io/source-VOIP-converter7/ serves main (GitHub Pages from the branch root).",
     "model": "The Steam profile, the voice gate and the receiver are measured (tests/REFERENCE_2026.md, findings 1-21). vaudio_celt runs the real CELT 0.11 at settings three public decoders agree on; vaudio_celt_high and the rooms are unconfirmed.",
-    "last_merged": "W1-02 (2026-11-09): one demo reader. A talk spurt whose end marker was lost starts at its tick; tests/demovoice/extract.mjs replaces the Rust tool (docs/reports/W1-02-demo-reader.md). Before it, the code review's fixes (pull request 1).",
-    "ci": "The tests workflow runs on every push and can be started by hand. Actions was off in this repository until 2026-11-09. One browser check (the live recording's lag) fails by chance about once in ten runs; W1-04 fixes it. Until it merges, a red run that fails only there is re-read, not trusted either way."
+    "last_merged": "W1-04 (2026-11-09): the browser suite's live-recording check plays a seeded noise probe through the fake microphone and no longer fails by chance (docs/reports/W1-04-live-check-probe.md). Before it, W1-02: one demo reader; a talk spurt whose end marker was lost starts at its tick (docs/reports/W1-02-demo-reader.md).",
+    "ci": "The tests workflow runs on every push and can be started by hand. Until 2026-11-09 one browser check (the live recording's lag) failed by chance about once in thirty runs; W1-04 removed the cause, so a red run is a real failure. A branch made before W1-04 still has the old check until it merges main."
   },
   "in_flight": [
     {
       "order": "W1-01-speex",
       "branch": "claude/w1-01-speex",
-      "stage": "building",
+      "stage": "review (built; CI green on 15d662e)",
       "report": "docs/reports/W1-01-speex.md"
     },
     {
-      "order": "W1-04-live-check-probe",
-      "branch": "claude/w1-04-live-check-probe",
+      "order": "W2-01-stream-meter",
+      "branch": "claude/w2-01-stream-meter",
       "stage": "building",
-      "report": "docs/reports/W1-04-live-check-probe.md"
+      "report": "docs/reports/W2-01-stream-meter.md"
     }
   ],
   "next": [
-    "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (may start as soon as a builder slot is free; meter.js only); W2-02 render-stream (after W1-01 merges; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
+    "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (in flight; meter.js only); W2-02 render-stream (after W1-01 merges; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
     "After W2-03 has been live for a while: an order that makes process() a thin wrapper over the stream, so there is one render path, proved by the golden hashes W2-02 records.",
     "Score the six registered predictions when their takes exist (tests/predictions/PREDICTIONS.md).",
     "Repeat the predictions scorer's dry run after the 2026-11-09 change to reference.js; it needs a real take for its game sound."
@@ -58,6 +58,10 @@
     {
       "finding": "demo.js: after a pause with no end marker in which the sequence numbers continue, one duplicated or out-of-order packet counts as a sequence break that arrives late, so the run is split and the rest placed at its tick (W1-02's review, finding 6).",
       "why": "It needs both an unmarked pause with continuing numbers and a duplicate or reordered voice packet, which Source's network channel is believed to drop before SourceTV records them. Not verified on a real demo. A fix would be to ignore a number that falls just behind the expected one."
+    },
+    {
+      "finding": "The browser suite's live-recording check allows a lag of one sample; W1-04's data (58 recordings, peak at 0 every time, fractional 0.00-0.04) would support exactly zero. An earlier note here blamed a half-sample spread on the live chain and the render starting at different points: that spread came from Chromium's beep, not from the chain.",
+      "why": "The order asked for one sample, and tests/verify.js pins the delay to the sample in Node. Tighten it when the live chain is next touched, after a few CI runs on GitHub's Chromium confirm the zero."
     }
   ],
   "retired_rules": [
@@ -82,13 +86,13 @@
     "Pinned codecs, seeded renders, registered predictions, the source timeline by default, no uploads, a failing test with every fix."
   ],
   "dead_ends": [
-    "Loading the game's own codec libraries through their interface: the interface header (ivoicecodec.h) is not in Valve's public SDK (checked 2026-11-09).",
-    "Holding the browser's live-recording check to exactly zero samples of lag: the live chain and the offline render start their codec and gate at different points, which spreads that measurement by about half a sample. tests/verify.js pins the delay to the sample instead."
+    "Loading the game's own codec libraries through their interface: the interface header (ivoicecodec.h) is not in Valve's public SDK (checked 2026-11-09)."
   ],
   "process_notes": [
     "2026-11-09: adopted docs/PIPELINE.md, adapted from the owner's song-charting project.",
     "This session has no usage meter; the owner's other project caps unattended work by one. Ask before a large wave.",
-    "2026-11-09: the planner's measurement jobs kept queuing on the heavy lock after it reported, holding the builders up. A planner's brief should say: stop your queued jobs before you report."
+    "2026-11-09: the planner's measurement jobs kept queuing on the heavy lock after it reported, holding the builders up. A planner's brief should say: stop your queued jobs before you report.",
+    "2026-11-09: the fake microphone file's path must not contain a percent sign (Chromium reads it as an option suffix, as in %noloop); os.tmpdir() never has one on CI or here."
   ],
   "decisions": [
     {
