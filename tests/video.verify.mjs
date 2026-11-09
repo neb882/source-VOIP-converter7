@@ -2,6 +2,10 @@
 // the video copied sample for sample. Node has no WebCodecs, so the audio is
 // Opus (MP4) or PCM (MOV) here; the fixtures in tests/video are made with
 // ffmpeg (H.264 + AAC, fragmented, delayed audio, H.264 + PCM MOV, VP9 + Opus).
+// aac_h264_fragmented_nobase.mp4 is h264_aac.mp4 stream-copied with the audio
+// first and no base offsets in its track fragments:
+//   ffmpeg -i h264_aac.mp4 -map 0:a -map 0:v -c copy -fflags +bitexact \
+//     -movflags frag_keyframe+empty_moov+omit_tfhd_offset aac_h264_fragmented_nobase.mp4
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -33,8 +37,8 @@ const leadingEmpty = (movie, track) => {
   return total / movie.timescale;
 };
 
-for (const [name, container] of [['h264_aac.mp4', 'mp4'], ['h264_aac_fragmented.mp4', 'mp4'], ['h264_aac_delayed.mp4', 'mp4'],
-  ['h264_pcm.mov', 'mov'], ['vp9_opus.mp4', 'mp4']]) {
+for (const [name, container] of [['h264_aac.mp4', 'mp4'], ['h264_aac_fragmented.mp4', 'mp4'], ['aac_h264_fragmented_nobase.mp4', 'mp4'],
+  ['h264_aac_delayed.mp4', 'mp4'], ['h264_pcm.mov', 'mov'], ['vp9_opus.mp4', 'mp4']]) {
   const input = fixture(name);
   const info = V.inspect(input);
   check(`${name}: recognised as ${container.toUpperCase()} with video and audio`, info && info.container === container && info.video && info.audio, info && info.codec);
@@ -77,6 +81,47 @@ for (const [name, container] of [['h264_aac.mp4', 'mp4'], ['h264_aac_fragmented.
   for (let i = 2000; i < n - 2000; i++) { dot += voice[i] * decoded[i]; ea += voice[i] ** 2; eb += decoded[i] ** 2; }
   const r = dot / Math.sqrt(ea * eb);
   check(`${name}: the voice decodes back on time`, r > .99 && decoded.length >= n, `r ${r.toFixed(4)}`);
+}
+
+// A track fragment with no base offset of its own starts where the previous
+// track fragment's data ended (ISO/IEC 14496-12, 8.8.7.1). The video's runs
+// come second in each fragment here, so only that rule finds its samples.
+{
+  const plain = V.parse(fixture('h264_aac.mp4')), frag = V.parse(fixture('aac_h264_fragmented_nobase.mp4'));
+  const alike = (handler) => {
+    const a = plain.tracks.find(t => t.handler === handler), b = frag.tracks.find(t => t.handler === handler);
+    return a.samples.length === b.samples.length && a.samples.every((s, i) => same(bytesOf(plain, s), bytesOf(frag, b.samples[i])));
+  };
+  check('Track fragments without base offsets: each track\'s samples are read where its data lies', alike('vide') && alike('soun'));
+}
+
+// Sample entries hold the rate as 16.16 fixed point: a 96 kHz render cannot
+// be written as such, and goes in at 48 kHz.
+{
+  const hi = 96000, x = Float32Array.from({ length: Math.round(hi * 1.5) }, (_, i) => .25 * Math.sin(2 * Math.PI * 440 * i / hi));
+  const out = await V.remux(fixture('h264_pcm.mov'), x, hi);
+  const b = V.parse(new Uint8Array(await out.blob.arrayBuffer())), audio = b.tracks.find(t => t.handler === 'soun');
+  const entry = audio.stsd.body + 8 + 8, entryRate = new DataView(b.u8.buffer, b.u8.byteOffset).getUint32(entry + 24) / 65536;
+  const seconds = audio.samples.reduce((t, s) => t + s.size, 0) / 2 / audio.timescale;
+  check('A 96 kHz render goes into a MOV at 48 kHz, its rate written as it plays', out.audioCodec === 'PCM' && entryRate === 48000
+    && audio.timescale === 48000 && Math.abs(seconds - 1.5) < 1e-3, `${entryRate} Hz, ${seconds.toFixed(3)} s`);
+}
+
+// A MOV of long PCM audio: its sample table lists every sample frame, which
+// inspect() and remux() leave unread (10 minutes at 48 kHz is 28.8 million).
+{
+  const cat = (...p) => { const a = p.flat(Infinity), o = new Uint8Array(a.reduce((t, x) => t + x.length, 0)); let at = 0; for (const x of a) { o.set(x, at); at += x.length; } return o; };
+  const u32 = (v) => Uint8Array.of(v >>> 24, v >>> 16 & 255, v >>> 8 & 255, v & 255), tag = (t) => Uint8Array.from(t, c => c.charCodeAt(0));
+  const box = (t, ...p) => { const b = cat(p); return cat(u32(b.length + 8), tag(t), b); }, full = (t, ...p) => box(t, u32(0), ...p), z = (k) => new Uint8Array(k);
+  const pcmRate = 48000, total = 10 * 60 * pcmRate, chunks = total / (pcmRate / 2);
+  const stbl = box('stbl', full('stsd', u32(1), box('sowt', z(28))), full('stts', u32(1), u32(total), u32(1)),
+    full('stsc', u32(1), u32(1), u32(pcmRate / 2), u32(1)), full('stsz', u32(2), u32(total)), full('stco', u32(chunks), z(4 * chunks)));
+  const trak = box('trak', full('tkhd', z(8), u32(1), z(68)), box('mdia', full('mdhd', z(8), u32(pcmRate), u32(total), z(4)),
+    full('hdlr', z(4), tag('soun'), z(13)), box('minf', stbl)));
+  const file = cat(box('ftyp', tag('qt  '), u32(0)), box('moov', full('mvhd', z(8), u32(1000), z(88)), trak));
+  const t0 = performance.now(), info = V.inspect(file), ms = performance.now() - t0;
+  check('A MOV with 10 minutes of PCM is inspected without listing its 28.8 million audio samples', info.audio && !info.video && ms < 1000,
+    `${ms.toFixed(0)} ms`);
 }
 
 // AAC through WebCodecs, where a browser has an AAC encoder (Node has none):
@@ -122,6 +167,22 @@ for (const [name, container] of [['h264_aac.mp4', 'mp4'], ['h264_aac_fragmented.
     `${frames.length} frames`);
   check('The edit list skips the priming the decoder shows', dv.getInt32(elst + 8 + 4) === priming, `${dv.getInt32(elst + 8 + 4)} samples`);
   for (const k of ['AudioData', 'EncodedAudioChunk', 'AudioEncoder', 'AudioDecoder']) delete globalThis[k];
+}
+
+// An AAC encoder that says it can encode and then fails: the voice falls back
+// to Opus instead of the save failing.
+for (const failing of ['encode', 'flush']) {
+  globalThis.AudioData = class { constructor(init) { Object.assign(this, init); } close() {} };
+  globalThis.AudioEncoder = class {
+    static async isConfigSupported(config) { return { supported: true, config }; }
+    configure() {}
+    encode() { if (failing === 'encode') throw new Error('encoder broke'); }
+    async flush() { if (failing === 'flush') throw new Error('encoder broke'); }
+    close() {}
+  };
+  const out = await V.remux(fixture('h264_aac.mp4'), voice, rate);
+  for (const k of ['AudioData', 'AudioEncoder']) delete globalThis[k];
+  check(`An AAC encoder that fails in ${failing}() leaves the voice to Opus`, out.audioCodec === 'Opus');
 }
 
 check('Audio-only and non-ISO files are not taken for video', V.inspect(new Uint8Array(64)) === null);

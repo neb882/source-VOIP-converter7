@@ -50,8 +50,10 @@
   const fullHeader = (r) => { const version = r.u8(), flags = r.u24(); return { version, flags }; };
 
   // One track of the movie box: identity, timing and, for a regular file,
-  // its samples ({ offset, size, duration, cto, sync }).
-  function readTrack(u8, trak) {
+  // its samples ({ offset, size, duration, cto, sync }). Sound tracks get
+  // theirs only when `audio` is set: PCM has one per sample frame (28.8
+  // million in 10 minutes at 48 kHz), and the app never reads them.
+  function readTrack(u8, trak, audio = true) {
     const tkhd = find(u8, trak, 'tkhd'), mdia = find(u8, trak, 'mdia');
     const r = reader(u8, tkhd), h = fullHeader(r);
     r.skip(h.version === 1 ? 16 : 8);
@@ -66,7 +68,8 @@
     const stsd = stbl && find(u8, stbl, 'stsd');
     const entry = stsd ? children(u8, stsd.body + 8, stsd.end)[0] : null;
     const edts = find(u8, trak, 'edts');
-    return { trak, id, handler, timescale, stbl, stsd, format: entry ? entry.type : '', edts, samples: stbl ? tableSamples(u8, stbl) : [] };
+    const samples = stbl && (audio || handler !== 'soun') ? tableSamples(u8, stbl) : [];
+    return { trak, id, handler, timescale, stbl, stsd, format: entry ? entry.type : '', edts, samples };
   }
 
   function tableSamples(u8, stbl) {
@@ -129,8 +132,11 @@
     return samples;
   }
 
-  // Fragments (moof + mdat): the samples each track run adds.
-  function fragmentSamples(u8, top, tracks, moov) {
+  // Fragments (moof + mdat): the samples each track run adds. A track
+  // fragment with no base offset of its own starts at the moof when it says
+  // so (default-base-is-moof), else where the previous track fragment's data
+  // ended (the first one: at the moof); ISO/IEC 14496-12, 8.8.7.1.
+  function fragmentSamples(u8, top, tracks, moov, audio = true) {
     const trex = new Map();
     const mvex = find(u8, moov, 'mvex');
     if (mvex) for (const t of findAll(u8, mvex, 'trex')) {
@@ -138,16 +144,18 @@
       trex.set(r.u32(), { desc: r.u32(), duration: r.u32(), size: r.u32(), flags: r.u32() });
     }
     for (const moof of top.filter(b => b.type === 'moof')) {
+      let dataEnd = moof.start;
       for (const traf of findAll(u8, moof, 'traf')) {
         const t = reader(u8, find(u8, traf, 'tfhd')), th = fullHeader(t);
         const id = t.u32(), d = trex.get(id) || { duration: 0, size: 0, flags: 0 };
-        const base = th.flags & 1 ? t.u64() : moof.start;
+        const base = th.flags & 1 ? t.u64() : th.flags & 0x20000 ? moof.start : dataEnd;
         if (th.flags & 2) t.u32();
         const defDuration = th.flags & 8 ? t.u32() : d.duration;
         const defSize = th.flags & 0x10 ? t.u32() : d.size;
         const defFlags = th.flags & 0x20 ? t.u32() : d.flags;
         const track = tracks.find(x => x.id === id);
-        if (!track) continue;
+        // Runs of other tracks are still read: the next track fragment's data follows theirs.
+        const keep = track && (audio || track.handler !== 'soun');
         let at = base;
         for (const trun of findAll(u8, traf, 'trun')) {
           const r = reader(u8, trun), h = fullHeader(r);
@@ -159,15 +167,17 @@
             const size = h.flags & 0x200 ? r.u32() : defSize;
             const flags = h.flags & 0x400 ? r.u32() : i === 0 && first !== null ? first : defFlags;
             const cto = h.flags & 0x800 ? (h.version ? r.i32() : r.u32()) : 0;
-            track.samples.push({ offset: at, size, duration, cto, sync: !(flags & 0x10000) });
+            if (keep) track.samples.push({ offset: at, size, duration, cto, sync: !(flags & 0x10000) });
             at += size;
           }
         }
+        dataEnd = at;
       }
     }
   }
 
-  function parse(bytes) {
+  // options.audio: false leaves sound tracks' sample lists empty.
+  function parse(bytes, { audio = true } = {}) {
     const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     if (u8.length < 16 || !['ftyp', 'moov', 'free', 'wide', 'mdat', 'skip', 'pnot'].includes(fourcc(u8, 4))) return null;
     const top = children(u8, 0, u8.length);
@@ -178,15 +188,15 @@
     const mvhd = find(u8, moov, 'mvhd'), r = reader(u8, mvhd), h = fullHeader(r);
     r.skip(h.version === 1 ? 16 : 8);
     const timescale = r.u32();
-    const tracks = findAll(u8, moov, 'trak').map(t => readTrack(u8, t));
-    if (top.some(b => b.type === 'moof')) fragmentSamples(u8, top, tracks, moov);
+    const tracks = findAll(u8, moov, 'trak').map(t => readTrack(u8, t, audio));
+    if (top.some(b => b.type === 'moof')) fragmentSamples(u8, top, tracks, moov, audio);
     return { u8, top, moov, mvhd, ftyp, brand, container: brand === 'qt  ' ? 'mov' : 'mp4', timescale, tracks };
   }
 
   // What the app can do with a file: null if it is not MP4 or MOV.
   function inspect(bytes) {
     let movie;
-    try { movie = parse(bytes); } catch (error) { return { container: 'mp4', video: false, audio: false, note: `Unreadable video file: ${error.message}` }; }
+    try { movie = parse(bytes, { audio: false }); } catch (error) { return { container: 'mp4', video: false, audio: false, note: `Unreadable video file: ${error.message}` }; }
     if (!movie) return null;
     const video = movie.tracks.filter(t => t.handler === 'vide');
     const audio = movie.tracks.filter(t => t.handler === 'soun');
@@ -320,15 +330,22 @@
       },
       error(e) { error = e; }
     });
-    encoder.configure(config);
-    const block = 4096;
-    for (let at = 0; at < samples.length; at += block) {
-      const part = samples.slice(at, Math.min(samples.length, at + block));
-      encoder.encode(new AudioData({ format: 'f32-planar', sampleRate: rate, numberOfFrames: part.length, numberOfChannels: 1,
-        timestamp: Math.round(at / rate * 1e6), data: part }));
+    // An encoder can still fail after saying it supports the config; the
+    // caller then falls back to Opus or PCM.
+    try {
+      encoder.configure(config);
+      const block = 4096;
+      for (let at = 0; at < samples.length; at += block) {
+        const part = samples.slice(at, Math.min(samples.length, at + block));
+        encoder.encode(new AudioData({ format: 'f32-planar', sampleRate: rate, numberOfFrames: part.length, numberOfChannels: 1,
+          timestamp: Math.round(at / rate * 1e6), data: part }));
+      }
+      await encoder.flush();
+    } catch (e) {
+      error = e;
+    } finally {
+      try { encoder.close(); } catch (e) { /* already closed */ }
     }
-    await encoder.flush();
-    encoder.close();
     if (error || !frames.length || !description) return null;
     const priming = await aacPriming(frames, description, samples, rate);
     // ES descriptor: decoder config (AAC, audio stream) with the AudioSpecificConfig.
@@ -363,8 +380,12 @@
   /* ---------------- remux ---------------- */
 
   async function remux(bytes, samples, rate, options = {}) {
-    const movie = parse(bytes);
+    const movie = parse(bytes, { audio: false });
     if (!movie) throw new Error('only MP4 and MOV files can carry the voice back into their video');
+    // Audio sample entries hold the rate as 16.16 fixed point, so 65536 Hz
+    // and up cannot be written; renders above 48 kHz (a 96 kHz device) go in
+    // at 48 kHz, which keeps everything the voice path passes.
+    if (rate > 48000) { samples = resample(samples, rate, 48000); rate = 48000; }
     const { u8: src, timescale } = movie;
     const keep = movie.tracks.filter(t => t.handler !== 'soun' && t.samples.length);
     if (!keep.some(t => t.handler === 'vide')) throw new Error('the file has no video track to keep');
