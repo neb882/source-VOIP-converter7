@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { chromium } = require('playwright');
 const { createStaticServer } = require('./static-server');
@@ -51,6 +52,41 @@ function wavSpeech(seconds, rate = 48000) {
     for (let h = 1; h <= 12; h++) v += Math.sin(2 * Math.PI * f0 * h * t + h) / (h + 1);
     buffer.writeInt16LE(Math.round(Math.max(-1, Math.min(1, .12 * env * v)) * 0x7fff), 44 + i * 2);
   }
+  return buffer;
+}
+
+// The fake microphone's signal, which Chromium resamples to the device rate
+// and loops (--use-file-for-fake-audio-capture). Its own fake device plays a
+// 400 Hz square-wave beep, whose cross-correlation has a peak every 2.5 ms;
+// this has one. Seeded noise "syllables" of 80-380 ms, each with its own
+// spectral tilt, at about -20 to -30 dBFS (the gate opens at -39.5), with
+// pauses of 50-300 ms and, about one time in three, 600-1000 ms: past the
+// gate's 440 ms hold and 120 ms pre-roll, so the gate closes between some of
+// them. A floor at about -70 dBFS stays below the gate.
+function wavProbe(seconds = 12, rate = 48000) {
+  const length = Math.round(seconds * rate), buffer = Buffer.alloc(44 + length * 2);
+  buffer.write('RIFF', 0); buffer.writeUInt32LE(36 + length * 2, 4);
+  buffer.write('WAVEfmt ', 8); buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20); buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(rate, 24); buffer.writeUInt32LE(rate * 2, 28);
+  buffer.writeUInt16LE(2, 32); buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36); buffer.writeUInt32LE(length * 2, 40);
+  let seed = 0x5eed, low = 0;
+  const random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+  const samples = new Float64Array(length);
+  for (let i = 0; i < length; i++) samples[i] = .0005 * (2 * random() - 1);
+  for (let at = Math.round(rate * .1); at < length;) {
+    const burst = Math.round(rate * (.08 + .3 * random()));
+    const pause = Math.round(rate * (random() < .35 ? .6 + .4 * random() : .05 + .25 * random()));
+    const tilt = .05 + .25 * random();   // a one-pole low-pass: how dark this syllable is
+    for (let k = 0; k < burst && at + k < length; k++) {
+      const white = 2 * random() - 1;
+      low += tilt * (white - low);
+      samples[at + k] += .175 * Math.sin(Math.PI * k / burst) ** .5 * (2 * low + .25 * white);
+    }
+    at += burst + pause;
+  }
+  for (let i = 0; i < length; i++) buffer.writeInt16LE(Math.round(Math.max(-1, Math.min(1, samples[i])) * 0x7fff), 44 + i * 2);
   return buffer;
 }
 
@@ -519,13 +555,13 @@ async function verifyLiveMonitor(page) {
   await page.locator('#live-record').click();
   await page.waitForFunction(() => state.sourceName && state.sourceName.startsWith('live-') && state.processedBuffer, null, { timeout: 20000 });
   // The live chain and a render of the same microphone audio cut it into
-  // frames at different points, and the fake microphone beeps about as often
-  // as the gate's hold, so they can differ on whether two beeps are one talk
-  // spurt; their correlation varies from run to run (0.5-0.92). Timing does
-  // not: the cross-correlation peaks within 0.1 ms of zero lag (0-1 sample at
-  // 44.1 kHz, as the two start their codec and gate at different points; a
-  // recording 1 ms off peaks at 45). tests/verify.js pins the live chain's
-  // delay to the sample.
+  // frames at different points, so their codec output differs a little:
+  // with the noise probe (wavProbe) the correlation was 0.87-0.91 over 32
+  // recordings, and no other lag within 300 ms came above 0.08. The peak sat
+  // at 0 every time (fractional 0.00-0.04 samples); tests/verify.js pins the
+  // live chain's delay to the sample. Chromium's own beep is a 400 Hz square
+  // wave, with a correlation peak every 110 samples nearly as high as the
+  // true one: one recording in 32 peaked at -330 that way.
   const take = await page.evaluate(async () => {
     const dry = state.decodedSource.getChannelData(0), wet = state.processedBuffer, rate = state.processedRate;
     const render = (await TF2Audio.process(state.decodedSource, renderOptions())).samples;
@@ -541,13 +577,19 @@ async function verifyLiveMonitor(page) {
     // Wet lagging the render by `lag` samples, within 300 ms either way.
     let lag = 0;
     for (let d = -Math.round(rate * .3); d <= Math.round(rate * .3); d++) if (br[(d + size) % size] > br[(lag + size) % size]) lag = d;
-    return { seconds: dry.length / rate, same: dry.length === wet.length, lag, rate, r: ea > 0 && eb > 0 ? br[(lag + size) % size] / Math.sqrt(ea * eb) : 0,
+    let low = 0, high = 0;
+    for (const v of dry) { low = Math.min(low, v); high = Math.max(high, v); }
+    return { seconds: dry.length / rate, same: dry.length === wet.length, lag, rate, r: ea > 0 && eb > 0 ? br[(lag + size) % size] / Math.sqrt(ea * eb) : 0, low, high,
       lane: !!(state.lastCodecInfo && state.lastCodecInfo.frameLog && state.lastCodecInfo.frameLog.some(c => c > 0)),
       ab: !els.abToggle.disabled };
   });
   check(take.seconds > 2 && take.same && take.ab && take.lane,
     'Record loads the live session into the app as a dry/wet pair with its codec lane', `${take.seconds.toFixed(1)} s`);
-  check(Math.abs(take.lag) <= take.rate * 1e-4 && take.r > 0.3, 'the recorded voice lines up with an offline render of the recorded microphone',
+  // Chromium's own beep swings from 0 to full scale; the probe stays within
+  // about +-0.35 on both sides of zero.
+  check(take.high < .5 && take.low < -.1, 'the fake microphone plays the noise probe, not Chromium\'s beep',
+    `samples from ${take.low.toFixed(2)} to ${take.high.toFixed(2)}`);
+  check(Math.abs(take.lag) <= 1 && take.r > 0.8, 'the recorded voice lines up with an offline render of the recorded microphone, within a sample',
     `peak at ${take.lag} samples, r ${take.r.toFixed(3)}`);
   await page.locator('#live-toggle').click();
   await page.waitForFunction(() => !TF2Live.running);
@@ -712,8 +754,12 @@ async function main() {
   const address = server.address();
   const base = `http://127.0.0.1:${address.port}`;
   let browser = null, context = null;
+  // The microphone signal is written at run time, never committed.
+  const micFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'tf2ve-mic-')), micFile = path.join(micFolder, 'probe.wav');
+  fs.writeFileSync(micFile, wavProbe());
   try {
-    const launchOptions = { headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] };
+    const launchOptions = { headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
+      `--use-file-for-fake-audio-capture=${micFile}`] };
     // Optional: a preinstalled Chromium whose build differs from Playwright's pin.
     if (process.env.CHROMIUM_EXECUTABLE) launchOptions.executablePath = process.env.CHROMIUM_EXECUTABLE;
     try { browser = await chromium.launch(launchOptions); }
@@ -980,6 +1026,7 @@ async function main() {
     if (browser) await browser.close().catch(() => {});
     if (server.closeAllConnections) server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(micFolder, { recursive: true, force: true });
   }
 }
 
