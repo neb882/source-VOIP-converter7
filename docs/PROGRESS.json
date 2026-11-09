@@ -5,7 +5,7 @@
     "live": "https://neb882.github.io/source-VOIP-converter7/ serves main (GitHub Pages from the branch root).",
     "model": "The Steam profile, the voice gate and the receiver are measured (tests/REFERENCE_2026.md, findings 1-21). vaudio_celt runs the real CELT 0.11 at settings three public decoders agree on; vaudio_celt_high and the rooms are unconfirmed.",
     "last_merged": "The code review's fixes (pull request 1, 2026-11-09): demo files past 256 MiB and cut-off demos, fragmented MP4s without base offsets, renders above 48 kHz in a MOV, long PCM tracks, stale renders after a source change, the live chain's delay, worker scripts in the service worker, CELT frame grids in take alignment.",
-    "ci": "The tests workflow runs on every push and can be started by hand. Actions was off in this repository until 2026-11-09."
+    "ci": "The tests workflow runs on every push and can be started by hand. Actions was off in this repository until 2026-11-09. One browser check (the live recording's lag) fails by chance about once in ten runs; W1-04 fixes it. Until it merges, a red run that fails only there is re-read, not trusted either way."
   },
   "in_flight": [
     {
@@ -17,8 +17,14 @@
     {
       "order": "W1-02-demo-reader",
       "branch": "claude/w1-02-demo-reader",
-      "stage": "building",
+      "stage": "built, CI green on its branch (2026-11-09); in review",
       "report": "docs/reports/W1-02-demo-reader.md"
+    },
+    {
+      "order": "W1-04-live-check-probe",
+      "branch": "claude/w1-04-live-check-probe",
+      "stage": "building",
+      "report": "docs/reports/W1-04-live-check-probe.md"
     }
   ],
   "next": [
