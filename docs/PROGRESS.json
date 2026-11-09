@@ -11,7 +11,7 @@
     {
       "order": "W1-01-speex",
       "branch": "claude/w1-01-speex",
-      "stage": "building",
+      "stage": "review (built; CI green on 15d662e)",
       "report": "docs/reports/W1-01-speex.md"
     },
     {
