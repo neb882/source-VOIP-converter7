@@ -265,6 +265,22 @@ console.log('\n[Meter 6] The analyzer, a piece at a time, equals analyze()');
   spent.push(new Float32Array(100));
   spent.finish();
   check('after finish() the analyzer is spent', throws(() => spent.push(new Float32Array(1))) && throws(() => spent.finish()));
+
+  // Six hours at 8 kHz: a click, then a noise floor (exact zeros would leave
+  // the K-weighting's tail in slow subnormal numbers). 216,000 values per
+  // list, more than Node 22 can spread into Math.max (it fails between
+  // 125,000 and 200,000). The maxima are the click's, as in its first 4 s.
+  let seed = 6;
+  const rate = 8000, six = TF2Meter.createAnalyzer(rate);
+  const floor = Float32Array.from({ length: rate }, () => 1e-4 * ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2147483648 - 1));
+  const first = floor.slice();
+  first[0] = 1;
+  six.push(first);
+  for (let second = 1; second < 6 * 3600; second++) six.push(floor);
+  const long = six.finish(), head = TF2Meter.analyze(concat(first, floor, floor, floor), rate);
+  check('six hours of history: the loudness maxima need no engine argument limit',
+    long.history.momentary.length === 215997 && long.momentaryMax === head.momentaryMax && long.shortTermMax === head.shortTermMax,
+    `${long.history.momentary.length} values, maxima ${long.momentaryMax.toFixed(2)} / ${long.shortTermMax.toFixed(2)} LUFS`);
 }
 
 console.log('\n[Meter 7] The analyzer\'s memory');
