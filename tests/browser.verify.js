@@ -556,9 +556,10 @@ async function verifyLiveMonitor(page) {
   await page.waitForFunction(() => state.sourceName && state.sourceName.startsWith('live-') && state.processedBuffer, null, { timeout: 20000 });
   // The live chain and a render of the same microphone audio cut it into
   // frames at different points, so their codec output differs a little:
-  // with the noise probe (wavProbe) the correlation was 0.87-0.91 over 32
-  // recordings, and no other lag within 300 ms came above 0.08. The peak sat
-  // at 0 every time (fractional 0.00-0.04 samples); tests/verify.js pins the
+  // with the noise probe (wavProbe) the correlation was 0.87-0.91 over 58
+  // recordings covering the whole looped probe, and no other lag within
+  // 300 ms came above 0.09. The peak sat at 0 every time (fractional
+  // 0.00-0.04 samples over the first 32); tests/verify.js pins the
   // live chain's delay to the sample. Chromium's own beep is a 400 Hz square
   // wave, with a correlation peak every 110 samples nearly as high as the
   // true one: one recording in 32 peaked at -330 that way.
