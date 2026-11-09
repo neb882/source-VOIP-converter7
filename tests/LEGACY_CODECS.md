@@ -1,6 +1,6 @@
 # Legacy voice codecs: what is known
 
-Source's older engine codecs are `sv_voicecodec vaudio_celt`, `vaudio_celt_high` and `vaudio_speex`. The `celt_22` and `celt_44` profiles now run the real codec, CELT 0.11 ([`vendor/celt-0.11`](../vendor/celt-0.11/README.md)), at the settings below. The `speex` profile is still a stand-in: it runs Opus SILK. None of the three has been measured against a TF2 recording, and their receiver side (gate, auto-gain rate) is assumed. This file collects what public sources say about the real codecs.
+Source's older engine codecs are `sv_voicecodec vaudio_celt`, `vaudio_celt_high` and `vaudio_speex`. The `celt_22` and `celt_44` profiles run the real codec, CELT 0.11 ([`vendor/celt-0.11`](../vendor/celt-0.11/README.md)), at the settings below. The `speex` profile runs the real Speex 1.2.1 ([`vendor/speex`](../vendor/speex/README.md)) at assumed settings. None of the three has been measured against a TF2 recording, and their receiver side (gate, auto-gain rate) is assumed. This file collects what public sources say about the real codecs.
 
 Leaked engine source was deliberately not used. Valve's public Source SDK 2013 has no voice-codec code: the codecs live in the engine's `vaudio_*` libraries.
 
@@ -10,7 +10,7 @@ Leaked engine source was deliberately not used. Valve's public Source SDK 2013 h
 |---|---|---|---|
 | `vaudio_celt` | **CELT 0.11** custom mode, mono. **22050 Hz**, **512-sample frames** (23.2 ms), **64-byte constant-size packets** = 22.05 kbps. Encoder complexity 10. | `celt_22`: CELT 0.11 with exactly these settings; decoded voice at 22.05 kHz | Strong: three independent decoders and two encoders agree |
 | `vaudio_celt_high` | CELT 0.11, **44100 Hz**, **256-sample frames** (5.8 ms), **120-byte packets** = 165.4 kbps | `celt_44`: CELT 0.11 with these settings | Weak: one reimplementation. The "44 kbps" on Valve's wiki does not match it and may mean 44 kHz. |
-| `vaudio_speex` | Speex, 8 kHz narrowband per one reimplementation. Source's quality setting is not public. | Opus SILK, 8 kHz, 8 kbps; decoded voice at 11.025 kHz | Weak. It currently fails to load in TF2 ([Source-1-Games#7551](https://github.com/ValveSoftware/source-1-games/issues/7551)), so it cannot be recorded today. |
+| `vaudio_speex` | Speex, 8 kHz narrowband per one reimplementation. Source's quality setting is not public. | `speex`: Speex 1.2.1 narrowband, quality 4 (8 kbps, 20-byte packets), constant bitrate, no VAD or DTX: assumed settings; decoded voice at 11.025 kHz | Weak. It currently fails to load in TF2 ([Source-1-Games#7551](https://github.com/ValveSoftware/source-1-games/issues/7551)), so it cannot be recorded today. |
 
 ## vaudio_celt
 
@@ -36,11 +36,27 @@ Leaked engine source was deliberately not used. Valve's public Source SDK 2013 h
 - Speex is BSD-licensed ([xiph/speex](https://github.com/xiph/speex)).
 - **Settings.** voicesend's table lists 8000 Hz for `vaudio_speex`. Source's Speex quality setting is not in any public source found. GoldSrc's `sv_voicequality` levels 1–5 were 2.4, 6.0, 8.0, 11.2 and 15.2 kbps, which are close to Speex narrowband qualities 1, 2, 3/4, 5/6 and 7/8.
 - **Current TF2.** `vaudio_speex` fails to load: "Unable to load voice codec 'vaudio_speex'. Voice disabled." ([#7551](https://github.com/ValveSoftware/source-1-games/issues/7551), also [Portal 2 #226](https://github.com/ValveSoftware/portal2/issues/226)).
+- **Release.** Speex's bitstream has not changed since 1.0, so any Speex decoder reads any encoder's packets. Which release Source's encoder was built from is not known; encoders of different releases may choose different bits for the same audio.
+
+**In the app.** Until this release the profile ran Opus SILK at 8 kHz and 8 kbps as a stand-in. It now runs Speex 1.2.1 itself, built to WebAssembly by [`tests/speex/build.mjs`](speex/build.mjs) from the Xiph release tag. Its packets and decoded output are bit-identical to a native build of the same sources ([`tests/speex/native.mjs`](speex/native.mjs)). These settings are assumptions, not findings:
+
+- **Quality 4, the 8 kbps narrowband mode:** 160-bit frames, so 20-byte packets every 20 ms. It keeps the bitrate the stand-in had, and it is GoldSrc's middle voice quality (level 3, 8.0 kbps). `snd_bits` scales the bitrate, and the profile codes at the quality whose bitrate is nearest. Of qualities that share a mode (3 and 4, 5 and 6, 7 and 8), the higher number is reported.
+- **Constant bitrate, no VAD, no DTX, the library's default complexity (2).** The decoder keeps its default perceptual enhancement.
+- **Delay and loss:** the pair's delay (80 samples: 40 in the encoder, 40 in the decoder) is trimmed, so renders keep the source timeline. Speex's own high-pass filters still turn the phase of low frequencies: a voice-band signal with its pitch near 180 Hz comes out 2 samples early at 48 kHz, and 2 kHz pulses half a sample early. Loss and jitter act on 20 ms frames, and Speex's own concealment fills lost ones.
+- **Frame log:** the codec lane has no Speex code, so Speex frames show as CELT.
+
+Next to the stand-in, at the default settings in a 48 kHz render:
+
+- **Band edge.** On white noise, relative to 0.5–2 kHz, Speex is down 3 dB at 3.6 kHz and 20 dB at 4.2 kHz. The stand-in sagged 2.6–3.3 dB from 2.5 to 3.5 kHz and was down 3 dB at 3.1 kHz; its 20 dB point was also 4.2 kHz. Neither passes anything from 4.5 to 6 kHz (−63 dB of the total).
+- **Low end.** Speex's high-pass filters take 4.7 dB off at 100 Hz and 1.6 dB at 200 Hz. The stand-in was flat there.
+- **Level.** For the tests' speech-like signal at −20 dBFS, the render is −13.9 dBFS with Speex and −14.0 dBFS with the stand-in, and −21.1 against −21.6 dBFS without the receiver's auto-gain. For a voice-band signal at −21.2 dBFS without auto-gain, Speex keeps −21.4 dBFS and the stand-in kept −23.1 dBFS.
+- **Spectrum.** On that voice-band signal, Speex is 1.7–2.0 dB louder than the stand-in from 250 Hz to 2 kHz, 1.1 dB at 2–3 kHz and level at 3–3.4 kHz. Speex also adds noise just under its band edge, 3.4 dB more than the stand-in at 3.4–3.8 kHz. In 50 Hz bands from 0.1 to 3.8 kHz the two differ by 3.0 dB RMS.
+- **Waveform.** Both follow a voice-band source about equally: r 0.89 for Speex and 0.92 for the stand-in.
 
 ## Also unknown, for all three
 
-- **Voice gate.** Whether modern TF2's capture still goes through Steam's voice gate (−39.5 dBFS, 120 ms pre-roll, 440 ms hold) when a legacy codec is selected. The stand-ins transmit continuously.
-- **Receiver path.** Whether the receiver auto-gain runs at the codec's rate (22.05 or 11.025 kHz), as the stand-ins assume.
+- **Voice gate.** Whether modern TF2's capture still goes through Steam's voice gate (−39.5 dBFS, 120 ms pre-roll, 440 ms hold) when a legacy codec is selected. The profiles transmit continuously.
+- **Receiver path.** Whether the receiver auto-gain runs at the codec's rate (22.05 or 11.025 kHz), as the profiles assume.
 - **Does CELT work at all?** [Source-1-Games#5520](https://github.com/ValveSoftware/Source-1-Games/issues/5520) (February 2024, 64-bit test build) reports `vaudio_celt` garbled or silent. #7551 says CELT and CELT High work.
 
 ## Takes that would settle it
@@ -59,4 +75,4 @@ The test signal's segments answer the open questions:
 
 ## Done without takes
 
-CELT 0.11 is built to WebAssembly by [`tests/celt011/build.mjs`](celt011/build.mjs), the same way `tests/libopus11/` builds libopus 1.1.5, and both CELT profiles run it. `vaudio_celt_high` uses the one public source's 120-byte packets until a take confirms or corrects them. Speex can follow if its quality setting turns up.
+CELT 0.11 is built to WebAssembly by [`tests/celt011/build.mjs`](celt011/build.mjs), the same way `tests/libopus11/` builds libopus 1.1.5, and both CELT profiles run it. `vaudio_celt_high` uses the one public source's 120-byte packets until a take confirms or corrects them. Speex 1.2.1 is built the same way by [`tests/speex/build.mjs`](speex/build.mjs) and runs in the `speex` profile at quality 4 until a public source or a take settles Source's setting. A take needs `vaudio_speex` to load again.
