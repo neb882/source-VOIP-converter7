@@ -516,7 +516,7 @@ Six settings no recording covers yet are predicted in advance in [predictions/PR
 - **Stereo capture.** Finding 6 is one capture chain (a stereo virtual cable). A physical microphone is mono either way.
 - **Comfort-noise details.** The model reproduces when comfort noise starts and how often it refreshes, but not the random excitation's exact values. For a steady tone below 60 Hz, the sign and height of each near-DC plateau differ from TF2's (finding 18).
 - **Output stage.** The small post-clip roll-off may come from the recording chain rather than the game.
-- **Legacy profiles and rooms.** The CELT profiles run the real CELT 0.11 at the settings public decoders use, but neither they nor the Speex stand-in nor the room presets are validated against recordings ([LEGACY_CODECS.md](LEGACY_CODECS.md)).
+- **Legacy profiles and rooms.** The CELT profiles run the real CELT 0.11 at the settings public decoders use, and the `speex` profile the real Speex 1.2.1 at assumed settings, but neither they nor the room presets are validated against recordings ([LEGACY_CODECS.md](LEGACY_CODECS.md)).
 - **Network settings.** Set C used simulated loss on a listen server, where `net_fakeloss` hits both directions. How a given real-world or one-way loss rate maps to lost frames is not measured, so the app's control is the share of frames lost. The jitter rate is calibrated at one setting (`net_fakejitter 50` with `net_fakelag 100`) and scaled linearly. Set D ran on a LAN with no loss. Real internet loss was not recorded.
 
 ## Reproduce

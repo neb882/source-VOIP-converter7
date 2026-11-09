@@ -166,6 +166,13 @@ check('Level tracking rejects unequal lengths', true);
   const lastDelay = celtTrack.segments[celtTrack.segments.length - 1].delayMs;
   check(`Real take against a CELT render: its frame log is read on 5.8 ms frames (${celtTrack.points} windows, ${lastDelay.toFixed(3)} ms)`,
     celtTrack.points > 0 && near(lastDelay, 1000, .1));
+  // A Speex render logs its frames with their own code (7), and they count as coded.
+  const speex = await audio.process({ sampleRate: sr, length: src.length, numberOfChannels: 1, getChannelData: () => src }, { codec: 'speex' });
+  const speexTake = TF2Reference.warpSegments(speex.samples, sr, [{ a: -1, b: 1, start: 0, end: seconds + 2 }], sr, Math.round((seconds + 2) * sr)).map(v => .316 * v + 1e-4 * random());
+  const speexTrack = TF2Reference.track(speexTake, sr, src, sr, { reference: { samples: speex.samples, rate: sr, frames: speex.codecInfo.frameLog, frameSeconds: .02 } });
+  const speexDelay = speexTrack.segments[speexTrack.segments.length - 1].delayMs;
+  check(`Real take against a Speex render: its frames (code 7) count as coded (${speexTrack.points} windows, ${speexDelay.toFixed(3)} ms)`,
+    speex.codecInfo.frameLog.every(c => c === 7) && speexTrack.points > 0 && near(speexDelay, 1000, .1));
 }
 
 // Segment measures for the pre-registered predictions (tests/predictions).

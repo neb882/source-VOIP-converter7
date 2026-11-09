@@ -205,7 +205,7 @@
     const sending = s.gateOpen;
     ui.tx.textContent = sending ? '● TX' : s.talking === false ? '○ push-to-talk' : '○ gate closed';
     ui.tx.className = `live-tx${sending ? ' live-on' : ''}`;
-    ui.mode.textContent = !sending ? '—' : { silk: 'SILK', hybrid: 'Hybrid', celt: 'CELT', dtx: 'DTX (comfort noise)' }[s.lastMode] || '—';
+    ui.mode.textContent = !sending ? '—' : { silk: 'SILK', hybrid: 'Hybrid', celt: 'CELT', speex: 'Speex', dtx: 'DTX (comfort noise)' }[s.lastMode] || '—';
     ui.rate.textContent = `${kbps.toFixed(1)} kbps`;
     ui.loss.textContent = `${s.lost} lost · ${s.late} late`;
     if (w) {

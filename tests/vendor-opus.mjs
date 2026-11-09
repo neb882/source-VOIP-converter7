@@ -42,4 +42,10 @@ if (process.argv.includes('--check')) {
     throw new Error('vendor/celt-0.11/celt-0.11.wasm.mjs differs from the recorded build');
   }
   console.log('CELT 0.11 build matches its recorded hash.');
+  // And the Speex 1.2.1 build (tests/speex/build.mjs) for vaudio_speex.
+  const speex = fs.readFileSync(path.join(root, 'vendor/speex/speex-1.2.1.wasm.mjs'));
+  if (createHash('sha256').update(speex).digest('hex') !== '8d30577707d2098fd35a91061eb0e755d0708184b2f8dd0bc2ae7302a2523b26') {
+    throw new Error('vendor/speex/speex-1.2.1.wasm.mjs differs from the recorded build');
+  }
+  console.log('Speex 1.2.1 build matches its recorded hash.');
 }

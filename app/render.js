@@ -92,9 +92,9 @@ function processInWorker(source, opts) {
 
 function describeModes(modes) {
   if (!modes) return 'modes unknown';
-  const total = modes.silk + modes.hybrid + modes.celt;
+  const total = Object.values(modes).reduce((sum, n) => sum + n, 0);
   const parts = Object.entries(modes).filter(([, n]) => n > 0)
-    .map(([mode, n]) => `${mode.toUpperCase()} ${Math.round(100 * n / Math.max(1, total))}%`);
+    .map(([mode, n]) => `${mode === 'speex' ? 'Speex' : mode.toUpperCase()} ${Math.round(100 * n / Math.max(1, total))}%`);
   return parts.length ? parts.join(', ') : 'no packets';
 }
 
@@ -278,7 +278,9 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
   // source (comfort noise, low tones); re-align it when the render allows.
   if (referenceDecoded && renderGuide()) alignReferenceTake();
   else updateReferenceReport();
-  const method = realOpus ? `Real Opus · ${codecInfo.bitrate / 1000} kbps` : 'Codec bypassed';
+  // The codec that ran: libopus for the Steam profiles, or an engine codec.
+  const codecName = { celt: 'CELT 0.11', speex: 'Speex 1.2.1' }[codecInfo.backend] || 'Real Opus';
+  const method = realOpus ? `${codecName} · ${codecInfo.bitrate / 1000} kbps` : 'Codec bypassed';
   setStatus(`Ready · ${method} · ${(took / 1000).toFixed(1)}s render · ${sampleRate.toLocaleString()} Hz`, 'success');
   logLine(`ChangeLevel: rendered ${samples.length} samples @ ${sampleRate}Hz in ${took}ms`, 'sys');
   logLine(`Net_SendPacket: reliable stream ready.`);
@@ -292,7 +294,9 @@ function mountLiveTake({ dry, wet, rate, frameLog, counts, info }) {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
   mountSource(dry, rate, `live-${stamp}`);
   const codecRate = (CODEC_PROFILES[info.codec] || CODEC_PROFILES.steam).codecRate, frameSamples = info.frameSamples || codecRate / 50;
-  const codecInfo = { backend: info.realOpus ? 'libopus' : 'bypass', version: info.version || 'bypass', bitrate: info.bitrate,
+  const engine = (CODEC_PROFILES[info.codec] || CODEC_PROFILES.steam).engine;
+  const backend = !info.realOpus ? 'bypass' : engine === 'celt011' ? 'celt' : engine === 'speex' ? 'speex' : 'libopus';
+  const codecInfo = { backend, version: info.version || 'bypass', bitrate: info.bitrate,
     vbr: info.vbr, dtx: info.dtx, modes: counts.modes, gate: info.gate, spurts: counts.spurts, gatedFrames: counts.gated,
     frames: counts.frames, dtxFrames: counts.dtx, lostFrames: counts.lost, underrunFrames: counts.late,
     autoGain: info.autoGain, voiceRate: info.voiceRate, codec: info.codec, live: true,

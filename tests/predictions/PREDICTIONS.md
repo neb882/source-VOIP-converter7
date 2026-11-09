@@ -149,6 +149,8 @@ SHA-256 of predictions.json: `e7de7a477c5b629d1a9f1664fd3f44146c995bd0e5036e18fd
 
 Changed after registration, before any predicted take existed: `reference.js` now reads a render's frame log on its codec's frame grid (23.2 ms for `vaudio_celt`, 5.8 ms for `vaudio_celt_high`). It had assumed 20 ms, so for P1 and P2 it judged the wrong frames when choosing which windows refine a take's alignment. That changes how CELT takes are lined up, not any predicted value. The dry run above was not repeated after the change; it needs a real take for its game sound.
 
+Changed after registration, 2026-11-09, before any predicted take existed: `audio.js`, `constants.js`, `opus-codec.mjs` and `reference.js` changed for W1-01. The `speex` profile now runs Speex 1.2.1 instead of an Opus SILK stand-in. Speex frames have a seventh frame code, 7, that `reference.js` counts as coded, and the live chain reports the bitrate Speex runs at. No predicted take uses `speex`. Renders of the other profiles are unchanged. For `steam`, `steam_48`, `celt_22` and `celt_44`, a seeded 5 s voice signal was rendered under five settings: the defaults, the gate off, the gate on, loss with jitter, and the gate with loss, jitter and `snd_bits` 10. In all 20 cases the render, its frame log, and the live chain's output and frame codes have the same SHA-256 on main (`bded46b`) and on the branch (the table is in `docs/reports/W1-01-speex.md`). The predictions themselves were not re-rendered: that needs the test signal, which needs numpy and scipy to generate.
+
 ## Results
 
 Not recorded yet.
