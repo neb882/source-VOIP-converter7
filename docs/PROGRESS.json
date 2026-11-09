@@ -42,6 +42,9 @@
       "why": "tests/accuracy.mjs cannot run where the takes are not, so no session can check a model change against real data and the predictions dry run could not be repeated."
     }
   ],
+  "open_questions": [
+    "Do Steam's voice sequence numbers start again at each talk spurt? Public decoders restart their frame count at each end marker, and demo.js relies on that to tell a spurt after a lost marker from a run that continues (W1-02). The owner can check on a real demo: tests/demovoice/extract.mjs writes each packet's number."
+  ],
   "ideas_not_started": [
     "Steam's own decoder as a reference: the public Steamworks call DecompressVoice on a demo's packets would settle the exact libopus build and the comfort noise bit for bit, if the demo payload is the format it takes. Untested.",
     "Old public SourceTV demos as packet evidence for the Speex and CELT years, read with demo.js, if they kept their voice.",
