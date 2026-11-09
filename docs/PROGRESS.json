@@ -17,7 +17,7 @@
     {
       "order": "W2-01-stream-meter",
       "branch": "claude/w2-01-stream-meter",
-      "stage": "building",
+      "stage": "review (built; CI green on 489b4e2)",
       "report": "docs/reports/W2-01-stream-meter.md"
     }
   ],
@@ -45,7 +45,8 @@
     "Steam's own decoder as a reference: the public Steamworks call DecompressVoice on a demo's packets would settle the exact libopus build and the comfort noise bit for bit, if the demo payload is the format it takes. Untested.",
     "Old public SourceTV demos as packet evidence for the Speex and CELT years, read with demo.js, if they kept their voice.",
     "Page scripts as ES modules instead of classic scripts sharing globals (no build step is needed for either). Migrate gradually.",
-    "Decode sources at the file's own sample rate instead of the audio device's, so the same file renders the same on every machine."
+    "Decode sources at the file's own sample rate instead of the audio device's, so the same file renders the same on every machine.",
+    "The Node suites load audio.js and constants.js in a vm context, which makes Math-heavy code about 12 times slower than the page runs it (found by W2-01's builder). Loading them another way could cut pnpm test's minute, if the results stay bit for bit the same."
   ],
   "deferred": [
     {
@@ -93,7 +94,8 @@
     "2026-11-09: adopted docs/PIPELINE.md, adapted from the owner's song-charting project.",
     "2026-11-09: the planner's measurement jobs kept queuing on the heavy lock after it reported, holding the builders up. A planner's brief should say: stop your queued jobs before you report.",
     "2026-11-09: the fake microphone file's path must not contain a percent sign (Chromium reads it as an option suffix, as in %noloop); os.tmpdir() never has one on CI or here.",
-    "2026-11-09: corrected an earlier note that said the session has no usage meter. The session tool reports a running cost for the session; whether agents' usage is counted in it is not known. Ask before a large wave."
+    "2026-11-09: corrected an earlier note that said the session has no usage meter. The session tool reports a running cost for the session; whether agents' usage is counted in it is not known. Ask before a large wave.",
+    "2026-11-09: the times in docs/reports/W1-03-long-renders-plan.md read slow. The planner loaded the code in a Node vm context, where every Math call crosses the sandbox: the meter's 60 minutes took 87 s that way and 6.9 s loaded with require (W2-01's builder). The render's times (about 6x faster than real time) were taken the same way and have not been re-measured; its memory figures are unaffected, and the new limits rest on memory. W2-02's builder re-measures the render's time outside a vm context."
   ],
   "decisions": [
     {
