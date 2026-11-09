@@ -41,6 +41,9 @@ function crc32(d) {
 }
 
 // Steam voice payload: SteamID, sample rate section, Opus section, CRC32.
+// The test speakers' SteamIDs are in universe 0, which Steam reserves as
+// invalid, so they cannot be anyone's account: 4503603922337793 and
+// 4503603922337794 are individual accounts 1 and 2 there.
 function steamPayload(steamId, frames) {
   const opusBytes = [];
   for (const f of frames) {
