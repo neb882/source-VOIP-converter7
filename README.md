@@ -290,7 +290,7 @@ pnpm test:all
   - every visualizer mode, zoom, pan, seek, keys and scales
   - the codec and loudness lanes, frequency zoom, AUTO and fixed resolution, selection statistics, zoom to selection and loop
   - BARS AVG, and the real-take comparison: alignment of a synthetic take, the band report, A/B/C, the meter's REAL rows and removal
-  - the live monitor with a fake microphone: frames sent, modes, reported latency, low latency, push-to-talk, recording into the app, stop
+  - the live monitor with a fake microphone playing seeded noise bursts the test writes at run time: frames sent, modes, reported latency, low latency, push-to-talk, recording into the app lined up with an offline render within a sample, stop
   - video in and out: an MP4 and a MOV load as sources, and **Download video** keeps every picture sample
   - the meter, loudness-matched A/B and shortcuts
   - batch queueing: picker, step 1 multi-select, drop on the batch panel, single-file drop as source
