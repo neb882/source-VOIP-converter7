@@ -16,6 +16,13 @@
  * stats.history holds momentary and short-term loudness every 100 ms
  * (Float32Array, LUFS); value k covers the window ending at (k + 4) * 0.1 s
  * (momentary) or (k + 30) * 0.1 s (short-term).
+ *
+ * TF2Meter.createAnalyzer(sampleRate) -> { push(samples), finish() } takes the
+ * same measurement a piece at a time, for a render too long to hold twice:
+ * push each piece in order (any length, zero included), then finish() returns
+ * exactly what analyze() returns for the whole, however it was split. It keeps
+ * one value per 100 ms and copies what it needs, so the caller may reuse a
+ * piece's buffer once push returns. After finish() the analyzer is spent.
  */
 (function () {
   'use strict';
@@ -117,6 +124,155 @@
       for (let i = from; i < to; i++) e += k[i] * k[i];
       segment[s] = e;
     }
+    const tp = n ? truePeak(samples, peak) : 0;
+    return report({ sampleRate, rate, n, peak, sum, sumSq, tp, segment, segments });
+  }
+
+  // analyze() a piece at a time; see the header. Every sum runs in the order
+  // analyze() runs it, so the results are equal, not close:
+  //   - peak, sum and sum of squares accumulate in sample order;
+  //   - the two K-weighting biquads keep their state across pieces, and a
+  //     100 ms segment's energy is summed from its first sample to its last
+  //     wherever the pieces end (segment s covers round(s * rate / 10) up to
+  //     round((s + 1) * rate / 10), as in analyze);
+  //   - the true peak. analyze() interpolates only the pairs of samples where
+  //     either reaches 0.4 of the file's sample peak, which is known only at
+  //     the end. Here every pair that reaches 0.4 of the peak so far (a
+  //     superset) is interpolated once its 16 following samples have arrived
+  //     (the last ones in finish(), with the zeros analyze assumes past the
+  //     end), and kept as its level, the larger of its two samples, and its
+  //     largest interpolated magnitude, unless another pair beats it on both.
+  //     The sample peak counts as such a pair (its level and magnitude are the
+  //     peak), so only pairs that rise above the peak so far are kept: a short
+  //     list. finish() takes the largest magnitude among the kept pairs whose
+  //     level reaches 0.4 of the final peak, and the sample peak. Each pair
+  //     analyze() evaluates is either kept or beaten on both by one that is
+  //     (or by the sample peak), which analyze() evaluates too, so the largest
+  //     is the same number.
+  function createAnalyzer(sampleRate) {
+    const rate = Math.round(sampleRate);
+    if (!(rate > 0 && rate < Infinity)) throw new RangeError(`TF2Meter.createAnalyzer: no sample rate (${sampleRate})`);
+    const [shelf, highpass] = kWeighting(rate);
+    const [sb0, sb1, sb2] = shelf.b, [sa0, sa1] = shelf.a, [hb0, hb1, hb2] = highpass.b, [ha0, ha1] = highpass.a;
+    let n = 0, peak = 0, sum = 0, sumSq = 0, spent = false;
+    // The K-weighting's state (0-3: the shelf's last two inputs and last two
+    // outputs; 4-7: the high-pass's) and the open segment's energy so far (8).
+    // In a typed array rather than variables: in a loop it compiled while
+    // running, V8 boxes variables that shift along a delay line or cross a
+    // call, which made about 100 bytes of garbage a sample.
+    const state = new Float64Array(9);
+    // Segment energies (one value per 100 ms) and the index of the first
+    // sample past the open segment.
+    const edge = (s) => Math.round(s * rate / 10);
+    let segment = new Float64Array(1024), segments = 0, end = edge(1);
+    // The last 2 * TAPS samples (sample j at j & MASK) and the kept pairs.
+    const MASK = 2 * TAPS - 1, recent = new Float64Array(2 * TAPS);
+    const levels = [], tops = [];
+    let pruned = 0;
+
+    // Stores the open segment's energy and starts the next segment; returns
+    // the index of the first sample past it.
+    function closeSegment() {
+      if (segments === segment.length) {
+        const grown = new Float64Array(2 * segments);
+        grown.set(segment);
+        segment = grown;
+      }
+      segment[segments++] = state[8];
+      state[8] = 0;
+      return edge(segments + 1);
+    }
+
+    // Pair i (samples i and i + 1), with samples up to count - 1 present:
+    // interpolated from the taps i - 15 .. i + 16 that exist, in truePeak's
+    // order.
+    function consider(i, count, threshold) {
+      const a = Math.abs(recent[i & MASK]), b = Math.abs(recent[(i + 1) & MASK]);
+      if (a < threshold && b < threshold) return;
+      const first = Math.max(0, TAPS - 1 - i), stop = Math.min(2 * TAPS, count - i + TAPS - 1);
+      let top = 0;
+      for (let p = 0; p < PHASES.length; p++) {
+        const h = PHASES[p];
+        let v = 0;
+        for (let k = first; k < stop; k++) v += recent[(i - TAPS + 1 + k) & MASK] * h[k];
+        if (Math.abs(v) > top) top = Math.abs(v);
+      }
+      if (top > peak) keep(Math.max(a, b), top);
+    }
+    function keep(level, top) {
+      for (let k = 0; k < levels.length; k++) if (levels[k] >= level && tops[k] >= top) return;
+      let w = 0;
+      for (let k = 0; k < levels.length; k++) {
+        if (levels[k] <= level && tops[k] <= top) continue;
+        levels[w] = levels[k]; tops[w] = tops[k]; w++;
+      }
+      levels.length = tops.length = w;
+      levels.push(level); tops.push(top);
+    }
+
+    function push(samples) {
+      if (spent) throw new Error('TF2Meter: push() after finish()');
+      scan(samples);
+      if (peak > pruned) {
+        // The sample peak now beats these pairs on both.
+        let w = 0;
+        for (let k = 0; k < levels.length; k++) if (tops[k] > peak) { levels[w] = levels[k]; tops[w] = tops[k]; w++; }
+        levels.length = tops.length = w;
+        pruned = peak;
+      }
+      weigh(samples, peak * 0.4);
+    }
+    // The two loops over a piece keep their running values in local variables
+    // or typed arrays (much faster than the closure's variables). Each is a
+    // function of its own: V8 compiles a long first piece while inside its
+    // loop, and code after that loop that had not run yet undid that on every
+    // call.
+    function scan(samples) {
+      const length = samples.length;
+      let p = peak, s = sum, s2 = sumSq;
+      for (let i = 0; i < length; i++) {
+        const v = samples[i], a = Math.abs(v);
+        if (a > p) p = a;
+        s += v; s2 += v * v;
+      }
+      peak = p; sum = s; sumSq = s2;
+    }
+    function weigh(samples, threshold) {
+      const length = samples.length, d = state;
+      let g = n, next = end;
+      for (let i = 0; i < length; i++, g++) {
+        const x = samples[i];
+        recent[g & MASK] = x;
+        if (g >= TAPS) consider(g - TAPS, g + 1, threshold);   // its 16 following samples are in
+        const y = sb0 * x + sb1 * d[0] + sb2 * d[1] - sa0 * d[2] - sa1 * d[3];
+        d[1] = d[0]; d[0] = x; d[3] = d[2]; d[2] = y;
+        const k = hb0 * y + hb1 * d[4] + hb2 * d[5] - ha0 * d[6] - ha1 * d[7];
+        d[5] = d[4]; d[4] = y; d[7] = d[6]; d[6] = k;
+        while (next <= g) next = closeSegment();
+        d[8] += k * k;
+      }
+      n = g; end = next;
+    }
+
+    function finish() {
+      if (spent) throw new Error('TF2Meter: finish() twice');
+      spent = true;
+      const threshold = peak * 0.4;
+      for (let i = Math.max(0, n - TAPS); i + 1 < n; i++) consider(i, n, threshold);
+      while (end <= n) end = closeSegment();
+      let tp = peak;
+      for (let k = 0; k < levels.length; k++) if (levels[k] >= threshold && tops[k] > tp) tp = tops[k];
+      // As many segments as analyze() counts (every one of them is closed).
+      return report({ sampleRate, rate, n, peak, sum, sumSq, tp, segment, segments: Math.floor(n / (rate / 10)) });
+    }
+
+    return { push, finish };
+  }
+
+  // The stats from what both ways gather: the sample count, the sample peak,
+  // sum and sum of squares, the true peak, and the K-weighted energy of each of
+  // the first `segments` 100 ms segments.
+  function report({ sampleRate, rate, n, peak, sum, sumSq, tp, segment, segments }) {
     const windows = (count) => {
       const out = [], length = count * rate / 10;
       let e = 0;
@@ -137,8 +293,15 @@
         lra = at(0.95) - at(0.10);
       }
     }
-    const max = (values) => (values.length ? loudness(Math.max(...values)) : null);
-    const tp = n ? truePeak(samples, peak) : 0;
+    // A loop, not Math.max(...values): an hour is 36,000 arguments, and how
+    // many a call takes depends on the engine. Math.max pair by pair gives the
+    // same result, NaN and -0 included.
+    const max = (values) => {
+      if (!values.length) return null;
+      let m = -Infinity;
+      for (let i = 0; i < values.length; i++) m = Math.max(m, values[i]);
+      return loudness(m);
+    };
     const history = {
       hop: 0.1,
       momentary: Float32Array.from(momentary, loudness),
@@ -162,7 +325,7 @@
     };
   }
 
-  const TF2Meter = { analyze, kWeighting };
+  const TF2Meter = { analyze, createAnalyzer, kWeighting };
   if (typeof window !== 'undefined') window.TF2Meter = TF2Meter;
   else if (typeof self !== 'undefined') self.TF2Meter = TF2Meter;
   if (typeof module !== 'undefined' && module.exports) module.exports = TF2Meter;
