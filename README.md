@@ -83,7 +83,7 @@ Every profile runs a real codec; nothing is a hand-made approximation. The Steam
 
 The Speex settings are assumptions. Source's Speex quality is not public, and current TF2 cannot load the codec, so it cannot be recorded. Quality 4, the 8 kbps mode, keeps the bitrate the profile had when it ran Opus SILK as a stand-in, and it is the middle of GoldSrc's five voice qualities. The rest are the library's defaults. `snd_bits` picks the quality whose bitrate is nearest the scaled one.
 
-The status line and console report the modes the encoder actually chose (SILK / hybrid / CELT, from each packet's TOC byte). The frame log has no code for Speex, so Speex frames show as CELT in the codec lane and the mode counts. [tests/LEGACY_CODECS.md](tests/LEGACY_CODECS.md) collects what public sources say about the legacy codecs and which takes would settle the rest.
+The status line and console report the modes the encoder actually chose (SILK / hybrid / CELT, from each packet's TOC byte). Speex frames have their own code in the frame log, so the codec lane and the mode counts show them as Speex. [tests/LEGACY_CODECS.md](tests/LEGACY_CODECS.md) collects what public sources say about the legacy codecs and which takes would settle the rest.
 
 ## Live monitor
 
@@ -178,7 +178,7 @@ A fixed RES (256–16384 samples at the file's rate) uses one window length ever
 Only the visible range is analysed, at the display's full pixel resolution. The range button sets how many dB the colours (or the dB waveform) span. TALL, or dragging the bottom-right corner, makes the view taller. Hovering reads out time, level, and in SPEC the frequency with its nearest note, the level and the analysis window.
 
 **Lanes** under WAVE and SPEC:
-- **Codec lane:** what the voice path did with each 20 ms frame, in playback time. It shows SILK, Hybrid or CELT coding, DTX (comfort noise), not sent (gate closed), lost (concealed) and late (played as silence).
+- **Codec lane:** what the voice path did with each 20 ms frame, in playback time. It shows SILK, Hybrid or CELT coding, Speex coding in a colour of its own, DTX (comfort noise), not sent (gate closed), lost (concealed) and late (played as silence).
   - Zoomed out, a pixel shows the most common frame type, with a red or orange strip on top for the share lost or late.
   - Hovering gives the frame's packet size and bitrate.
   - The legend under the view counts each type.

@@ -43,7 +43,7 @@ Leaked engine source was deliberately not used. Valve's public Source SDK 2013 h
 - **Quality 4, the 8 kbps narrowband mode:** 160-bit frames, so 20-byte packets every 20 ms. It keeps the bitrate the stand-in had, and it is GoldSrc's middle voice quality (level 3, 8.0 kbps). `snd_bits` scales the bitrate, and the profile codes at the quality whose bitrate is nearest. Of qualities that share a mode (3 and 4, 5 and 6, 7 and 8), the higher number is reported.
 - **Constant bitrate, no VAD, no DTX, the library's default complexity (2).** The decoder keeps its default perceptual enhancement.
 - **Delay and loss:** the pair's delay (80 samples: 40 in the encoder, 40 in the decoder) is trimmed, so renders keep the source timeline. Speex's own high-pass filters still turn the phase of low frequencies: a voice-band signal with its pitch near 180 Hz comes out 2 samples early at 48 kHz, and 2 kHz pulses half a sample early. Loss and jitter act on 20 ms frames, and Speex's own concealment fills lost ones.
-- **Frame log:** the codec lane has no Speex code, so Speex frames show as CELT.
+- **Frame log:** Speex frames have their own code (7), so the codec lane, the console and the live panel show them as Speex.
 
 Next to the stand-in, at the default settings in a 48 kHz render:
 
