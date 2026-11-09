@@ -924,6 +924,31 @@ async function main() {
     check(afterUpdate.processEnabled, 'worker replacement leaves Process Audio enabled');
     check(afterUpdate.keys.includes('unrelated-test-cache'), 'activation preserves unrelated origin caches');
     check(afterUpdate.keys.includes(SHELL_CACHE), 'current app shell cache is populated', SHELL_CACHE);
+    // Worker and worklet scripts follow the page's code: with stale copies in
+    // the cache, the network's are still the ones that run.
+    const fresh = await page.evaluate(async (shell) => {
+      const cache = await caches.open(shell);
+      const stale = (body) => new Response(body, { headers: { 'Content-Type': 'text/javascript' } });
+      await cache.put(new URL('audio-worker.js', location.href).href, stale("self.postMessage({ type: 'stale' });"));
+      await cache.put(new URL('mic-capture.js', location.href).href, stale('/* stale */'));
+      const worker = new Worker('audio-worker.js');
+      const reply = await new Promise((resolve) => {
+        worker.onmessage = (event) => resolve(event.data.type);
+        worker.onerror = () => resolve('error');
+        worker.postMessage({ type: 'analyze', id: 1, samples: new Float32Array(4800).buffer, sampleRate: 48000 });
+      });
+      worker.terminate();
+      const audio = new AudioContext();
+      let worklet = 'fresh';
+      try {
+        await audio.audioWorklet.addModule('mic-capture.js');
+        new AudioWorkletNode(audio, 'mic-capture', { processorOptions: { maxSamples: 1 } });
+      } catch (error) { worklet = 'stale'; }
+      await audio.close();
+      return { worker: reply, worklet };
+    }, SHELL_CACHE);
+    check(fresh.worker === 'analyzed' && fresh.worklet === 'fresh', 'workers and audio worklets load their scripts network-first, like the page',
+      `worker ${fresh.worker}, worklet ${fresh.worklet}`);
     check(await page.evaluate(async (name) => {
       const cache = await caches.open(name);
       const needed = ['batch.js', 'formats.js', 'flac.js', 'zip.js', 'meter.js', 'reference.js', 'video.js', 'demo.js', 'live.js', 'live-worker.js', 'live-worklet.js',

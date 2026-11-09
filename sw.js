@@ -2,7 +2,8 @@
  * The app shell is precached so the tool still loads offline / as an installed
  * PWA. Cache strategy is split by request type:
  *
- *   - Code & markup (document / script / style): NETWORK-FIRST, cache fallback.
+ *   - Code & markup (document / script / style, and the scripts workers and
+ *     audio worklets load): NETWORK-FIRST, cache fallback.
  *     These change on every edit, so a normal reload always fetches the latest
  *     when online — no hard refresh needed. The cache is used only when the
  *     network fails (offline), and each successful fetch refreshes that copy.
@@ -12,7 +13,7 @@
  */
 
 const CACHE_PREFIX = 'tf2ve-';
-const CACHE = `${CACHE_PREFIX}v16`;
+const CACHE = `${CACHE_PREFIX}v17`;
 const ASSETS = [
   './',
   './index.html',
@@ -91,15 +92,21 @@ self.addEventListener('fetch', (e) => {
 
   // Code & markup: try the network first so plain reloads reflect the latest
   // edit; fall back to the cached copy (or the app shell) only when offline.
+  // Workers and audio worklets load their scripts with their own
+  // destinations; they must stay in step with the page's code.
   const isLive = req.mode === 'navigate' ||
-                 req.destination === 'document' ||
-                 req.destination === 'script' ||
-                 req.destination === 'style';
+                 ['document', 'script', 'style', 'worker', 'sharedworker', 'audioworklet'].includes(req.destination);
+
+  // The response goes out whether or not the cache takes a copy of it.
+  const keep = (resp) => {
+    try { e.waitUntil(cachePut(req, resp).catch(() => {})); } catch (err) { /* event already settled */ }
+    return resp;
+  };
 
   if (isLive) {
     e.respondWith(
       fetch(req)
-        .then(async (resp) => { await cachePut(req, resp); return resp; })
+        .then(keep)
         .catch(() => caches.match(req).then((hit) => {
           if (hit) return hit;
           return req.mode === 'navigate' ? caches.match('./index.html') : Response.error();
@@ -110,9 +117,6 @@ self.addEventListener('fetch', (e) => {
 
   // Static assets: cache-first for speed, populate the cache on first miss.
   e.respondWith(
-    caches.match(req).then((hit) => hit || fetch(req).then(async (resp) => {
-      await cachePut(req, resp);
-      return resp;
-    }))
+    caches.match(req).then((hit) => hit || fetch(req).then(keep))
   );
 });
