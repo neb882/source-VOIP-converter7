@@ -842,6 +842,8 @@
       const result = codec.engine === 'celt011'
         ? await opus.celtRoundTrip(samples, codecRate, { ...common, frameSize: codec.frameSize, complexity: codec.complexity,
           packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)) })
+        : codec.engine === 'speex'
+        ? await opus.speexRoundTrip(samples, codecRate, { ...common, bitrate: codec.bitrate * bits / 16 })
         : await opus.roundTrip(samples, codecRate, bitrate, { ...common,
           application: codec.application, signal: codec.signal,
           runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
@@ -1146,6 +1148,8 @@
       voice = codec.engine === 'celt011'
         ? await opus.createCeltStream(codecRate, { frameSize: codec.frameSize, complexity: codec.complexity,
           packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)) })
+        : codec.engine === 'speex'
+        ? await opus.createSpeexStream(codecRate, { bitrate: codec.bitrate * bits / 16 })
         : await opus.createVoiceStream(codecRate, Math.max(6000, Math.round(codec.bitrate * bits / 16)), {
           application: codec.application, signal: codec.signal,
           runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });

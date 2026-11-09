@@ -477,6 +477,8 @@ function updateSignalChain() {
     ['Capture', `${channelLabel}mic ×${gain.toFixed(1)}${filters.length ? ' · ' + filters.join(' · ') : ''} · ${gateOn ? `gate > ${gateDb} dBFS` : 'no gate'}`, gain > 1 ? 'hot' : ''],
     ['Codec', !codecOn ? 'bypassed' : codec.engine === 'celt011'
       ? `CELT 0.11 ${codec.codecRate / 1000} kHz · ${Math.max(8, Math.round(codec.packetBytes * bits / 16))}-byte packets of ${(1000 * codec.frameSize / codec.codecRate).toFixed(1)} ms`
+      // Speex codes at the quality whose bitrate is nearest the scaled one.
+      : codec.engine === 'speex' ? `Speex ${codec.codecRate / 1000} kHz narrowband · CBR ${bits === 16 ? '' : '≈'}${+(codec.bitrate * bits / 16000).toFixed(1)} kbps · 20 ms frames`
       : `Opus ${codec.codecRate / 1000} kHz · ${codec.encoder?.vbr ? 'VBR ' : ''}${kbps} kbps${codec.encoder?.dtx ? ' · DTX' : ''} · ${mode}`, codecOn ? '' : 'off'],
     ['Network', `${packetMs} ms packets · ${loss}% lost${jitter > 0 ? ` · ${jitter} ms jitter` : ''}`, loss > 0 || jitter > 0 ? 'hot' : ''],
     ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · int16 clip` : 'unity gain · int16 clip'}${els.retime && els.retime.value === '1' ? ' · spurts re-timed' : ''}`, ''],

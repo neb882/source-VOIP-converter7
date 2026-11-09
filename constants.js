@@ -220,14 +220,17 @@ const PRESETS = {
 };
 
 /* -------------------------------------------------------------------------
- * Codec profiles. `steam` and `speex` run the bundled libopus, the CELT
- * profiles the real CELT 0.11; only `steam` is calibrated against a real TF2
- * recording.
+ * Codec profiles. Each runs a real codec: the Steam profiles the bundled
+ * libopus 1.1.5, the CELT profiles CELT 0.11 and `speex` Speex 1.2.1. Only
+ * `steam` is calibrated against a real TF2 recording; the engine codecs'
+ * settings come from public sources (CELT) or are assumed (Speex).
  *
  *   engine      : 'celt011' for CELT 0.11 (frameSize samples per packetBytes
- *                 packet, scaled by snd_bits / 16); otherwise Opus
+ *                 packet, scaled by snd_bits / 16); 'speex' for Speex
+ *                 narrowband (8 kHz, 20 ms frames, the quality whose
+ *                 bitrate is nearest bitrate x snd_bits / 16); otherwise Opus
  *   codecRate   : codec sample rate (Opus: 8/12/16/24/48 kHz)
- *   bitrate     : bits per second at snd_bits 16 (Opus: 20 ms frames)
+ *   bitrate     : bits per second at snd_bits 16 (Opus and Speex: 20 ms frames)
  *   application : 'voip' (SILK/hybrid capable) or 'lowdelay' (CELT only)
  *   signal      : Opus signal hint; 'voice' keeps music in hybrid mode,
  *                 matching the SILK/CELT crossover seen in the recording
@@ -292,12 +295,17 @@ const CODEC_PROFILES = {
     engine: 'celt011', codecRate: 44100, frameSize: 256, packetBytes: 120, complexity: 10,
     bitrate: 165375, voiceRate: 44100, mixer: 'sinc', status: 'modeled'
   },
-  // vaudio_speex was 8 kHz narrowband CELP. SILK is a different LPC codec
-  // with a similar narrowband character; this is a stand-in. Source's Speex
-  // quality is not public, and current TF2 cannot load the codec.
+  // vaudio_speex: the real codec, Speex 1.2.1 (vendor/speex), narrowband at
+  // 8 kHz in 20 ms frames. Its settings are assumptions: Source's Speex
+  // quality is not public, and current TF2 cannot load the codec to record
+  // it (tests/LEGACY_CODECS.md). Quality 4 is the 8 kbps mode (20-byte
+  // packets): the bitrate this profile had before, and GoldSrc's middle
+  // voice quality. Constant bitrate, no VAD or DTX, the library's default
+  // complexity (2); the decoder keeps its perceptual enhancement on. The
+  // receiver side is modeled, not measured.
   speex: {
-    displayName: 'Narrowband (Opus SILK, 8 kHz / 8 kbps)',
-    codecRate: 8000, bitrate: 8000, application: 'voip', signal: 'voice',
+    displayName: 'vaudio_speex (Speex 1.2.1, 8 kHz, 8 kbps)',
+    engine: 'speex', codecRate: 8000, bitrate: 8000,
     voiceRate: 11025, mixer: 'linear', status: 'modeled'
   }
 };

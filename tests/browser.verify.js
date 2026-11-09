@@ -952,9 +952,10 @@ async function main() {
     check(await page.evaluate(async (name) => {
       const cache = await caches.open(name);
       const needed = ['batch.js', 'formats.js', 'flac.js', 'zip.js', 'meter.js', 'reference.js', 'video.js', 'demo.js', 'live.js', 'live-worker.js', 'live-worklet.js',
-        'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs', 'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs'];
+        'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs', 'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs',
+        'vendor/speex/index.mjs', 'vendor/speex/speex-1.2.1.wasm.mjs'];
       return (await Promise.all(needed.map(path => cache.match(new URL(path, location.href).href)))).every(Boolean);
-    }, SHELL_CACHE), 'batch, format, meter, reference, video, demo, live-monitor, CELT and MP3 encoder files are cached for offline use');
+    }, SHELL_CACHE), 'batch, format, meter, reference, video, demo, live-monitor, CELT, Speex and MP3 encoder files are cached for offline use');
     // Restore the normal registration while still online. Otherwise reloading
     // registers sw.js again and races another replacement against file loading.
     await activateServiceWorker(page, 'sw.js');
@@ -968,6 +969,12 @@ async function main() {
     await page.locator('#process').click();
     await page.waitForFunction(() => !document.getElementById('download').disabled);
     check((await page.locator('#console-out').textContent()).includes('libopus 1.1.5'), 'bundled real codec converts audio offline');
+    // The speex profile's codec comes from the cache too.
+    await page.locator('#codec').selectOption('speex');
+    await page.locator('#process').click();
+    await page.waitForFunction(() => document.getElementById('console-out').textContent.includes('S_Voice: Speex 1.2.1'));
+    check((await page.locator('#console-out').textContent()).includes('S_Voice: Speex 1.2.1, 8 kbps CBR, 20-byte packets of 20 ms'),
+      'the speex profile converts audio offline with Speex 1.2.1 in 20-byte packets');
     await context.setOffline(false);
     check(pageErrors.length === 0, 'complete conversion and recording flow has no page errors', pageErrors.join('; '));
 
