@@ -25,7 +25,8 @@
     "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (in flight; meter.js only); W2-02 render-stream (after W1-01 merges; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
     "After W2-03 has been live for a while: an order that makes process() a thin wrapper over the stream, so there is one render path, proved by the golden hashes W2-02 records.",
     "Score the six registered predictions when their takes exist (tests/predictions/PREDICTIONS.md).",
-    "Repeat the predictions scorer's dry run after the 2026-11-09 change to reference.js; it needs a real take for its game sound."
+    "Repeat the predictions scorer's dry run after the 2026-11-09 change to reference.js; it needs a real take for its game sound.",
+    "Where the stronger model would pay most is the measured model itself (what a take shows, which constant the evidence supports), and that is blocked: the owner's takes are not on any machine a session can reach (waiting_on_the_owner)."
   ],
   "waiting_on_the_owner": [
     {
@@ -90,9 +91,9 @@
   ],
   "process_notes": [
     "2026-11-09: adopted docs/PIPELINE.md, adapted from the owner's song-charting project.",
-    "This session has no usage meter; the owner's other project caps unattended work by one. Ask before a large wave.",
     "2026-11-09: the planner's measurement jobs kept queuing on the heavy lock after it reported, holding the builders up. A planner's brief should say: stop your queued jobs before you report.",
-    "2026-11-09: the fake microphone file's path must not contain a percent sign (Chromium reads it as an option suffix, as in %noloop); os.tmpdir() never has one on CI or here."
+    "2026-11-09: the fake microphone file's path must not contain a percent sign (Chromium reads it as an option suffix, as in %noloop); os.tmpdir() never has one on CI or here.",
+    "2026-11-09: corrected an earlier note that said the session has no usage meter. The session tool reports a running cost for the session; whether agents' usage is counted in it is not known. Ask before a large wave."
   ],
   "decisions": [
     {
@@ -109,6 +110,11 @@
       "date": "2026-11-09",
       "what": "Long sources are still decoded by the browser's decodeAudioData, at the audio device's rate.",
       "why": "Decoding another way gives different samples from the same file. It stays an idea (ideas_not_started) until the owner wants it."
+    },
+    {
+      "date": "2026-11-09",
+      "what": "Work is split by model (docs/PIPELINE.md, 'Which model does what'): builders and reviewers on the builders' model, where a written check says whether the work is right; plans, the skeptic, the reading of evidence and the last read of each diff on the stronger model the orchestrating session runs on. The orchestrator works at high effort.",
+      "why": "The owner asked that the stronger model be used to the full. Its vendor's published comparison puts the two models a few points apart on agentic coding and far apart on long unattended work, scientific computing and research, at twice the price per token. W1-03's plan was written on the builders' model and reviewed on the stronger one; from now on it is the other way round."
     }
   ]
 }
