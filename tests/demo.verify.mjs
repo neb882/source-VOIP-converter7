@@ -1,9 +1,10 @@
 // TF2 demos (demo.js): a synthetic SourceTV demo, written here bit by bit,
 // with Steam voice (Opus packets with sequence numbers, a lost frame, a DTX
 // frame and end-of-transmission markers, from two speakers), messages that
-// must be skipped at odd bit offsets, and a legacy vaudio_celt demo. Real
-// demos are players' voices and stay out of the repository; the parser was
-// checked against tests/demovoice (Rust) on the Set D demo (README).
+// must be skipped at odd bit offsets, and a legacy vaudio_celt demo; then
+// talk spurts whose end marker was lost, real and impossible losses and the
+// 16-bit wrap of sequence numbers. Real demos are players' voices and stay
+// out of the repository.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -132,6 +133,11 @@ const decoded = await D.decode(parsed, s1, { opus: (r) => opus.createDecoder({ s
 const second0 = Math.round(200 * .015 * rate);
 check('Talk spurts sit at their demo tick; frames within one run back to back, the lost one concealed',
   decoded.concealed === 1 && decoded.spurts === 2 && decoded.samples.length === second0 + 10 * 480, `${(decoded.samples.length / rate).toFixed(3)} s`);
+// Speaker 2's numbers run on (7-16) though its second half arrives 3 s later
+// with no marker between: one run, frames back to back.
+const decoded2 = await D.decode(parsed, s2, { opus: (r) => opus.createDecoder({ sampleRate: r, channels: 1 }) });
+check('A run whose numbers continue stays one run, however late its second half', decoded2.spurts === 1 && decoded2.samples.length === 10 * 480 && decoded2.concealed === 0,
+  `${decoded2.spurts} spurt, ${decoded2.samples.length} samples`);
 check('The frame log marks coded, lost, DTX and silent frames', decoded.frameLog[14] === 5 && decoded.frameLog[20] === 4
   && decoded.frameLog[5] === 2 && decoded.frameLog[25] === 0 && decoded.frameLog[second0 / 480] === 2);
 // The decoded tone: Opus's lookahead delays it by 6.5 ms (156 samples), and
@@ -144,6 +150,59 @@ const match = (lag) => {
 };
 const lags = Array.from({ length: 41 }, (_, k) => 136 + k), best = lags.reduce((b, l) => (match(l) > match(b) ? l : b));
 check('The voice decodes back to the tone', match(best) > .98, `r ${match(best).toFixed(3)} at ${best} samples`);
+
+// Talk spurts after a lost end marker. One speaker's frames as SourceTV
+// writes them: the 3 frames (60 ms) sent since the last batch go out together
+// every 4 ticks. `lost` frames never reached the server; `end` closes the
+// run with its marker.
+const opusDecoders = { opus: (r) => opus.createDecoder({ sampleRate: r, channels: 1 }) };
+const run = (tick0, seq0, n, { lost = [], end = false } = {}) => {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const tick = tick0 + 4 * Math.floor(i / 3);
+    if (!out.length || out[out.length - 1].tick !== tick) out.push({ tick, frames: [] });
+    if (!lost.includes(i)) out[out.length - 1].frames.push({ seq: (seq0 + i) & 0xFFFF, data: packets[i % packets.length] });
+  }
+  if (end) out[out.length - 1].frames.push('end');
+  return out.filter(m => m.frames.length);
+};
+const steamDemo = (...runs) => D.parse(demoFile(runs.flat().map(({ tick, frames }) => ({ tick, messages: [msg.voice(1, steamPayload('4503603922337793', frames))] }))));
+const decodeOne = (demo) => D.decode(demo, demo.speakers[0], opusDecoders);
+const at = (tick) => Math.round((tick - 100) * .015 * rate);   // every case starts at tick 100
+const same = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.byteLength), Buffer.from(b.buffer, b.byteOffset, b.byteLength)) === 0;
+{
+  // Ten frames at tick 100 (written up to sample 4800, tick 113.3), then a
+  // second spurt whose numbers start again: its marker-carrying packet lost.
+  const lostMarker = await decodeOne(steamDemo(run(100, 0, 10), run(300, 0, 10, { end: true })));
+  const intact = await decodeOne(steamDemo(run(100, 0, 10, { end: true }), run(300, 0, 10, { end: true })));
+  check('A spurt after a lost end marker, its numbers starting again, sits at its tick with a fresh decoder',
+    lostMarker.spurts === 2 && lostMarker.concealed === 0 && lostMarker.samples.length === at(300) + 10 * 480 && same(lostMarker.samples, intact.samples),
+    `${lostMarker.spurts} spurts, ${(lostMarker.samples.length / rate).toFixed(3)} s, ${same(lostMarker.samples, intact.samples) ? 'the same samples as with its marker' : 'not the samples it has with its marker'}`);
+  // Tick 117 is sample 6120, within four frames (sample 6720) of the write position.
+  const close = await decodeOne(steamDemo(run(100, 0, 10), run(117, 0, 10, { end: true })));
+  check('the same spurt arriving within four frames of the write position is decoded in place',
+    close.spurts === 1 && close.concealed === 0 && close.samples.length === 20 * 480, `${close.spurts} spurt, ${close.samples.length} samples`);
+  // Numbers 10-19 continue the run, though they arrive 3.8 s late.
+  const late = await decodeOne(steamDemo(run(100, 0, 10), run(500, 10, 10, { end: true })));
+  check('A run whose numbers continue is not split however late its packets are',
+    late.spurts === 1 && late.concealed === 0 && late.samples.length === 20 * 480, `${late.spurts} spurt, ${late.samples.length} samples`);
+  // Frames 10-49 (0.8 s) lost before the server; frame 50 arrives at its time.
+  const gap = await decodeOne(steamDemo(run(100, 0, 60, { lost: Array.from({ length: 40 }, (_, k) => 10 + k), end: true })));
+  check('A real loss longer than four frames, its numbers jumping by as much, is concealed and not split',
+    gap.spurts === 1 && gap.concealed === 40 && gap.samples.length === 60 * 480 && gap.frameLog.slice(10, 50).every(c => c === 5) && gap.frameLog[50] !== 5,
+    `${gap.concealed} frames concealed, ${gap.spurts} spurt`);
+  // Number 5000 one batch after number 9: 4990 frames in 60 ms.
+  const corrupt = await decodeOne(steamDemo(run(100, 0, 10), run(116, 5000, 10, { end: true })));
+  check('A jump far larger than the time that passed conceals nothing',
+    corrupt.concealed === 0 && corrupt.spurts === 1 && corrupt.samples.length === 20 * 480, `${corrupt.concealed} frames concealed, ${(corrupt.samples.length / rate).toFixed(2)} s`);
+  // 65530-65534, then 65535 or 0 lost, then on past the wrap.
+  const wrap = [5, 6].map(i => steamDemo(run(100, 65530, 12, { lost: [i], end: true })));
+  const wrapped = await Promise.all(wrap.map(decodeOne));
+  check('A frame lost at the 16-bit wrap of sequence numbers is concealed and counted',
+    wrapped.every((w, k) => w.concealed === 1 && w.frameLog[5 + k] === 5 && w.samples.length === 12 * 480 && w.spurts === 1)
+      && wrap.every(w => w.speakers[0].lost === 1 && w.speakers[0].spurts === 1),
+    `${wrapped.map(w => w.concealed).join(' and ')} concealed, ${wrap.map(w => w.speakers[0].lost).join(' and ')} counted lost`);
+}
 
 // Legacy engine codec: bare 64-byte CELT packets, no SteamID or CRC.
 const celt = await createCodec(22050, 512, { packetBytes: 64 });
