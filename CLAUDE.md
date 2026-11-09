@@ -26,7 +26,9 @@ pnpm dev                  # the app on a local server
 
 `pnpm test:all` is what CI runs (vendor check, Node suites, browser suite). The `CHROMIUM_EXECUTABLE` line is for a
 machine whose installed Chromium is not the one Playwright pins; elsewhere `pnpm test:browser` is enough.
-`tests/accuracy.mjs` and `tests/retiming.mjs` need the owner's recordings, which are not in the repository.
+`tests/accuracy.mjs` and `tests/retiming.mjs` need the owner's recordings, which are not in this repository: they are
+in a private one a session can attach (`docs/PROGRESS.json`, `stands.takes`, says how to point the tests at it).
+Nothing from it is ever copied here.
 
 There is no build step: the files in the repository are the site.
 

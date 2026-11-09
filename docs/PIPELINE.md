@@ -12,7 +12,7 @@ files, since model names stay out of the repository: it is chosen when the agent
 
 | Role | Does | Runs on | Effort | Can edit |
 |---|---|---|---|---|
-| orchestrator (the main session) | writes briefs, reads every diff it merges, judges findings, merges, keeps PROGRESS | the stronger model | high | yes |
+| orchestrator (the main session) | writes briefs, reads every diff it merges, judges findings, merges, keeps PROGRESS | either (see below) | high | yes |
 | planner | turns a goal into work orders, as a fresh agent that reads only the repository | the stronger model | high | its plan branch only |
 | plan reviewer | reads a plan as the one who would have to build it | the builders' model | high | no |
 | `tf-builder` | builds one order | the builders' model | xhigh (high for a small order) | its worktree only |
@@ -23,8 +23,8 @@ files, since model names stay out of the repository: it is chosen when the agent
 
 ## Which model does what
 
-Two models are in use: the stronger one the orchestrating session runs on, and the one builders run on, which costs
-half as much per token.
+Two models are in use: a stronger one, and the one builders run on, which costs half as much per token. The
+orchestrating session may run on either; the owner switches it.
 
 - **The builders' model where a test can say whether the work is right:** building an order whose checks are written
   down, and breaking code to see whether the tests notice.
@@ -40,10 +40,19 @@ the stronger model at high effort matching the builders' model at its highest fo
 one coding benchmark: that has not been tried here, and one order built that way would show it. Nearly all of these
 figures are the vendor's own. Re-read this section when either model changes.]
 
+- **When the session runs on the builders' model,** the stronger model's work is done by agents started on the
+  stronger model: the planner, the skeptic, and a second reader for the diff of any order that changes how renders
+  are computed, what a constant is, or what the evidence is said to show. The orchestrator keeps the routine work:
+  briefs for orders a plan already wrote, reading CI, merging, PROGRESS. It does not settle by itself a question the
+  stronger model would be given; it writes the question down as an order for one. [The split is by the kind of
+  work, not by which model happens to be in the chair, so a switch changes who does a job and not whether it is
+  done.]
+- **Everything a session needs is in the repository:** PROGRESS says what is in flight, on which branch and at
+  which stage, and each order and report is a file. [The session can be switched, compacted or lost at any time.]
 - **The orchestrator reads the diff of what it merges,** not only the builder's and the reviewer's summaries. [A
   summary names the large changes and leaves out small ones.]
-- **After a fix round the orchestrator reviews the fix itself,** and starts a second reviewer only when the fix is as
-  large as an order.
+- **After a fix round the fix is reviewed by the stronger model** (the orchestrator, or a second reader), and a
+  second reviewer is started only when the fix is as large as an order.
 - **A plan is still read by a different model before its build:** the stronger model writes it, and an agent on the
   builders' model reads it for what it could not build from the order as written.
 
