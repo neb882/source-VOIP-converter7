@@ -52,8 +52,8 @@ the count wrap-aware.
 message counts and, per speaker, frames, talk spurts, DTX frames, frames lost before the server, the bitrate while
 coding (frames over 2 bytes), the TOC configurations, and how the decode placed the spurts. Per speaker it writes
 `<demo>.<speaker>.wav` (16-bit at the codec's rate), `.packets.tsv` (tick, kind, seq, bytes) and `.frames.tsv`
-(frame, start, code, bytes). Output goes to `--out`, else the demo's folder; `.gitignore` covers the demovoice
-folder's `.dem`, `.wav`, `.tsv` and `out/`. Legacy CELT demos go through the same path (CELT 0.11).
+(frame, start, code, bytes). Output goes to `--out`, else (after the review) `tests/demovoice/out/`; `.gitignore` covers the
+demovoice folder's `.dem`, `.wav`, `.tsv` and `out/`. Legacy CELT demos go through the same path (CELT 0.11).
 
 ### Wording
 
@@ -70,7 +70,7 @@ tense, that `demo.js` matched the older tool's 5148 records byte for byte on the
 | Node suites | `pnpm test` | exit 0; last lines: `45 video checks passed`, `26 demo checks passed` (also 209, 119, 40, 66, 23 passed, 0 failed) |
 | Browser suite | `flock /tmp/tf2ve-heavy.lock env CHROMIUM_EXECUTABLE=… node tests/browser.verify.js` | exit 0, `169 browser checks passed`; the demo section passes (160 frames, 1 lost, 1 DTX) |
 | Tool on the fixture | `node tests/demovoice/extract.mjs tests/demo/synthetic.dem --out <scratch>` | see below; matches the suite's assertions (speaker 1: 30 frames, 2 spurts, 1 DTX, 1 lost; speaker 2: 1 spurt) |
-| CI | the `tests` workflow on the pushed branch | in the summary returned to the orchestrator |
+| CI | the `tests` workflow on the pushed branch | run 42708582264 on `3d6909c`: success |
 
 Tool output on the fixture (test SteamIDs, universe 0):
 
@@ -131,3 +131,32 @@ ones the brief requires.
 - `speakers()`' loss count no longer counts forward steps of 32768 or more (read as backwards). No known demo has one.
 - Added a `demo:extract` script and a `tests/demovoice/out/` ignore line, as conveniences the order allowed.
 - The tool's bitrate counts frames over 2 bytes exactly, where the old summary subtracted one byte per DTX frame.
+
+## Review fixes
+
+CI on the first push: run 42708582264 on `3d6909c`, success. Main was merged in (docs only) before the fixes. Each
+finding was reproduced first: F1 by running the tool without `--out` on a copy of the fixture named `voicetest.dem`
+in a scratch folder (six files appeared beside it), and F2 to F4 by mutants that passed all 26 checks. F5 was
+reproduced by the check below on the old tool ("20 frames in 0 talk spurts").
+
+- **F1:** without `--out`, `extract.mjs` writes to `tests/demovoice/out/` resolved from its own folder, and prints
+  `writing to <folder>`. README.md and the demovoice README say where the files go. New check: the tool run
+  without `--out`, from a temporary folder holding a copy of the fixture, leaves only the demo there and writes
+  six files under `tests/demovoice/out/`, which the check then removes. On the old tool it fails (6 files beside
+  the demo, 0 in `out/`; with no `out/` folder at all the old suite stopped on a missing-folder error, now guarded).
+- **F2:** the lost-marker check asserts `speakers()` counts 0 lost. The guard's mutant now fails it ("65526 counted
+  lost"); the wrap check already asserted 1 lost in both wrap cases.
+- **F3:** a lost marker, 30 minutes of silence and a number restart: 2 spurts, nothing concealed, the second at its
+  tick. Without `jump < 0x8000` it fails ("1 spurts, 65526 concealed, ends at 21.85 min").
+- **F4:** jumps of 24 and 26 frames inside one batch (no time elapsed) are concealed and a break respectively, which
+  pins the slack between 0.48 and 0.52 s; a 100-frame jump at the last batch of a 150-frame spurt conceals
+  nothing. Slack 30 s fails both ("24 and 26 frames concealed", "100 frames concealed"); slack 0.04 s fails the
+  first ("0 and 0 frames concealed"); counting time from the spurt's start fails the second ("100 frames
+  concealed").
+- **F5:** for legacy codecs the tool prints the decode's spurt count, "(from gaps in ticks)", and says losses
+  before the server are unknown. New check on the suite's vaudio_celt demo: "20 frames in 1 talk spurt".
+- **F6:** deferred by the orchestrator; the rule is unchanged.
+
+`demo.js` is unchanged by the fixes, so the fixture's hashes above still hold (re-run: identical).
+`node tests/demo.verify.mjs`: `31 demo checks passed`. `pnpm test`: exit 0, ending `45 video checks passed`,
+`31 demo checks passed`. The browser suite was not re-run: nothing the page loads changed.
