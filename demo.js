@@ -164,8 +164,11 @@
       if (cmd === 7) break;                                             // stop
       if (cmd === 1 || cmd === 2) {                                     // sign-on / packet
         at += 84;                                                       // flags, view angles, sequence numbers
+        if (at + 4 > u8.length) break;                                  // cut off inside the frame header
         const length = u32(), end = Math.min(u8.length, at + length);
-        const b = new Bits(u8, at * 8, end * 8);
+        // A reader over this packet alone: bit positions in the whole file
+        // pass 2^31 at 256 MiB, beyond what the reader's bit operations hold.
+        const b = new Bits(u8.subarray(at, end));
         try {
           while (b.left >= 6) message(b.read(6), b, header.protocol, out, tick);
         } catch (error) { out.errors++; }
@@ -173,6 +176,7 @@
       } else if (cmd === 3) {                                           // sync tick
       } else if (cmd === 5 || cmd === 4 || cmd === 6 || cmd === 8) {    // user command, console command, data tables, string tables
         if (cmd === 5) at += 4;                                         // its sequence number
+        if (at + 4 > u8.length) break;                                  // cut off inside the frame header
         const length = u32();
         at += length;
       }

@@ -168,6 +168,32 @@ check('A client demo has voice messages but no speakers', client.voice.length ==
 assert.throws(() => D.parse(new Uint8Array(2000)), /not a Source demo/);
 check('A file that is not a demo is refused', true);
 
+// A demo cut short (a crash, or a recording still being written) keeps the
+// voice before the cut, wherever the cut falls, frame headers included.
+{
+  let thrown = 0, shrank = 0, last = 0;
+  for (let n = 1072; n <= bytes.length; n++) {
+    let count;
+    try { count = D.parse(bytes.subarray(0, n)).voice.length; } catch (error) { thrown++; continue; }
+    if (count < last) shrank++;
+    last = count;
+  }
+  check('A demo cut off at any byte keeps the voice before the cut', thrown === 0 && shrank === 0 && last === 6,
+    `${bytes.length - 1071} cuts, ${thrown} refused`);
+}
+
+// Voice deep in a long demo: bit positions in the file pass 2^31 at 256 MiB.
+{
+  const pad = 257 * 1048576, big = new Uint8Array(bytes.length + 9 + pad);
+  big.set(bytes.subarray(0, 1072));
+  big[1072] = 4;                                             // a console command frame `pad` bytes long
+  new DataView(big.buffer).setUint32(1072 + 5, pad, true);
+  big.set(bytes.subarray(1072), 1072 + 9 + pad);
+  const late = D.parse(big);
+  check('Voice more than 256 MiB into a demo is read', late.voice.length === 6 && late.errors === 0
+    && late.speakers.map(s => s.frames).join() === parsed.speakers.map(s => s.frames).join());
+}
+
 // The receiver alone: voice that arrives already coded skips the sender. A
 // quiet spurt the sender's gate would silence comes through, raised by the
 // receiver's auto-gain, and the render reports the demo's own frames.
