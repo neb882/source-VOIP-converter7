@@ -178,11 +178,19 @@ const same = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buf
 {
   // Ten frames at tick 100 (written up to sample 4800, tick 113.3), then a
   // second spurt whose numbers start again: its marker-carrying packet lost.
-  const lostMarker = await decodeOne(steamDemo(run(100, 0, 10), run(300, 0, 10, { end: true })));
+  const lostMarkerDemo = steamDemo(run(100, 0, 10), run(300, 0, 10, { end: true }));
+  const lostMarker = await decodeOne(lostMarkerDemo), lostCount = lostMarkerDemo.speakers[0].lost;
   const intact = await decodeOne(steamDemo(run(100, 0, 10, { end: true }), run(300, 0, 10, { end: true })));
-  check('A spurt after a lost end marker, its numbers starting again, sits at its tick with a fresh decoder',
-    lostMarker.spurts === 2 && lostMarker.concealed === 0 && lostMarker.samples.length === at(300) + 10 * 480 && same(lostMarker.samples, intact.samples),
-    `${lostMarker.spurts} spurts, ${(lostMarker.samples.length / rate).toFixed(3)} s, ${same(lostMarker.samples, intact.samples) ? 'the same samples as with its marker' : 'not the samples it has with its marker'}`);
+  check('A spurt after a lost end marker, its numbers starting again, sits at its tick with a fresh decoder, and no frame counts as lost',
+    lostMarker.spurts === 2 && lostMarker.concealed === 0 && lostMarker.samples.length === at(300) + 10 * 480 && same(lostMarker.samples, intact.samples) && lostCount === 0,
+    `${lostMarker.spurts} spurts, ${(lostMarker.samples.length / rate).toFixed(3)} s, ${same(lostMarker.samples, intact.samples) ? 'the same samples as with its marker' : 'not the samples it has with its marker'}, ${lostCount} counted lost`);
+  // The same after 30 minutes of silence: a number going backwards is a
+  // break whatever time has passed (65526 frames would fit in 30 minutes).
+  const tick30 = 100 + 30 * 60 / .015, longDemo = steamDemo(run(100, 0, 10), run(tick30, 0, 10, { end: true }));
+  const long = await decodeOne(longDemo);
+  check('and after 30 minutes of silence it is still a new spurt at its tick, nothing concealed',
+    long.spurts === 2 && long.concealed === 0 && long.samples.length === at(tick30) + 10 * 480 && longDemo.speakers[0].lost === 0,
+    `${long.spurts} spurts, ${long.concealed} concealed, ends at ${(long.samples.length / rate / 60).toFixed(2)} min`);
   // Tick 117 is sample 6120, within four frames (sample 6720) of the write position.
   const close = await decodeOne(steamDemo(run(100, 0, 10), run(117, 0, 10, { end: true })));
   check('the same spurt arriving within four frames of the write position is decoded in place',
@@ -200,6 +208,19 @@ const same = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buf
   const corrupt = await decodeOne(steamDemo(run(100, 0, 10), run(116, 5000, 10, { end: true })));
   check('A jump far larger than the time that passed conceals nothing',
     corrupt.concealed === 0 && corrupt.spurts === 1 && corrupt.samples.length === 20 * 480, `${corrupt.concealed} frames concealed, ${(corrupt.samples.length / rate).toFixed(2)} s`);
+  // The slack, from both sides: frames 0-2, then a jump of 24 or 26 frames
+  // in the same batch (no time elapsed). 25 frames is half a second.
+  const jumpAt = (j) => steamDemo([{ tick: 100, frames: [0, 1, 2, 3 + j, 4 + j, 5 + j].map((seq, i) => ({ seq, data: packets[i] })).concat(['end']) }]);
+  const [inside, outside] = await Promise.all([24, 26].map(j => decodeOne(jumpAt(j))));
+  check('A jump just inside half a second with no time elapsed is concealed; one just outside it is a break that conceals nothing',
+    inside.concealed === 24 && inside.spurts === 1 && inside.samples.length === 30 * 480 && outside.concealed === 0 && outside.spurts === 1 && outside.samples.length === 6 * 480,
+    `${inside.concealed} and ${outside.concealed} frames concealed`);
+  // The time that passed is counted from the previous packet, not from the
+  // spurt's start: 150 frames (3 s), then a 100-frame jump in the last batch.
+  const lastTickAt = 100 + 4 * 49;
+  const deep = await decodeOne(steamDemo(run(100, 0, 150), [{ tick: lastTickAt, frames: [{ seq: 250, data: packets[0] }, 'end'] }]));
+  check('A large jump late in a long spurt with no time since the previous packet conceals nothing',
+    deep.concealed === 0 && deep.spurts === 1 && deep.samples.length === 151 * 480, `${deep.concealed} frames concealed`);
   // 65530-65534, then 65535 or 0 lost, then on past the wrap.
   const wrap = [5, 6].map(i => steamDemo(run(100, 65530, 12, { lost: [i], end: true })));
   const wrapped = await Promise.all(wrap.map(decodeOne));
