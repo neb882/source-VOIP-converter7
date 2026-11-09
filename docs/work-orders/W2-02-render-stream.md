@@ -8,6 +8,9 @@ May push its branch to run CI. **Time budget:** 1 day.
 Part of the long-renders plan (`docs/reports/W1-03-long-renders-plan.md`). Read its measurements and its "streaming
 prototype" section first: they say what was tried, what matched, and where the edges are.
 
+*Amended 2026-11-09 after the advisor's review: the test also records what `process()` gives today (the last item
+under "Done means"), so that a later order can replace `process()`'s body with the stream and prove nothing moved.*
+
 ## Why
 
 `TF2Audio.process` holds the whole source and several whole-length copies of it at once: measured in Node, its peak
@@ -99,3 +102,9 @@ Each with its command; run the heavy ones under `flock /tmp/tf2ve-heavy.lock`.
   resampler not flushed; the auto-gain's partial last block skipped; the codec restarted at a chunk edge instead of
   at a spurt; the loss mask drawn with `streamLossMask`. Say how each was broken and what failed.
 - CI passes on the pushed branch.
+- **Golden renders.** `tests/render-stream.verify.mjs` also holds the SHA-256 of `process()`'s WAV for every case of
+  its matrix, recorded from this branch before `createRender` is written (commit them first, in a commit of their
+  own), and checks `process()` against them on every run. [Equality between the two paths says they agree, not that
+  neither moved. With the hashes, a later order can make `process()` a thin wrapper over the stream, so there is one
+  path, and show that every recorded render is unchanged.] If a hash differs between this machine and CI, report
+  which case and stop: that would mean renders are not the same on every machine, which the project claims.

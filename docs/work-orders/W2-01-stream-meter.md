@@ -76,9 +76,10 @@ Each with its command.
 
 Things in the repository that disagree with README.md, PROGRESS or the tests, found by the W1-03 planner:
 
-- `docs/PROGRESS.json` (retired rule "Sources are cut at 10 minutes") says a 1 GB video is allowed "but only 10
+- `docs/PROGRESS.json` (retired rule "Sources are cut at 10 minutes") said a 1 GB video is allowed "but only 10
   minutes of [it] rendered". The code refuses any audio or video file whose decoded length is over 10 minutes
   (`app/source.js`, `loadSourceFromArrayBuffer` and `mountSource`); only a demo is cut to its first 10 minutes.
+  (Corrected in PROGRESS on 2026-11-09.)
 - README's limits sentence ("100 MB (1 GB for video) and 10 minutes per file") does not mention demos, which have
   their own 512 MB limit and are cut rather than refused.
 - README says the live chain's loss model equals the render's, and tests/verify.js section 10b checks

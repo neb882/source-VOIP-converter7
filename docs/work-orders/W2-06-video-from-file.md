@@ -12,6 +12,8 @@ the source is loaded. **Download video** then builds a Blob from `subarray`s of 
 time. With a 30-minute source, a 1 GB video holds 1 GB for nothing between downloads and needs about 3 GB at the
 moment of loading. A `File` is already on disk: `File.slice()` ranges in a Blob are not copied by browsers.
 
+*Amended 2026-11-09 after the advisor's review: point 4, a file that can no longer be read.*
+
 ## Files
 
 May touch: `video.js` (`remux` takes the file's bytes as now or a `Blob`/`File` for the sample data),
@@ -29,11 +31,17 @@ May not touch: `audio.js`, `app/render.js`, `app/visualizer.js`, `docs/PROGRESS.
 3. Reading the index needs only the box headers and `moov` (and `moof`s for fragmented files): read them with
    `file.slice(...).arrayBuffer()` rather than the whole file where the file is large. If that is more than a
    4-hour change, keep the whole-file read at load, drop it after parsing, and say so in the report.
+4. **A file that has gone.** A `File` is a reference: if the user moves, edits or deletes the video after loading
+   it, reading it fails where today's in-memory copy would not. **Download video** then says that the video file
+   can no longer be read and to load it again, and leaves the render and the audio download usable. Read what the
+   remux needs from the file before building the Blob (the index at least), so the failure shows as that message
+   and not as a broken download.
 
 ## Done means
 
 - `node tests/video.verify.mjs` passes, and for every fixture the output is byte-identical to the output of the
   current `remux` (compute both in the test).
-- The browser suite's video checks pass.
+- The browser suite's video checks pass, with a new one: a video source whose file can no longer be read (a
+  stand-in whose `slice().arrayBuffer()` rejects) gives the message of point 4 and leaves the audio download enabled.
 - Each new check fails when broken (an off-by-one sample run; a fragmented file's offsets); say how.
 - CI passes on the pushed branch.
