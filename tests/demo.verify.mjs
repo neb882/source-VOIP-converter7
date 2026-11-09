@@ -3,11 +3,16 @@
 // frame and end-of-transmission markers, from two speakers), messages that
 // must be skipped at odd bit offsets, and a legacy vaudio_celt demo; then
 // talk spurts whose end marker was lost, real and impossible losses and the
-// 16-bit wrap of sequence numbers. Real demos are players' voices and stay
-// out of the repository.
+// 16-bit wrap of sequence numbers, and the extraction tool
+// (tests/demovoice/extract.mjs). Real demos are players' voices and stay out
+// of the repository.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import * as opus from '../vendor/libopus-1.1/index.mjs';
 import { createCodec } from '../vendor/celt-0.11/index.mjs';
 import { audioEngine } from './reference.compare.mjs';
@@ -202,6 +207,25 @@ const same = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buf
     wrapped.every((w, k) => w.concealed === 1 && w.frameLog[5 + k] === 5 && w.samples.length === 12 * 480 && w.spurts === 1)
       && wrap.every(w => w.speakers[0].lost === 1 && w.speakers[0].spurts === 1),
     `${wrapped.map(w => w.concealed).join(' and ')} concealed, ${wrap.map(w => w.speakers[0].lost).join(' and ')} counted lost`);
+}
+
+// The extraction tool on the fixture: the summary of the checks above, a WAV
+// with each spurt at its tick and the packet and frame tables.
+{
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'tf2ve-extract-'));
+  try {
+    const printed = execFileSync(process.execPath, [fileURLToPath(new URL('./demovoice/extract.mjs', import.meta.url)), fileURLToPath(fixture), '--out', out], { encoding: 'utf8' });
+    const wav = fs.readFileSync(path.join(out, 'synthetic.4503603922337793.wav'));
+    const packetRows = fs.readFileSync(path.join(out, 'synthetic.4503603922337793.packets.tsv'), 'utf8').trim().split('\n');
+    const frameRows = fs.readFileSync(path.join(out, 'synthetic.4503603922337793.frames.tsv'), 'utf8').trim().split('\n');
+    check('tests/demovoice/extract.mjs summarises the fixture as these checks do', /4503603922337793: 30 frames in 2 talk spurts, 1 DTX, 1 lost before the server/.test(printed)
+      && /4503603922337794: 10 frames in 1 talk spurt, 0 DTX, 0 lost before the server/.test(printed) && /2 speakers/.test(printed),
+      printed.split('\n').find(l => l.includes('4503603922337793')).trim());
+    check('and writes the decoded voice, its packets and its frame log', wav.readUInt32LE(24) === rate && wav.readUInt32LE(40) === 2 * decoded.samples.length
+      && wav.readInt16LE(44 + 2 * 1000) === Math.max(-32768, Math.min(32767, Math.round(decoded.samples[1000] * 32768)))
+      && packetRows.length === 1 + 32 && frameRows.length === 1 + decoded.frameLog.length,
+      `${(wav.readUInt32LE(40) / 2 / rate).toFixed(2)} s, ${packetRows.length - 1} packets, ${frameRows.length - 1} frames`);
+  } finally { fs.rmSync(out, { recursive: true, force: true }); }
 }
 
 // Legacy engine codec: bare 64-byte CELT packets, no SteamID or CRC.

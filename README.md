@@ -252,7 +252,7 @@ pnpm compare:reference "path/to/loopback.mp3" "path/to/source-one.mp3" "path/to/
 
 None of the recordings or music files is distributed here. The synthetic test signals are: [tests/testsignal/](tests/testsignal/) rebuilds them bit for bit (numpy and scipy), with segment maps and recording steps. `make_testsignal.py` covers the receiver, and `make_nettest.py` is a one-minute signal for packet-loss and jitter takes.
 
-[tests/demovoice/](tests/demovoice/) extracts Steam's voice packets from a SourceTV demo (Rust) and decodes them with the bundled libopus. The output is the exact sender side of a take, with frame sizes, DTX and sequence gaps.
+[tests/demovoice/](tests/demovoice/) extracts Steam's voice packets from a SourceTV demo with the app's own reader (`demo.js`) and decodes them with the bundled libopus (`node tests/demovoice/extract.mjs voicetest.dem`). The output is the exact sender side of a take, with frame sizes, DTX and sequence gaps.
 
 ## Tests
 
