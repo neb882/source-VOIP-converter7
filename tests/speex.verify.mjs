@@ -13,11 +13,43 @@ function check(name, ok, detail = '') {
   passed++;
   console.log(`  ok    ${name}${detail ? `   [${detail}]` : ''}`);
 }
+const engineCode = fs.readFileSync(new URL('../constants.js', import.meta.url), 'utf8') + '\n' +
+  fs.readFileSync(new URL('../audio.js', import.meta.url), 'utf8');
 const sandbox = { window: {}, Blob, console, TF2Opus: opus };
 vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync(new URL('../constants.js', import.meta.url), 'utf8') + '\n' +
-  fs.readFileSync(new URL('../audio.js', import.meta.url), 'utf8'), sandbox);
+vm.runInContext(engineCode, sandbox);
 const A = sandbox.window.TF2Audio;
+// audio.js on an opus-codec.mjs whose frame-by-frame streams are watched:
+// restarts, decodes, concealments and every packet sent, in order.
+function watchedEngine() {
+  const log = { restarts: 0, decodes: 0, conceals: 0, sent: [] };
+  const watch = (make) => async (...args) => {
+    const stream = await make(...args);
+    return { ...stream,
+      async restart() { log.restarts++; log.sent.push('restart'); return stream.restart(); },
+      encode(frame) { const encoded = stream.encode(frame); log.sent.push(Array.from(encoded.packet).join()); return encoded; },
+      decode(packet) { log.decodes++; return stream.decode(packet); },
+      conceal() { log.conceals++; return stream.conceal(); },
+      free() { stream.free(); } };
+  };
+  const watched = { ...opus, createVoiceStream: watch(opus.createVoiceStream), createCeltStream: watch(opus.createCeltStream),
+    createSpeexStream: watch(opus.createSpeexStream) };
+  const box = { window: {}, Blob, console, TF2Opus: watched };
+  vm.createContext(box);
+  vm.runInContext(engineCode, box);
+  return { engine: box.window.TF2Audio, log };
+}
+// A live chain fed `x` 20 ms at a time: its output, frame codes and stats.
+async function runLive(engine, x, opts) {
+  const chain = await engine.createLiveChain(opts, SR);
+  const parts = [];
+  for (let o = 0; o < x.length; o += SR / 50) parts.push(await chain.process(x.subarray(o, o + SR / 50)));
+  const codes = chain.takeFrameCodes();
+  chain.free();
+  const out = new Float32Array(parts.reduce((t, p) => t + p.length, 0));
+  parts.reduce((o, p) => { out.set(p, o); return o + p.length; }, 0);
+  return { out, codes, stats: chain.stats, chain };
+}
 const PROFILES = vm.runInContext('CODEC_PROFILES', sandbox);
 const { FRAME } = opus;
 const SR = 48000, NB = 8000;
@@ -96,6 +128,10 @@ console.log('\n[Speex] The module: Speex 1.2.1 narrowband at the profile\'s sett
   const rates = await qualityBitrates();
   check('the narrowband qualities 0-10 run at the library\'s bitrates',
     JSON.stringify(rates) === JSON.stringify([2150, 3950, 5950, 8000, 8000, 11000, 11000, 15000, 15000, 18200, 24600]), rates.join(' '));
+  check('the profile\'s table of quality bitrates (for the chain strip) is the library\'s',
+    JSON.stringify(PROFILES.speex.qualityBitrates) === JSON.stringify(rates), PROFILES.speex.qualityBitrates.join(' '));
+  check('Speex frames have their own frame code, 7, after the others',
+    JSON.stringify(FRAME) === JSON.stringify({ gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6, speex: 7 }));
   check('a bitrate picks the nearest quality, the highest of those sharing a mode',
     await qualityForBitrate(8000) === 4 && await qualityForBitrate(3000) === 0 && await qualityForBitrate(5000) === 2
     && await qualityForBitrate(10000) === 6 && await qualityForBitrate(1e6) === 10);
@@ -113,17 +149,18 @@ console.log('\n[Speex] Packets: 20 bytes a frame at the default, the nearest qua
     r.realOpus && info.backend === 'speex' && info.version === 'Speex 1.2.1' && info.quality === 4 && info.bitrate === 8000
     && !info.vbr && !info.dtx && info.dtxFrames === 0 && info.plc === 'speex' && info.frameMs === 20 && info.frameSamples === 160,
     `${info.version}, quality ${info.quality}, ${info.bitrate} bps`);
-  check('every frame is one 20-byte packet', coded === info.frames && info.packetBytes === 20 && info.frameBytes.every(b => b === 20)
-    && info.encodedBytes === 20 * info.frames, `${info.frames} frames, ${info.encodedBytes} bytes`);
+  check('every frame is one 20-byte packet, logged and counted as Speex', coded === info.frames && info.packetBytes === 20
+    && info.frameBytes.every(b => b === 20) && info.encodedBytes === 20 * info.frames && info.frameLog.every(c => c === FRAME.speex)
+    && JSON.stringify(info.modes) === JSON.stringify({ silk: 0, hybrid: 0, celt: 0, speex: info.frames }), `${info.frames} frames, ${info.encodedBytes} bytes`);
   check('no sender gate by default: the engine codec transmits continuously', info.gate === null && info.gatedFrames === 0);
   const rates = await qualityBitrates();
-  const expected = { 4: [0, 6], 6: [0, 6], 8: [1, 10], 10: [2, 15], 12: [2, 15], 20: [6, 28], 24: [6, 28], 32: [8, 38] };
-  const got = [];
+  // Every snd_bits the page allows (4-16), and three the console allows past it.
+  const expected = { 4: [0, 6], 5: [0, 6], 6: [0, 6], 7: [1, 10], 8: [1, 10], 9: [1, 10], 10: [2, 15], 11: [2, 15], 12: [2, 15],
+    13: [2, 15], 14: [4, 20], 15: [4, 20], 16: [4, 20], 20: [6, 28], 24: [6, 28], 32: [8, 38] };
   for (const [bits, [quality, bytes]] of Object.entries(expected)) {
     const target = 8000 * bits / 16;
     const nearest = rates.every(rate => Math.abs(rates[quality] - target) <= Math.abs(rate - target));
     const s = (await A.process(buffer(src.subarray(0, SR / 2)), { codec: 'speex', bits: Number(bits) })).codecInfo;
-    got.push(`${bits}: q${s.quality} ${s.frameBytes[0]} B`);
     check(`snd_bits ${bits} (${target / 1000} kbps) codes at quality ${quality}, the nearest, in ${bytes}-byte packets`,
       nearest && s.quality === quality && s.bitrate === rates[quality] && s.frameBytes.every(b => b === bytes) && s.packetBytes === bytes,
       `quality ${s.quality}, ${s.bitrate} bps, ${s.frameBytes[0]} bytes`);
@@ -173,7 +210,7 @@ console.log('\n[Speex] Loss: Speex conceals a lost frame, and the frame log mark
   const info = lossy.info;
   check('the frame log marks the lost frame and the late one; the counts agree',
     info.frameLog[lost] === FRAME.lost && info.frameLog[late] === FRAME.late && info.lostFrames === 1 && info.underrunFrames === 1
-    && info.frameLog.filter(c => c === FRAME.celt).length === info.frames - 2 && info.plc === 'speex' && info.frameBytes[lost] === 20,
+    && info.frameLog.filter(c => c === FRAME.speex).length === info.frames - 2 && info.plc === 'speex' && info.frameBytes[lost] === 20,
     `frame ${lost}: code ${info.frameLog[lost]}, frame ${late}: code ${info.frameLog[late]}`);
   // Frame f plays from f * 160 - 80 (the delay is trimmed).
   const at = (samples, f) => samples.subarray(f * 160 - 80, f * 160 + 80);
@@ -236,6 +273,47 @@ console.log('\n[Speex] Determinism, and the sender gate when it is turned on');
     `${viaProfile.codecInfo.spurts} spurts, ${viaProfile.codecInfo.gatedFrames} gated`);
 }
 
+// Two identical 1.4 s parts at 48 kHz: a -65 dBFS noise floor and a steady
+// voiced burst from 0.4 to 0.9 s, that is frames 20-44 at 8 kHz. With the
+// gate on, the frames sent are 14-66 and 84-136: 6 frames (120 ms) of
+// pre-roll before each burst and 22 (440 ms) of hold after it.
+const gateParts = (() => {
+  const part = new Float32Array(Math.round(1.4 * SR));
+  let s = 11, phase = 0;
+  for (let i = 0; i < part.length; i++) {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    part[i] = 0.001 * (s / 2 ** 32 * 2 - 1);
+    if (i >= 0.4 * SR && i < 0.9 * SR) {
+      const f0 = 170 + 30 * Math.sin(2 * Math.PI * 1.3 * i / SR);
+      phase += f0 / SR;
+      for (let h = 2; h * f0 <= 3400; h++) part[i] += 0.1 * Math.sin(2 * Math.PI * h * phase + 0.3 * h * h) / h;
+    }
+  }
+  const x = new Float32Array(2 * part.length);
+  x.set(part); x.set(part, part.length);
+  return x;
+})();
+const gateSent = (f) => (f >= 14 && f <= 66) || (f >= 84 && f <= 136);
+
+console.log('\n[Speex] Render: the gate\'s pre-roll and hold, and the last partial frame');
+{
+  const r = await A.process(buffer(gateParts), { codec: 'speex', gate: true });
+  const log = r.codecInfo.frameLog, wrong = [];
+  log.forEach((c, f) => { if ((c !== FRAME.gated) !== gateSent(f)) wrong.push(f); });
+  check('with the gate on, a render sends 120 ms before each burst and 440 ms after it, as two talk spurts',
+    log.length === 141 && wrong.length === 0 && r.codecInfo.spurts === 2 && r.codecInfo.gatedFrames === 35 && r.codecInfo.gate === -39.5,
+    `${r.codecInfo.gatedFrames} of ${log.length} frames gated${wrong.length ? `; wrong at ${wrong.slice(0, 8).join(' ')}` : ''}`);
+  // Voice to the very end, 37 samples into a frame and on a frame boundary:
+  // the frames after the last full one (and the codec's delay) are coded.
+  for (const length of [100 * 160 + 37, 100 * 160]) {
+    const x = voiceBand(length / NB + 0.01, NB).subarray(0, length);
+    const { samples, info } = await opus.speexRoundTrip(x, NB);
+    const tail = rms(samples, length - 80, length), source = rms(x, length - 80, length);
+    check(`the last 10 ms of a ${length}-sample source are coded (frames ${info.frames})`,
+      info.frames === Math.ceil((length + 80) / 160) && tail > 0.3 * source, `${db(tail).toFixed(1)} dB against ${db(source).toFixed(1)} dB`);
+  }
+}
+
 console.log('\n[Speex] The WebAssembly build agrees with a native build (tests/speex/native.mjs)');
 {
   // Recorded from `node tests/speex/native.mjs`: the pinned sources built natively with
@@ -260,13 +338,7 @@ console.log('\n[Speex] The live chain runs Speex frame by frame');
 {
   const src = voiceBand(3, SR);
   const opts = { codec: 'speex', volume: 1 };
-  const chain = await A.createLiveChain(opts, SR);
-  const parts = [];
-  for (let o = 0; o < src.length; o += SR / 50) parts.push(await chain.process(src.subarray(o, o + SR / 50)));
-  const codes = chain.takeFrameCodes();
-  const live = new Float32Array(parts.reduce((t, p) => t + p.length, 0));
-  parts.reduce((o, p) => { live.set(p, o); return o + p.length; }, 0);
-  chain.free();
+  const { out: live, codes, stats, chain } = await runLive(A, src, opts);
   const offline = (await A.process(buffer(src), opts)).samples;
   // The chain's delay: Speex's 80 samples at 8 kHz and the output FIR's one sample at 44.1 kHz.
   const shift = Math.round((80 / NB + 1 / 44100) * SR);
@@ -278,15 +350,89 @@ console.log('\n[Speex] The live chain runs Speex frame by frame');
     chain.version === 'Speex 1.2.1' && r > 0.9 && Math.abs(level) < 0.5, `r ${r.toFixed(3)}, ${level.toFixed(2)} dB`);
   check('its stated delay includes Speex\'s 80 samples, and lines it up with the render to the sample',
     chain.contentDelay === shift && peak === 0 && chain.frameSize === 160, `contentDelay ${chain.contentDelay}, peak at ${peak}`);
-  check('its frames are 20-byte Speex packets, logged with the CELT code',
-    codes.length === chain.stats.frames && codes.every(c => c === FRAME.celt) && chain.stats.bytes === 20 * chain.stats.sent
-    && chain.stats.modes.celt === chain.stats.sent, `${chain.stats.sent} frames, ${chain.stats.bytes} bytes`);
-  const lossy = await A.createLiveChain({ codec: 'speex', lossPct: 30, seed: 5 }, SR);
-  for (let o = 0; o < src.length; o += SR / 50) await lossy.process(src.subarray(o, o + SR / 50));
-  const lossyCodes = lossy.takeFrameCodes();
-  lossy.free();
-  check('the live chain conceals lost frames with Speex and logs them', lossy.stats.lost > 5
-    && lossyCodes.filter(c => c === FRAME.lost).length === lossy.stats.lost, `${lossy.stats.lost} of ${lossy.stats.frames} lost`);
+  check('its frames are 20-byte Speex packets, logged and counted as Speex',
+    codes.length === stats.frames && codes.every(c => c === FRAME.speex) && stats.bytes === 20 * stats.sent
+    && stats.modes.speex === stats.sent && stats.lastMode === 'speex', `${stats.sent} frames, ${stats.bytes} bytes`);
+
+  // Loss without the gate: the live chain and a render lose the same frames,
+  // and both conceal them with Speex, so they agree sample for sample but
+  // for the resamplers' edges.
+  const lossOpts = { codec: 'speex', lossPct: 15, seed: 4, agc: false, volume: 1 };
+  const lossy = await runLive(A, src, lossOpts);
+  const lossyRender = await A.process(buffer(src), lossOpts);
+  const lossR = correlate(lossyRender.samples, lossy.out.subarray(shift), 0, SR / 2);
+  const renderLost = lossyRender.codecInfo.frameLog.filter(c => c === FRAME.lost).length;
+  check('with net_fakeloss the live chain loses the render\'s frames, conceals them with Speex and logs them',
+    lossy.stats.lost > 10 && lossy.codes.filter(c => c === FRAME.lost).length === lossy.stats.lost
+    && lossy.codes.every((c, f) => c === lossyRender.codecInfo.frameLog[f]) && lossR > 0.999,
+    `${lossy.stats.lost} of ${lossy.stats.frames} lost (render ${renderLost}), r ${lossR.toFixed(4)}`);
+
+  // The stream itself: restart() gives a fresh encoder and decoder, and
+  // conceal() is Speex's own concealment.
+  const stream = await opus.createSpeexStream(NB, { bitrate: 8000 });
+  const frames = Array.from({ length: 25 }, (_, f) => voiceBand(0.5, NB).subarray(f * 160, f * 160 + 160));
+  const pass = () => frames.map(frame => { const e = stream.encode(frame); return { packet: Array.from(e.packet).join(), out: stream.decode(e.packet).slice() }; });
+  const first = pass();
+  const plc = stream.conceal().slice();
+  await stream.restart();
+  const second = pass();
+  stream.free();
+  const ref = await createCodec(4);
+  for (const frame of frames) ref.decode(ref.encode(frame));
+  const refPlc = ref.conceal();
+  ref.free();
+  check('the live stream\'s restart() starts a fresh encoder and decoder: the same frames give the same packets and samples',
+    first.every((p, i) => p.packet === second[i].packet && same(p.out, second[i].out)));
+  check('the live stream\'s conceal() is Speex\'s own concealment', same(plc, refPlc) && rms(plc) > 0.01, `${db(rms(plc)).toFixed(1)} dBFS`);
+
+  // The gate in the live chain: the render's frames, pre-roll and hold
+  // included, and a fresh codec for each talk spurt.
+  const watched = watchedEngine();
+  const gated = await runLive(watched.engine, gateParts, { codec: 'speex', gate: true });
+  const wrong = [];
+  gated.codes.forEach((c, f) => { if ((c !== FRAME.gated) !== gateSent(f)) wrong.push(f); });
+  const spurts = watched.log.sent.join('|').split('|restart|').map(p => p.split('|'));
+  check('with the gate on, the live chain sends the render\'s frames: 120 ms of pre-roll and 440 ms of hold',
+    gated.codes.length > 130 && wrong.length === 0 && gated.stats.spurts === 2,
+    `${gated.codes.length} frames, ${gated.stats.spurts} spurts${wrong.length ? `; wrong at ${wrong.slice(0, 8).join(' ')}` : ''}`);
+  check('each live talk spurt restarts Speex: the second sends the same packets as the first',
+    watched.log.restarts === 1 && spurts.length === 2 && spurts[0].length === 53 && spurts[1].length >= 47
+    && spurts[1].every((p, i) => p === spurts[0][i]), `${spurts.map(p => p.length).join(' and ')} packets`);
+
+  // snd_bits in the live chain: the render's quality, and its bitrate reported.
+  const rates = await qualityBitrates();
+  const short = src.subarray(0, SR / 2), got = [];
+  let agree = true;
+  for (let bits = 4; bits <= 16; bits++) {
+    const render = (await A.process(buffer(short), { codec: 'speex', bits })).codecInfo;
+    const run = await runLive(A, short, { codec: 'speex', bits });
+    const bytes = run.stats.bytes / run.stats.sent;
+    got.push(`${bits}:${bytes}B/${run.chain.bitrate}`);
+    agree &&= bytes === render.packetBytes && run.chain.bitrate === render.bitrate && rates.includes(run.chain.bitrate);
+  }
+  check('at every snd_bits from 4 to 16 the live chain codes at the render\'s quality and reports its bitrate', agree, got.join(' '));
+}
+
+console.log('\n[Live chain] Every profile: a codec restart per talk spurt, and late frames play silence');
+{
+  // Shared code in audio.js, so Steam and vaudio_celt as well as Speex.
+  for (const codec of ['steam', 'celt_22', 'speex']) {
+    const spurt = await (async () => {
+      const watched = watchedEngine();
+      const run = await runLive(watched.engine, gateParts, { codec, gate: true });
+      return { restarts: watched.log.restarts, spurts: run.stats.spurts };
+    })();
+    check(`${codec}: the live chain restarts the codec for each talk spurt after the first`,
+      spurt.spurts === 2 && spurt.restarts === 1, `${spurt.spurts} spurts, ${spurt.restarts} restarts`);
+    // Jitter without the gate: late frames are neither decoded nor concealed.
+    const watched = watchedEngine();
+    const run = await runLive(watched.engine, voiceBand(3, SR), { codec, gate: false, jitterMs: 500, seed: 9 });
+    const late = run.codes.filter(c => c === FRAME.late).length, lost = run.codes.filter(c => c === FRAME.lost).length;
+    check(`${codec}: a late frame plays silence; a lost one is concealed`,
+      run.stats.late > 0 && late === run.stats.late && lost === run.stats.lost && watched.log.conceals === run.stats.lost
+      && watched.log.decodes === run.stats.sent - run.stats.lost - run.stats.late,
+      `${run.stats.late} late, ${run.stats.lost} lost; ${watched.log.conceals} concealed, ${watched.log.decodes} decoded of ${run.stats.sent}`);
+  }
 }
 
 console.log('\n[Speex] Wording');

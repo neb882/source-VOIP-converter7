@@ -307,14 +307,14 @@ async function main() {
   console.log('\n[5] Real codec modes per profile');
   {
     const src = musicLike(1, SR, 3);
-    const expect = { steam: ['hybrid', 32000], steam_48: ['hybrid', 64000], celt_22: ['celt', 22050], celt_44: ['celt', 165375], speex: ['celt', 8000] };
+    const expect = { steam: ['hybrid', 32000], steam_48: ['hybrid', 64000], celt_22: ['celt', 22050], celt_44: ['celt', 165375], speex: ['speex', 8000] };
     for (const [codec, [mode, bitrate]] of Object.entries(expect)) {
       const r = await TF2Audio.process(mkBuffer(src, SR), { codec });
       const m = r.codecInfo.modes;
-      const total = m.silk + m.hybrid + m.celt;
+      const total = Object.values(m).reduce((sum, n) => sum + n, 0);
       // The engine codecs run their own libraries in fixed-size packets: CELT
-      // 0.11, and Speex 1.2.1, whose frames the log counts as CELT (it has no
-      // Speex code). The Steam profiles run the libopus release Steam's packets match.
+      // 0.11, and Speex 1.2.1, whose frames have a mode of their own. The
+      // Steam profiles run the libopus release Steam's packets match.
       const engine = codec.startsWith('celt') ? 'celt' : codec === 'speex' ? 'speex' : 'libopus';
       const name = { celt: 'CELT 0.11', speex: 'Speex 1.2.1', libopus: `libopus runs in ${mode} mode` }[engine];
       check(`${codec}: ${name} at ${bitrate / 1000} kbps`,

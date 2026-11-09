@@ -488,6 +488,60 @@ async function verifyDemo(page) {
   check(after.source === 'after-demo.wav' && after.process, 'a demo that cannot be read leaves the loaded source ready to process', after.source);
 }
 
+// A render with the speex profile names Speex wherever the page describes
+// the codec, and the chain strip shows the bitrate Speex runs at for every
+// snd_bits the page allows. Ends back on the Modern preset with a Steam render.
+async function verifySpeexPage(page) {
+  console.log('\n[Browser 3c2] The speex profile on the page');
+  const render = async () => {
+    const before = await page.evaluate(() => state.renderId);
+    await page.locator('#process').click();
+    await page.waitForFunction((id) => state.renderId > id, before, { timeout: 60000 });
+  };
+  await page.locator('#viz-wave').click();
+  await page.locator('#codec').selectOption('speex');
+  const consoleBefore = (await page.locator('#console-out').textContent()).length;
+  await render();
+  await page.waitForFunction(() => [...document.querySelectorAll('#viz-legend .lg-item')].some(e => e.querySelector('.lg-box')));
+  const seen = await page.evaluate((from) => {
+    const items = [...document.querySelectorAll('#viz-legend .lg-item')].filter(e => e.querySelector('.lg-box'));
+    const chain = [...document.querySelectorAll('#signal-chain li')].find(li => li.querySelector('b').textContent === 'Codec');
+    return { legend: items.map(e => e.textContent), legendTitles: items.map(e => e.title || e.querySelector('[title]')?.title || ''),
+      console: document.getElementById('console-out').textContent.slice(from), status: document.getElementById('source-status').textContent,
+      chain: chain ? chain.textContent : '', option: document.getElementById('codec').selectedOptions[0].textContent,
+      frames: state.lastCodecInfo.frames, color: FRAME_STYLE[7].color };
+  }, consoleBefore);
+  const sVoice = seen.console.split('\n').filter(l => l.includes('S_Voice')).join(' | ') || seen.console.slice(0, 300);
+  check(seen.legend.length === 1 && seen.legend[0] === `Speex ${seen.frames}`, 'a speex render\'s codec lane counts every frame as Speex', seen.legend.join(', '));
+  check(/S_Voice: Speex 1\.2\.1, 8 kbps CBR, 20-byte packets of 20 ms, native PLC \(Speex 100%\)/.test(seen.console),
+    'the console line names Speex 1.2.1 and its mode', sVoice);
+  check(/Ready · Speex 1\.2\.1 · 8 kbps/.test(seen.status), 'the status line names Speex 1.2.1', seen.status);
+  check(seen.chain.includes('Speex 8 kHz narrowband · CBR 8 kbps · 20 ms frames'), 'the chain strip describes Speex', seen.chain);
+  const texts = [...seen.legend, ...seen.legendTitles, sVoice, seen.status, seen.chain, seen.option];
+  check(texts.every(t => !/CELT|Opus|SILK/.test(t)), 'nothing on the page calls a speex render CELT, Opus or SILK', texts.filter(t => /CELT|Opus|SILK/.test(t)).join(' / '));
+  const hex = await page.evaluate(() => {
+    const canvas = document.getElementById('visualizer'), rect = canvas.getBoundingClientRect(), scale = canvas.width / rect.width;
+    const L = vizLayout(rect.width, rect.height);
+    const data = canvas.getContext('2d').getImageData(0, Math.round((L.laneY + L.laneH / 2) * scale), canvas.width, 1).data;
+    const out = new Set();
+    for (let i = 0; i < data.length; i += 4) out.add('#' + [data[i], data[i + 1], data[i + 2]].map(v => v.toString(16).padStart(2, '0')).join(''));
+    return [...out];
+  });
+  check(hex.includes(seen.color), 'the codec lane draws Speex frames in their own colour', seen.color);
+  // The bitrate of the quality Speex picks: the library's narrowband modes.
+  const expected = { 4: 2.15, 5: 2.15, 6: 2.15, 7: 3.95, 8: 3.95, 9: 3.95, 10: 5.95, 11: 5.95, 12: 5.95, 13: 5.95, 14: 8, 15: 8, 16: 8 };
+  const strip = [];
+  for (const bits of Object.keys(expected)) {
+    await page.locator('#bits').fill(bits);
+    await page.locator('#bits').dispatchEvent('change');
+    strip.push([bits, (await page.locator('#signal-chain').textContent()).match(/CBR ([\d.]+) kbps/)?.[1]]);
+  }
+  check(strip.every(([bits, kbps]) => Number(kbps) === expected[bits]), 'at every snd_bits from 4 to 16 the chain strip shows the bitrate Speex runs at',
+    strip.map(([b, k]) => `${b}:${k}`).join(' '));
+  await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
+  await render();
+}
+
 async function verifySourceDuringRender(page) {
   console.log('\n[Browser 3i] A new source during a render');
   await page.locator('#file').setInputFiles({ name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(30) });
@@ -592,6 +646,26 @@ async function verifyLiveMonitor(page) {
     `samples from ${take.low.toFixed(2)} to ${take.high.toFixed(2)}`);
   check(Math.abs(take.lag) <= 1 && take.r > 0.8, 'the recorded voice lines up with an offline render of the recorded microphone, within a sample',
     `peak at ${take.lag} samples, r ${take.r.toFixed(3)}`);
+
+  // The speex profile live: the panel, and a recorded take, name Speex.
+  await page.locator('#codec').selectOption('speex');
+  await page.waitForFunction(() => TF2Live.stats && TF2Live.stats.codec === 'speex' && TF2Live.stats.sent > 20, null, { timeout: 15000 });
+  const mode = await page.locator('#live-mode').textContent();
+  const consoleFrom = (await page.locator('#console-out').textContent()).length;
+  await page.locator('#live-record').click();
+  await page.waitForTimeout(1500);
+  await page.locator('#live-record').click();
+  await page.waitForFunction((n) => document.getElementById('console-out').textContent.length > n
+    && document.getElementById('console-out').textContent.slice(n).includes('S_Voice'), consoleFrom, { timeout: 20000 });
+  const speexTake = await page.evaluate((n) => ({ console: document.getElementById('console-out').textContent.slice(n).split('\n').filter(l => l.includes('S_Voice')).join(' | '),
+    status: document.getElementById('source-status').textContent,
+    legend: [...document.querySelectorAll('#viz-legend .lg-item')].filter(e => e.querySelector('.lg-box')).map(e => e.textContent) }), consoleFrom);
+  check(mode === 'Speex' && /S_Voice: Speex 1\.2\.1, 8 kbps CBR, 20 ms, native PLC \(Speex 100%\)/.test(speexTake.console)
+    && /Speex 1\.2\.1 · 8 kbps/.test(speexTake.status) && speexTake.legend.some(t => /^Speex \d+$/.test(t))
+    && !speexTake.legend.some(t => /^(SILK|Hybrid|CELT|DTX) /.test(t))
+    && ![speexTake.console, speexTake.status, ...speexTake.legend].some(t => /CELT|Opus|SILK/.test(t)),
+    'the live panel and a recorded speex take name Speex, not CELT or Opus', `mode ${mode}; ${speexTake.console}; ${speexTake.legend.join(', ')}`);
+  await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
   await page.locator('#live-toggle').click();
   await page.waitForFunction(() => !TF2Live.running);
   check(await page.locator('#live-toggle').getAttribute('aria-pressed') === 'false', 'the live monitor stops');
@@ -886,6 +960,7 @@ async function main() {
     check((await page.locator('#ng-in').textContent()).startsWith('50 '), 'net_graph reports the rendered packet rate', await page.locator('#ng-in').textContent());
     await page.locator('#console-input').fill('net_graph 0');
     await page.locator('#console-input').press('Enter');
+    await verifySpeexPage(page);
 
     const parity = await page.evaluate(async () => {
       const data = Float32Array.from({ length: 24000 }, (_, i) => .2 * Math.sin(2 * Math.PI * 431 * i / 24000));

@@ -23,7 +23,7 @@ const SIGNALS = { auto: -1000, voice: 3001, music: 3002 };
 
 // Codes in roundTrip's info.frameLog, one per 20 ms frame (info.frameBytes
 // holds each frame's packet size; 0 when the gate held it back).
-export const FRAME = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6 };
+export const FRAME = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6, speex: 7 };
 
 // RFC 6716 section 3.1: the TOC configuration number selects the coding mode.
 function packetMode(packet) {
@@ -270,8 +270,8 @@ async function openSpeex(sampleRate, options) {
   return speex.createCodec(quality);
 }
 
-// The same gate, loss and delay handling as roundTrip. The frame log has no
-// Speex code: coded frames are logged as FRAME.celt, as for CELT 0.11.
+// The same gate, loss and delay handling as roundTrip. Coded frames are
+// logged as FRAME.speex, and counted in modes.speex.
 export async function speexRoundTrip(samples, sampleRate, options = {}) {
   const codec = await openSpeex(sampleRate, options);
   try {
@@ -297,7 +297,7 @@ export async function speexRoundTrip(samples, sampleRate, options = {}) {
       const packet = codec.encode(input);
       encodedBytes += packet.byteLength;
       frameBytes[f] = packet.byteLength;
-      frameLog[f] = FRAME.celt;
+      frameLog[f] = FRAME.speex;
       coded++;
       options.onPacket?.(f, packet);
       const miss = lossMask ? lossMask[f] : 0;
@@ -322,7 +322,7 @@ export async function speexRoundTrip(samples, sampleRate, options = {}) {
       lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts,
       gate: gate ? Number(options.gate.thresholdDb) : null,
       prerollFrames: gate ? gate.preroll : 0, holdFrames: gate ? gate.hold : 0,
-      encodedBytes, modes: { silk: 0, hybrid: 0, celt: coded }, plc: 'speex', frameLog, frameBytes } };
+      encodedBytes, modes: { silk: 0, hybrid: 0, celt: 0, speex: coded }, plc: 'speex', frameLog, frameBytes } };
   } finally {
     codec.free();
   }
@@ -335,7 +335,7 @@ export async function createSpeexStream(sampleRate, options = {}) {
   return {
     frameSize: codec.frameSize, version: codec.version, lookahead: codec.lookahead, quality: codec.quality, bitrate: codec.bitrate,
     async restart() { codec.restart(); },
-    encode(frame) { const packet = codec.encode(frame); return { bytes: packet.byteLength, mode: 'celt', dtx: false, packet }; },
+    encode(frame) { const packet = codec.encode(frame); return { bytes: packet.byteLength, mode: 'speex', dtx: false, packet }; },
     decode(packet) { return codec.decode(packet); },
     conceal() { return codec.conceal(); },
     free() { codec.free(); }

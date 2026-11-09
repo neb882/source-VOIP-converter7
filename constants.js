@@ -209,7 +209,7 @@ const TF2_DATA = {
 const PRESETS = {
   // Measured baseline: Steam voice as recorded with voice_loopback in 2026.
   modern:  { codec: 'steam',   position: 'open',   hp: 0, lp: 20000, voice_scale: 1.0, gain: 1.0, loss: 0  },
-  // CELT-era codec stand-in with the same receiver path.
+  // vaudio_celt: the real CELT 0.11, with the same receiver path.
   legacy:  { codec: 'celt_22', position: 'open',   hp: 0, lp: 20000, voice_scale: 1.0, gain: 1.0, loss: 0  },
   // Loud mic spam: overdriven capture, in a tunnel for extra reverb drama.
   spam:    { codec: 'steam',   position: 'tunnel', hp: 0, lp: 20000, voice_scale: 1.0, gain: 3.0, loss: 0  },
@@ -275,9 +275,6 @@ const CODEC_PROFILES = {
     senderGate: { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 },
     voiceRate: 44100, mixer: 'sinc', status: 'experimental'
   },
-  // vaudio_celt is CELT 0.11 at 22050 Hz: 512-sample frames (23.2 ms) in
-  // 64-byte packets, 22.05 kbps. Opus's CELT layer is its descendant; this is
-  // a stand-in, not the 0.11 bitstream. See tests/LEGACY_CODECS.md.
   // vaudio_celt: the real codec, CELT 0.11 (vendor/celt-0.11), in the custom
   // mode three public decoders and two encoders agree on: 22050 Hz,
   // 512-sample frames (23.2 ms), 64-byte packets (22.05 kbps), complexity 10
@@ -306,6 +303,9 @@ const CODEC_PROFILES = {
   speex: {
     displayName: 'vaudio_speex (Speex 1.2.1, 8 kHz, 8 kbps)',
     engine: 'speex', codecRate: 8000, bitrate: 8000,
+    // Speex's narrowband bitrate at qualities 0-10, as the library reports
+    // them (pinned by tests/speex.verify.mjs), for the chain strip.
+    qualityBitrates: [2150, 3950, 5950, 8000, 8000, 11000, 11000, 15000, 15000, 18200, 24600],
     voiceRate: 11025, mixer: 'linear', status: 'modeled'
   }
 };
