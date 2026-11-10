@@ -13,17 +13,18 @@ and the merge waits on the owner's yes.
   stream A's first 12 samples. That was libswresample 4.12.100 (FFmpeg 6.1.1) on this machine, which has SSE4.2,
   AVX, AVX2 and FMA3 and does not report AVX as slow. So all four kernels could be forced here, and all sixteen
   hashes are confirmed natively.
-- The port equals the library sample for sample under each kernel on 83 streams: the four reference streams, the
-  50 random ones, 3 recorded short-start streams and 26 streams of packet sizes Steam does not send (4,990,615
-  samples per kernel). Its fused multiply-add equals the C library's `fmaf` on a million cases built to be hard.
+- The port equals the library sample for sample under each kernel on 84 streams: the four reference streams, the
+  50 random ones, 4 recorded short-start streams and 26 streams of packet sizes Steam does not send (4,991,529
+  samples per kernel). The review's own driver found no difference on 259.9 million samples per kernel. Its fused multiply-add equals the C library's `fmaf` on a million cases built to be hard.
   On 31,068 of them, rounding the double sum would be wrong.
 - `bank.mjs` under Node 22.23.4 gives the stored bank, SHA-256
   `318831365a80e9e689d9f730e975fc5713aeafacb5ead762a9b52a95802f867e`, which is the order's.
-- `tests/swresample.verify.mjs` has 41 checks and is in `pnpm test`. Each check failed under at least one of 26
-  breaks made in a scratch copy (table below). `pnpm test` passes. CI passed on every pushed head; the last one is
+- `tests/swresample.verify.mjs` has 43 checks and is in `pnpm test`. Each check failed under at least one of 30
+  breaks made in a scratch copy (table below; the fix round added stream H, the `fma32` edge cases and four
+  breaks). `pnpm test` passes. CI passed on every pushed head; the last one is
   in the hand-back.
-- Speed in Node: `fma3` runs at about 5 M output samples per second, 110 to 120 times real time. A 30-minute render
-  takes 15 to 16 s. `avx`, `sse` and `c` run at 10 to 13 M per second, so `fma3` is about 2.3 times slower than `avx`.
+- Speed in Node: `fma3` runs at about 5 to 8 M output samples per second, depending on the machine's load, which is
+  110 to 180 times real time. A 30-minute render takes 10 to 16 s. `avx`, `sse` and `c` run at 10 to 13 M per second, so `fma3` is about 2.3 times slower than `avx`.
 
 ## Files
 
@@ -59,13 +60,14 @@ the order says. The click positions are 184, 7047 and 7379. On stream A the kern
 samples, each by one. The response is 0.00, -0.11, -0.71, -2.43 and -3.95 dB, and the image is 12.24 dB under the
 input.
 
-Three more streams are recorded from the native library (`fma3`). Their first packets are 0, 20 and 32 samples:
+Four more streams are recorded from the native library (`fma3`). Their first packets are 0, 20, 32 and 0 samples; H reaches exactly 32 inputs before the 33rd:
 
 | Stream | Packets | Counts | Hash |
 | --- | --- | --- | --- |
 | E (seed 5) | 0 480 1440 | 0 853 2646 | `33e9bc8a3d7ea6a9b886db8c1582b19c1b117258cd550c9effc785d6ae345c61` |
 | F (seed 6) | 20 480 1440 | 0 908 2646 | `2017e939bb945143c1825422b84931f550883a14e35746d3a38f7a3398250c11` |
 | G (seed 7) | 32 480 1440 | 59 882 2646 | `deb4ead3a5867e8ccc82807b8ddbdb997c8dcbbc4682339ec55b865a6406c652` |
+| H (seed 8, fix round) | 0 32 1 480 | 0 0 32 882 | `391e9afe9e68147ebd3aba741dff8afb9793317f6b116afc6dd85769ae4cfab4` |
 
 ## How it was built
 
@@ -98,7 +100,10 @@ count check on streams A to D, and "edge" means the E, F and G streams.
 | Break | Checks that failed |
 | --- | --- |
 | fused step made multiply then add (`fma3`) | fma3 ABCD (they become exactly the `avx` hashes), edge E F, the fma3/avx difference (0 samples), fma32 ties, reset, classic script |
-| the fused step's tie rule dropped | fma32 ties (only that one: the streams never need the rule) |
+| the fused step's tie rule dropped | fma32 ties, fma32 edges (the streams never need the rule) |
+| `fma32`: halfway judged by 25 bits alone (the first version; fix round) | fma32 edges (`5.87747245476067e-39`, not a float) |
+| `fma32`: no special case past the largest float (fix round) | fma32 edges (`-Infinity -Infinity` for `FLT_MAX Infinity`) |
+| `fma32`: the overflow halfway point one double ulp off (fix round) | fma32 edges (`Infinity` for `FLT_MAX`) |
 | 8 sums made 4 (`fma3`) | fma3 ABCD, edge E F G, reset, classic script |
 | horizontal sums in another order (`fma3`: 0+1, 2+3, …) | fma3 ABCD, edge E G, reset, classic script |
 | `sse` horizontal sum as (0+1)+(2+3) | sse ABCD |
@@ -107,7 +112,8 @@ count check on streams A to D, and "edge" means the E, F and G streams.
 | output rounded half up | all sixteen hashes, edge E F G, reset, classic script |
 | output clipped at 32766 | all sixteen, first 12, D limits, edge, reset, classic script |
 | the start not mirrored | 12 hashes (B starts with zeros), first 12, edge, constant, reset, classic script |
-| the start mirrored at 16 inputs, not 33 | edge F |
+| the start mirrored at 16 inputs, not 33 | edge F, edge H |
+| the start mirrored at 32 inputs, not 33 (fix round) | edge H (`0 30 2 882`; the library gives `0 0 32 882`) |
 | the flush done on every packet | all sixteen, D limits, edge, response, image, reset, buffer (the rate), classic script |
 | the flush never done | all sixteen, D limits, edge F G, click, reset, buffer, classic script |
 | the flush of 8 samples | all sixteen, D limits, edge, click, reset, buffer, classic script |
@@ -124,8 +130,11 @@ count check on streams A to D, and "edge" means the E, F and G streams.
 | `bank.mjs` with Kaiser beta 8 | bank.mjs |
 | the bank stored from Kaiser beta 8 | everything that depends on samples, bank hash, bank.mjs, response, image |
 
-The same breaks were run through `native.mjs`. It fails (exit 1) on every break that changes a sample, and on the
-dropped tie rule through its `fmaf` comparison. It passes on the breaks that change no sample: phase 0's ulp, and
+The same breaks were run through `native.mjs`. It fails (exit 1) on every break that changes a sample. It also fails
+on the dropped tie rule (31,068 of its million `fmaf` cases, and 7 of the 10 recorded ones) and on the three
+`fma32` edge breaks (the recorded overflow or subnormal cases: "fma32 differs from fmaf"). In the fix round,
+`native.mjs` was changed to run `fma32` itself on the ten recorded cases, not only to check the records against
+`fmaf`; before that change it passed the three edge breaks. It passes on the breaks that change no sample: phase 0's ulp, and
 the interface, error type, buffer, export name and `bank.mjs` breaks, which are the suite's to catch.
 
 To run the breaks again: copy `vendor/swresample`, `tests/swresample` and `tests/swresample.verify.mjs` into a
@@ -147,12 +156,63 @@ The exact fused step makes `fma3` about 2.3 times slower than `avx`. That is abo
 next to the rest of the chain; nothing was optimised beyond this. The suite takes about 5 s, most of it the
 10-minute buffer check.
 
+## The owner's logs: the counts, and state kept across reconnects
+
+The orchestrator ran the packet sizes of the owner's game logs (Set G) through the port at `c1f9255`. This is a
+private run; the logs are not in this repository. Run as one stream across the log's four sections, the port gives
+the logged output count for all 2,372 non-empty packets, with the 2756 and 2757 of the silence records in their
+order. Run with each section as a new stream, one count differs. So Steam's decoder kept its resampler's state
+across the reconnects between those sections, and the 16-sample flush happened once for the whole log, not once per
+connection.
+
+## The fix round (after the review)
+
+`origin/main` was merged in first. `package.json`'s `test` line keeps every suite: main's `steam-sender.verify.mjs`,
+then this order's.
+
+1. **`fma32` at the overflow edge and for subnormals.**
+   - The review found four inputs where the first version differed from `fmaf`. All lie outside the resampler's
+     range: the stream values are 0 or between about 2^-60 and 32. No stream output could change.
+   - Past the largest float, `r` is infinite. The first version then took `2s - r`, which is the other infinity.
+   - Below 2^-126, a sum with 25 bits or fewer need not be halfway.
+   - The 25-bit split stays as a cheap first filter, since every halfway point passes it. The two-sum follows, and
+     a zero error returns at once. Only a halfway candidate with a nonzero error reaches the new `fmaSide`:
+     - `s` counts as halfway only if `o = 2s - r` is itself a float;
+     - for an infinite `r`, only if `|s|` is exactly 2^128 - 2^103, and then `o` is `±FLT_MAX`.
+   - Results:
+     - the suite's new check "fma32 at the overflow edge and in the subnormal range" holds the four cases;
+     - `native.mjs` checks all ten recorded `fma32` cases against `fmaf` (`native --fmaf`): 10 of 10;
+     - the review's `fmatest.mjs`, at 3 million cases per category, gives 0 differences in all 8 categories;
+     - its `fmacases.mjs` gives 4 of 4 the same.
+   - **Speed before and after,** `fma3`, 60 s of 1440-sample packets, the two versions run alternately 8 times on a
+     nearly idle machine:
+
+     | Version | M output samples/s, sorted |
+     | --- | --- |
+     | before | 5.06 to 6.58 (median about 6.3) |
+     | after | 6.69 to 8.18 (median about 7.8) |
+
+     It is no slower. The smaller `fma` body probably inlines better. A first attempt that tested `2s - r` on every
+     inexact sum was about 25% slower, and was dropped.
+   - No reference hash moved: all 16, E to H, and the other checks are unchanged.
+2. **The 33-input start.** The review showed that a mirror at 32 inputs passed all 41 checks. Stream H (packets
+   0, 32, 1, 480, recorded from the library) now fails under it: `0 30 2 882` against the library's `0 0 32 882`.
+3. **`bank.mjs`.** Its header now says three things:
+   - the stored bytes are the library's own bank, read from its memory by the review;
+   - `bank.mjs` matches them under Node 22 only because `Math.sin`'s differences from the C library's `sin` (8 of 147
+     arguments, 204 coefficients before rounding) round away;
+   - if its check fails under another Node, the stored bank is still right and the script is what to look at.
+
+   The check's failure message says the same.
+4. **Licence notes.** README's licensing paragraph and `vendor/swresample/README.md` name `tests/swresample/bank.mjs`
+   as LGPL too. The footer credit is in "For W3-11a's builder".
+
 ## Where the order could be read another way
 
 1. **The flush count.** The order says the flush adds 16 samples. The library adds `(min(held, 32) + 1) >> 1`,
    which is 16 whenever the first packet gave output. That covers every Steam packet: 480 and up, and records of
    750 and 1500. The port follows the library, so a first packet of 0 adds none and one of 20 adds 10. Both are
-   checked natively (streams E, F and G, and 26 more in `native.mjs`).
+   checked natively (streams E to H, and 26 more in `native.mjs`).
 2. **The start.** The order says the samples before the first are its mirror. The library builds the mirror only
    once 33 inputs have arrived, and gives nothing before then. The port does the same. This matters only for a
    first packet under 33 samples.
@@ -192,9 +252,16 @@ next to the rest of the chain; nothing was optimised beyond this. The suite take
 - **An Opus decoder reset** (an end marker, a sequence number below the expected one) resets the Opus decoder only.
   It is **not** a `reset()` of the resampler: W3-09 read no resampler reset there. The stream keeps going, and the
   16-sample lateness stays.
+- **Reconnects and channel reassignment are not resets.** The orchestrator's run on the owner's logs (below) shows
+  Steam kept the resampler's state across the reconnects between a log's sections. One resampler lives as long as
+  the speaker's decoder in Steam. Do not reset it when the game's voice channel is reassigned or the player
+  reconnects.
 - **A new speaker, or voice reset** (a new decoder object): `reset()`, or a new resampler. The next packet then
   starts with no delay, its start mirrored, and flushes once more. That is the "once per speaker per session"
   first-packet behaviour: the first packet comes out whole, and everything after it is 16 inputs (0.67 ms) late.
+- **The footer.** When the page starts loading this module, the footer that credits LAME must credit FFmpeg's
+  libswresample (LGPL) in the same way. LGPL 2.1 section 6 asks that a work that shows copyright notices while it
+  runs include the library's notice and point to the licence (`vendor/swresample/COPYING.LGPLv2.1`).
 - `steam` golden hashes will depend on `DEFAULT_KERNEL`. If W3-14 changes it, the `steam` cases are re-recorded once
   and nothing else here changes. The suite already holds all four kernels' hashes.
 

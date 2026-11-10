@@ -55,9 +55,17 @@ try {
     const bits = Uint32Array.from(FMA_CASES.flatMap((c) => c.slice(0, 3).map((h) => parseInt(h, 16))));
     const raw = execFileSync(exe, ['--fmaf'], { input: Buffer.from(bits.buffer) });
     const got = new Uint32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
+    const asFloat = (u) => new Float32Array(Uint32Array.of(u).buffer)[0];
     const bad = FMA_CASES.filter((c, i) => got[i] !== parseInt(c[3], 16));
-    console.log(`the suite's ${FMA_CASES.length} fma32 cases: ${FMA_CASES.length - bad.length} are fmaf's results`);
-    if (bad.length) { failed++; for (const c of bad) console.log(`  ${c.join(' ')}: fmaf differs`); }
+    const portBad = FMA_CASES.filter((c, i) =>
+      !Object.is(SW.fma32(asFloat(bits[3 * i]), asFloat(bits[3 * i + 1]), asFloat(bits[3 * i + 2])), asFloat(got[i])));
+    console.log(`the suite's ${FMA_CASES.length} fma32 cases: ${FMA_CASES.length - bad.length} recorded as fmaf gives ` +
+      `them, ${FMA_CASES.length - portBad.length} where fma32 equals fmaf`);
+    if (bad.length || portBad.length) {
+      failed++;
+      for (const c of bad) console.log(`  ${c.join(' ')}: fmaf differs from the record`);
+      for (const c of portBad) console.log(`  ${c.join(' ')}: fma32 differs from fmaf`);
+    }
   }
 
   // Every stream the comparison runs: the four references, the 50 random
