@@ -13,13 +13,17 @@ Six sets of recordings were made on private servers, playing files into TF2's mi
 
 Set B identified the receiver law, and Set A and the speech take validate it. Set C measured what loss and jitter do to the voice. Set D separates the sender from the receiver: its packets show exactly what Steam's encoder sent, and the recordings show what the game made of them.
 
-On 2026-11-10 three more sets were made with the game's own debug output and no recorder, and the game's and Steam's own files were read (see "What was read"):
+On 2026-11-10 four more sets were made with the game's and Steam's own debug output and no recorder, and the game's and Steam's own files were read (see "What was read"):
 
 - **Set G**: console logs of the receiver's queue on a local game with `voice_loopback 1`, at the default cap of 300 frames a second and at `fps_max` 67 and 100.
 - **Set H**: `vaudio_celt` and `vaudio_celt_high` with a file as the microphone, the game writing its own decoded voice to a file.
 - **Set I**: the same with `sv_voicecodec vaudio_speex`.
 
-Set G confirms the receiver's queue as read from the engine. Set H checks the receiver's gain and the two CELT codecs sample for sample. Findings 22 to 31 and the corrections that cite them date from then.
+- **Set J**: Steam's own voice path with a file as the microphone (Steam's `mic_inputfile`), Steam's console printing every capture chunk and the game writing its decoded voice to a file.
+
+Set G confirms the receiver's queue as read from the engine. Set H checks the receiver's gain and the two CELT codecs sample for sample. Set J checks Steam's gate, its codec and its decoder against a known input, sample for sample. Findings 22 to 32 and the corrections that cite them date from then.
+
+Later the same day the room effect was read from the engine and then found in the first sets (finding 32). Set B carries no room. Set C carries the game's automatic room, and both recordings of Set D carry a room too. Until then every set was taken to be dry.
 
 How a statement is known is said where it is made:
 - **read**: from a binary, with the report that read it;
@@ -73,6 +77,8 @@ Every segment's exact position is in [`tf2_voice_testsignal_v1.json`](testsignal
 
 Game ambience is mixed into Set B at about −30 dB re the voice clip level, mostly below 100 Hz (1–3 kHz: −43 dB; above 8 kHz: −68 dB). Quiet-segment measurements therefore use band-limited levels.
 
+Set B has no room effect on the voice (measured, finding 32).
+
 Each take was aligned to the test signal from its level envelope, then from 10–13 short noise anchors:
 
 | Take | Clock drift | Anchor residual |
@@ -99,6 +105,8 @@ The network test signal (`tf2_voice_nettest_v1.wav`, 58.2 s, SHA-256 `1b8b6ac0�
 
 Each take was compared with the app's lossless render in 10 ms windows every 2.5 ms (300–4000 Hz correlation), following the delay at 20 ms resolution. A window below 0.4 correlation counts as damaged; a damaged stretch of at least 15 ms counts as one loss event. In the clean baseline, received frames correlate at a median of 0.86–0.99, and false events occur about 0.9 times per second. The rates below have that subtracted.
 
+All six takes carry the game's automatic room on the voice (measured, finding 32). The app's render they were compared with has no room.
+
 ### Set D: SourceTV packets and two listeners
 
 The owner ran a TF2 dedicated server with `sv_cheats 1`, `sv_alltalk 1` and SourceTV. Two setups joined it:
@@ -122,7 +130,7 @@ The demo holds 1 816 voice messages from one speaker:
 
 The decoded packets were aligned to the test signal spurt by spurt by cross-correlation. Each recording was aligned to the packets in 100 ms windows every 50 ms, following the delay.
 
-Output levels imply `volume` 0.147 on PC A (the owner's `volume 0.15`). On PC B the levels alone fitted about 0.077; its ceiling shows `volume 0.11`, with `voice_scale 0.77` making up the rest (inferred from the recording, finding 15). Game ambience sits near −35 dBFS in A and −40 dBFS in B, so quieter voice output cannot be checked against the recordings.
+Output levels imply `volume` 0.147 on PC A (the owner's `volume 0.15`). On PC B the levels alone fitted about 0.077; its ceiling shows `volume 0.11`, with `voice_scale 0.77` making up the rest (inferred from the recording, finding 15). Game ambience sits near −35 dBFS in A and −40 dBFS in B, so quieter voice output cannot be checked against the recordings. Recording A carries a street room on the voice, and recording B two weak echoes (measured, finding 32).
 
 ### Set E: a DTX artifact in music
 
@@ -178,6 +186,17 @@ The last packet differs between two key presses on the same input.
 
 The same method with `sv_voicecodec vaudio_speex` gave a recording of 145,920 samples in 512-sample packets at 22050 Hz. The game had run `vaudio_celt` (finding 31).
 
+### Set J: Steam with a file as the microphone
+
+The owner set `mic_inputfile` and `@voice_spew_activity_check 1` in Steam's console (finding 27), under the Steam codec. Steam then read a 16-bit mono clip at 24 kHz in place of the microphone, looping it, and printed one line for every capture chunk. The game ran with `voice_loopback 1`, `voice_showincoming 1` and `voice_recordtofile 1` at `voice_maxgain 1`, so its recording is the decoder's output at 44100 Hz (finding 27). No recorder, no cable and no microphone is in the chain. Report: W3-14.
+
+| Clip | Length at 24 kHz | Key presses | Recording of the first press |
+| --- | --- | --- | --- |
+| continuous: speech with no pause | 120,000 samples (5.000 s) | two, about 22 s each | 524,288 samples (11.889 s), the file's 1 MiB limit |
+| gate: tones at −38 and −35 dBFS, a 1.5 ms burst, pauses of 0.3 and 0.7 s, speech | 134,401 samples (5.600 s) | two; the second a tap | 524,288 samples |
+
+The two logs hold 789 chunk lines from Steam and 645 packet lines from the game. The continuous clip's recording peaks at −2.0 dBFS, and no sample of either recording is at full scale. The second presses' sound was not kept.
+
 ### What was read
 
 The reports in `docs/reports/` say what was read from which file and where. Nothing of the files is in this repository. They were read as data with a disassembler and never run, and no leaked source was used. Public sources were set beside them: libopus, CELT, Speex and FFmpeg's libswresample.
@@ -189,6 +208,12 @@ The reports in `docs/reports/` say what was read from which file and where. Noth
 | the CELT build | the `vaudio_celt` module, a second one from another Source game, and the public CELT source | W3-08 |
 | Steam's sender and decoder | the owner's Steam client library and Valve's public copy of it; Valve's public resampler library; the public Linux client | W3-09 |
 | Speex | a `vaudio_speex` module from another Source game, supplied by the owner | W3-09 |
+| the hold's arithmetic, the file input's chunk, the decoder's buffers | the owner's Steam client library | W3-16 read (`docs/reports/W3-16-steam-hold-read.md`) |
+| where Steam's clock counts from | the timer library of Valve's public client package. The owner's own copy was not at hand | W3-16 read |
+| the room effect: the slots, the processors, the voice's share, the automatic room | the engine module; the game's preset file, its sound mixer file and its 40 soundscape scripts, from the owner's install; Valve's public SDK for the client's side | W3-15, then two second reads, each written before W3-15's text was opened (`docs/reports/W3-17-room-dsp-second-read.md`, `docs/reports/W3-17-amp-mdy-second-read.md`). The second reads win where they differ |
+| what turns the room off, and the menu option that does it | the engine module and the game's menu module | W3-18 |
+
+W3-14 opened no file: it rests on Set J's logs and recordings and on the project's own modules.
 
 ## Findings
 
@@ -243,9 +268,12 @@ When no voice data arrives nothing runs, so the gain is untouched. A decoded blo
 The sender transmits only while its level gate is open:
 - **Opening:** a capture chunk whose mean of |x| is at least 1.0% of full scale, or which has a sample at 15% of full scale (read from Steam's client, finding 28). A chunk is 31.25 to 93.75 ms on the owner's PC. For a sine the mean rule is −39.09 dBFS RMS, and for Gaussian noise about −38. The figure first measured here, about −39.5 dBFS RMS of a 20 ms frame, was the sine's.
 - **Evidence for the threshold:** a −36 dBFS sine (−39.0 dBFS RMS) opens it. A −42 dB RMS pink noise, whose loudest frame is −39.97 dBFS, never does. Neither does a −40 or −42 dBFS sine. Each agrees with the rule as read: the −36 dBFS sine has a mean of 1.009% of full scale and the −40 dBFS sine 0.64% (W3-09).
+- **Steam's own verdicts** (measured, Set J): all 789 printed verdicts follow the rule as read. The highest mean that failed is 0.9998% and the lowest that passed 1.0315% (finding 28).
 - **Closed frames are not sent;** the receiver hears silence.
 
-Set D refines the timing (finding 12). The gate sends a pre-roll before each onset and holds for about 440 ms as first measured, not 300; as read, the hold is 0.4 s of Steam's clock. For about the last 240 ms of that hold the encoder sends DTX comfort noise, so the audible tail is about 200 ms of coded sound plus a quieter fade. It is a level rule on chunks, read from the client: not a voice detector, and not a 20 ms rule. The app's gate is still the 20 ms frame fit of finding 12.
+Set D refines the timing (finding 12). The gate sends a pre-roll before each onset and holds for about 440 ms as first measured, not 300; as read, the hold is 0.4 s on Steam's float clock, and its real length depends on how long the sender's Steam has run (finding 28). For about the last 240 ms of that hold the encoder sends DTX comfort noise, so the audible tail is about 200 ms of coded sound plus a quieter fade. It is a level rule on chunks, read from the client: not a voice detector, and not a 20 ms rule.
+
+**Corrected 2026-11-10 (W3-11a).** This finding ended "The app's gate is still the 20 ms frame fit of finding 12." Since W3-11a a render of the `steam` profile runs Steam's chunk rule. The live chain keeps the frame fit until W3-11b, and so does the fullband extra, `steam_48` (finding 12). The CELT and Speex profiles have no gate: they send everything.
 
 ### 6. A stereo source reached the game as its left channel
 
@@ -275,7 +303,7 @@ A two-state (Gilbert-Elliott) loss process whose mean burst is 2.2 frames reprod
 
 The speech take agrees. Under `net_fakeloss 10`, 38% of active speech frames correlate below 0.5 with the clean render (median 0.71). The app at 45% loss gives 37% (median 0.67), against 23% at 30% and 51% at 60%.
 
-Steam's decoder conceals at most 10 frames of a gap. What a longer gap lacks beyond that is not filled, so the sound closes up there (read, finding 29). No take shows it.
+Steam's decoder conceals at most 10 frames of a gap. What a longer gap lacks beyond that is not filled, so the sound closes up there (read, finding 29). No take with loss shows it. Set J shows the cap once, after frames the game never collected (inferred from its log's counts, finding 29). Since W3-11a the `steam` render applies the cap.
 
 ### 9. Jitter adds isolated late frames
 
@@ -317,12 +345,16 @@ Talk spurts start on a 31.25 ms grid, 115–152 ms before a loud onset, so the f
 
 **Steam's own rule** was read from its client afterwards (finding 28), and it is not a frame rule:
 - **Pre-roll:** the last 2400 samples (100 ms) before the onset's chunk are kept and sent with it. With 62.5 ms chunks that is 100 to 162.5 ms of sound before the onset (measured: 115 to 152).
-- **Hold:** 0.4 s of Steam's clock from the read of the last active chunk. Sound goes on for 380 to 460 ms after that chunk (measured from the last loud frame: 425 to 485).
+- **Hold:** 0.4 s on Steam's clock from the read of the last active chunk, in 32-bit floats (read, finding 28). On a Steam started within the last day and a half that is 398 to 406 ms from that read. On one that has run longer, up to 24 days, it is anywhere from 375 to 500 ms, by how long. Measured in Set D from the last loud frame: 425 to 485 ms.
 - **The 31.25 ms grid** is the capture's step on the owner's PC.
-- **A pause shorter than the hold keeps the spurt going.** There is no 560 ms rule.
+- **A pause shorter than the hold keeps the spurt going.** There is no 560 ms rule. In Set J a 0.3 s pause is bridged in four loops of four and the 0.7 s pauses end the spurt (measured).
 - **Each spurt resets the encoder and the decoder.**
 
-**The app's gate today** is a 20 ms frame model fitted to the measurements above. A frame above −39.5 dBFS RMS is sent with the 6 frames before it and the 22 after it, and a pause shorter than the hold plus the pre-roll (560 ms) keeps the spurt going. That puts both boundaries of 16 of the 18 spurts within 4 frames of Steam's, and most within 1–2. The exceptions are pure tones at 11.8–12 kHz, which Steam's gate and the model's (on the 24 kHz signal) treat differently. Orders W3-02b and W3-11a replace the fit with Steam's rule for the `steam` profile.
+**Corrected 2026-11-10 (W3-16 read, W3-14).** The hold's bullet said "0.4 s of Steam's clock from the read of the last active chunk. Sound goes on for 380 to 460 ms after that chunk". That took the clock to be exact. It is a 32-bit float of seconds since Steam started, so the real length moves with Steam's uptime. The title keeps its 0.4 s: that is the constant in the code.
+
+**The frame model** is a 20 ms fit to the measurements above. A frame above −39.5 dBFS RMS is sent with the 6 frames before it and the 22 after it, and a pause shorter than the hold plus the pre-roll (560 ms) keeps the spurt going. That puts both boundaries of 16 of the 18 spurts within 4 frames of Steam's, and most within 1–2. The exceptions are pure tones at 11.8–12 kHz, which Steam's gate and the model's (on the 24 kHz signal) treat differently.
+
+**The app today.** Until W3-11a the frame model was the app's gate everywhere, and this finding said so. Since W3-11a a render of the `steam` profile runs Steam's rule (the sender of W3-02b; finding 28 says where it still differs). The frame model stays in the live chain until W3-11b, in the fullband extra `steam_48`, and in the tools that line a take up with a render.
 
 ### 13. DTX is why steady tones fade
 
@@ -339,11 +371,15 @@ Opus's voice detector marks a steady tone inactive after a while. The encoder th
 
 Speech-like material keeps the detector active; steady tones and very even noise do not.
 
+The model's column is the app before W3-11a. With W3-11a's `steam` render the −36 dBFS sine gives 76 DTX frames from 0.42 s and the −30 dBFS sine 40 from 1.18 s, and −24 dBFS none (reproduced, W3-11a). The 16-bit capture and the pre-roll's zeros both move the point where the encoder enters DTX.
+
 ### 14. The high-band difference is on the sender; the receiver adds no EQ
 
 Decoding Steam's packets and passing them through the receiver model matches recording A within 0.1 dB per band from 100 Hz to 11.5 kHz. The receiver model here is the 44.1 kHz auto-gain, the `[0.1, 0.8, 0.1]` output stage and `volume`; the filter stands in for the output device's interpolation (finding 30). Median 50 ms levels match within ±0.3 dB on segments more than 15 dB above the game ambience. The receiver adds no EQ. Read since: nothing between the decoder and the mixer filters the voice (W3-03, W3-07).
 
-The receiver's own 24 to 44.1 kHz step is finding 29's resampler, which the app's stood in for when this was measured. Its roll-off above 10.5 kHz belongs to the receiver. The two resamplers were not compared (W3-09).
+The receiver's own 24 to 44.1 kHz step is finding 29's resampler, which the app's stood in for when this was measured. Its roll-off above 10.5 kHz belongs to the receiver. The two resamplers were not compared (W3-09). Since W3-11a the `steam` render runs a port of Steam's resampler, so the question no longer arises there.
+
+Recording A carries a street room on the voice (finding 32), which this comparison did not know. Its part is small: the echoes show as autocorrelation peaks of 0.008 to 0.023, and that preset passes the voice straight through at 252.7 of 256 (W3-18).
 
 Against libopus 1.6.1 on the same input, Steam's decoded packets have:
 - 0.5–1.1 dB more energy from 1.5 kHz up to the 8 kHz SILK/CELT crossover
@@ -359,6 +395,8 @@ Recording B divided by recording A is flat within ±0.2 dB from 100 Hz to 11 kHz
 - **`voice_scale 0.77`:** with the engine's gain law (finding 26) it gives B's 1 kHz staircase within 1 to 3% and its 344.5 Hz sidebands within 1 dB.
 
 The owner has not yet read the two values off PC B's console. B's output path is the same as A's: it shows the same interpolation images (finding 30).
+
+Both PCs had a room on the voice, and not the same one (measured, finding 32): a street preset on A, and on B two weak echoes of a room that is not identified. A room's share could hide at most 0.01 of B's 0.77, so the 0.77 stands (inferred, W3-18).
 
 Both recordings gain 0.4 ms a second on the sender: the receiver drops one sample from every packet (finding 24).
 
@@ -394,7 +432,13 @@ Steam's input is a resampled capture, so exact sizes cannot all match. The DTX f
 
 The Steam profile therefore encodes and decodes with libopus 1.1.5, compiled to WebAssembly with musl's libm (`vendor/libopus-1.1`, built by `tests/libopus11/build.mjs`). Its packets are bit-identical to a native build of the same release.
 
-The app passes complexity 10. Steam sets none, so it runs the library's default, which is 9 in 1.1.x (read, finding 28). The pinned build gives byte-identical packets at 8, 9 and 10 (reproduced on 19,428 frames, W3-09), so no packet depends on it; order W3-11a sets 9. Steam also decodes to 16-bit samples, where the app decodes to float (finding 29).
+**Checked against Steam itself (Set J; W3-14, reproduced).** Steam's `mic_inputfile` fed a known 24 kHz clip, and the game recorded the decoder's output. The clip was encoded on Steam's own chunk boundaries with the pinned 1.1.5 at Steam's settings, decoded to 16 bits and resampled as finding 29 says. That gives the recording in 524,286 of 524,288 samples: 11.9 s of speech peaking at −2 dBFS.
+- **The two others** are one step off, four samples apart. Both come from one decoded 24 kHz sample that Steam has one step higher. The app's float value there lies one float step under a rounding boundary. Of the 626 decoded samples within 0.001 of such a boundary, it is the only one that fell the other way.
+- **What the match pins down.** Complexity 7 leaves 2,113 of the 524,288 samples equal, 31000 bit/s 1,880, VBR off 900 and the "audio" application 666. So the application, the bit rate and VBR are Steam's, and the complexity is 8, 9 or 10.
+- **What it does not.** Complexity 8, 9 and 10 give the same samples. So do unconstrained VBR and the automatic signal hint on these clips; DTX off changes only the clip with pauses. The clip never decodes past full scale. Releases 1.1.4 and 1.1.5 were not told apart: whether the one sample is the release or Steam's compiler is not known. No demo was recorded, so that the bytes are Steam's is inferred from the decoded sound.
+- **The app's own render code** gives the same count (W3-11a's second read, a private run): the build's `process()`, driven by Steam's chunk lengths from Set J, gives 524,286 of 524,288.
+
+**Corrected 2026-11-10 (W3-11a).** This finding said "The app passes complexity 10" and "Steam also decodes to 16-bit samples, where the app decodes to float". Both were closed by W3-11a. Steam sets no complexity, so it runs the library's default, which is 9 in 1.1.x (read, finding 28). The pinned build gives byte-identical packets at 8, 9 and 10 (reproduced on 19,428 frames, W3-09). Since W3-11a the `steam` profile passes 9, and its render decodes through the library's own 16-bit entry point, which matches a native build of the same release sample for sample (reproduced, W3-11a). The profile's other paths (the live chain, a demo's received voice) still decode to float.
 
 ### 17. Comfort noise replaces music held after a vocal (Set E)
 
@@ -470,11 +514,13 @@ The accuracy suite ([`tests/accuracy.mjs`](accuracy.mjs)) lines every take up wi
 
 The render keeps the source's timeline by default, so the dry/wet A/B and the real-take check line up. **Talk-spurt timing → TF2 re-timing** (`voice_retime 1`) applies this finding: after a silence of up to 0.45 s, a spurt starts early with probability 0.41, by the silence less a random 0–130 ms (at most 350 ms), and the spurt after it keeps its time. It is seeded like the loss model.
 
-This flat rule is what the app runs today when the option is on. It cannot chain early starts, and the speech take has two chains (W3-01). The engine's queue (findings 22 to 25) is to take its place. It is built as a module, `voice-channel.js` (W3-02a), which no render uses yet. Orders W3-02b to W3-02d put it into the render and the page, and W3-02f retires the flat rule.
+This flat rule is what the app runs today when the option is on. It cannot chain early starts, and the speech take has two chains (W3-01). The engine's queue (findings 22 to 25) is to take its place. It is built as a module, `voice-channel.js` (W3-02a), which no render uses yet. W3-02b added Steam's sender and the queue's timeline as modules. Since W3-11a the `steam` render makes its packets with that sender, but it still lays them on the source's timeline. Orders W3-02c and W3-02d put the queue into the render and the page, and W3-02f retires the flat rule.
 
 ### 20. The Steam render's low frequencies lead the source by Opus's own phase
 
 A render of white noise lines up with its source to 0.3 µs in the 8–11 kHz band, which the CELT layer of hybrid mode codes: the encoder's lookahead is trimmed exactly. Below 8 kHz the SILK layer leads by a frequency-dependent amount: 35–70 µs at 1–6 kHz, 86 µs at 0.3–1 kHz and about 370 µs at 100–300 Hz. libopus alone, without the app's chain, does the same in both 1.1.5 and 1.6.1. It is the phase response of SILK's own processing, which TF2's libopus shares, so the render keeps it rather than shifting it. An Opus test pins both bands.
+
+**Corrected 2026-11-10 (W3-11a).** This finding said the render "lines up with its source to 0.3 µs" in the CELT band. That was the render before W3-11a, and it still holds for `steam_48`. Since W3-11a the `steam` render runs Steam's resampler, which leaves everything after a speaker's first packet 16 input samples (0.667 ms) late (finding 29). The game has that lateness, so the render keeps it. Measured on the new render: a steady lag of 0.60 ms, which is the 0.667 ms less the SILK lead. The test now pins the lateness and the lead against it.
 
 ### 21. An early start is the receiver appending a spurt to voice it still has queued
 
@@ -566,8 +612,11 @@ The engine's code confirms findings 3 and 4 constant by constant (read, W3-03): 
 - **The divisor** 127 or 128 makes no difference on that signal, so the 127 rests on the reading alone.
 - **The app's earlier rule** differed on 3,032 of those samples. Since W3-05 (2026-11-10) the app runs this rule and gives 0 of 291,840.
 - **What that recording cannot see was read again** (a second read of the gain function, 2026-11-10; `docs/reports/W3-05-receiver-gain.md`). Read: every float operation is single precision, one at a time, with no fused multiply-add and no double (the block's `current`, then `fixed` by truncation, the mean by integer division, `peak - mean` in integers, the multiply by `voice_avggain` and a separate add of the mean, 32767 divided by that with no test for zero, the cap, the multiply by `voice_scale`, and the step as subtract, divide by 127, multiply by 128, truncate). The per-sample product of gain and sample is a 32-bit multiply that keeps its low 32 bits: it wraps, where a wider product would clamp, once `voice_maxgain` times `voice_scale` squared passes about 512 on a loud sample (not at the defaults). The reset writes unity for the first 128 samples whatever `voice_scale` is, and the three settings are read only at a reset, so a change takes effect when a channel is next assigned. Inferred: round-to-nearest as the thread's rounding mode (no voice code changes it; the exact match supports it).
-- **The app's gain.** One function in `audio.js` serves the file render, the stream, the live chain and `TF2Audio.createGain`, the object the voice channel takes. It is the rule above, the wrap included. The app's own, until the channel is wired in (W3-02c, W3-11a): a render resets the gain once, at its start, and on the source's timeline an all-zero block that the gate did not send holds the gain, where the game decodes a silence record (to the cap) and resets when a channel is assigned. At the default cap both leave the gain at the cap when a spurt's sound rises.
-- **Set H ran `vaudio_celt`.** The same function serves Steam voice at 44.1 kHz (read), where no sample-exact check exists yet.
+- **The app's gain.** One function in `audio.js` serves the file render, the stream, the live chain and `TF2Audio.createGain`, the object the voice channel takes. It is the rule above, the wrap included. What differs from the game is what the gain is fed and when it is reset:
+  - **The `steam` render, since W3-11a:** the gain is fed the decoded packets in order, as the game's is. Its 128-sample blocks run on across packets, and a silence record's zeros are fed too, so the gain goes to the cap after each spurt. A late frame played as silence is left out. The gain is still reset once only, at the render's start; the reset at each channel comes with W3-02c.
+  - **The other paths** (the live chain, `steam_48`, the engine codecs): the gain runs on the source's timeline, and an all-zero block that the gate did not send holds the gain. This was the rule for every path until W3-11a, and this finding said so.
+  - At the default cap both leave the gain at the cap when a spurt's sound rises.
+- **Set H ran `vaudio_celt`.** The same function serves Steam voice at 44.1 kHz (read), where no sample-exact check exists yet. Set J does not give one: it was made at `voice_maxgain 1`, where the gain is exactly unity.
 
 **Set D** agrees on the zero-block rule (measured, W3-03). At a burst after a pause inside a spurt, at an appended spurt and at a restarted one, recording A is 8 to 12 times the decoded level from the first 1.3 ms step in which the decoded sound rises. So the gain is at its cap at every loud onset.
 
@@ -580,55 +629,103 @@ Read from the engine (W3-03) and used for Sets G and H:
 - **`voice_inputfromfile 1`** is not read under the Steam codec. Under the engine codecs it is: a 16-bit mono file at the codec's rate with a plain 44-byte header. The reader skips the first two samples of sound (read and shown on Set H, W3-08, which corrects W3-03's offset).
 - **`voice_writevoices 1`** keeps each channel's voice with no length limit (read; not tried).
 
-Read from Steam's client (W3-09) and not yet tried by the owner:
-- **`mic_inputfile`** plays a 24 kHz mono file to Steam's encoder in place of the microphone.
-- **`mic_outputfile`** writes what Steam captured.
-- **`@voice_spew_activity_check 1`** prints each chunk's length, mean and peak and the gate's verdict.
+Read from Steam's client (W3-09), and two of the three used for Set J (W3-14):
+- **`mic_inputfile`** plays a 24 kHz mono file to Steam's encoder in place of the microphone. It works from the release client's console (Set J). The file loops, and its position carries on from one key press to the next. A file with a plain 44-byte header starts at its first sample (read, W3-09; the chunk lines fit that on 788 of 789 lines).
+- **`@voice_spew_activity_check 1`** prints one line per chunk in Steam's console (Set J): three marks (active, mean passed, peak passed), the chunk's length in milliseconds, the mean of |x| as a percentage of 32767, the peak as a percentage of 32768, and the count of samples at or above 4915.
+- **`mic_outputfile`** writes what Steam captured. Not tried.
 
-Whether the release client lets them be set from its console was not tested. With them the whole Steam path could be checked against a known input (order W3-14).
+**Corrected 2026-11-10 (W3-14).** This finding said the three were "not yet tried by the owner" and that whether the release client lets them be set "was not tested". Set J settled both for the first two. W3-09's report gave the printed peak as a fraction of full scale. It is a percentage of 32768: 28.143 is printed where 32767 would give 28.144.
+
+For the room (finding 32), read from the engine and not yet tried by the owner (W3-15, W3-18): typing `dsp_room`, `dsp_automatic`, `dsp_slow_cpu`, `dsp_volume` or one of the four mix variables prints its value, with no cheats. `adsp_debug 2` with `developer 1` prints each automatic room the engine builds and the shape's name.
 
 ### 28. Steam's sender, read from the client: chunks, a level rule, 100 ms kept, a 0.4 s hold
 
-Read from the owner's Steam client and Valve's public copy of it (W3-09: the same constants in both), then checked against Set G's logs and Set D's demo.
+Read from the owner's Steam client and Valve's public copy of it (W3-09: the same constants in both), then checked against Set G's logs and Set D's demo. The hold and the clock were read again, to the operation (W3-16 read), and the whole rule was checked on Set J, where every chunk is known (W3-14).
 
-- **Chunks.** Each time its voice code runs, Steam takes whatever the capture gained since the last time (read). On the owner's PC that is whole steps of 750 samples at 24 kHz (31.25 ms), about every 55.85 ms (measured). All 1,797 voice packets of the demo and all but 39 of Set G's 2,326 fit chunks of one, two or three steps (demo: 23.4%, 74.8%, 1.8%; Set G: 23.6%, 74.0%, 2.3%). Where the 31.25 ms step comes from was not read.
+- **Chunks.** Each time its voice code runs, Steam takes whatever the capture gained since the last time (read). On the owner's PC that is whole steps of 750 samples at 24 kHz (31.25 ms), about every 55.85 ms (measured). All 1,797 voice packets of the demo and all but 39 of Set G's 2,326 fit chunks of one, two or three steps (demo: 23.4%, 74.8%, 1.8%; Set G: 23.6%, 74.0%, 2.3%). Where the 31.25 ms step comes from was not read. If more than 6000 samples wait, a microphone's read takes the newest 6000 and skips the rest (read, W3-16).
+- **Steam reads every 48 to 64 ms** (measured, Set J: 723 intervals rebuilt from the chunk lengths, mean 55.4 ms, nearly flat, none over 64.2 ms, almost no memory from one to the next). 63% of the reads fall in a 4.5 ms window of the game's 15 ms tick, where chance gives 30%; why was not read. A microphone's chunk shares and pairs follow from such reads if each capture step is ready up to 13 ms after its time (fitted to the demo's 1,797 chunks in W3-16's order: 23.3 / 74.6 / 2.1% modelled against 23.3 / 75.0 / 1.7% as that order counts them).
+- **With a file as the microphone** a chunk is the time since the last read times 24000, truncated, at most 6000 samples (read, W3-16). The time of the last read is kept as a 32-bit float. In Set J that float moved in steps of 1/8 s, so the printed lengths ran from 0.04 to 125 ms though the reads came 48 to 64 ms apart, and 41 reads brought nothing (measured, W3-14).
 - **The gate** is on a chunk, not a 20 ms frame: open when the mean of |x| is at least 1.0% of full scale, or any sample reaches 15% (read). Nothing in the client sets those two numbers, so the threshold in Steam's settings is not this gate (inferred). No filter, gain or noise suppression runs before it (read). Against the demo's decoded chunks, the rule marks the last active chunk 7 or 8 chunks before the end marker in 18 of 20 spurts.
-- **The pre-roll** is the last 2400 samples (100 ms) of the silent chunks before the onset, zeros if there were none, sent in front of the chunk that opened the gate (read). That makes the 8-frame opening of finding 25. Straight after a spurt the pre-roll is shorter: 1500 and 750 samples in two of the demo's spurts.
-- **The hold** is 0.4 s of Steam's clock after the last active chunk was read (read). The first chunk read later is the last: its final frame is padded with zeros, the end marker follows, the encoder is reset and the sequence number returns to 0. The next chunk goes out as its length only: the silence record. In the demo the last chunk is the 7th after the last active one in 9 spurts and the 8th in 9.
+- **The gate, checked chunk by chunk** (measured, Set J). Steam printed each chunk's length, mean, peak and verdict. All 789 verdicts follow "mean of |x| at least 1.0% of 32767, or a sample at least 4915". The highest mean that failed is 0.9998% and the lowest that passed 1.0315%. A 1 kHz sine at −38 dBFS stays shut in every loop, one at −35 dBFS opens, and a 1.5 ms burst at 0.2 of full scale opens by its peak alone, four times of four. One line does not fit: a chunk of one sample, printed with a mean of 0.00. The rule's messages equal the game's log line for line (645 lines).
+- **The pre-roll** is the last 2400 samples (100 ms) of the silent chunks before the onset, zeros if there were none, sent in front of the chunk that opened the gate (read). That makes the 8-frame opening of finding 25. Straight after a spurt the pre-roll is shorter: 1500 and 750 samples in two of the demo's spurts. In Set J the pre-roll's sound matches the recording sample for sample (measured).
+- **The hold** is 0.4 s on Steam's clock, in 32-bit floats (read, W3-16 read). The time is narrowed to a float once per frame, before the microphone is read. The read of each active chunk notes that float. The first chunk at whose read `now > noted + 0.4` is the last: the sum is rounded to a float, the 0.4 is the float nearest 0.4, and equal is not enough. The test also runs in the read that first finds a chunk inactive, and on a read that brings no samples. The last chunk's final frame is padded with zeros, the end marker follows, the encoder is reset and the sequence number returns to 0. The next chunk goes out as its length only: the silence record. After a read that brought nothing there is no record (read; seen in 2 of Set J's 12 spurt ends).
+- **So the hold's real length depends on how long the sender's Steam has run.** The clock is seconds since Steam's process loaded Valve's timer library (read in the public build of that library; that the process is Steam's own, and that the owner's copy is the same, are inferred). A float of that size moves in steps, and the hold comes out as whole steps (plain float arithmetic on the rule as read):
+
+  | Steam has run | Float's step | Where the hold runs out, from the read of the last active chunk |
+  | --- | --- | --- |
+  | under 18 hours | 4 ms or less | 398 to 402 ms |
+  | 18 to 36 hours | 1/128 s | 398 to 406 ms |
+  | 1.5 to 3.0 days | 1/64 s | 406 to 422 ms |
+  | 3.0 to 6.1 days | 1/32 s | 406 to 437 ms |
+  | 6.1 to 12.1 days | 1/16 s | 375 to 437 ms |
+  | 12.1 to 24.3 days | 1/8 s | 375 to 500 ms |
+  | 24.3 to 48.5 days | 1/4 s | 500 to 750 ms |
+
+  Where in a row's range it falls depends on where the last active read lay on the float's grid. The spurt's last chunk is the first one read past that point, so up to 64 ms later.
+- **Measured at a step of 1/8 s** (Set J, W3-14): every one of 12 spurts ended at the first read four steps (0.5 s) after the read of the last active chunk, and no earlier read reached four. In real time that was 389 to 514 ms. So that Steam had run for 12 to 24 days (inferred). Counting reads that brought samples, the last chunk was the 7th four times, the 8th five times and the 9th three times.
+- **Set D's Steam** is not known. With the test signal as the microphone, the demo's 19 clear ends fall on the 7th chunk after the last active one 7 times, on the 8th 12 times and never on the 9th. Simulated with the hold as read, that fits a Steam under 1.5 days old or one of 6.1 to 12.1 days, the second a little better, and no other age (W3-16's order). Neither closes the gap wholly: the demo's ends are still about 13 ms earlier than either gives.
 - **Why pauses come out longer.** Steam counts the hold from the last active chunk, which can end up to 62.5 ms after the last loud 20 ms frame. That is one reason the takes' pauses on speech are about 50 ms longer than the app's frame gate gives (measured, W3-01; the reason is inferred, W3-09).
 - **One chunk is one message.** Frames of 480 samples are cut from the chunk plus what the last one left over (read). So a 1500-sample chunk gives 3 frames and now and then 4, and a 750-sample one 1 or 2. With the chunk shares above that predicts 65, 13, 10 and 10% of 60, 40, 80 and 20 ms packets, against the logged 65, 14, 11 and 10%, with nothing fitted.
-- **The key.** Steam goes on capturing for 0.5 s after the key is released (read). A spurt still open then gets no end marker; the next key press sends the marker alone, the empty packet of finding 25.
+- **One chunk, one message, on every message of Set J** (measured). A chunk that leaves fewer than 480 samples in hand sends nothing. The first packet of each clip is 12 frames: the 6000-sample first chunk with no pre-roll, since the sender was not in its silent state at the key press.
+- **The key.** Steam goes on capturing for 0.5 s after the key is released (read). There are two tails (read, W3-16 read): the game is fed for an exact 0.5 s, and the capture and the gate run for 0.5 s on the float clock, so up to one float step longer. A spurt that ends in that last step makes a packet the game never collects (inferred). A spurt still open after the tail gets no end marker. At the next key press, a first read with no samples sends the marker alone: the empty packet of finding 25 (read: the hold is tested on an empty read).
+- **A key press** resets the encoder and drops the kept samples, but not the gate's state or the sequence number (measured twice, Set J). There the first read of a press brought 6000 active samples, so the open spurt went on with no marker and no empty packet. A tap of the key was followed by nine more reads over 525 ms.
 - **The queue.** Steam keeps at most 8192 bytes of voice for the game to collect (about 2 s) and drops the oldest beyond that (read).
-- **The clock** the hold is measured on is a 32-bit float of seconds. On a Steam that has run for days it moves in steps of 16 to 31 ms (read; that it counts from Steam's start is assumed, and its effect was not measured).
 - **The encoder** is libopus 1.1.x. The public Linux build of the client carries the string `libopus 1.1.4`; the Windows build is inferred to be the same. Its settings, read: 24000 Hz, mono, VOIP, then bit rate 32000, signal voice and DTX, and nothing else. So complexity is the library's default, 9, and VBR is constrained. It is fed 16-bit samples. The pinned 1.1.5 gives identical packets at complexity 8, 9 and 10 (reproduced: 19,428 frames).
 - **The capture** is opened through DirectSound at 24 kHz, mono, 16-bit (read). So the conversion from the device's rate is done by Windows or the virtual cable, not by Steam.
 
-The app's gate is not this rule yet (finding 12 and the Model table).
+**Corrected 2026-11-10 (W3-16 read, W3-14).**
+- The hold's bullet said "0.4 s of Steam's clock after the last active chunk was read (read). The first chunk read later is the last". The constant and the place it is counted from stand. The arithmetic is new: it is done in floats, so the hold is not an exact 0.4 s.
+- A bullet "The clock" said: "the hold is measured on a 32-bit float of seconds. On a Steam that has run for days it moves in steps of 16 to 31 ms (read; that it counts from Steam's start is assumed, and its effect was not measured)". The start is now read, the effect is measured (Set J), and the steps matter from a day and a half on. The two bullets on the hold's real length replace it.
+- The hold's bullet said "In the demo the last chunk is the 7th after the last active one in 9 spurts and the 8th in 9". That was counted on the demo's decoded sound, whose quiet chunks do not always pass the gate as the microphone's did. With the test signal itself as the microphone it is 7 and 12 of 19 (W3-16's order).
+- W3-14 first read Set D's ends as a float step of 1/32 s. That rested on the other form of the test, "now less noted, over 0.4". The code has `now > noted + 0.4`, and at 1/32 s the two differ by a step (W3-16 read). W3-14's reading is not used.
+- The key's bullet said of a spurt left open: "the next key press sends the marker alone". That holds when the press's first read is empty. In Set J it was not, and the spurt went on.
+
+**The app today.** Since W3-11a a render of the `steam` profile sends with this rule: the sender built by W3-02b, with the render's seed, the 16-bit capture, chunks, the mean-or-peak gate, the pre-roll, the hold, one message per chunk and the end marker (finding 12). Driven by the demo's own chunk lengths, that sender puts 18 of 20 spurt starts within one chunk of Steam's and 18 of 20 ends within two; with the test signal as the microphone, 16 spurts are Steam's message for message (reproduced privately; `docs/PROGRESS.json`, `sender_demo`). Three things in it are known to be wrong, and order W3-16, which is planned and not built, changes all three:
+- **The hold is an exact 0.4 s**, in doubles. It ends a spurt on the 8th chunk in 94% of cases, where Steam did in 12 of 19. Its tails after the loud part average 482 ms against Steam's 462 in the demo, and it bridges the demo's 440 ms pause in 194 of 200 seeds where Steam split it.
+- **The clock is the old one**: reads tied to a 15.625 ms timer, 46.9 or 62.5 ms apart, with 6% of them late by up to 30 ms. Set J has no late read.
+- **A read that brings nothing does nothing**, where Steam still tests the hold.
+
+The live chain still runs the frame gate of finding 12 until W3-11b, which also takes the key-press rules.
 
 ### 29. Steam's decoder: 16 bits, at most 10 concealed frames, and FFmpeg's resampler once per packet
 
-Read from Steam's client (W3-09), with the resampler run from its public source.
+Read from Steam's client (W3-09), with the resampler run from its public source. Checked sample for sample on Set J (W3-14). The decoder's buffers were read afterwards (W3-16 read).
 
 - **Per frame.** An end marker resets the decoder. A sequence number ahead of the expected one conceals the gap, at most 10 frames of it; one behind resets without concealing. A silence record becomes that many zeros.
-- **16 bits.** Decoded sound is 16-bit. In libopus's public source the 16-bit decoder of a float build softens peaks past full scale before it rounds; whether Steam's build is a float build was not read.
+- **16 bits.** Decoded sound is 16-bit. In libopus's public source the 16-bit decoder of a float build softens peaks past full scale before it rounds; whether Steam's build is a float build was not read. Set J fits a float build: Steam's samples equal the float decode rounded, but for one sample at a rounding boundary (inferred, finding 16). The softening itself is not shown: nothing in Set J decodes past full scale.
 - **The resampler.** Each packet then goes, by itself, through FFmpeg's libswresample at its default settings (32 taps, 147 phases, a Kaiser window) from 24000 to 44100 Hz. The public library, called the same way, returns the logs' counts exactly: 7056 samples for 3840, 2646 for 1440, 882 for 480, and 2757 or 2756 for a silence record of 1500 (reproduced, W3-09).
-- **Float inside.** For a rate change that library works in 32-bit float, not in 16-bit fixed point as W3-09 has it. On x86 the order of its sum is chosen by the processor's features. So two PCs can differ in the last bit of up to a few samples in ten thousand at full scale, and fewer at speech level: none or one in 55,000 at −24 dBFS (reproduced on the public library, W3-11 plan). Which kernel Steam's build runs is not known. Valve ships FFmpeg 8.1.2 and the library run here was 6.1.1; the public source of this path is the same in both.
+- **Float inside.** For a rate change that library works in 32-bit float, not in 16-bit fixed point as W3-09 has it. On x86 the order of its sum is chosen by the processor's features. So two PCs can differ in the last bit of up to a few samples in ten thousand at full scale, and fewer at speech level: none or one in 55,000 at −24 dBFS (reproduced on the public library, W3-11 plan). On the owner's PC Steam's build runs the `fma3` kernel (measured, Set J, below); another PC's processor may choose another. Valve ships FFmpeg 8.1.2 and the library run here was 6.1.1; the public source of this path is the same in both.
 - **Its response** (computed from the filter as the public source builds it): flat to 10 kHz, −0.7 dB at 11 kHz, −2.4 at 11.5, −4.0 at 11.75, −6.0 at 12 kHz. Just above 12 kHz it leaves a mirror of what lies just below: 6 dB down at 12 kHz, 12 dB at 12.5 kHz, 22 dB at 13 kHz, over 65 dB above 14 kHz.
-- **A speaker's first packet** is finished by mirroring its last 16 input samples. They stay in the stream, so everything after is 16 input samples (0.67 ms) late. Once per speaker per session. Reproduced on the public library by the W3-11 plan and its review, which corrects W3-09's account of it; not seen in a recording.
+- **A speaker's first packet** is finished by mirroring its last 16 input samples. They stay in the stream, so everything after is 16 input samples (0.67 ms) late. Once per speaker per session. Reproduced on the public library by the W3-11 plan and its review, which corrects W3-09's account of it. Seen in Set J, whose decoder was created at the run's first packet: phase 0, the start mirrored, the mirrored flush at the packet's end, and all 10,584 samples of that packet equal to the port's. Started as a carried stream instead, about 10,570 of them differ (measured, W3-14).
+- **Checked sample for sample** (Set J; W3-14, reproduced). Given the decoded samples, the port under `fma3` equals the recording in every one of 524,288 samples once the one decoded sample of finding 16 is set one step up. Under `avx` 59 then differ, under `sse` 82 and under `c` 108, each by one step. With nothing changed the counts are 2, 61, 84 and 110.
 - **The resampler outlives the game's channel.** A port of that path (order W3-13) equals the public library sample for sample under each processor kernel, and Set G's logged packet sizes through it give the logged count for every one of the 2,372 packets that are not empty, the 2756 and 2757 of the silence records in their order, when the four sections of one log are run as one stream. With each section run as a new stream one count differs. The player reconnected between those sections, so Steam's decoder kept its resampler's state across reconnects: it is not reset when the game assigns a channel anew (measured, Set G; 2026-11-10).
+- **The decoder outlives key presses too** (measured, Set J). The gate clip's recording only fits when the decoder and the resampler carry on from the key presses before it, with no reset: run alone with a new decoder it differs in 44,012 of 524,288 samples, and as one session in 576. The end marker is the only thing that resets the decoder.
+- **A message that does not fit** (read, W3-16 read; seen once, Set J). The decoder's 24 kHz buffer holds 17 frames for one record. A frame that would be the 18th is not decoded, its number is spent all the same, and the rest of the record is skipped. Concealed frames count toward the 17. The game then takes a message only if its resampled sound fits 22,528 bytes, which is 12 frames (the engine's side is W3-03's reading). Otherwise it gets nothing, and that sound is lost: the decoder and the resampler have moved on. So an opening of 6000 samples behind a pre-roll of 2400, 17 frames, would not be heard at all (inferred).
+- **The cut, seen** (Set J). The game never collected the last 34 frames of one key press; why is not known. The next message was 12 coded frames. The decoder concealed 10 frames, the cap, and decoded 7; the game logged 0 samples for it. The next message concealed the 4 frames left and decoded its 5, which is the log's count of 7938. W3-14 had inferred 10 concealed and 8 decoded, from the counts alone. With the cut as read, the gate clip's recording as one session differs from the app's render code in 32 of 524,288 samples, all by one step, in five frames; before that correction it was 576, up to 5 steps (W3-11a's second read, a private run).
 - **A silence record is dropped,** not played, when more than 0.2 s is already waiting in that decoder's output. In the game's use the output is taken at once, so it is played (read; Set G shows the records queued).
 - **Nothing else touches decoded sound:** Steam's `voice_autogain` is 0 (read).
 
-The app's Steam profile does not do this yet: it decodes to float and resamples the whole decoded signal with its own filter. Orders W3-13 and W3-11a build the decoder as read.
+**Corrected 2026-11-10 (W3-14, W3-16 read, W3-11a).** This finding said "Which kernel Steam's build runs is not known" and, of the first packet, "not seen in a recording". Set J settled both for the owner's PC. It also ended: "The app's Steam profile does not do this yet: it decodes to float and resamples the whole decoded signal with its own filter. Orders W3-13 and W3-11a build the decoder as read." Both are now built.
+
+**The app today.** Since W3-11a a render of the `steam` profile decodes as this finding says: the library's own 16-bit decoder, a new decoder at each end marker, at most 10 frames concealed, a reset on a number that goes back, zeros for a silence record, and the port of Steam's resampler (W3-13) with the `fma3` kernel. One resampler serves the whole render and is never reset. It is fed whole messages, one call each, and its first packet gets the flush, so the render is 16 input samples (0.67 ms) late as the game is. The evidence, from the build and its two reviews:
+- the build's own `process()`, driven by Steam's chunk lengths from Set J, gives Steam's recording of the continuous clip in 524,286 of 524,288 samples, and the gate clip as one session in 524,256 of 524,288 (private runs, above);
+- an independent model equals `process()` in 54 of 54 cases, and the offline render equals the stream on 279 renders (W3-11a's reviews);
+- the port equals the public library sample for sample under each kernel (W3-13), and the 16-bit decoder equals a native build's (W3-11a).
+
+What the app does not do, or does not show:
+- **The 17-frame cut and the 12-frame refusal are not in the app.** A render of a file cannot reach the cut: an opening is at most 9 or 10 frames with nothing concealed in front, and a later message at most 6 frames behind at most 10 concealed (inferred, W3-16's order). With the loss option it can reach the refusal: 8 or more concealed frames in front of a 5-frame message. The app then plays what the game would drop. The cut goes to W3-02g, with a demo's own packets; the refusal waits on the loss question below.
+- **Not shown by any recording:** the soft clip, libopus 1.1.4 against 1.1.5, and anything of the microphone path (finding 28).
+- **The live chain** still decodes to float and uses the app's own resampler until W3-11b. So does a demo's received voice.
 
 ### 30. From the voice channel to the speakers
 
 Read from the engine (W3-07) and measured in five recordings from two PCs (Set D's two and three of Set B's).
 
 - **The mixer** runs at a fixed 44100 Hz in device buffers of exactly 512 samples (read). These are the 512-sample pulls of finding 22.
-- **The voice into the mix.** Steam voice is a 44100 Hz source at pitch 1.0, so it is copied in sample for sample, with no interpolation and no filter, at 255/256, truncated toward zero. With the two-speaker setting it is 253.5/256. The copy is read. The level rests on the code in part and on the recordings: recording A's 1 kHz tone gives a channel volume of 1.00 to 1.006, which cannot tell 255 from 253.5.
+- **The voice into the mix.** Steam voice is a 44100 Hz source at pitch 1.0, so it is copied in sample for sample, with no interpolation and no filter, at 255/256, truncated toward zero (read). That is the level with headphones, the default, and with no room. Set B has it to four digits: its clipped 1 kHz plateaus sit at 4895 to 4896 of a ceiling of 4915, a ratio of 0.9960, where 255/256 predicts 4895.85 (measured, W3-18). With a room the voice is split in two (finding 32).
+- **With two speakers** (`snd_surround_speakers 2`) the voice is at 182.6/256, 2.9 dB down (read, W3-15). The game's default sound mixer gives the voice's group 0.72. With headphones the two sides still sum past the cap of 255, so nothing changes there. That the voice falls in that group rests on a name match (inferred). No take was made with two speakers.
 - **Then:** the sum of all sound, a clip at ±32767, `volume`, rounding to 16 bits, in that order (read). So the ceiling is round(32767 × `volume`). Recording A's largest sample is 4915 at `volume 0.15`, with 4% of its samples exactly there and none above (measured). The clip acts on the sum of the voice and the game's other sound; the voice alone tops out at 32639, 0.4% under the ceiling.
-- **DSP.** A voice is not dry (read). Where a room preset is active, 26/256 of it passes the room's reverb and the direct part falls to 229/256. Under water the whole output passes the water preset. The takes were made with no preset active: A's level is within 1% of the full one.
+- **DSP.** A voice is not dry where a room is active (read). A share of it, set by the room's preset, passes the room's reverb, and the direct part falls to match: 26/256 and 229/256 for a numbered preset, 5 to 72 of 256 for the game's automatic room by its shape. Under water the whole output passes the water preset. Finding 32 has the rule and what the takes show: Set B is dry, Set C and both recordings of Set D are not.
 - **Ducking.** While any voice channel is assigned, every other sound falls to half over 0.4 s (`voice_overdrive 2`; read, W3-03). The voice itself is exempt from that and from the game's own ducker (read, W3-07). So the game's ambience under a voice is 6 dB lower than between spurts.
 - **No `[0.1, 0.8, 0.1]`.** The engine has no filter between the voice channel and the 16-bit samples it hands on (read).
 - **The roll-off above 12 kHz** in the 48 kHz recordings is linear interpolation from 44100 to 48000 Hz. It is done after the engine by XAudio2, the system component the engine hands its 44.1 kHz buffers to. That XAudio2 interpolates linearly is measured, not read:
@@ -637,7 +734,12 @@ Read from the engine (W3-07) and measured in five recordings from two PCs (Set D
 - **Its response** is sinc²(f/44100): −0.95 dB at 8 kHz, −1.8 dB at 11 kHz, −2.6 dB at 13 kHz and −5.1 dB at 18 kHz. The fitted filter agreed with it within 0.1 dB to 13 kHz and was 1.1 dB bright at 18 kHz. The images grow with frequency: a 10 kHz tone has one at 13.9 kHz about 21 dB down. On a 44100 Hz device there would be no interpolation (inferred; no take).
 - **The engine codecs** run at 22050 or 11025 Hz. The mixer brings them to 44100 Hz by linear upsampling by two, once or twice (read).
 
-The app still ends with the fitted 3-tap filter and `volume`. Order W3-10 builds the stages as read.
+**Corrected 2026-11-10 (W3-15 and its second read, W3-18).**
+- **The DSP line** said: "Where a room preset is active, 26/256 of it passes the room's reverb and the direct part falls to 229/256. ... The takes were made with no preset active: A's level is within 1% of the full one." The 26/256 is right for the numbered presets 0 to 29 only. Putting a preset on the room overwrites the four mix variables from that preset's own header, so the share is the preset's (read). And only Set B was made with no room. Recording A carries a street preset. Its 1 kHz steps are 3.1 to 3.3% above Set B's, because that preset's echoes add in phase on a steady 1 kHz tone (measured, W3-18). W3-07 had read that as the codec's.
+- **The two-speaker level** was given as 253.5/256 (W3-07). W3-07 had not read the sound mixer's file and said so. With the default mixer's 0.72 it is 182.6/256 (W3-15). The headphone level, 255/256, stands.
+- **The voice's level** was said to rest "on the code in part and on the recordings: recording A's 1 kHz tone gives a channel volume of 1.00 to 1.006, which cannot tell 255 from 253.5". Recording A was the wrong take to ask: it has a room. Set B gives 255/256 by itself.
+
+The app still enters the voice at full level and ends with the fitted 3-tap filter and `volume`. Order W3-10 builds the stages as read.
 
 ### 31. The engine codecs, read and matched
 
@@ -648,27 +750,108 @@ The app still ends with the fitted 3-tap filter and `volume`. Order W3-10 builds
 - **The app's CELT is that build since W3-06 (2026-11-10).** Before, it was built without the filter, and its encoder was then a different one: 17.7 and 17.8 dB against the game on Set H. Its decoder also refused any real packet whose filter flag is set (read in the public source and shown, W3-08). The rebuilt module, the one the app now loads, gives the game's `vaudio_celt` recording on 292,351 of 292,352 samples and its `vaudio_celt_high` recording on 292,789 of 292,864, each remaining sample one step off (125.6 and 106.9 dB), and a third recording from another game's copy of the module (Set I) on 145,919 of 145,920 (measured by the orchestrator with the app's own module). It equals a native build of the same source bit for bit (reproduced). A demo's real `vaudio_celt` and `vaudio_celt_high` packets now decode; one that cannot be decoded plays as a frame of silence and is counted.
 - **The app's Speex is the module's since W3-12b (2026-11-10).** `vendor/speex-1.0.2` is the public Speex 1.0.2 source, equal to a native build bit for bit (reproduced), and Speex 1.0 gives the same packets and sound at these settings on 13 signals, so which 1.0.x release the game holds does not matter for the sound (reproduced on the public sources). The profile feeds it 11025 Hz sound as it is, resets it in place at a new talk spurt (the reset is partial in 1.0.2: the first frame after it still leans on the frame before, read in the public source), and plays a lost frame as zeros because the module never decodes without bytes (read). After a loss the decoder is a frame stale, and the sound is rougher for about half a second (measured on the app's build: 4.1 dB against the source over the next 8 frames where a clean run has 18.1). What the game's listener heard after a loss under this codec was never measured, and cannot be now.
 - **`vaudio_speex`** is read from a module of another Source game that the owner supplied (W3-09); TF2 ships none. It is Speex 1.0.2 or 1.0.1: the two cannot be told apart in the module, and 1.0.2 is the one with a public tag. It runs narrowband at quality 4 (for the engine's 3), 20 bytes a frame, constant bit rate, enhancement on. It is fed the engine's 11025 Hz sound with no resampling: a frame is 14.51 ms, the rate 11.025 kbit/s and the band 5.5 kHz. Decoded samples wrap past full scale. The module has no concealment path (read); what the game plays for a lost Speex frame was not read.
-- **Speex cannot be recorded.** A current game asked for it runs `vaudio_celt`: read for a listen server's host, which is the owner's set-up (W3-09), and shown by Set I, which is in 512-sample packets at 22050 Hz and which the rebuilt CELT reproduces at 145,919 of 145,920 samples. A client of somebody else's server would fall back to the Steam codec instead (inferred, not tested). The app's `speex` profile runs Speex 1.2.1 at 8000 Hz with a resampler on each side; orders W3-12a and W3-12b rebuild it as read.
+- **Speex cannot be recorded.** A current game asked for it runs `vaudio_celt`: read for a listen server's host, which is the owner's set-up (W3-09), and shown by Set I, which is in 512-sample packets at 22050 Hz and which the rebuilt CELT reproduces at 145,919 of 145,920 samples. A client of somebody else's server would fall back to the Steam codec instead (inferred, not tested). This bullet still ended "The app's `speex` profile runs Speex 1.2.1 at 8000 Hz with a resampler on each side; orders W3-12a and W3-12b rebuild it as read." Both are merged, and the profile is the module's (the bullet above; corrected 2026-11-10).
+
+### 32. The room effect on a voice: read, and seen in two sets
+
+Read from the engine and the game's script files (W3-15). Read again in two further reads, each written before the first read's text was opened (the two W3-17 second reads); they win where the reads differ. Then looked for in the takes (W3-18), against a model of the arithmetic written from the second read. Until 2026-11-10 this file took every take to be dry.
+
+- **The map's soundscape sets the room** (read: public SDK for the client, the engine for the rest). Its `dsp` key sets `dsp_room`, which is 0, no room, when the engine starts. The game's 40 soundscape scripts define 153 soundscapes (read from the scripts):
+  - **101 set 1, the automatic room.** Every soundscape of 2Fort, Dustbowl, Badlands, Well, Granary, Gravel Pit, Upward, Hightower and Gold Rush does, indoors and out.
+  - 2 set nothing.
+  - The rest name a fixed preset, 2 to 26, in parts of seven map scripts, or, in one script, numbers the preset file does not have, which the engine ignores.
+  - Scripts packed inside a map were not read, nor which map loads which script.
+- **The presets are a text file of the game**, 136 of them, none compiled in (read). A preset is a header of six numbers and up to five processors in series. The app's table of presets 0 to 29 matches the file value for value (compared by a script, W3-15).
+- **The split by the preset's header.** Putting a preset on the room overwrites four mix variables (`dsp_mix_min`, `dsp_mix_max`, `dsp_db_min`, `dsp_db_mixdrop`) from that preset's header (read twice). A voice is a 60 dB sound placed 12 units from the listener. So it sits at the near end of each preset's range, and the preset's drop for quiet sounds applies. Its limits are fixed once per voice channel, when the channel starts. Of 256, the room gets `trunc(mix × 256)` and the direct part `trunc(256 − mix × 256)`:
+
+  | Room | To the room / direct, of 256 |
+  | --- | --- |
+  | none | 0 / 255 (finding 30) |
+  | a numbered preset, 0 to 29 | 26 / 229 |
+  | automatic: a small room; a hall | 38 / 217 |
+  | automatic: a room of size class 2 or more | 41 / 214 |
+  | automatic: a duct | 51 / 204 |
+  | automatic: a tunnel | 72 / 183 |
+  | automatic: a street; an alley | 23 / 232; 24 / 231 |
+  | automatic: a courtyard; open space | 5 / 250 |
+
+- **No voice is exempt.** The room mix is set to zero in two cases only: `dsp_off`, and a sound whose name carries a mark a voice does not have (read, W3-18). One's own voice under `voice_loopback` gets the split like any other. Sets C and D-A are loopback takes and both carry the room (measured).
+- **What the engine does with the room's share** (read twice, to the formula). The room buffer is mono: left and right are averaged and the result goes to both. It runs at 44100 Hz in 32-bit integers, with 4096 as 1.0 and products shifted down, which rounds toward minus infinity. The processors are delays of seven kinds, an all-pass diffusor, a reverb of up to 12 delay lines side by side, a first-order low-pass, an amplifier and a modulating delay. The reverb is added to the direct voice, with all other sound, before the clip at ±32767 and before `volume` (finding 30). A preset has no gain or wet and dry mix of its own.
+- **The level does not simply drop.** Most automatic presets pass their input straight through, so the room's path adds a copy to the direct part. Direct plus that copy, of 256 (computed from the model, W3-18): a small room 256.3, a hall 256.7, a duct 273, a courtyard 256.0, a street 252.7, an alley 252.6. Only presets that open with a diffusor show a drop: a room of size class 2 or more 213.8, a tunnel 185, open space 250.
+- **The tail.** The delay lines are not cleared between blocks, so the reverb goes on after the voice channel ends, fed by silence. It ends when the integers settle, at zero or a few units below it (inferred from the arithmetic; in the model preset 6 rests at −1 to −2 and a tunnel at −5 to −8). A change of preset cross-fades over 200 ms.
+- **Random taps.** Where a preset modulates, each delay's tap jumps to a new place drawn from the engine's shared random stream and is cross-faded in. It is not a sine. Two runs of the game differ there, so no model can match a take of such a preset sample for sample. A preset that does not modulate can be matched: preset 6 is one.
+- **The automatic room** (`dsp_room 1`; read in outline by W3-15, to the formula by the second read):
+  - It runs only while the player is fully in the game, at most every 0.25 s. A pass casts 20 rays and takes seven such runs.
+  - It measures a width, a length and a height in units, a reflectivity, whether the sky is overhead and which sides are open.
+  - It names one of 11 shapes: room, duct, hall, tunnel, street, alley, courtyard, and four kinds of open space.
+  - It builds a preset from two templates of the file, the small and the large end of that shape: one is copied whole (the large one if the size class is above 1), then chosen numbers are set between the two in fifths, by the classes of the measures. Sixteen templates are in use, presets 102 to 131 less the "diffuse" pairs.
+  - It keeps up to 40 built presets and re-uses one when the listener is back in a remembered place. A new one is built only after the listener has moved more than 48 units and the measures have changed enough.
+  - **Diffusion is never measured in this build**, so the "diffuse" pairs are never chosen (second read). One of them carries the 80/256 that W3-15 gave as the automatic room's largest share; the largest that can occur is the tunnel's 72.
+  - Until the first preset is built the voice is dry. A listener more than 72 units above the floor, such as a free camera, gets no pass.
+- **What turns the room off** (read, W3-18):
+  - **`dsp_slow_cpu 1`.** The room is emptied and every sound is dry at 255/256, while `dsp_room` still prints 1. The game's Sound quality option at its lowest sets it (read from the game's menu module), and it is saved with the configuration.
+  - **`dsp_volume 0`**, also saved: no share goes to the room.
+  - **`dsp_room 0`**: no soundscape has set a room.
+  - `dsp_off 1`, which needs cheats.
+- **Under water** the whole output, direct part and reverb together, passes the water preset, number 14, in mono, with no dry part (read, W3-15). The second read of that preset's amplifier wins: **there is no tremolo.** The gain is full for the first 100 ms after the preset starts, glides once to 1640/4096, which is 0.40 or −7.95 dB, over 80 ms, and stays there. The rest of the preset is three short all-passes, two echoes of 59 and 70 ms whose taps jump at random, and two 1800 Hz low-passes. No other filter is in the path. No take was made under water.
+
+**What the takes show** (measured, W3-18, on the 17 recordings of the game's output). After each sharp stop of a noise-like sound, the next 200 ms were compared with the sound before, lag by lag, above 300 Hz; steady stretches by autocorrelation and cepstrum. The model's rooms were applied to the takes themselves for comparison.
+
+| Takes | What they show |
+| --- | --- |
+| Set B | Dry. The level is 255/256 (ratio 0.9960). No echo from 31 to 540 ms |
+| Set C, all six | The automatic room of shape "room", size class 2: 41/256 to the room, 214/256 direct |
+| Set D, PC A | A street preset, width and length class 3: 23/256 and 232/256 |
+| Set D, PC B | Two weak echoes, at 88.2 and 140.2 ms. A room was active; which one is not settled |
+| Sets A, E, F | No echo found. The test is weak on music and low tones |
+
+- **Set C.** A peak at 57.96 ms, 0.2335 in the autocorrelation. It is the sum of the diffusor's three delays, 573, 837 and 1146 samples. The model predicts 0.232 there. The diffusor's pairs show as negative peaks at 32, 39 and 45 ms. The whole pattern from 31 to 540 ms correlates 0.89 to 0.90 with the model's, against 0.72 for size class 3 or 4. Four more peaks, at 105.2 to 148.2 ms, are comb lines that only size class 2 has (W3-17's order). The source signal has none of these.
+- **Set C's level.** The model's room lowers the voice's energy by 1.20 dB. The accuracy suite had shown that all along and it went unread. Its anchor, the overall level offset between a take and its render, is 1.09 to 1.33 dB on the four Set C takes where loss does not disturb it, against 0.08 to 0.12 dB on Set B and 0.15 dB on recording A (measured; that the sign is "render above take" is inferred, W3-18). The "Every take" table below does not print the anchor: its level column is taken after the offset is removed.
+- **Set D, PC A.** The engine's rule for a street of those classes gives a comb at 68 ms and single echoes at 120 and 308 ms. The take has peaks at 68.02, 120.04 and 308.02 ms, with the comb's repeats at 136 and 204 ms, after every one of six stops. No other shape correlates above 0.2 with the take. The strengths agree to 20%.
+- **Set D, PC B.** A courtyard preset has one echo, at the measured length over 6 ms. 88.2 ms would be a length of 529 units, and the echo's strength fits (0.010 against the model's 0.008). The echo at 140.2 ms belongs to nothing read. Unexplained.
+- **Set B.** Any room but two would have shown: an open-space preset, which the level excludes (250/256 would put the plateaus at 4781, not 4896), and a courtyard with an echo under 31 ms. Why Set B is dry is not known. Its ambience is like Set C's, so a different state is likelier than a different place: `dsp_slow_cpu 1` or `dsp_volume 0` (inferred). The owner does not recall changing the Sound quality option between the sets.
+- **A 1 kHz tone's level cannot show a room.** Every delay of these presets is a whole number of milliseconds, so the echoes add in phase on it. PC A's unclipped 1 kHz steps are 3.1 to 3.3% above Set B's (measured; finding 30 had read that as the codec's).
+- **How far this goes.** Echo times to the sample, one autocorrelation value to 1%, a level to 0.1 dB and a pattern at 0.9. Every take has the game's ambience under it and none is fully wet, so **nothing of the room is checked sample for sample yet.** In Set C the reflectivity class is 2 or 3 (3 fits a little better), and the take's four comb peaks are still 15 to 25% above the model's: 0.029 to 0.034 against 0.024 to 0.027.
+
+**The app today** has its old room code, which is not the engine's (W3-15):
+- presets 0 to 29 only, chosen by the listener's place by guess; no automatic room, which is what a TF2 listener nearly always has;
+- a mix of 0.45 wet, cross-faded, on every preset: against presets 0 to 29 the wet part is about 13 dB too loud and the dry part 4 dB too low;
+- its own delay times, feedback and gains in the reverb, and a sine where the engine jumps at random;
+- the room applied to the voice alone, after its clamp;
+- under water, an extra 900 Hz low-pass that the game does not have.
+
+Its default is no room, which is Set B's state and what the game gives at Sound quality: Low. Order W3-17 replaces the room code in four parts. Only part a is being built: a module with the engine's arithmetic that the app does not use yet. Part b adds the automatic room's build, part c puts both into the render after W3-10, and part d changes the page.
 
 ## Model
 
-"The game" is what was read or measured. "The app today" is what the code on main runs (`constants.js`, `audio.js`), with the order that closes each gap. The orders are in `docs/work-orders/`, and their sequence is in `docs/reports/W3-11-plan.md`, "The order of work". Of these orders only W3-02a (the queue as a module) is merged; W3-05 and W3-12a are being built.
+"The game" is what was read or measured. "The app today" is what the code runs at the merge of W3-11a and of nothing later (`constants.js`, `audio.js`, `opus-codec.mjs`, `steam-sender.js`), with the order that will change each row known to be wrong. The orders are in `docs/work-orders/`, and their sequence is in `docs/reports/W3-11-plan.md`, "The order of work", as `docs/PROGRESS.json` keeps it up to date.
+
+- **Merged:** W3-02a (the queue as a module), W3-02b (Steam's sender and the queue's timeline as modules), W3-05 (the gain), W3-06 (CELT), W3-12a and W3-12b (Speex), W3-13 (the resampler's port), W3-11a (the `steam` render).
+- **Not built:** W3-16 (the hold and the read clock), W3-11b (the live chain), W3-02c to W3-02g (the receiver's channel in the render, on the page and for a demo), W3-10 (the output stage), W3-17 (the rooms; its part a, a module the app does not use, is being built).
+
+A row's "render" is the offline render and its stream, which give the same samples. The live chain is named where it differs.
 
 | Stage | The game | The app today | Basis |
 | --- | --- | --- | --- |
-| Capture | Steam opens the capture at 24 kHz, mono, 16-bit; Windows or the virtual cable converts from the device's rate. A stereo cable reached the game as its left channel | left channel of stereo input, resampled to 24 kHz; clipped at 16-bit full scale but not rounded to 16 bits (W3-11a rounds) | findings 6 and 28 |
+| Capture | Steam opens the capture at 24 kHz, mono, 16-bit; Windows or the virtual cable converts from the device's rate. A stereo cable reached the game as its left channel | left channel of stereo input, resampled to 24 kHz and clipped at 16-bit full scale. Since W3-11a the `steam` render rounds it to 16 bits, ties to even, before the sender. The live chain does not round (W3-11b) | findings 6 and 28 |
 | Capture roll-off | the capture's resampler on the sender's machine. On the owner's PC: −0.5 dB at 11.25 kHz, −2.6 dB at 11.45 kHz, −6.5 dB at 11.75 kHz | 0 dB to 11 kHz, −2.2 dB at 11.45 kHz, −6.6 dB at 11.75 kHz, −8.5 dB at 12 kHz (255-tap FIR at 24 kHz, before the gate and encoder) | findings 14, 16 and 28 |
-| Voice gate | Steam's chunk rule. A chunk is the whole capture steps since Steam's last frame (750 samples each on the owner's PC). Open when mean \|x\| ≥ 1.0% of full scale or a sample ≥ 15%; 2400 samples kept before the onset's chunk; held 0.4 s of Steam's clock; one chunk a message, cut into 480-sample frames with the remainder kept; the encoder and decoder reset per spurt | a 20 ms frame with RMS > −39.5 dBFS is sent with the 6 frames before it and the 22 after it; other frames not sent; a fresh encoder and decoder per talk spurt. Steam's rule for the `steam` profile: W3-02b (the module), W3-11a (the render), W3-11b (the live chain). The other profiles keep the frame fit | findings 5, 12 and 28 |
-| Codec | libopus 1.1.x (1.1.4 by the Linux client's string; Windows inferred): Opus 24 kHz mono, VOIP, signal=voice, 32 kbps constrained VBR, complexity 9 (the default), DTX, 20 ms; 16-bit samples in and out; at most 10 frames concealed per gap | libopus 1.1.5 at both ends with the same settings, but complexity 10 (the same packets as 9) and float samples in and out; no cap on concealed frames. Complexity 9, the 16-bit decode and the decoder's rules: W3-11a | findings 11, 13, 16, 28 and 29 |
-| Decoder's resampler | FFmpeg's libswresample at its defaults (32 taps, 147 phases, Kaiser window), 24000 to 44100 Hz, in float, once per packet. Which kernel Steam's build runs is not known | the app's own windowed-sinc resampler over the whole decoded signal. A port of the library's float path: W3-13 (the module), W3-11a (in the render) | finding 29 |
+| Voice gate | Steam's chunk rule. A chunk is the whole capture steps since Steam's last frame (750 samples each on the owner's PC). Open when mean \|x\| ≥ 1.0% of full scale or a sample ≥ 15%; 2400 samples kept before the onset's chunk; held 0.4 s on Steam's 32-bit float clock of seconds since Steam started, which is 398 to 406 ms of real time on a Steam under a day and a half old and 375 to 500 ms up to 24 days; one chunk a message, cut into 480-sample frames with the remainder kept; the end marker; the encoder and decoder reset per spurt. Steam reads every 48 to 64 ms | **The `steam` render, since W3-11a:** Steam's rule, through the sender of W3-02b with the render's seed: chunks, the mean-or-peak gate, the pre-roll, the hold, one message per chunk, the end marker. Known to be wrong: the hold is an exact 0.4 s and the read clock is the old model (reads tied to a 15.625 ms timer, some late), so spurts end on the 8th chunk too often and tails run 20 ms long. W3-16 changes both. **The live chain:** the 20 ms frame fit of finding 12 (RMS > −39.5 dBFS, 6 frames before, 22 after) until W3-11b. `steam_48` keeps the frame fit. The CELT and Speex profiles have no gate | findings 5, 12 and 28; Sets D, G and J |
+| Codec | libopus 1.1.x (1.1.4 by the Linux client's string; Windows inferred): Opus 24 kHz mono, VOIP, signal=voice, 32 kbps constrained VBR, complexity 9 (the default), DTX, 20 ms; 16-bit samples in and out; at most 10 frames concealed per gap; at most 17 frames decoded from one record | libopus 1.1.5 at both ends with the same settings, complexity 9. **The `steam` render, since W3-11a:** 16-bit samples in, the library's own 16-bit decoder out, a new encoder and decoder per spurt, at most 10 frames concealed. Driven by Steam's chunks it gives Steam's recording in 524,286 of 524,288 samples (Set J). Not in the app: the 17-frame cut, which a file render cannot reach (W3-02g). **The live chain:** float samples in and out, no cap (W3-11b) | findings 11, 13, 16, 28 and 29; Set J |
+| Decoder's resampler | FFmpeg's libswresample at its defaults (32 taps, 147 phases, Kaiser window), 24000 to 44100 Hz, in float, once per packet, one resampler per speaker for the whole session. Its first packet is flushed, which leaves everything after 16 input samples late. The `fma3` kernel on the owner's PC | **The `steam` render, since W3-11a:** the port of that library's float path (W3-13) with the `fma3` kernel, one resampler per render, fed whole messages, with the first-packet flush. Equal to Steam's recording given the decoded samples (Set J). **The live chain** (W3-11b) and a demo's received voice (W3-02g): the app's own windowed-sinc resampler | finding 29; Sets G and J |
 | Voice rate | 44.1 kHz for Steam voice; the mixer runs at a fixed 44100 Hz | 44.1 kHz | block-rate lines, post-decode clipping; read: findings 22 and 30 |
-| Voice channel | a 0.5 s ring per speaker; a new channel waits ceil(0.1 × frames a second) ticks of 15 ms at `voice_buffer_ms 100`; a spurt that arrives before the ring is found empty is appended; one sample dropped per packet; the last 0.1 s of the queue faded | not in a render. The source's timeline is kept, with the flat rule of finding 19 as an option (`voice_retime`). The ring exists as a module (`voice-channel.js`, W3-02a). W3-02b to W3-02d run it in the render and on the page, at `fps_max 300` and `voice_buffer_ms 100`; W3-02f retires the flat rule; W3-02g feeds it a demo's own packets | findings 19 and 21 to 25 |
-| Auto-gain | finding 26's rule: finding 3's law in 128-sample blocks; `voice_scale` entering twice; the step is the difference over 127; an integer block mean; a decoded block of zeros sends the gain to the cap; reset to 1.0 when a channel is assigned. Defaults `voice_avggain 0.5`, `voice_maxgain 10`, `voice_scale 1` | the engine's rule since W3-05, sample-exact on Set H; a render resets the gain once, at its start, and holds it through blocks the gate did not send (the channel's resets: W3-02c, W3-11a) | findings 3, 4 and 26; Sets B and H |
-| Output stage | the voice into the mix at 255/256, truncated; the sum of all sound clipped at ±32767; `volume`; rounding to 16 bits; then XAudio2's linear interpolation to the device's rate (48000 Hz in the takes; none on a 44100 Hz device) | 3-tap `[0.1, 0.8, 0.1]` at 44.1 kHz, then `volume`. The filter was fitted to Set A's 13–18 kHz slope: it matches the interpolator within 0.1 dB to 13 kHz, is 1.1 dB bright at 18 kHz and has no images. The stages as read: W3-10 | findings 1 and 30 |
-| Network | measured on a listen server: findings 8 and 9. Read: Steam's decoder conceals at most 10 frames of a gap. Whether loss falls on whole messages is open (below) | lost frames in Gilbert-Elliott bursts, mean 2.2 frames, concealed by Opus; jitter makes 3.2% of frames late at 50 ms (scaled linearly), one in ten silent | findings 8, 9 and 29 |
+| Voice channel | a 0.5 s ring per speaker; a new channel waits ceil(0.1 × frames a second) ticks of 15 ms at `voice_buffer_ms 100`; a spurt that arrives before the ring is found empty is appended; one sample dropped per packet; the last 0.1 s of the queue faded | not in a render. The source's timeline is kept, with the flat rule of finding 19 as an option (`voice_retime`). Since W3-11a the `steam` render lays each spurt's decoded packets on that timeline, one after the other from the spurt's start; no sample is dropped per packet and nothing waits or is appended. The ring and its timeline exist as modules (`voice-channel.js`, W3-02a and W3-02b). W3-02c and W3-02d run them in the render and on the page, at `fps_max 300` and `voice_buffer_ms 100`; W3-02f retires the flat rule; W3-02g feeds the ring a demo's own packets | findings 19 and 21 to 25 |
+| Auto-gain | finding 26's rule: finding 3's law in 128-sample blocks; `voice_scale` entering twice; the step is the difference over 127; an integer block mean; a decoded block of zeros sends the gain to the cap; reset to 1.0 when a channel is assigned. Defaults `voice_avggain 0.5`, `voice_maxgain 10`, `voice_scale 1` | the engine's rule since W3-05, sample-exact on Set H. **The `steam` render, since W3-11a:** fed the decoded packets in order, a silence record's zeros included, so the gain goes to the cap after each spurt as in the game; reset once only, at the render's start (the channel's resets: W3-02c). **The live chain and the other profiles:** on the source's timeline, held through blocks the gate did not send (W3-11b for the live chain) | findings 3, 4 and 26; Sets B and H |
+| Mixer: the voice's entry | the voice enters the mix at 255/256, truncated toward zero, with headphones (182.6/256 with two speakers). With a room it enters twice: the direct share and the room's share. While a voice channel is assigned, all other sound falls to half | none of it: the voice goes on at full level, with no other sound. The entry: W3-10. The split: W3-17, part c | findings 30 and 32; Set B for the 255/256 |
+| Room | set by the map's soundscape; most ask for the automatic room, which the engine builds from two templates by the shape and size it measures. The voice's share is the preset's: 26/256 for a numbered preset, 5 to 72 of 256 for the automatic room. Mono, 44100 Hz, integers, before the clip and `volume`; the tail runs on. Off at Sound quality: Low (`dsp_slow_cpu 1`). Under water the whole sum passes preset 14, which settles at 0.40 with no tremolo | the old room code: presets 0 to 29 by a guessed place, 0.45 wet on every preset, no automatic room, the room on the voice alone after its clamp, an extra 900 Hz low-pass under water. The default is no room. The engine's arithmetic as a module: W3-17 part a (being built, not used by the app), part b (the automatic room's build); in the render: part c, after W3-10; on the page: part d | finding 32; Sets B, C and D |
+| Output stage | the sum of all sound (the direct voice, the room's reverb, the game's other sound) clipped at ±32767; `volume`; rounding to 16 bits; then XAudio2's linear interpolation to the device's rate (48000 Hz in the takes; none on a 44100 Hz device) | 3-tap `[0.1, 0.8, 0.1]` at 44.1 kHz, then `volume`. The filter was fitted to Set A's 13–18 kHz slope: it matches the interpolator within 0.1 dB to 13 kHz, is 1.1 dB bright at 18 kHz and has no images. The stages as read: W3-10 | findings 1 and 30 |
+| Network | measured on a listen server: findings 8 and 9. Read: Steam's decoder conceals at most 10 frames of a gap, when the next frame arrives; the game refuses whole a message that comes to more than 12 frames. Whether loss falls on whole messages is open (below) | lost frames in Gilbert-Elliott bursts, mean 2.2 frames, drawn per frame; jitter makes 3.2% of frames late at 50 ms (scaled linearly), one in ten silent. **The `steam` render, since W3-11a:** a gap is concealed when the next frame arrives, at most 10 frames of it; frames lost at a spurt's end are not played; a silent late frame is 20 ms of zeros. No refusal of a long message. **The live chain:** concealed by Opus with no cap (W3-11b) | findings 8, 9 and 29 |
 | Engine codecs | `vaudio_celt`: CELT 0.11 with its pitch filter, 22050 Hz, 512-sample frames, 64 bytes, complexity 5. `vaudio_celt_high`: the 44100 Hz mode with 1024-sample frames and 128 bytes, fed 22050 Hz sound. `vaudio_speex`: Speex 1.0.2 or 1.0.1 on 11025 Hz sound with no resampling, wrapping past full scale; a current game runs `vaudio_celt` in its place | `celt_22` and `celt_44`: the game's build and settings since W3-06, sample for sample on Sets H and I but for 1, 75 and 1 samples one step off. `speex`: the module's Speex 1.0.2 on 11025 Hz sound with no resampling since W3-12b, wrapping past full scale, a lost frame as zeros, reset in place at a new talk spurt; equal to a native build of the public source bit for bit; not recorded, since no current game runs it | finding 31 |
 
 ## Results
+
+**Read this first (2026-11-10).** Every table below was made with the app as it was before W3-11a: the frame gate, float decode and the app's own resampler in the `steam` render. They have not been made again. With W3-11a's render the orchestrator's private run of the accuracy suite moved the clean takes by at most 0.12 dB below 10 kHz, brought the 11 to 12 kHz band 0.3 dB closer and left the spurt counts unchanged (`docs/PROGRESS.json`). Two more things the tables did not know (finding 32):
+- **Set C was made in a room**, and the app's render has none. Every Set C row here, and the Set C row of "Every take", compares a take with the game's automatic room against a dry model. That stays so until W3-17's part c gives those rows their room.
+- **Recording A of Set D carries a street preset**, and recording B two weak echoes. Their rows are compared with a dry model too. The effect on a level is small there (finding 32).
 
 **Set B.** Rendered by the app with each take's settings and `volume 0.15`. Each entry is level (dB re full scale), then samples within 5% of the clamp:
 
@@ -734,8 +917,8 @@ A pure sine's codec noise moves by about 2 dB with where the 20 ms frames fall o
 | Set B `voice_maxgain 1` | | 0.15 (1.00) | −1.9 dB at 80–120 Hz | 0.6 / 0.5% |
 | Set B `voice_avggain 0.25` | | 1.07 (0.97) | +1.0 dB at 11–12 kHz | 11.1 / 11.5% |
 | Set B speech | | 0.96 (0.99) | −0.2 dB at 10–11 kHz | 7.0 / 7.4% |
-| Set C baseline | | 0.39 (1.00) | −0.2 dB at 80–120 Hz | 1.1 / 2.3% |
-| Set D sender A | | 0.15 (1.00) | +2.3 dB at 11–12 kHz | 7.6 / 9.6% |
+| Set C baseline | the take has a room, the render none | 0.39 (1.00) | −0.2 dB at 80–120 Hz | 1.1 / 2.3% |
+| Set D sender A | the take has a street room, the render none | 0.15 (1.00) | +2.3 dB at 11–12 kHz | 7.6 / 9.6% |
 | Set D listener B | `volume 0.077` | 0.87 (0.84) | +3.3 dB at 11–12 kHz | 1.2 / 9.6% |
 | Set E River clip | `volume 0.15` | 0.21 (0.98) | +0.2 dB at 80–120 Hz | 12.9 / 15.0% |
 | Set F low tones, default | | 3.54 (0.82) | −1.3 dB at 0.5–1 kHz | 14.1 / 14.3% |
@@ -748,25 +931,53 @@ A pure sine's codec noise moves by about 2 dB with where the 20 ms frames fall o
 - **Listener B.** The row above was rendered at `volume 0.077` and `voice_scale 1`, the settings fitted to its levels at the time. Its peaks reach −19.7 dBFS, 2.5 dB above that render's clamp, and only 1.2% of its samples sit at them. W3-07 explains both, and the output path is not the cause (finding 15). The PC ran `volume 0.11`: its largest sample is 3604, which is −19.2 dBFS. It also ran `voice_scale 0.77`, at which a loud tone's plateau sits at 0.72 of the ceiling, unclipped. Both are inferred from the recording. The row has not been rendered again at those settings.
 - **Samples at the clamp.** In a take a sample reaches the ceiling itself only when game sound adds to the voice, whose own plateau is 0.4% under it (finding 30). So the share at the exact ceiling depends on the game's ambience; the share within a few percent of it does not (W3-07).
 - **Set C with loss and jitter** is compared by its statistics above (Set C), not block by block: TF2's and the app's lost frames are different random frames.
+- **Set C's level.** The level column is taken after each take's overall offset, the suite's anchor, is removed. On the four Set C takes where loss does not disturb it the anchor is 1.09 to 1.33 dB, against 0.08 to 0.12 dB on Set B. That is the room: the model's room of size class 2 lowers the voice by 1.20 dB (finding 32). The baseline row's 2.3% of render samples at the clamp against the take's 1.1% is expected to close with it (W3-17's order; not run).
 - **Clock.** Every take's playback runs about 400 ppm ahead of the source. It is not a recorder's clock: the receiver drops one sample from every packet (finding 24). The one take at 505 ppm had more packets a second.
 
 ## What remains unverified
 
 Six settings no recording of the game's output covers yet are predicted in advance in [predictions/PREDICTIONS.md](predictions/PREDICTIONS.md): the legacy codecs `vaudio_celt` and `vaudio_celt_high`, `voice_scale 2`, `voice_avggain 1`, `voice_maxgain 3` and `volume 1`. Set H has since recorded the two CELT codecs' decoded voice (finding 31). Their predictions were registered with the bundled build, and for `vaudio_celt_high` with settings the engine never selects, so a new registered prediction for it is wanted before its take.
 
-- **Talk-spurt timing.** The receiver's queue is the engine's, read and confirmed tick by tick at 67, 100 and 300 frames a second (findings 22 and 23). The app does not run it yet: renders keep the source timeline by default, and early starts after short silences are an option modeled by the flat rule of finding 19. The one sample dropped per packet (finding 24) is not modeled either. When the queue runs in a render, what a file render makes up is Steam's packets. When Steam's frames fall is a model of one PC's logs (findings 25 and 28), so which pause near 0.4 s closes will differ from any one take. The early starts and the 0.04% occur with a remote listener on a dedicated server too (Set D).
+- **Talk-spurt timing.** The receiver's queue is the engine's, read and confirmed tick by tick at 67, 100 and 300 frames a second (findings 22 and 23). The app does not run it yet: renders keep the source timeline by default, and early starts after short silences are an option modeled by the flat rule of finding 19. The one sample dropped per packet (finding 24) is not modeled either. What a file render makes up is Steam's packets, and since W3-11a the `steam` render does make them, by Steam's rule on a drawn clock. When Steam's frames fall is a model of one PC's logs (findings 25 and 28), so which pause near 0.4 s closes will differ from any one take. The early starts and the 0.04% occur with a remote listener on a dedicated server too (Set D).
 - **The queue, not recorded.** The fade and the underrun padding in sound; a listener under 67 frames a second; the queue under the engine codecs. By the rule a long transmission drains the queue, since nothing refills it inside a spurt: after 20 minutes from a full ring, with a gap in continuous sound when it runs out. No take is long enough to show it.
-- **The sender's clock.** The chunk rule is read. When Steam's frames fall is one PC's logs: 750-sample steps and a frame about every 55.85 ms. A steady clock at that mean would end every spurt on the 8th chunk after the last active one, and the demo has the 7th in 9 of 18. So the frame times vary more than a steady clock's, or the time is noted a frame earlier than read (W3-11 plan). The coarse steps of the 32-bit float clock on a Steam that has run for days are read, not measured.
-- **Steam's libopus build.** The release is 1.1.4 by the Linux build's own string; Windows is inferred (finding 28). The app runs 1.1.5, and 1.1.2 to 1.1.5 gave identical packets on the test signal (finding 16). Steam's compiler and math library could still change packets in their last bits. Whether its 16-bit decoder softens peaks (a float build's does) was not read. Whether the pinned build gives Steam's packets bit for bit needs a known input: Steam's `mic_inputfile` would give one (finding 27; order W3-14). Pure tones at 11.5–12 kHz fall into DTX in Steam's encoder more often than in the model. The capture resampler (Windows's or the cable's) is modeled by its measured roll-off, not reproduced.
-- **The decoder's resampler.** Which kernel Steam's build runs is not known. Valve ships FFmpeg 8.1.2, and the public 6.1.1 was the one run. The first packet's 16 mirrored samples are reproduced on the public library, and the cap of 10 concealed frames is read; neither is seen in a take (finding 29).
-- **The gain under Steam.** The rule is sample-exact against Set H, which ran `vaudio_celt`. The same function serves Steam voice (read), where no sample-exact check exists yet. The divisor 127 rests on the reading alone (finding 26). So do the wrap of the 32-bit product and the first block at unity when `voice_scale` is not 1: both read twice, neither shown by a take. A take with `voice_scale 0.5` and a file that is loud from its first sample would show the second.
-- **PC B's settings.** `volume 0.11` and `voice_scale 0.77` are inferred from recording B and not yet read off that PC (finding 15).
+- **The sender's hold and clock.** Settled on 2026-11-10: the gate's rule on every chunk of Set J; the hold's arithmetic (read); what the float clock does to it (measured at a step of 1/8 s); that Steam reads 48 to 64 ms apart and never late (Set J). The earlier puzzle, why the demo has the 7th chunk so often where a steady clock gives the 8th, is answered in part: by the reads as measured, and by the float if that Steam had run for a week (finding 28). Still open:
+  - **The sender's Steam uptime.** The hold's real length follows it. Set D's ends fit a Steam under 1.5 days old or one of 6.1 to 12.1 days, and the owner has been asked which. That the clock counts from Steam's start is read in the public build of Valve's timer library; the owner's own copy was not read.
+  - **The last 10 ms of the spurt's tail.** The app's tails run 20 ms longer than Steam's in the demo (482 against 462 ms). The hold as read, with the reads as measured, closes about half of that in W3-16's simulation (473 ms). With either uptime the model's ends are still about 13 ms late, and it gives ends the demo never has. The hold is read, so what is left is in how a read's time sits against the capture's steps (W3-16's order).
+  - **The microphone path under the same check.** Set J had a file as the microphone. The capture's 750-sample step is one PC's, and where it comes from was not read. That each step is ready up to 13 ms late is fitted to one PC's chunk pairs. A microphone run with `@voice_spew_activity_check`, Steam's age noted, would show the step, the lateness and the hold at once.
+  - Why Steam's reads follow the game's 15 ms tick (measured in Set J, not explained).
+  - The empty packet and a pre-roll of zeros were not seen in Set J.
+  - **In the app** the hold is still an exact 0.4 s and the clock the old model, until W3-16.
+- **Steam's libopus build.** Settled: the pinned 1.1.5 at Steam's settings gives Steam's decoded sound for a known input in all but 2 of 524,288 samples (Set J, finding 16). Still open:
+  - **The soft clip.** Whether Steam's 16-bit decoder softens peaks past full scale, as the library's does in a float build. Nothing in Set J's clips decodes past full scale, so a plain clip would give the same samples. A clip that does decode past it is wanted.
+  - **1.1.4 against 1.1.5.** The release is 1.1.4 by the Linux build's own string; Windows is inferred (finding 28). The two were not told apart: 1.1.4 was not built. Whether the one sample that differs is the release or Steam's compiler is not known.
+  - **The packets themselves.** No demo was recorded with Set J, so that the bytes are Steam's is inferred from the decoded sound. Constrained VBR and the voice hint make no difference on its clips.
+  - Pure tones at 11.5–12 kHz fall into DTX in Steam's encoder more often than in the model.
+  - The capture resampler (Windows's or the cable's) is modeled by its measured roll-off, not reproduced. Steam's `mic_outputfile` would give its output; it was not tried.
+- **Steam's decoder.** Settled on the owner's PC: the `fma3` kernel, the first packet's flush, and that the decoder and its resampler outlive key presses (Set J, finding 29). Still open:
+  - Another PC's kernel. Valve ships FFmpeg 8.1.2, and the public 6.1.1 was the one run.
+  - The cap of 10 concealed frames and the 17-frame cut are read, and seen once in Set J, through counts and the decoder's state after. No take with loss shows them. Whether the engine asks again for a message it refused was not read; Set J shows no second try.
+  - Why the game did not collect the last 34 frames of one key press in Set J.
+  - 32 of 524,288 samples of the gate clip still differ by one step, in five frames.
+  - The second key presses' sound was not recorded, and the 1 MiB limit leaves the later loops checked by counts only.
+- **The gain under Steam.** The rule is sample-exact against Set H, which ran `vaudio_celt`. The same function serves Steam voice (read), where no sample-exact check exists yet: Set J was made at unity gain. The divisor 127 rests on the reading alone (finding 26). So do the wrap of the 32-bit product and the first block at unity when `voice_scale` is not 1: both read twice, neither shown by a take. A take with `voice_scale 0.5` and a file that is loud from its first sample would show the second.
+- **PC B's settings.** `volume 0.11` and `voice_scale 0.77` are inferred from recording B and not yet read off that PC (finding 15). Its room is not identified either (finding 32).
 - **Stereo capture.** Finding 6 is one capture chain (a stereo virtual cable). A physical microphone is mono either way.
 - **Comfort-noise details.** The model reproduces when comfort noise starts and how often it refreshes, but not the random excitation's exact values. For a steady tone below 60 Hz, the sign and height of each near-DC plateau differ from TF2's (finding 18).
-- **Output stage.** The interpolation to the device's rate is XAudio2's: measured in five recordings from two PCs, not read. A 44100 Hz device would have none (inferred; no take). The app still applies the fitted 3-tap filter in its place (order W3-10). The voice's 255/256 rests on the code in part and on the recordings, which cannot tell it from 253.5/256 (finding 30).
-- **Engine codecs and rooms.** The CELT codecs' build and settings are read and reproduced on Set H, but the app does not run them yet (finding 31; orders W3-06 and W3-12). Set H is the game's decoded voice, not its output: no take of the game's output under either CELT codec exists. Whether the receiving side's CELT decoder is reset between spurts was not read (W3-08). Speex is read from a module of another Source game and cannot be recorded in a current game. The room presets are not validated against recordings, and a voice's share through an active room preset as read, 26/256 (finding 30), is not what the app's rooms use ([LEGACY_CODECS.md](LEGACY_CODECS.md)).
+- **Output stage.** The interpolation to the device's rate is XAudio2's: measured in five recordings from two PCs, not read. A 44100 Hz device would have none (inferred; no take). The app still applies the fitted 3-tap filter in its place (order W3-10). The voice's 255/256 with headphones is settled: read, and measured on Set B to four digits (finding 30). The two-speaker level, 182.6/256, is read, with the voice's mixer group inferred from a name match; no take was made with two speakers.
+- **Engine codecs.** The CELT codecs' build and settings are read and reproduced on Set H, and the app runs them since W3-06; its Speex is the module's since W3-12b (finding 31). Set H is the game's decoded voice, not its output: no take of the game's output under either CELT codec exists. Whether the receiving side's CELT decoder is reset between spurts was not read (W3-08). Speex is read from a module of another Source game and cannot be recorded in a current game ([LEGACY_CODECS.md](LEGACY_CODECS.md)).
+- **Rooms.** The room effect is read twice and seen in Sets C and D by its echo times, one autocorrelation value, a level and a pattern (finding 32). The app's rooms are still its old code, which is not the engine's (order W3-17). Still open:
+  - **The fully wet room take.** No take has all of the voice through a room, and every take has the game's ambience under it. So nothing of the room is checked sample for sample. A take with `dsp_room 6` and the three mix variables set to 1 would be the preset's own response to a known voice, and preset 6 draws nothing at random. The steps are in W3-17's order.
+  - **Why Set B is dry.** `dsp_slow_cpu 1` or `dsp_volume 0` is the likeliest reason (inferred). Reading those two, `dsp_room` and the Sound quality option off the owner's console would settle it.
+  - **PC B's 140 ms echo** in Set D. A courtyard preset explains its echo at 88.2 ms and nothing read explains the one at 140.2 ms.
+  - **The comb-peak gap in Set C's fit.** The take's four comb peaks are 15 to 25% above the model's. The size class is certain; the reflectivity class is 2 or 3.
+  - **What real places measure.** The app has no map. The classes of two rooms come from recordings; their sizes in units are not known. A console log with `adsp_debug 2` would give the engine's own measures for any spot.
+  - **Under water:** read twice, no take. How long the water preset takes to fade in is 100 ms in the first read's table of slots and 200 ms in the second read of its amplifier; not settled.
+  - **Random taps.** The engine's random stream cannot be reproduced, so a modulating preset can be matched in kind only.
+  - **Not read:** the surround paths; soundscape scripts packed inside maps; which map loads which script; whether anything sets `dsp_room` back to 0 between maps; five processor types that no preset on a voice's path uses; which Sound quality a fresh install picks.
+  - **One place where the second read's text and its model differ:** a reflectivity of exactly 0.8, which the text puts in class 2 and the model in class 3 (W3-17's order).
 - **Network settings.** Set C used simulated loss on a listen server, where `net_fakeloss` hits both directions. How a given real-world or one-way loss rate maps to lost frames is not measured, so the app's control is the share of frames lost. The jitter rate is calibrated at one setting (`net_fakejitter 50` with `net_fakelag 100`) and scaled linearly. Set D ran on a LAN with no loss. Real internet loss was not recorded.
-- **Loss on messages or on frames.** In the game a lost network packet loses a whole message: 1 to 4 frames, 8 at an opening (inferred from finding 28). The app draws loss per frame, fitted to finding 8's bursts, about half of which are one frame long. Whole-message loss would not give those. This is not settled; a Set C take with the two debug variables on would show which it is (W3-11 plan).
+- **Loss on messages or on frames.** In the game a lost network packet loses a whole message: 1 to 4 frames, 8 at an opening (inferred from finding 28). The app draws loss per frame, fitted to finding 8's bursts, about half of which are one frame long. Whole-message loss would not give those. This is not settled; a Set C take with the two debug variables on would show which it is (W3-11 plan). The same question decides what to do about the game's refusal of a message over 12 frames, which loss can bring about and the app does not model (finding 29).
+- **The Results tables** were made before W3-11a and before the rooms were known, and have not been made again (see "Results").
 
 ## Reproduce
 
@@ -786,5 +997,9 @@ For a new take of the test signal:
 For SourceTV packets, see [`tests/demovoice/`](demovoice/README.md). For talk-spurt timing (finding 21), run `node tests/retiming.mjs --accuracy results.json --demo voicetest.dem` on the accuracy suite's JSON.
 
 For the receiver's queue (findings 22 and 23), log the console with `voice_loopback 1`, `voice_showincoming 1` and `voice_showchannels 1` set, and note the frame rate. [`tests/voicequeue/`](voicequeue/README.md) turns the log into numbers and replays it through the queue's rule. The log itself stays private.
+
+For Steam's own path against a known input (Set J; findings 16, 28 and 29), the owner's steps are in `docs/work-orders/W3-14-steam-file-input.md` and the method in `docs/reports/W3-14-steam-file-input.md`. Note how long Steam has been running: the hold's length depends on it.
+
+For the room (finding 32), the console readings and the takes still wanted, the fully wet one among them, are in `docs/work-orders/W3-17-room-effects.md`, "The owner's recording". A take for the room is the game's output: `voice_recordtofile` taps the voice before the mixer and holds no room.
 
 Use single quotes around filenames containing `$` in PowerShell. The compare tool reads files locally, prints JSON and uploads nothing. A full run takes a few minutes.
