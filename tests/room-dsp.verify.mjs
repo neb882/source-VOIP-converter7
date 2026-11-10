@@ -1049,6 +1049,19 @@ export async function main() {
       same(rows.filter((r) => r.measured).map((r) => [r.key, r.set]), [['set_c_room', 'Set C'], ['set_d_street', 'Set D']]) &&
       Array.isArray(R.ROOM_PLACES) && R.ROOM_PLACES.length === 0 && Object.isFrozen(R.ROOM_CASES) &&
       typeof (rows.find((r) => r.key === 'open') || {}).note === 'string');
+    // The two notes the page shows, typed here from the W3-17b second read, section 3 (what each take fixes and
+    // which measures build the same preset) and the order's item 5 (the reflectivity classes).
+    const NOTES = {
+      set_c_room: 'Fitted to the owner\'s Set C: a room whose shorter side is 145 to 576 units (12 to 48 feet); the take ' +
+        'fixes the size class (2), not the size. Reflectivity class 3 fits best, class 2 nearly as well. These ' +
+        'measures are one room that builds this preset.',
+      set_d_street: 'Fitted to the owner\'s Set D, PC A (echoes at 68, 120 and 308 ms): a street 289 to 460 units wide and ' +
+        '723 to 1152 long (24 to 38 by 60 to 96 feet). An open street (two walls open) with the same classes builds ' +
+        'the same preset, so the take cannot tell the two apart. The take does not fix the reflectivity class; class ' +
+        '1 is taken. These measures are one such street.',
+    };
+    check('the two measured cases\' notes say what the takes fix, word for word as typed here (second read, section 3)',
+      Object.entries(NOTES).every(([k, t]) => (rows.find((r) => r.key === k) || {}).note === t));
     let bad = [];
     for (const [k, , , , , , , , shape, cls, copy, room, direct] of ORDER_CASES) {
       const b = built[k];
@@ -1124,6 +1137,38 @@ export async function main() {
       return other.shape === 'open space' && other.classes.size === 4 && other.copy === 131 &&
         same(R.shares(other.preset), { room: 5, direct: 250 }) && same(R.shares(built.open.preset), { room: 5, direct: 250 });
     });
+    // The vertical shaft (W3-17b second read, finding 1): indoors, a height over three lengths (strictly), the engine
+    // exchanges length and height in its record (0x180032059 to 0x180032083), names the shape and works out the
+    // classes from that record, and exchanges them back afterwards (0x18003219f to 0x1800321b1). Typed from that read.
+    const indoor = (width, length, height) => R.buildAutomatic({ sky: false, width, length, height, reflectivity: 0.4, openSides: 0 });
+    checkTry('a vertical shaft has the classes of its exchanged length and height: 100 x 100 x 400 a room of size 1, width 1, length 2, height 1 (102); 200 x 250 x 800 size 2, width 2, length 3, height 3 (103); 100 x 100 x 300 is no shaft', () => {
+      const a = indoor(100, 100, 400), b = indoor(200, 250, 800), c = indoor(100, 100, 300);
+      return a.shaft && a.shape === 'room' && same(classList(a.classes), [1, 1, 2, 1, 1, 0]) && a.copy === 102 &&
+        b.shaft && b.shape === 'room' && same(classList(b.classes), [2, 2, 3, 3, 1, 0]) && b.copy === 103 &&
+        !c.shaft && same(classList(c.classes), [0, 1, 0, 3, 1, 0]);
+    });
+    {
+      const f = Math.fround, rv = (b) => b.preset.p.find(([t]) => t === 2)[1], df = (b) => b.preset.p.find(([t]) => t === 10)[1];
+      const at = (v, idx) => idx.map((i) => v[i]);
+      checkTry('the second read\'s three shafts, value for value: 200 x 250 x 800 (room, 103: DFR 1, 3, 0.150000006; RVA 105.599998, 33.2000008, 5.19999981, 0.856000006, 1.62000012, cutoff 2850), 60 x 100 x 400 (hall, 110), 120 x 150 x 600 (tunnel, 115)', () => {
+        const r = indoor(200, 250, 800), h = indoor(60, 100, 400), t = indoor(120, 150, 600);
+        return r.shape === 'room' && same(classList(r.classes).slice(0, 4), [2, 2, 3, 3]) && r.copy === 103 &&
+          same(r.preset.h, [0.32, 0.8, 0, 0, 80, 0.5].map(f)) && same(df(r).slice(0, 3), [1, 3, 0.150000006].map(f)) &&
+          same(at(rv(r), [0, 1, 2, 3, 4, 5]), [105.599998, 33.2000008, 5.19999981, 0.856000006, 1.62000012, 2850].map(f)) &&
+          h.shape === 'hall' && same(classList(h.classes).slice(0, 4), [1, 0, 2, 1]) && h.copy === 110 &&
+          same(at(rv(h), [2, 4, 5, 9, 10, 11, 12, 13, 14]),
+            [3.5999999, 1.96000004, 4500, 7, 47.5200043, 12.1599998, 0.850000024, -0.659999967, 0.300000012].map(f)) &&
+          t.shape === 'tunnel' && same(classList(t.classes).slice(0, 4), [2, 1, 3, 2]) && t.copy === 115 &&
+          same(df(t).slice(0, 3), [1, 2.4000001, 0.148980007].map(f)) &&
+          same(at(rv(t), [2, 4, 5, 9, 10, 11, 12, 13, 14]),
+            [7.19999981, 2, 4500, 9.60000038, 89.6000061, 18.6399994, 0.94599998, -0.600000024, 0.439999998].map(f));
+      });
+      checkTry('a shaft\'s measures in place of negative values stay the true ones: the hall pair with w, d, h -1 in both, 60 x 100 x 400, gives 6, 8.33333302, 33.3333321 (feet of 60, 100 and 400)', () => {
+        const t = editedTable([[110, 0, 9, -1], [110, 0, 10, -1], [110, 0, 11, -1], [111, 0, 9, -1], [111, 0, 10, -1], [111, 0, 11, -1]]);
+        const b = R.buildAutomatic({ sky: false, width: 60, length: 100, height: 400, reflectivity: 0.4, openSides: 0 }, { table: t });
+        return b.shaft && b.shape === 'hall' && same(at(rv(b), [9, 10, 11]), [6, 8.33333302, 33.3333321].map(f));
+      });
+    }
   }
 
   if (section('The automatic room: the build (part b)')) {
@@ -1299,6 +1344,13 @@ export async function main() {
     check('measures refused by name: a width that is not a whole number, a negative height, a reflectivity over 1, five open sides, an unknown key',
       refused({ ...m, width: 200.5 }, 'width') && refused({ ...m, height: -1 }, 'height') && refused({ ...m, reflectivity: 1.2 }, 'reflectivity') &&
       refused({ ...m, sky: true, openSides: 5 }, 'open sides') && refused('nowhere', 'nowhere') && refused(undefined, 'measures'));
+    {
+      const { sky, openSides, ...noSky } = m;
+      checkTry('nothing passes silently: sky must be true or false (not "false", 1 or missing), open sides must be given (not missing or null); a row with measures and no key builds with key null',
+        () => refused({ ...m, sky: 'false' }, 'sky') && refused({ ...m, sky: 1 }, 'sky') && refused({ ...noSky, openSides }, 'sky') &&
+          refused({ ...noSky, sky }, 'open sides') && refused({ ...m, openSides: null }, 'open sides') &&
+          R.buildAutomatic({ label: 'a row', measures: m }).key === null);
+    }
     // The built preset is a preset of the table's form: frozen, its values singles, and it goes straight into the
     // room path (the module's own path, run on it against an instance of it: the module against itself).
     checkTry('the built preset is frozen, of the table\'s form, its values singles; a path made with it gives its shares (72/183) and direct + its output', () => {
@@ -1317,6 +1369,69 @@ export async function main() {
         ['hall', 'adsp_hall_min', 110], ['tunnel', 'adsp_tunnel_min', 114], ['street', 'adsp_street_min', 118],
         ['alley', 'adsp_alley_min', 122], ['courtyard', 'adsp_courtyard_min', 126], ['open space', 'adsp_openspace_min', 130],
         ['open wall', 'adsp_openwall_min', 130], ['open street', 'adsp_openstreet_min', 118], ['open courtyard', 'adsp_opencourtyard_min', 126]]));
+  }
+
+  if (section('The automatic room: the console\'s log (part b)')) {
+    // The W3-17b second read, section 4: "NEW DSP NODE: size:(a,b) height:(c) ... refl r ... sky s". The first size
+    // number is the length, the second the width, each units / 12 rounded to a whole foot; height 400 under an open
+    // sky is 4800; a printed N stands for 12N - 6 to 12N + 6 units. A class is open where the printed feet sit on a
+    // threshold: width 6, 12, 24, 48; length 12, 24, 48, 96; height 4, 11, 18, 32; a courtyard's length 10, 20, 40,
+    // 100; the reflectivity at 0.0400, 0.5000, 0.8000. The mix values tell an open-sided shape's pair: 0.21, 0.8, 95,
+    // 0.1 one side open; 0.3, 0.8, 75, 0.3 two; 0.22, 0.6, 95, 0.1 three or four; and a room's copy: 0.3 first is 102,
+    // 0.32 is 103. All typed from that section.
+    const pd = (line) => R.placeFromDebug(line);
+    checkTry('size:(33,25) height:(13) refl 0.9000 sky 0 is length 396, width 300, height 156 (the first number the length): set_c_room\'s room, size class 2, reflectivity class 3, copy 103, nothing open', () => {
+      const p = pd({ size: [33, 25], height: 13, refl: 0.9, sky: 0 });
+      return same(p.measures, { sky: false, width: 300, length: 396, height: 156, reflectivity: 0.9, openSides: 0 }) &&
+        p.shape === 'room' && p.classes.size === 2 && p.classes.reflectivity === 3 && p.copy === 103 && p.open.length === 0 &&
+        p.candidates.length === 1 && !p.shaft;
+    });
+    checkTry('size:(83,25) height:(400) sky 1 with "OUTSIDE STREET Detected": height 4800, a street of size, width and length class 3 from 119 (set_d_street\'s), no open side', () => {
+      const p = pd({ size: [83, 25], height: 400, refl: 0.4, sky: 1, shape: 'OUTSIDE STREET Detected' });
+      return same(p.measures, { sky: true, width: 300, length: 996, height: 4800, reflectivity: 0.4, openSides: 0 }) &&
+        p.shape === 'street' && same(classList(p.classes).slice(0, 4), [3, 3, 3, 4]) && p.copy === 119 && p.open.length === 0;
+    });
+    const openAt = (name, make, top) => {
+      const got = [];
+      for (let n = 1; n <= top; n++) if (pd(make(n)).open.includes(name)) got.push(n);
+      return got;
+    };
+    checkTry('the width class is open exactly at printed widths 6, 12, 24, 48 (1 to 60)',
+      () => same(openAt('width', (n) => ({ size: [200, n], height: 1, refl: 0.4, sky: 0 }), 60), [6, 12, 24, 48]));
+    checkTry('the length class is open exactly at printed lengths 12, 24, 48, 96 (1 to 110)',
+      () => same(openAt('length', (n) => ({ size: [n, 25], height: 1, refl: 0.4, sky: 0 }), 110), [12, 24, 48, 96]));
+    checkTry('the height class is open exactly at printed heights 4, 11, 18, 32 (1 to 60)',
+      () => same(openAt('height', (n) => ({ size: [400, 25], height: n, refl: 0.4, sky: 0 }), 60), [4, 11, 18, 32]));
+    checkTry('a courtyard\'s size class is open exactly at printed lengths 10, 20, 40, 100 (1 to 110)',
+      () => same(openAt('size', (n) => ({ size: [n, 100], height: 400, refl: 0.4, sky: 1, shape: 'OUTSIDE COURTYARD' }), 110), [10, 20, 40, 100]));
+    checkTry('the reflectivity class is open at 0.0400 (0 or 1), 0.5000 (1 or 2) and 0.8000 (2 or 3), not at 0.0399, 0.0401, 0.4999, 0.5001, 0.7999, 0.8001', () => {
+      const cls = (r) => [...new Set(pd({ size: [33, 25], height: 13, refl: r, sky: 0 }).candidates.map((c) => c.classes.reflectivity))].sort();
+      return same(cls(0.04), [0, 1]) && same(cls(0.5), [1, 2]) && same(cls(0.8), [2, 3]) &&
+        [0.0399, 0.0401, 0.4999, 0.5001, 0.7999, 0.8001].every((r) => cls(r).length === 1);
+    });
+    checkTry('the open-sided line\'s pair by the mix: 0.21, 0.8, 95, 0.1 one side open; 0.3, 0.8, 75, 0.3 two; 0.22, 0.6, 95, 0.1 three or four (built alike); with no mix all four stay open', () => {
+      const line = { size: [83, 25], height: 400, refl: 0.4, sky: 1, shape: 'OPEN SIDED OUTDOOR AREA Detected' };
+      const shapes = (mix) => pd({ ...line, mix }).candidates.map((c) => [c.shape, c.measures.openSides]);
+      const none = pd(line);
+      const three = pd({ ...line, mix: [0.22, 0.6, 95, 0.1] }).candidates;
+      return same(shapes([0.21, 0.8, 95, 0.1]), [['open courtyard', 1]]) && same(shapes([0.3, 0.8, 75, 0.3]), [['open street', 2]]) &&
+        same(three.map((c) => [c.shape, c.measures.openSides]), [['open wall', 3], ['open space', 4]]) &&
+        same(R.buildAutomatic(three[0].measures).preset.p, R.buildAutomatic(three[1].measures).preset.p) &&
+        none.open.includes('openSides') && same([...new Set(none.candidates.map((c) => c.measures.openSides))].sort(), [1, 2, 3, 4]);
+    });
+    checkTry('a room\'s copy by the mix: on the width and length thresholds (12 and 24 feet) the copy is open; 0.3, 0.8, 80, 0.5 leaves 102 (size class 0 or 1), 0.32, 0.8, 80, 0.5 leaves 103 (size class 2)', () => {
+      const line = { size: [24, 12], height: 13, refl: 0.4, sky: 0 };
+      const a = pd(line), b = pd({ ...line, mix: [0.3, 0.8, 80, 0.5] }), c = pd({ ...line, mix: [0.32, 0.8, 80, 0.5] });
+      return a.open.includes('copy') && b.candidates.every((x) => x.copy === 102 && x.classes.size <= 1) &&
+        c.candidates.every((x) => x.copy === 103 && x.classes.size === 2) && b.candidates.length > 0 && c.candidates.length > 0;
+    });
+    checkTry('a shaft in the log says so (size:(8,5) height:(66) indoors); printed numbers that are not feet, a sky of 2, an unknown shape line, or a shape the numbers cannot build are refused by name', () => {
+      const refusedP = (line, word) => { try { R.placeFromDebug(line); return false; } catch (e) { return e.message.includes(word); } };
+      return pd({ size: [8, 5], height: 66, refl: 0.4, sky: 0 }).candidates.every((c) => c.shaft) &&
+        refusedP({ size: [33.5, 25], height: 13, refl: 0.9, sky: 0 }, 'size') && refusedP({ size: [33, 25], height: 13, refl: 0.9, sky: 2 }, 'sky') &&
+        refusedP({ size: [33, 25], height: 13, refl: 0.9, sky: 0, shape: 'CAVE Detected' }, 'shape line') &&
+        refusedP({ size: [33, 25], height: 13, refl: 0.9, sky: 0, shape: 'DUCT Detected' }, 'no space');
+    });
   }
 
   console.log(`\n${passed} room checks passed${failed.length ? `, ${failed.length} FAILED` : ''} (${((performance.now() - T0) / 1000).toFixed(1)} s)`);

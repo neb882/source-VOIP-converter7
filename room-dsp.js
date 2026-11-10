@@ -1035,15 +1035,19 @@
   ].map(([name, variable, base], number) => ({ number, name, variable, base }));
 
   // The measures as the engine has them (R2 e1: whole units, inches to this code), checked:
-  // { sky, width, length, height, reflectivity, openSides }. Open sides (the horizontal rays that met nothing or
-  // sky, R2 e4) count only under the sky. Diffusion is not a measure: this build of the engine never measures it,
-  // so its class is always 0 and the "diffuse" pairs (104/105 ... 132/133) are never chosen (R2 e4, difference 10).
+  // { sky, width, length, height, reflectivity, openSides }, every one given (none defaults). Open sides (the
+  // horizontal rays whose reflectivity is 0: met nothing or sky, R2 e4) count only under the sky. Diffusion is not a
+  // measure: this build of the engine never measures it, so its class is always 0 and the "diffuse" pairs
+  // (104/105 ... 132/133) are never chosen (R2 e4, difference 10).
   function measuresOf(m) {
     if (!m || typeof m !== 'object') {
       throw new Error('TF2Room: the automatic room needs measures { sky, width, length, height, reflectivity, openSides }');
     }
-    const out = { sky: !!m.sky, width: m.width, length: m.length, height: m.height, reflectivity: m.reflectivity,
-      openSides: m.openSides === undefined || m.openSides === null ? 0 : m.openSides };
+    if (typeof m.sky !== 'boolean') {
+      throw new Error(`TF2Room: the automatic room's sky is ${m.sky}; true (under the sky) or false`);
+    }
+    const out = { sky: m.sky, width: m.width, length: m.length, height: m.height, reflectivity: m.reflectivity,
+      openSides: m.openSides };
     for (const k of ['width', 'length', 'height']) {
       if (!Number.isInteger(out[k]) || out[k] < 0 || out[k] > 0x7FFFFFFF) {
         throw new Error(`TF2Room: the automatic room's ${k} is ${m[k]}; the engine measures whole units, 0 or more`);
@@ -1058,13 +1062,22 @@
     return out;
   }
 
-  // The shape (R2 e2, 0x180032040). Indoors a space more than three times as high as it is long is a shaft: height
-  // and length swap for the test only. Under the sky n open sides (1 to 4) give shape 11 - n.
+  // A vertical shaft: indoors, a space more than three times as high as it is long (doubles, strictly). The engine
+  // exchanges height and length in its record (0x180032059 to 0x180032083), names the shape and works out the
+  // classes from that record, and only then exchanges them back (0x18003219f to 0x1800321b1): so in a shaft the
+  // length class comes from the height, the height class from the length, and the size class follows (W3-17b second
+  // read, finding 1, which corrects R2 e2's "swapped for the test"). The measures that replace a negative template
+  // value are read after the exchange back: they stay the true ones.
+  const isShaft = (m) => !m.sky && m.height > 3 * m.length;
+  const classRecord = (m) => (isShaft(m) ? Object.assign({}, m, { length: m.height, height: m.length }) : m);
+
+  // The shape (R2 e2, 0x180032040), from the record (a shaft's exchanged). Under the sky n open sides (1 to 4) give
+  // shape 11 - n.
   function shapeOf(m) {
     const W = m.width;
     let L = m.length;
     if (!m.sky) {
-      if (m.height > 3 * L) L = m.height;
+      if (isShaft(m)) L = m.height;
       if (L > 4 * W && W <= 48) return 1;                       // duct
       if (L > 2.5 * W && W > 48 && W <= 96) return 2;           // hall
       if (L > 4 * W && W > 96) return 3;                        // tunnel
@@ -1075,7 +1088,8 @@
     return W <= 144 ? 5 : 4;                                    // alley, street
   }
 
-  // The classes (R2 e1, 0x180032320; difference 13), each "over the lower limit, up to the upper".
+  // The classes (R2 e1, 0x180032320; difference 13), each "over the lower limit, up to the upper"; `m` is the
+  // engine's record, a shaft's length and height exchanged (classRecord).
   function classesOf(shape, m) {
     const W = m.width, L = m.length, H = m.height;
     const width = W > 576 ? 4 : W > 288 ? 3 : W > 144 ? 2 : W > 72 ? 1 : 0;
@@ -1114,11 +1128,19 @@
     [TYPE.DLY, [[1, 'length', SQ, false, 5, (m) => sixth(m.length)], [2, 'length'], [3, 'length'],
       [8, 'length', SQ, false, 5, (m) => sixth(m.width)], [9, 'length', SQ, false, 5, (m) => sixth(m.length)],
       [10, 'length', SQ, false, 5, (m) => sixth(m.length)], [5, 'length', false, DULL], [6, 'length', false, DULL]]],
-    // FLT on the size class (R2 e1; the model too). AMP on the size class and MDY on the length class are R2 e1's
-    // and not the model's (its build predates its AMP and MDY); no template of the table holds either.
+    // The other types, linear, A to B, divisor 5 (R2 e1; the W3-17b second read, section 1, confirmed each at its
+    // address): FLT 0 to 4 on the size class (0x180032eb0), MDY 0 to 12 on the length class (0x180032e30), AMP 0 to 7
+    // (0x180032e70), PTC 0 to 2 (0x180032ef0), CRS 0 to 3 (0x180032f30), ENV 0 to 8 (0x180032f70), EFO 0 to 3
+    // (0x180032fb0) and LFO 0 to 3 (0x180032ff0) on the size class. No template of the table holds any of them; the
+    // module builds no FLT, PTC, CRS, ENV, EFO or LFO instance, but the built values are the engine's.
     [TYPE.FLT, [0, 1, 2, 3, 4].map((i) => [i, 'size'])],
-    [TYPE.AMP, [0, 1, 2, 3, 4, 5, 6, 7].map((i) => [i, 'size'])],
     [TYPE.MDY, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => [i, 'length'])],
+    [TYPE.AMP, [0, 1, 2, 3, 4, 5, 6, 7].map((i) => [i, 'size'])],
+    [TYPE.PTC, [0, 1, 2].map((i) => [i, 'size'])],
+    [TYPE.CRS, [0, 1, 2, 3].map((i) => [i, 'size'])],
+    [TYPE.ENV, [0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => [i, 'size'])],
+    [TYPE.EFO, [0, 1, 2, 3].map((i) => [i, 'size'])],
+    [TYPE.LFO, [0, 1, 2, 3].map((i) => [i, 'size'])],
   ];
 
   // from + (to - from) x (class / divisor), the factor applied twice when squared: singles, step by step, as
@@ -1172,33 +1194,140 @@
     }),
     caseRow('set_c_room', 'Spawn-sized room (as recorded, Set C)', false, 300, 400, 160, 0.9, 0, {
       measured: true, set: 'Set C',
-      note: 'Fitted to the owner\'s Set C: size class 2 is certain (only it has the comb lines the take shows); ' +
-        'reflectivity class 3 fits best, 2 nearly as well. The measures in units are stand-ins that give those classes.',
+      note: 'Fitted to the owner\'s Set C: a room whose shorter side is 145 to 576 units (12 to 48 feet); the take ' +
+        'fixes the size class (2), not the size. Reflectivity class 3 fits best, class 2 nearly as well. These ' +
+        'measures are one room that builds this preset.',
     }),
     caseRow('set_d_street', 'Street (as recorded, Set D)', true, 300, 1000, 4800, 0.4, 0, {
       measured: true, set: 'Set D',
-      note: 'Fitted to the owner\'s Set D, PC A: the street with width and length class 3 (echoes at 68, 120 and ' +
-        '308 ms). The take does not fix the reflectivity class; class 1 is taken. The measures in units are stand-ins.',
+      note: 'Fitted to the owner\'s Set D, PC A (echoes at 68, 120 and 308 ms): a street 289 to 460 units wide and ' +
+        '723 to 1152 long (24 to 38 by 60 to 96 feet). An open street (two walls open) with the same classes builds ' +
+        'the same preset, so the take cannot tell the two apart. The take does not fix the reflectivity class; class ' +
+        '1 is taken. These measures are one such street.',
     }),
   ]);
 
-  // Places from the owner's log (order part b, item 4), when it comes: one row each, of the same shape as a case,
-  // with the map and spot in words and the measures the engine printed:
-  //   { key, label, map, spot, measures: { sky, width, length, height, reflectivity, openSides }, shape }
-  // (`shape`: the name the engine printed, to check the build against). Nothing else is needed to add one.
+  // Places from the owner's log (order part b, item 4), when it comes: one row each, of the same shape as a case:
+  //   { key, label, map, spot, measures: { sky, width, length, height, reflectivity, openSides }, shape, log, note }
+  // `measures` in units, as buildAutomatic takes them. The console does not print units: its `adsp_debug` line
+  // ("NEW DSP NODE: size:(a,b) height:(c) ... refl r ... sky s") prints whole feet, the length first, and no count
+  // of open sides (W3-17b second read, section 4). placeFromDebug turns the printed numbers into measures and says
+  // which classes the log leaves open. `shape`: the module's name for the shape line the console printed, to check
+  // the build against; `log`: the printed numbers; `note`: which class was taken where the log left two open.
+  // Nothing else is needed to add one.
   const ROOM_PLACES = deepFreeze([]);
+
+  // The console's shape lines (`adsp_debug 2`; second read, section 4) and the shapes each can be: the open-sided
+  // line is the same for all four open-sided shapes.
+  const SHAPE_LINES = {
+    'ROOM': [0], 'DUCT': [1], 'HALL': [2], 'TUNNEL': [3], 'OUTSIDE STREET': [4], 'OUTSIDE ALLEY': [5],
+    'OUTSIDE COURTYARD': [6], 'OPEN SIDED OUTDOOR AREA': [7, 8, 9, 10],
+  };
+
+  // placeFromDebug({ size: [a, b], height: c, refl: r, sky: s, mix, shape }, { table }): the measures a new node's
+  // printed line stands for (second read, section 4). The console prints each span as units / 12 rounded to a whole
+  // foot, so a printed N is any whole number of units from 12N - 6 to 12N + 6 (which way a half foot goes was not
+  // read): length = 12a (the first number), width = 12b, height = 12c (400 under an open sky: 4800, the ray's
+  // length). The reflectivity is printed to four decimals, so r stands for r - 0.00005 to r + 0.00005. `sky`: the
+  // printed 1 or 0 (or a boolean). Optional: `mix`, the four values dsp_mix_min, dsp_mix_max, dsp_db_min and
+  // dsp_db_mixdrop read after the build (the built preset's header: it tells an open-sided shape's pair, and a room's
+  // copy), and `shape`, the console's shape line (or the module's name). Every space the printed numbers allow is
+  // tried; spaces whose shape and classes agree are one candidate, kept with the measures nearest the printed ones
+  // (fewer open sides first). Returns { measures, shape, shaft, classes, copy, candidates, open }: the first
+  // candidate's, all the candidates, and the names of what differs among them ('shape', 'openSides', 'size',
+  // 'width', 'length', 'height', 'reflectivity', 'copy'). A class is open where a printed number sits on a threshold
+  // in feet: width 6, 12, 24, 48; length 12, 24, 48, 96; height 4, 11, 18, 32; a courtyard's length 10, 20, 40, 100;
+  // reflectivity 0.0400, 0.5000, 0.8000. Under the sky without `mix` or `shape` the open sides stay open.
+  function placeFromDebug(line, opts = {}) {
+    if (!line || typeof line !== 'object') throw new Error('TF2Room: placeFromDebug needs the printed numbers { size: [a, b], height, refl, sky }');
+    const { size, height, refl, mix } = line;
+    const whole = (v) => Number.isInteger(v) && v >= 0;
+    if (!Array.isArray(size) || size.length !== 2 || !whole(size[0]) || !whole(size[1])) {
+      throw new Error(`TF2Room: the printed size is ${JSON.stringify(size)}; two whole numbers of feet, the length first`);
+    }
+    if (!whole(height)) throw new Error(`TF2Room: the printed height is ${height}; a whole number of feet`);
+    if (typeof refl !== 'number' || !(refl >= 0 && refl <= 1)) throw new Error(`TF2Room: the printed reflectivity is ${refl}; 0 to 1`);
+    if (![0, 1, true, false].includes(line.sky)) throw new Error(`TF2Room: the printed sky is ${line.sky}; 1 or 0`);
+    const sky = line.sky === 1 || line.sky === true;
+    let shapes = null;
+    if (line.shape !== undefined) {
+      const word = String(line.shape).trim().toUpperCase().replace(/\s+DETECTED$/, '');
+      shapes = SHAPE_LINES[word] || SHAPES.filter((x) => x.name === line.shape).map((x) => x.number);
+      if (!shapes.length) throw new Error(`TF2Room: "${line.shape}" is not a shape line the console prints`);
+    }
+    if (mix !== undefined && (!Array.isArray(mix) || mix.length !== 4 || !mix.every((v) => typeof v === 'number'))) {
+      throw new Error('TF2Room: mix is [dsp_mix_min, dsp_mix_max, dsp_db_min, dsp_db_mixdrop]');
+    }
+    const table = opts.table || null;
+    const units = (feet, max) => {
+      const out = [];
+      for (let u = Math.max(0, 12 * feet - 6); u <= Math.min(max, 12 * feet + 6); u++) out.push(u);
+      return out;
+    };
+    const lengths = units(size[0], 9600), widths = units(size[1], 9600);
+    const heights = height === 400 && sky ? [4800] : units(height, 4800);
+    // The reflectivity: the printed value, and either side of a threshold within the printing's half step.
+    const refls = [refl];
+    const bits = new Float32Array(1), word = new Int32Array(bits.buffer);
+    const nextSingle = (v, step) => { bits[0] = v; word[0] += step; return bits[0]; };   // v > 0: the neighbouring single
+    for (const t of [0.04, 0.5, 0.8]) {
+      if (Math.abs(refl - t) <= 0.00005) {
+        const f = fround(t);
+        for (const v of [f, nextSingle(f, 1), nextSingle(f, -1)]) {
+          if (v >= 0 && v <= 1 && Math.abs(v - refl) <= 0.00005 && !refls.includes(v)) refls.push(v);
+        }
+      }
+    }
+    const header = (n) => { const t = presetOf(n, table); return t ? [t.h[0], t.h[1], t.h[4], t.h[5]].map((v) => fround(+v)) : null; };
+    const found = new Map();
+    for (const openSides of sky ? [0, 1, 2, 3, 4] : [0]) {
+      for (const length of lengths) {
+        for (const width of widths) {
+          for (const h of heights) {
+            for (const reflectivity of refls) {
+              const m = { sky, width, length, height: h, reflectivity, openSides };
+              const shapeNumber = shapeOf(m);
+              if (shapes && !shapes.includes(shapeNumber)) continue;
+              const classes = classesOf(shapeNumber, classRecord(m));
+              const copy = SHAPES[shapeNumber].base + (classes.size > 1 ? 1 : 0);
+              if (mix) {
+                const hd = header(copy);
+                if (!hd || !hd.every((v, i) => v === fround(mix[i]))) continue;
+              }
+              const key = [shapeNumber, classes.size, classes.width, classes.length, classes.height, classes.reflectivity, copy].join();
+              const dist = Math.abs(length - 12 * size[0]) + Math.abs(width - 12 * size[1]) +
+                Math.abs(h - (heights.length === 1 ? h : 12 * height)) + (reflectivity === refl ? 0 : 1);
+              const was = found.get(key);
+              if (!was || openSides < was.measures.openSides || (openSides === was.measures.openSides && dist < was.dist)) {
+                found.set(key, { measures: m, shape: SHAPES[shapeNumber].name, shaft: isShaft(m), classes, copy, dist });
+              }
+            }
+          }
+        }
+      }
+    }
+    if (!found.size) throw new Error('TF2Room: no space the printed numbers allow builds that shape and header');
+    const candidates = [...found.values()].sort((x, y) => x.measures.openSides - y.measures.openSides || x.dist - y.dist)
+      .map(({ dist, ...c }) => c);
+    const differ = (f) => new Set(candidates.map(f)).size > 1;
+    const open = [['shape', (c) => c.shape], ['openSides', (c) => c.measures.openSides], ['size', (c) => c.classes.size],
+      ['width', (c) => c.classes.width], ['length', (c) => c.classes.length], ['height', (c) => c.classes.height],
+      ['reflectivity', (c) => c.classes.reflectivity], ['copy', (c) => c.copy]].filter(([, f]) => differ(f)).map(([n]) => n);
+    return Object.assign({}, candidates[0], { candidates, open });
+  }
 
   // A named case or place by its key, or null.
   function roomCase(key) {
     return ROOM_CASES.find((r) => r.key === key) || ROOM_PLACES.find((r) => r.key === key) || null;
   }
 
-  // buildAutomatic(measures, { table }): the engine's automatic room for these measures (R2 e1, e2). `measures`
-  // is { sky, width, length, height, reflectivity, openSides }, or a row of ROOM_CASES or ROOM_PLACES, or its key.
-  // Returns { preset, shape, shapeNumber, variable, classes, pair, copy, measures, key }: `preset` is of the table's
-  // form ({ name, h, p }, its values singles, frozen), ready for createInstance, createSlot, createRoomPath and
-  // setRoom; `pair` the two templates [A, B]; `copy` the one copied whole. The measuring itself (R2 e3, e4) is not
-  // built.
+  // buildAutomatic(measures, { table }): the engine's automatic room for these measures (R2 e1, e2; the W3-17b
+  // second read). `measures` is { sky, width, length, height, reflectivity, openSides }, or a row of ROOM_CASES or
+  // ROOM_PLACES, or its key. Returns { preset, shape, shapeNumber, variable, shaft, classes, pair, copy, measures,
+  // key }: `preset` is of the table's form ({ name, h, p }, its values singles, frozen), ready for createInstance,
+  // createSlot, createRoomPath and setRoom; `shaft` whether the space is a vertical shaft (the console says so);
+  // `pair` the two templates [A, B]; `copy` the one copied whole; `key` the row's key, or null. The measuring
+  // itself (R2 e3, e4) is not built.
   function buildAutomatic(arg, opts = {}) {
     let row = null;
     if (typeof arg === 'string') {
@@ -1210,7 +1339,8 @@
     const m = measuresOf(row ? row.measures : arg);
     const shapeNumber = shapeOf(m);
     const shape = SHAPES[shapeNumber];
-    const classes = classesOf(shapeNumber, m);
+    const shaft = isShaft(m);
+    const classes = classesOf(shapeNumber, classRecord(m));
     // The pair from the shape's variable, + 2 if the diffusion class is above 1 (R2 e1): it never is (R2 e4).
     const base = shape.base + (classes.diffusion > 1 ? 2 : 0);
     const table = opts.table || null;
@@ -1239,8 +1369,8 @@
         }
       }
     }
-    return { preset: deepFreeze(preset), shape: shape.name, shapeNumber, variable: shape.variable, classes,
-      pair: [base, base + 1], copy, measures: m, key: row ? row.key : null };
+    return { preset: deepFreeze(preset), shape: shape.name, shapeNumber, variable: shape.variable, shaft, classes,
+      pair: [base, base + 1], copy, measures: m, key: row && row.key !== undefined ? row.key : null };
   }
 
   const api = {
@@ -1255,7 +1385,8 @@
     entry, shares, createInstance, createSlot, createRoomPath, checkPreset: (p) => checkPreset(p, labelOf(p)),
     clampParams, filterCoefs, computeCoefs, Ramp, mulberry32, seededDraw,
     // the automatic room (part b)
-    buildAutomatic, roomCase, ROOM_CASES, ROOM_PLACES, SHAPES: deepFreeze(SHAPES.map((s) => Object.assign({}, s))),
+    buildAutomatic, roomCase, placeFromDebug, ROOM_CASES, ROOM_PLACES,
+    SHAPES: deepFreeze(SHAPES.map((s) => Object.assign({}, s))),
   };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.TF2Room = api;

@@ -14,12 +14,15 @@ What it writes:
   measured   for the two measured cases, the model's room hash on the noise and its quiet and square tails, as
              reference.py computes them; this script stops if they are not the order's recorded numbers
   probes     measures on, one under and one over every threshold of the shapes and classes (R2 e1, e2) and a few
-             more (the shaft, open sides, the second reading of `open`): shape, classes, pair, copy, header, parameters
+             more (the shaft and the W3-17b second read's shafts, open sides, the second reading of `open`): shape,
+             classes, pair, copy, header, parameters. The classes are build_auto's own (a shaft's from the exchanged
+             length and height)
   templates  templates edited in a copy of the table, for rules no template of the table runs (a value written
              negative in one template only, or in both; both positive; the measures' clamps; a third processor of
              a type; values the table's pairs hold equal, such as the modulation and the diffusor's size; values
-             copied and never blended; a filter): the edits, the measures, the same fields and the built integers
-             (none for the filter, which the app does not build)
+             copied and never blended; a difference B - A that is not a single; the other processor types; a shaft
+             whose measures replace negative values): the edits, the measures, the same fields and the built
+             integers (none where a template holds a type the app does not build)
   sweep      240 seeded random measures over every shape: the same fields
 
 Parameters are written as the shortest decimal that reads back to the same single (as reference.py prints a
@@ -110,6 +113,9 @@ def probes():
         add('the shaft: height %d against 3 x length 100, width 60' % h, 0, 60, 100, h, 0.4, 0)
         add('the shaft: height %d against 3 x length 100, width 100' % h, 0, 100, 100, h, 0.4, 0)
     add('a duct as a shaft: width 40, length 50, height 200', 0, 40, 50, 200, 0.4, 0)
+    # The W3-17b second read's shafts (finding 1): the classes from the exchanged length and height.
+    for w, l, h in ((100, 100, 400), (200, 250, 800), (60, 100, 400), (120, 150, 600), (300, 100, 1000), (40, 500, 1501)):
+        add('the shaft (second read): %d x %d x %d' % (w, l, h), 0, w, l, h, 0.4, 0)
     for n in range(5):
         add('%d open sides, width 300, length 1300' % n, 1, 300, 1300, 4800, 0.4, n)
         add('%d open sides, width 120, length 600' % n, 1, 120, 600, 4800, 0.4, n)
@@ -131,7 +137,7 @@ def templates():
         ('a courtyard: the delay -1 in B only (A 50 ms), large', [[126, 0, 1, 50]], (1, 500, 1100, 4800, 0.4, 0)),
         ('a courtyard: delays and taps positive in both, blended squared by the length class',
          [[126, 0, 1, 50], [127, 0, 1, 300], [126, 0, 8, 20], [127, 0, 8, 40], [126, 0, 9, 30], [127, 0, 9, 60],
-          [126, 0, 10, 40], [127, 0, 10, 80], [126, 0, 6, 200], [127, 0, 6, 900], [127, 0, 3, 0.6]], (1, 500, 700, 4800, 0.4, 0)),
+          [126, 0, 10, 40], [127, 0, 10, 80], [126, 0, 6, 200], [127, 0, 6, 900], [127, 0, 3, 0.6]], (1, 250, 600, 4800, 0.4, 0)),
         ('a courtyard: the measures past 500 ms (the clamp)', [], (1, 3000, 3600, 4800, 0.4, 0)),
         ('open space: three delays in each template (only the first two are blended)',
          [[130, [[1, z(1, 300, 0.2, 1, 0, 3000)], [1, z(0, 180, 0.15, 1, 0, 3000)], [1, z(0, 100, 0.1, 1, 0, 2000)], [2, z(340, 220, 6, 0.8, 1, 1500, 0, 10, 2)]]],
@@ -150,7 +156,22 @@ def templates():
         ('a room: a filter in each template (FLT on the size class; the app builds no FLT, so no integers)',
          [[102, [[3, z(0, 1000, 0, 0, 1)], [2, z(80, 30, 2, 0.78, 1.1, 6000, 1)]]],
           [103, [[10, z(1, 3, 0.15)], [3, z(1, 3000, 500, 1, 2)], [2, z(240, 50, 10, 0.97, 2.4, 1800, 1)]]]],
-         (0, 500, 700, 220, 0.4, 0)),
+         (0, 590, 400, 220, 0.4, 0)),
+        ('a room: amplifiers and a modulating delay in each template (MDY on the length class, AMP on the size class; a third AMP copied)',
+         [[102, [[11, z(1, 0.1, 0.2, 0, 10, 0.6, 80, 0)], [9, z(0, 100, 0.4, 1, 0, 2000, 0, 0, 8, 0.2, 10, 0.5, 0.25)],
+                 [11, z(1.5, 0.05, 0.3, 0.1, 6, 0.4, 40, 0)], [11, z(1, 0.1, 0.2, 0, 10, 0.6, 80, 0)]]],
+          [103, [[11, z(2, 0.3, 0.5, 0, 4, 0.2, 20, 1)], [9, z(2, 400, 0.6, 0.5, 1, 5000, 300, 2, 2, 0.4, 30, 1, 0.75)],
+                 [11, z(3, 0.15, 0.6, 0.4, 2, 0.8, 10, 1)], [11, z(2, 0.3, 0.5, 0, 4, 0.2, 20, 1)]]]],
+         (0, 590, 400, 220, 0.4, 0)),
+        ('a room: PTC, CRS, ENV, EFO and LFO in each template (all on the size class; the app builds none, so no integers)',
+         [[102, [[5, z(1, 2, 3)], [4, z(1, 2, 3, 4)], [6, z(1, 2, 3, 4, 5, 6, 7, 8, 9)], [8, z(1, 2, 3, 4)], [7, z(1, 2, 3, 4)]]],
+          [103, [[5, z(6, 0.5, 9)], [4, z(5, 7, 0.25, 8)], [6, z(9, 8, 7, 6, 5, 4, 3, 2, 1)], [8, z(4, 3, 2, 1)], [7, z(10, 20, 30, 40)]]]],
+         (0, 590, 400, 220, 0.4, 0)),
+        ('a room: B - A not a single (the reverb\'s size 0.1 in A, 1000.3 in B; squared, size class 2)',
+         [[102, 0, 0, 0.1], [103, 1, 0, 1000.3]], (0, 300, 400, 160, 0.4, 0)),
+        ('a hall shaft: width, depth and height -1 in both (the measures stay the true ones)',
+         [[110, 0, 9, -1], [110, 0, 10, -1], [110, 0, 11, -1], [111, 0, 9, -1], [111, 0, 10, -1], [111, 0, 11, -1]],
+         (0, 60, 100, 400, 0.4, 0)),
     ]
 
 def sweep(n=240):
@@ -194,7 +215,8 @@ def main(table_path, out_path):
     tpl = []
     for label, edits, m in templates():
         b, rec = built(edited(P, edits), m)
-        rec['d'] = None if any(t == 3 for t, _ in b.procs) else LN.describe(M.Instance(b, R.randint_from(2)))
+        # No built integers for a type the app does not build (FLT, CRS, PTC, ENV, LFO, EFO).
+        rec['d'] = None if any(t in (3, 4, 5, 6, 7, 8) for t, _ in b.procs) else LN.describe(M.Instance(b, R.randint_from(2)))
         tpl.append(collections.OrderedDict([('label', label), ('edits', edits)] + list(rec.items())))
     t = R.template_case(P)                        # the first edit set is reference.py's own template case
     assert [[k, [s32(v) for v in p]] for k, p in t.procs] == tpl[0]['p']
