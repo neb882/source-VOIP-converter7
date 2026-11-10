@@ -33,6 +33,18 @@
       "branch": "(main)",
       "stage": "the three orders are being read by a builders'-model agent before any build",
       "report": "docs/reports/W3-02-plan.md"
+    },
+    {
+      "order": "W3-07-mixer-output",
+      "branch": "claude/w3-07-mixer-output",
+      "stage": "investigating (the stronger model; no app code)",
+      "report": "docs/reports/W3-07-mixer-output.md"
+    },
+    {
+      "order": "W3-08-celt-encoder",
+      "branch": "claude/w3-08-celt-encoder",
+      "stage": "investigating (the stronger model; no app code)",
+      "report": "docs/reports/W3-08-celt-encoder.md"
     }
   ],
   "next": [
