@@ -39,6 +39,12 @@
       "branch": "claude/w3-08-celt-encoder",
       "stage": "investigating (the stronger model; no app code)",
       "report": "docs/reports/W3-08-celt-encoder.md"
+    },
+    {
+      "order": "W3-09-steam-voice",
+      "branch": "claude/w3-09-steam-voice",
+      "stage": "investigating (the stronger model; public writing and Valve's public files; no app code)",
+      "report": "docs/reports/W3-09-steam-voice.md"
     }
   ],
   "next": [
