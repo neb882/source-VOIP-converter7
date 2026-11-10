@@ -300,8 +300,11 @@ not touch: `steam-sender.js`,
 ## W3-11b: the live chain on the render's own stages
 
 *Rewritten 2026-11-10 (`docs/reports/W3-plan-maintenance-2.md`), then revised and cut in two the same day
-after its plan review (7 must-fix, 12 should-fix, 15 notes; what was done about each is in that report's
-addendum). **This part is the path: the live chain runs the render's stages, with the key held from the
+after its plan review, then tightened after the reviewer's short read of the two new mechanisms (what is
+given out, and a late packet moved: where `given` starts and that it is exclusive, which packet is cut and
+which moved, the 30-lost check as an exact equality, more block plans, a unit check of the wait). The
+plan review had 7 must-fix, 12 should-fix and 15 notes; what was done about each is in that report's
+addendum. **This part is the path: the live chain runs the render's stages, with the key held from the
 chain's start to its stop.** The key's own rules are W3-11c, below, which is not to be built yet. Against the
 first version of the day: the float decode and the app's resampler leave the live chain; the sender's
 interface is W3-16's; a check that did not fit the code is gone. What the first version said of the threshold
@@ -386,7 +389,10 @@ builder"); W3-16's report, `docs/reports/W3-16-sender-hold-clock.md` ("The sende
      and counts in place of throwing (below). A render keeps the fixed log and the throwing `lay()`, and no
      render's samples or `codecInfo` change: the golden hashes are the proof.
    - **What is given out, defined per pushed sample**, so that the output is the same for any block plan.
-     For each 24 kHz sample pushed, in order: the messages the sender returns for it are handled; then
+     **`given` is the number of voice-rate samples given out: it starts at 0 and is exclusive** (the samples
+     given out are indexes 0 to `given - 1`, as `take(end)` counts them). For each 24 kHz sample pushed, in
+     order: **first** the messages the sender returns for it are handled (laid, against `given` as it stood
+     before this sample); **then**
      `given` becomes `max(given, bound(P, C))`, where `P` is the samples pushed so far, `C` the timeline's
      cursor (where the open spurt's next packet will be laid; none when no spurt is open) and
 
@@ -396,10 +402,12 @@ builder"); W3-16's report, `docs/reports/W3-16-sender-hold-clock.md` ("The sende
      bound = min(R, max(C, R - W))                             # R when no spurt is open
      ```
 
-     `reach` is `steamReach(STEAM_SENDER)`: the longest chunk and the pre-roll. A call to `process()`
-     returns the samples from the old `given` to the new one (as `take()` counts them: say in the comment
-     whether the bound is inclusive). Pushing the sender one sample at a time is the plain way and is cheap;
-     any batching must give the same output, and the block-plan check below proves it.
+     `reach` is `steamReach(STEAM_SENDER)`: the longest chunk and the pre-roll. `R` is negative until `P`
+     passes the reach and the lookahead, so nothing is given out at first. A call to `process()` returns the
+     samples from index the old `given` up to, not including, the new one. Pushing the sender one sample at
+     a time is the plain way and is cheap; any batching must give the same output, and the block-plan checks
+     below prove it. **The chain has no flush:** what is held back when the monitor stops (the reach, and
+     any wait for the cursor) is never given out.
      - `createRender` gives out up to `min(R, C)`: it can wait for the cursor without limit. The live chain
        waits for it **at most ten frames**: while frames are being lost nothing is decoded and the cursor
        stands still, and without the wait concealment would land on samples already given out after 5 to 9
@@ -408,14 +416,27 @@ builder"); W3-16's report, `docs/reports/W3-16-sender-hold-clock.md` ("The sende
      - **The price:** during a run of lost frames the output waits, for up to 200 ms. The worklet's queue
        runs dry, and when the held sound arrives at once it skips what is over its limit, as after any
        stall. Loss is off by default. Say so in the report; the worklet is not changed.
-     - **A later packet of a spurt whose cursor lies before `given`** (only after a gap of more than ten
-       lost frames has closed up further than the wait covers) is laid from `given`, whole, and the spurt
-       goes on from there: the live chain cannot take sound back, and dropping instead would silence the
-       rest of a long spurt. Counted in `stats.movedLate` (packets). This is the one place the live chain's
-       laid signal may differ from the render's.
-     - **A spurt's first packet whose anchor lies before `given`** loses the samples before `given`; the
-       rest is laid where it belongs. Counted in `stats.droppedLate`, in voice-rate samples. With the full
-       reach this cannot happen.
+     - **Two rules for a packet that would land before `given`, by which message it comes from:**
+       - **the packet of a spurt's opening message** (the sender's first message of the spurt, the one that
+         carries the pre-roll) is **cut**: its samples before `given` are lost and the rest is laid where it
+         belongs. `stats.droppedLate` counts the lost samples, in voice-rate samples, **and only those at or
+         after index 0**: a chain's first spurt can be anchored before 0 (with the gate off its pre-roll of
+         zeros starts some 4,700 voice-rate samples before 0), and what lies before 0 is dropped as the
+         render drops it, uncounted. With the full reach nothing at or after 0 is ever cut;
+       - **every other packet is moved**: it is laid whole with its first sample at index `given`, the
+         cursor follows it, and the spurt goes on from there, so the rest of the spurt runs `given - C`
+         later than the render lays it (`C` the cursor as it stood). That includes the first packet that
+         holds samples when every frame of the opening message was lost. `stats.movedLate` counts packets,
+         and a test hook, `opts.onMove(from, to)`, reports `C` and `given` at each move. The live chain
+         cannot take sound back, and dropping instead would silence the rest of a long spurt. A move
+         happens only after a gap of more than ten lost frames has closed up further than the wait covers
+         (the reviewer's model of the rule: with the full reach no run of 16 or fewer lost frames moves a
+         packet, a run of 20 or 30 moves exactly one, and nothing cascades after it). It is the one place
+         the live chain's laid signal differs from the render's.
+     - **What stays the render's when a packet is moved:** the gain is fed exactly as in the render
+       (`steamTimeline`'s `add` runs it before the packet is laid, so a move changes only where the packet
+       lands); the frame log is marked where the packet was laid, the moved place; where the moved spurt's
+       tail meets the next spurt's opening, the later packet wins, as in the render.
    - **Low-latency mode** (`opts.lowLatency`): the reach is the longest chunk plus one frame less a sample
      (`steamReach` less the sender's `preroll`, plus `frame - 1`): a message's first frame can start that
      far before the read that makes it, since up to a frame less a sample is kept from the chunk before. (A
@@ -543,25 +564,44 @@ in a scratch copy.
   pauses that close the gate, at 24 kHz and at 48 kHz; the live chain fed in blocks of 128, 480 and 4,096
   samples and one plan of seeded uneven sizes. Through `opts.onGain` on both:
   - the laid signal the live chain has given out equals `createRender`'s, sample for sample, over
-    everything given out, at each plan; `droppedLate` and `movedLate` are 0;
+    everything given out, at each plan; `droppedLate` and `movedLate` are 0, with the gate on and with it
+    off (off, the first spurt is anchored before index 0: nothing of that is counted);
   - over the same span the counts agree: the spurts opened, the resampler's calls, the slots' codes (the
     render's own totals include what `finish()` adds, so compare what the live chain has given out);
   - the same with the gate off; with `steamUptime` at two values that end a spurt on different chunks (the
     builder finds a source and seed where the two renders differ, and says which); with a typed threshold
     of -46; with `agc` off; with `voice_scale` 0.5;
-  - **with `lossPct` 15 and jitter**, on a seed whose mask has no run of more than ten lost frames inside a
-    spurt (asserted first, from the mask): equal as above, `stats.lost` and `stats.late` equal the
-    render's `lostFrames` and `underrunFrames` over the span, and both are above 0;
+  - **with `lossPct` 15 and jitter**, on a seed whose mask, inside a spurt, has no run of more than ten
+    lost frames **and has a run of 8 to 10** (both asserted first, from the mask: the long run is what makes
+    the chain wait for the cursor, and without it a chain that gives out by the reach alone would pass):
+    equal as above, `stats.lost` and `stats.late` equal the render's `lostFrames` and `underrunFrames` over
+    the span, and both are above 0;
   - **a hand-made mask** (the `makeLossMask` hook, or the live chain's own) with 30 frames lost in a row in
-    a long spurt: no exception, `movedLate` is 1 or more, `droppedLate` is 0, sound is present again within
-    0.3 s of the gap's end, and before the gap the output equals the render's;
+    a long spurt, **at every block plan of the list below**: no exception; `onMove` fires exactly once, with
+    `to` greater than `from`; `droppedLate` is 0; up to the move the laid signal equals the render's; **from
+    the moved packet to the end of its spurt it equals the render's laid signal shifted later by exactly
+    `to - from`**, sample for sample over what was given out; the outputs and the hook's two values are the
+    same at every plan;
+  - **the block plans for that case and for low-latency mode:** 128, 480, 4,096, the seeded uneven plan,
+    single samples, the whole source as one block, blocks that end exactly on each chunk's last sample
+    (the chunk ends taken from a dry run of `createSender` with the same seed and settings; a block ends
+    "on" one when the call to `process()` ends having pushed exactly that sample to the sender, which
+    trails the block's input by what the capture's stages hold), and blocks that end one sample before each
+    of those. The last two put a block's edge on
+    either side of every message, which is what shows an update of `given` made before a sample's messages
+    are handled;
+  - **the give-out function by itself** (the function `createRender` and the live chain share): for a
+    handful of `(P, C)` pairs, the bound it returns: no spurt open gives `R`; a cursor ahead of `R` gives
+    `R`; a cursor 9 and 10 frames behind `R` gives the cursor; 11 frames behind gives `R` less ten frames
+    exactly. (A wait of 12 to 15 frames passes every other check.)
   - a new encoder and decoder per spurt, and concealed and late blocks counted: what
     `tests/speex102.verify.mjs` proved by watching the codec is proved here by the equality and the counts;
   - `gateThresholdDb` `null`, `undefined` and `''` give the same samples in `process()`, in `createRender`
     and in the live chain, for `steam` and for `celt_22` with the gate on; `'-46'` and `-46` give the same;
-  - **low-latency mode:** with no loss, at each of the four block plans, the output equals the full-reach
-    output from each spurt's first given-out sample on, and the four outputs are equal; `droppedLate` is above 0 and at most the pre-roll's length at the voice rate a
-    spurt; `movedLate` is 0; `latencyMs` is lower than the full mode's by exactly the difference of the two
+  - **low-latency mode:** with no loss, at each block plan of the list above, the output equals the
+    full-reach output from each spurt's first given-out sample on, and the outputs and `droppedLate` are
+    equal across the plans; `droppedLate` is above 0 and at most the pre-roll's length at the voice rate a
+    spurt (samples before index 0 are not in it); `movedLate` is 0; `latencyMs` is lower than the full mode's by exactly the difference of the two
     reaches over 24 (computed in the test from `STEAM_SENDER`, not typed);
   - **`contentDelay`:** the chain's whole output against a render of the same audio, as [10b] has it for
     `steam_48` today (the level, and the waveform at the correlation's peak): the peak is at `contentDelay`,
@@ -602,11 +642,15 @@ in a scratch copy.
   | the float decode, or the app's sinc resampler, left in the live chain | the same check |
   | the resampler made anew at each spurt | the same check (the resampler's calls and the samples) |
   | the gain fed the laid signal, or reset at a spurt | the same check, with `agc` on |
-  | given out by the reach alone (no wait for the cursor) | [10b] loss case: `droppedLate` or a difference where the render lays concealment |
-  | the wait for the cursor without its ten-frame limit | the 30-lost mask: the output stalls, `movedLate` stays 0 |
-  | a late packet dropped, not laid from `given` | the 30-lost mask: no sound within 0.3 s |
+  | given out by the reach alone (no wait for the cursor) | [10b] loss case, at its run of 8 to 10: a move or a difference where the render lays concealment |
+  | the wait for the cursor without its ten-frame limit | the 30-lost mask: `onMove` never fires; the give-out function's check |
+  | the wait at 12 frames, or at 5 | the give-out function's check (11 frames behind); at 5, the loss case too |
+  | a late packet dropped, not moved | the 30-lost mask: the shifted equality |
+  | a late packet laid from `R`, or from `given + 1`, or moved by whole frames | the 30-lost mask: the shifted equality, by `to - from` exactly |
+  | samples before index 0 counted in `droppedLate` | [10b] with the gate off: `droppedLate` is 0; the low-latency bound |
+  | `given` updated before the sample's messages are handled | low-latency at the plans that end on, and one sample before, each chunk's last sample |
   | the low-latency reach the longest chunk alone | the low-latency check: a difference in mid-spurt |
-  | what is given out decided per block, not per pushed sample | low-latency at the four plans: the outputs differ between plans |
+  | what is given out decided per block, not per pushed sample | low-latency across the plans: the outputs and `droppedLate` differ between plans |
   | `contentDelay` holding the reach | [10b] `contentDelay`: the peak is elsewhere |
   | `null` read as 0 dBFS in any one of the three readers | [10b] `null`, `undefined`, `''` in `process()`, `createRender` and the live chain |
   | `lost` counting the mask's lost frames | [10b] loss case: `stats.lost` equals the render's `lostFrames` |
@@ -618,7 +662,9 @@ in a scratch copy.
 - Screenshots (desktop and phone) of the control, the chain strip and the live monitor running, in the
   report. The report also gives: `contentDelay` and `latencyMs` in both modes, before and after; the live
   worker's cost for a minute of speech against real time; what the worklet did with the held sound in a
-  loss run; every text of item 6 as it now reads.
+  loss run; **that the chain has no flush, so the last 200 ms or so of a session (what is held back when
+  the monitor stops) is never given out and a recording ends that much short**; every text of item 6 as
+  it now reads.
 
 There is nothing private to run.
 
