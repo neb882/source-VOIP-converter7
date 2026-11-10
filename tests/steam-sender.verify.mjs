@@ -167,7 +167,7 @@ const handReads = (step) => readsOfTicks(tickStep(step));
 const handClock = (step) => ({ next: handReads(step) });
 const HAND = (step, extra = {}) => ({ clock: handClock(step), uptime: 0, ...extra });
 const listClock = (list) => { let i = 0; return { next: () => list[i++] }; };
-const fmt = (m) => (m.silence !== undefined ? `[${m.tick},-1,${m.silence}]` : `[${m.tick},${m.first},${m.last}${m.end ? ',e' : ''}]`);
+const fmt = (m) => (!m ? 'none' : m.silence !== undefined ? `[${m.tick},-1,${m.silence}]` : `[${m.tick},${m.first},${m.last}${m.end ? ',e' : ''}]`);
 const plainOf = (m) => (m.silence !== undefined ? m : { ...m, pcm: Array.from(m.pcm) });
 const same = (a, b) => JSON.stringify(a.map(plainOf)) === JSON.stringify(b.map(plainOf));
 const sound = (ms) => ms.filter((m) => m.silence === undefined);
@@ -395,7 +395,7 @@ console.log('An empty read (the W3-16 order, item 2)');
     // 1440 + 2400 of pre-roll is 8 frames, nothing kept; 1440 more is 3, nothing kept.
     const sig = new Int16Array(2880); sig.fill(1000, 0, 1440);
     const p = go([{ time: 1, samples: 1440 }, { time: 1.2, samples: 1440 }, { time: 1.5, samples: 0 }], sig);
-    const m = p[1][1];
+    const m = p[1][1] || {};
     check('hanging with the hold passed and nothing kept: the end marker alone, returned with the chunk before',
       p[0].length === 1 && p[1].length === 2 && m.end && m.last === m.first - 1 && m.pcm.length === 0 && m.first === 11, fmt(m));
   }
@@ -403,11 +403,11 @@ console.log('An empty read (the W3-16 order, item 2)');
     // 750 + 2400 is 6 frames and 270 kept; 750 more is 2 frames and 60 kept.
     const sig = new Int16Array(1500); sig.fill(1000, 0, 750); sig.fill(7, 750, 1500);
     const p = go([{ time: 1, samples: 750 }, { time: 1.2, samples: 750 }, { time: 1.5, samples: 0 }], sig);
-    const m = p[1][1];
+    const m = p[1][1] || { pcm: new Int16Array(0) };
     check('hanging with the hold passed and 60 samples kept: one frame, the 60 padded with 420 zeros, and the end marker',
       p[1].length === 2 && m.end && m.last === m.first && m.pcm.subarray(0, 60).every((v) => v === 7) && m.pcm.subarray(60).every((v) => v === 0), fmt(m));
     const q = go([{ time: 1, samples: 750 }, { time: 1.5, samples: 0 }], sig.subarray(0, 750));
-    const n = q[0][1];
+    const n = q[0][1] || { pcm: new Int16Array(0) };
     check('active, past the limit: it ends the spurt, the 270 kept samples padded to a frame',
       q[0].length === 2 && n.end && n.last === n.first && n.pcm.subarray(0, 270).every((v) => v === 1000) && n.pcm.subarray(270).every((v) => v === 0), fmt(n));
   }
@@ -796,26 +796,32 @@ console.log('Refusals');
   s.finish();
   try { s.push(new Int16Array(10)); } catch (e) { b = /after finish/.test(e.message); }
   check('push() takes an Int16Array, not after finish(); finish() a second time returns nothing', a && b && s.finish().length === 0);
-  // A clock's reads: each refusal a RangeError whose message names the clock.
-  const reads = (...list) => () => createSender({ clock: listClock(list), uptime: 0 }).push(new Int16Array(9000));
+  // A clock's reads: each refusal a RangeError whose message names the clock. The list goes
+  // on with good reads after the bad one, so that only the bad one can be refused.
+  const reads = (...list) => () => {
+    let i = 0;
+    const next = () => (i < list.length ? list[i++] : { time: 10 + 0.05 * i++, samples: 750 });
+    createSender({ clock: { next }, uptime: 0 }).push(new Int16Array(9000));
+  };
   const ok = { time: 0.1, samples: 750 };
   const cases = [
-    ['time below the last', reads(ok, { time: 0.05, samples: 750 })],
-    ['time not finite', reads(ok, { time: Infinity, samples: 750 })],
-    ['time NaN', reads({ time: NaN, samples: 750 })],
-    ['time not a number', reads({ time: '0.2', samples: 750 })],
-    ['since not finite', reads(ok, { time: 0.2, since: NaN, samples: 750 })],
-    ['since Infinity', reads({ time: 0.2, since: -Infinity, samples: 750 })],
-    ['samples not a whole number', reads(ok, { time: 0.2, samples: 750.5 })],
-    ['samples under 0', reads(ok, { time: 0.2, samples: -750 })],
-    ['samples over 2250', reads(ok, { time: 0.2, samples: 3000 })],
-    ['no read at all', reads(ok)],
-    ['a read that is not an object', reads(ok, 7)],
-    ['no next', () => createSender({ clock: {} })],
-    ['a clock that is not an object', () => createSender({ clock: 5 })],
-    ['a null clock', () => createSender({ clock: null })],
+    ['time below the last', reads(ok, { time: 0.05, samples: 750 }), /clock's time/],
+    ['time not finite', reads(ok, { time: Infinity, samples: 750 }), /clock's time/],
+    ['time NaN', reads({ time: NaN, samples: 750 }), /clock's time/],
+    ['time not a number', reads({ time: '0.2', samples: 750 }), /clock's time/],
+    ['since not finite', reads(ok, { time: 0.2, since: NaN, samples: 750 }), /clock's since/],
+    ['since Infinity', reads({ time: 0.2, since: -Infinity, samples: 750 }), /clock's since/],
+    ['samples not a whole number', reads(ok, { time: 0.2, samples: 750.5 }), /clock's samples/],
+    ['samples under 0', reads(ok, { time: 0.2, samples: -750 }), /clock's samples/],
+    ['samples over 2250', reads(ok, { time: 0.2, samples: 3000 }), /clock's samples/],
+    ['a read that is not an object', reads(ok, 7), /clock must give reads/],
+    ['no read at all', reads(ok, undefined), /clock must give reads/],
+    ['no next', () => createSender({ clock: {} }), /clock must be/],
+    ['a clock that is not an object', () => createSender({ clock: 5 }), /clock must be/],
+    ['a null clock', () => createSender({ clock: null }), /clock must be/],
   ];
-  const failed = cases.filter(([, fn]) => !threw(fn, /clock/)).map(([n]) => n);
+  check('the good reads that follow each bad one are taken', !threw(reads(ok), /./));
+  const failed = cases.filter(([, fn, re]) => !threw(fn, re)).map(([n]) => n);
   check('a clock is refused with a RangeError naming the clock: time below the last; time or since not finite; samples not a whole number, under 0 or over 2250; no next',
     failed.length === 0, failed.join('; '));
   check('a clock may repeat a time, give samples of 0 and 2250, and leave since out',
