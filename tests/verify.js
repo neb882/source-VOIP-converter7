@@ -765,7 +765,7 @@ async function liveSteamSection() {
       }
     } finally { chain.free(); }
     return { laid: join(laid), resampled, moves, out: join(out), codes, stats: { ...chain.stats, modes: { ...chain.stats.modes } },
-      contentDelay: chain.contentDelay, gateDb: chain.gateDb, lowLatencySavingMs: chain.lowLatencySavingMs };
+      contentDelay: chain.contentDelay, gateDb: chain.gateDb, lowLatencySavingMs: chain.lowLatencySavingMs, slotOffsetSeconds: chain.slotOffsetSeconds };
   }
   // Block plans: fixed sizes, a seeded uneven plan, single samples, the whole
   // source, and (24 kHz sources only) blocks that end exactly on each chunk's
@@ -838,6 +838,18 @@ async function liveSteamSection() {
     try { return await run(); } finally { sandbox.TF2Opus = real; }
   };
   const count = (codes, c) => codes.reduce((n, v) => n + (v === c ? 1 : 0), 0);
+  // The stream's blocks, message by message (createRender and the live chain
+  // both call createSteamStream): what the live chain's per-frame counts are
+  // made of.
+  const withBlockTally = async (run) => {
+    const real = sandbox.TF2Opus, tallies = [];
+    sandbox.TF2Opus = { ...real, createSteamStream: async (b, o) => {
+      const s = await real.createSteamStream(b, o), tally = [];
+      tallies.push(tally);
+      return { ...s, message: async (msg, miss) => { const made = await s.message(msg, miss); tally.push(made.blocks); return made; } };
+    } };
+    try { return { result: await run(), tallies }; } finally { sandbox.TF2Opus = real; }
+  };
   // The live chain equals the render over what it gave out: the laid signal,
   // the resampler's packets, the slots' codes.
   const equalsRender = (live, ren) => {
@@ -857,6 +869,21 @@ async function liveSteamSection() {
     for (const [name, sizes] of plans(x.length, seed).slice(0, 4)) {
       const live = await liveRun(x, rate, { seed }, sizes);
       if (rate === 48000 && name === '480') Object.assign(full48, { live, ren });
+      if (rate === 24000 && name === '480') {
+        // The per-frame counts are the stream's blocks over the messages the
+        // live chain handled, which are the render's first ones; the slots'
+        // rule places them; the render's own log keeps its fixed size.
+        const tr = await withBlockTally(() => renderRun(x, rate, { seed })), tl = await withBlockTally(() => liveRun(x, rate, { seed }, sizes));
+        const handled = tl.tallies[0].length, blocks = tr.tallies[0].slice(0, handled).flat();
+        const want = { bytes: 0, dtx: 0, hybrid: 0, silk: 0, celt: 0 };
+        for (const b of blocks) { want.bytes += b.bytes; if (b.bytes <= 2) want.dtx++; want[b.mode]++; }
+        const st = tl.result.stats, last = blocks[blocks.length - 1];
+        check('the live chain\'s per-frame counts (bytes, DTX, modes, the last mode) are the render\'s stream\'s blocks over the messages it handled; slot k starts lookahead before 480 k; a render keeps its fixed log',
+          handled > 50 && st.bytes === want.bytes && st.dtx === want.dtx && st.modes.hybrid === want.hybrid && st.modes.silk === want.silk && st.modes.celt === want.celt
+          && st.lastMode === (last.bytes <= 2 ? 'dtx' : last.mode) && tl.result.slotOffsetSeconds === -ren.info.lookahead / S.rate
+          && ren.info.frames === Math.ceil((x.length + ren.info.lookahead) / S.frame) && ren.info.frameLog.length === ren.info.frames,
+          `${handled} messages, ${st.bytes} bytes, ${st.dtx} DTX, ${JSON.stringify(st.modes)}; the render's log ${ren.info.frameLog.length} slots`);
+      }
       const eq = equalsRender(live, ren);
       let spurts = '';
       if (rate === 24000) {

@@ -965,8 +965,8 @@
   //     following it (moved() counts them; cfg.onMove(from, to) is told the
   //     cursor as it stood and given). The gain has already run on it, as in
   //     a render: a move changes only where the packet lands.
-  // The frame log marks only slots at or after given (those before are
-  // final). A render passes no given and keeps the fixed log and the throw.
+  // A slot whose centre is before given is final (final()). A render passes
+  // no given and keeps the fixed log and the throw.
   function steamTimeline(cfg) {
     const { lookahead, resampler, gain } = cfg;
     const voiceLength = cfg.voiceLength ?? Infinity, growing = cfg.codecLength === undefined;
@@ -999,7 +999,7 @@
       for (let i = 0; i < slots; i++) mode[i] = frameMode[i];
       frameLog = log; frameBytes = bytes; frameMode = mode; slots = n;
     }
-    function mark(blocks, n, at, floor) {
+    function mark(blocks, n, at) {
       const F = blocks.length;
       if (growing) room(at + n);
       for (let j = 0; j < F; j++) {
@@ -1008,7 +1008,7 @@
         for (; i < slots; i++) {
           const c = centre(i);
           if (c >= b) break;
-          if (c >= a && !(c < floor)) { frameLog[i] = blocks[j].code; frameBytes[i] = blocks[j].bytes; frameMode[i] = blocks[j].mode; }
+          if (c >= a) { frameLog[i] = blocks[j].code; frameBytes[i] = blocks[j].bytes; frameMode[i] = blocks[j].mode; }
         }
       }
     }
@@ -1054,7 +1054,7 @@
               }
             }
             lay(y, at, given);
-            mark(made.blocks, y.length, at, given);
+            mark(made.blocks, y.length, at);
             cursor = at + y.length;
             spans[spans.length - 1][1] = cursor;
           }
