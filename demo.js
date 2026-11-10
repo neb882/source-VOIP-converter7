@@ -293,13 +293,16 @@
   //   celt: (rate, frame, bytes) => codec (vendor/celt-0.11 createCodec) }.
   // Also returns a frame log over the whole timeline in opus-codec.mjs's
   // FRAME codes (0 nothing sent, 1-3 SILK/hybrid/CELT, 4 DTX, 5 lost) and
-  // each frame's size, for the codec lane and net_graph.
+  // each frame's size, for the codec lane and net_graph. A CELT packet the
+  // decoder refuses (not of the codec's mode) plays as one frame of silence,
+  // is logged as the CELT frame it was sent as, and is counted in
+  // `undecodable`.
   async function decode(parsed, speaker, codecs) {
     const tickSeconds = parsed.intervalPerTick, rate = speaker.rate, steam = speaker.codec === 'steam';
     const spec = steam ? { frame: rate / 50 } : LEGACY[speaker.codec];
     const t0 = speaker.packets.length ? speaker.packets[0].tick : 0;
     const chunks = [], frames = [];
-    let pos = 0, decoder = null, next = null, concealed = 0, lastTick = null, spurts = 0;
+    let pos = 0, decoder = null, next = null, concealed = 0, undecodable = 0, lastTick = null, spurts = 0;
     const put = (samples, code, bytes) => { chunks.push([pos, samples]); frames.push([pos, code, bytes]); pos += samples.length; };
     const at = (tick) => Math.round((tick - t0) * tickSeconds * rate);
     // RFC 6716: the TOC's top 5 bits; configurations 0-11 are SILK, 12-15 hybrid, 16-31 CELT.
@@ -323,14 +326,18 @@
     } else {
       const codec = await codecs.celt(spec.modeRate ?? spec.rate, spec.frame, spec.bytes);
       for (const p of speaker.packets) {
-        // A gap of more than four frames starts a new talk spurt at its tick.
+        // A gap of more than four frames starts a new talk spurt at its tick,
+        // with a new decoder. That reset is the app's choice: whether the
+        // game's receiver resets its decoder between spurts was not read.
         if (lastTick === null || at(p.tick) > pos + spec.frame * 4) {
           if (lastTick !== null) codec.restart();
           pos = Math.max(pos, at(p.tick));
           spurts++;
         }
         lastTick = p.tick;
-        put(codec.decode(p.data), 3, p.data.length);
+        let samples;
+        try { samples = codec.decode(p.data); } catch { samples = new Float32Array(spec.frame); undecodable++; }
+        put(samples, 3, p.data.length);
       }
       codec.free();
     }
@@ -342,7 +349,7 @@
       frameLog[f] = code;
       frameBytes[f] = bytes;
     }
-    return { samples, rate, frameSeconds: spec.frame / rate, frameSamples: spec.frame, frameLog, frameBytes, concealed, spurts };
+    return { samples, rate, frameSeconds: spec.frame / rate, frameSamples: spec.frame, frameLog, frameBytes, concealed, undecodable, spurts };
   }
 
   const TF2Demo = { parse, decode, crc32, Bits };

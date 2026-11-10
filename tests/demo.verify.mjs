@@ -354,6 +354,67 @@ const lag = (a, b, from, to) => {
     `${flagged} of 24 packets with the filter flag, delay ${at} samples, r ${r.toFixed(4)}`);
 }
 
+// A vaudio_celt packet the decoder refuses (here one whose first byte gives
+// another frame size) plays as one frame of silence and is counted. The
+// decoder never takes it in: the frames before it are as in the clean demo,
+// and the frames after it are what the decoder gives the other packets alone.
+{
+  const enc = await createCodec(22050, 512, { packetBytes: 64, complexity: 5 });
+  const voiced = Float32Array.from({ length: 512 * 12 }, (_, i) => {
+    let v = 0;
+    for (let h = 1; h <= 6; h++) v += Math.sin(2 * Math.PI * 180 * h * i / 22050 + h) / h;
+    return .2 * v;
+  });
+  const packets = Array.from({ length: 12 }, (_, k) => enc.encode(voiced.subarray(512 * k, 512 * (k + 1))));
+  enc.free();
+  const bad = packets.map(p => p.slice());
+  bad[6][0] = (bad[6][0] & ~0x18) | (1 << 3);
+  const decodeDemo = async (list) => {
+    const parsedOne = D.parse(demoFile([{ tick: 10, messages: [msg.voiceInit('vaudio_celt', 5)] }, { tick: 20, messages: [msg.voice(4, join(list))] }]));
+    return D.decode(parsedOne, parsedOne.speakers[0], { celt: (r, f, b) => createCodec(r, f, { packetBytes: b }) });
+  };
+  const clean = await decodeDemo(packets), hurt = await decodeDemo(bad);
+  const alone = await createCodec(22050, 512, { packetBytes: 64 });
+  const without = packets.filter((_, k) => k !== 6).map(p => alone.decode(p));
+  alone.free();
+  const others = Array.from({ length: 12 }, (_, f) => f).filter(f => f !== 6);
+  const frameSame = (f) => hurt.samples.subarray(f * 512, (f + 1) * 512).every((v, i) => v === without[f < 6 ? f : f - 1][i])
+    && (f > 6 || hurt.samples.subarray(f * 512, (f + 1) * 512).every((v, i) => v === clean.samples[f * 512 + i]));
+  check('A vaudio_celt demo with one packet the decoder refuses decodes: that frame silent and counted, every other frame as if it had not come',
+    clean.undecodable === 0 && hurt.undecodable === 1 && hurt.samples.length === clean.samples.length
+    && hurt.samples.subarray(6 * 512, 7 * 512).every(v => v === 0) && others.every(frameSame) && hurt.frameLog[6] === 3,
+    `${hurt.undecodable} undecodable; ${others.filter(frameSame).length} of 11 other frames as expected`);
+}
+
+// Each talk spurt of a vaudio_celt demo is decoded by a new decoder. That is
+// the app's choice: whether the game's receiver resets its decoder between
+// spurts was not read. Without the reset the second spurt would start from
+// the first's state.
+{
+  const make = async (signal) => {
+    const enc = await createCodec(22050, 512, { packetBytes: 64, complexity: 5 });
+    const out = Array.from({ length: 10 }, (_, k) => enc.encode(signal.subarray(512 * k, 512 * (k + 1))));
+    enc.free();
+    return out;
+  };
+  const toneA = Float32Array.from({ length: 5120 }, (_, i) => .3 * Math.sin(2 * Math.PI * 300 * i / 22050));
+  const toneB = Float32Array.from({ length: 5120 }, (_, i) => .3 * Math.sin(2 * Math.PI * 523 * i / 22050));
+  const first = await make(toneA), second = await make(toneB);
+  const parsedTwo = D.parse(demoFile([
+    { tick: 10, messages: [msg.voiceInit('vaudio_celt', 5)] },
+    { tick: 20, messages: [msg.voice(4, join(first))] },
+    { tick: 80, messages: [msg.voice(4, join(second))] }
+  ]));
+  const two = await D.decode(parsedTwo, parsedTwo.speakers[0], { celt: (r, f, b) => createCodec(r, f, { packetBytes: b }) });
+  const fresh = await createCodec(22050, 512, { packetBytes: 64 });
+  const want = second.map(p => fresh.decode(p));
+  fresh.free();
+  const start = Math.round(60 * parsedTwo.intervalPerTick * 22050);
+  const same = want.every((frame, k) => frame.every((v, i) => v === two.samples[start + 512 * k + i]));
+  check('A vaudio_celt demo\'s second talk spurt is decoded by a new decoder: the same samples as its packets alone',
+    two.spurts === 2 && same && two.samples.length === start + 5120, `${two.spurts} spurts, the second at sample ${start}`);
+}
+
 // A demo recorded with `record` keeps voice messages without their payloads.
 const client = D.parse(demoFile([{ tick: 5, messages: [msg.voiceInit('steam'), msg.voice(1, new Uint8Array(0))] }]));
 check('A client demo has voice messages but no speakers', client.voice.length === 1 && client.speakers.length === 0);

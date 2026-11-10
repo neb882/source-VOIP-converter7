@@ -608,6 +608,27 @@ async function main() {
     check('live chain holds back the gate pre-roll (120 ms) and reports its delay',
       offline.length - live.length >= 0.12 * SR && Math.abs(chain.stats.latencyMs - 1000 * (0.12 + delay)) < 0.01,
       `${chain.stats.latencyMs.toFixed(2)} ms; ${chain.stats.sent} of ${chain.stats.frames} frames sent`);
+
+    {
+      // vaudio_celt_high's gate counts its own frames, 46.4 ms of 22050 Hz
+      // sound (not of the 44100 Hz mode): 120 ms of pre-roll is 3 frames and
+      // 440 ms of hold is 9. The live chain sends the frames process() sends.
+      const rate = 48000, n = 8 * rate;
+      let seed = 3;
+      const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+      const bursts = new Float32Array(n);
+      for (let i = 0; i < n; i++) bursts[i] = 2e-4 * (rnd() * 2 - 1);
+      for (const t0 of [0.5, 2.2, 2.9, 5.5]) for (let i = 0; i < 0.7 * rate; i++) bursts[Math.round(t0 * rate) + i] += 0.2 * Math.sin(i * 0.04) * (0.5 + 0.5 * rnd());
+      const gated = { codec: 'celt_44', gate: true };
+      const whole = (await TF2Audio.process(mkBuffer(bursts, rate), gated)).codecInfo;
+      const celtChain = await TF2Audio.createLiveChain(gated, rate);
+      for (let o = 0; o < n; o += 960) await celtChain.process(bursts.subarray(o, o + 960));
+      const sent = celtChain.stats.sent;
+      celtChain.free();
+      check('celt_44 live chain: its gate counts 46.4 ms frames (pre-roll 3, hold 9) and sends the frames process() sends',
+        whole.prerollFrames === 3 && whole.holdFrames === 9 && whole.spurts > 1 && sent === whole.frames - whole.gatedFrames,
+        `live ${sent} sent; process() ${whole.frames - whole.gatedFrames} of ${whole.frames}, pre-roll ${whole.prerollFrames}, hold ${whole.holdFrames}`);
+    }
   }
 
   console.log('\n[10c] Receiver talk-spurt re-timing (voice_retime)');

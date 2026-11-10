@@ -46,7 +46,8 @@ export async function createCodec(rate, frameSize, options = {}) {
   const mode = x.cc_mode_create(rate, frameSize);
   if (!mode) throw new Error(`CELT 0.11 has no mode for ${rate} Hz / ${frameSize} samples`);
   let encoder = 0, decoder = 0;
-  const pcm = x.malloc(frameSize * 2), packet = x.malloc(Math.max(packetBytes, 1275));
+  const packetRoom = Math.max(packetBytes, 1275);
+  const pcm = x.malloc(frameSize * 2), packet = x.malloc(packetRoom);
   const open = () => {
     encoder = x.cc_encoder_create(mode);
     decoder = x.cc_decoder_create(mode);
@@ -62,9 +63,21 @@ export async function createCodec(rate, frameSize, options = {}) {
     encoder = decoder = 0;
   };
   open();
+  // The first byte of this mode's packets: the encoder's signalling writes
+  // the frame size (LM, bits 3-4) and the channel count (bit 2) there. Read
+  // once from a throwaway encoder, so decode() can refuse a packet of
+  // another mode before the decoder's state is touched.
+  const probe = x.cc_encoder_create(mode);
+  new Int16Array(x.memory.buffer, pcm, frameSize).fill(0);
+  if (!probe || x.celt_encode(probe, pcm, frameSize, packet, packetBytes) < 1) throw new Error('CELT 0.11 could not code a frame');
+  const header = new Uint8Array(x.memory.buffer, packet, 1)[0] & 0x1C;
+  x.celt_encoder_destroy(probe);
   const decodeInto = (data, length) => {
     const n = x.celt_decode(decoder, data, length, pcm, frameSize);
     if (n < 0) throw new Error(`CELT 0.11 decode failed (error ${n})`);
+    // A packet whose first byte declares a shorter frame decodes to fewer
+    // samples and leaves the rest of the buffer as it was: not this mode's.
+    if (n !== frameSize) throw new Error(`CELT 0.11 decode gave ${n} samples, not ${frameSize}: not a packet of this mode`);
     return Float32Array.from(new Int16Array(x.memory.buffer, pcm, frameSize), v => v / 32768);
   };
   return {
@@ -78,6 +91,8 @@ export async function createCodec(rate, frameSize, options = {}) {
       return new Uint8Array(x.memory.buffer, packet, n).slice();
     },
     decode(bytes) {
+      if (bytes.length > packetRoom) throw new RangeError(`CELT 0.11 packet of ${bytes.length} bytes: at most ${packetRoom}`);
+      if (!bytes.length || (bytes[0] & 0x1C) !== header) throw new Error('CELT 0.11 packet is not of this mode (its first byte gives another frame size or channel count)');
       new Uint8Array(x.memory.buffer, packet, bytes.length).set(bytes);
       return decodeInto(packet, bytes.length);
     },

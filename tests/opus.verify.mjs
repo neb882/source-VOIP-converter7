@@ -227,6 +227,35 @@ check('Encoder mode per packet is reported from the TOC byte',
     check('CELT encodes a frame of half-step ties as the same frame rounded to even, and decodes to whole 16-bit steps',
       pa.every((v, i) => v === pb[i]) && out.every(v => Number.isInteger(v * 32768)));
   }
+  // A packet that is not this mode's (a demo is a file from anywhere): one
+  // whose first byte declares a shorter frame is refused before the decoder
+  // touches its state, so the frames after it decode as if it had not come;
+  // one longer than the packet buffer is refused before it is copied.
+  for (const [rate, frame, bytes] of [[22050, 512, 64], [44100, 1024, 128]]) {
+    const enc = await createCodec(rate, frame, { packetBytes: bytes, complexity: 5 });
+    const voiced = signals.voiced, packets = [];
+    for (let f = 0; f < 6; f++) packets.push(enc.encode(Float32Array.from(voiced.subarray(f * frame + 8192, (f + 1) * frame + 8192), v => v / 32768)));
+    enc.free();
+    const clean = await createCodec(rate, frame, { packetBytes: bytes }), hit = await createCodec(rate, frame, { packetBytes: bytes });
+    const want = packets.map(p => clean.decode(p)), refused = [];
+    const got = [];
+    packets.forEach((p, f) => {
+      if (f === 3) for (const lm of [0, 1, 2]) {
+        const bad = p.slice();
+        bad[0] = (bad[0] & ~0x18) | (lm << 3);
+        try { hit.decode(bad); } catch (error) { refused.push(/not of this mode/.test(error.message)); }
+      }
+      got.push(hit.decode(p));
+    });
+    let oversize = '';
+    const long = new Uint8Array(1276);
+    long.set(packets[5]);   // this mode's first byte, so only its length is wrong
+    try { hit.decode(long); } catch (error) { oversize = error.name; }
+    const after = hit.decode(packets[5]);
+    clean.free(); hit.free();
+    check(`CELT ${rate}/${frame}: packets declaring a shorter frame are refused (${refused.length} of 3) and leave the decoder as it was; a 1276-byte packet is refused (${oversize})`,
+      refused.length === 3 && refused.every(Boolean) && got.every((o, f) => o.every((v, i) => v === want[f][i])) && oversize === 'RangeError' && after.length === frame);
+  }
 }
 const lost = await A.process(buffer(x, rate), { ...base, lossPct: 100 });
 check('100% loss reaches native decoder PLC', lost.codecInfo.plc === 'opus' && lost.codecInfo.lostFrames === lost.codecInfo.frames);
