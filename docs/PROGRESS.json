@@ -4,7 +4,7 @@
   "stands": {
     "live": "https://neb882.github.io/source-VOIP-converter7/ serves main (GitHub Pages from the branch root).",
     "model": "The Steam profile, the voice gate and the receiver are measured (tests/REFERENCE_2026.md, findings 1-21). vaudio_celt runs the real CELT 0.11 at settings three public decoders agree on. The speex profile runs the real Speex 1.2.1 at assumed settings (quality 4, 8 kbps). vaudio_celt_high, the Speex settings and the rooms are unconfirmed.",
-    "last_merged": "W2-01 (2026-11-10): the meter can measure a render a piece at a time, equal to the whole-file meter and in constant memory (docs/reports/W2-01-stream-meter.md); nothing on the page calls it yet (W2-03 would). Before it, W1-01: the speex profile runs real Speex 1.2.1.",
+    "last_merged": "W3-04 (2026-11-10): a file is decoded at its own sample rate, so the same file gives the same samples on every machine (docs/reports/W3-04-native-rate-decode.md). Before it, W2-01: the meter can measure a render a piece at a time.",
     "ci": "The tests workflow runs on every push and can be started by hand. Until 2026-11-09 one browser check (the live recording's lag) failed by chance about once in thirty runs; W1-04 removed the cause, so a red run is a real failure. A branch made before W1-04 still has the old check until it merges main.",
     "takes": "Since 2026-11-09 the owner's takes are in a private repository a session can attach (the owner knows its name; it is not named here). It holds Sets A to F as FLAC, the Set D demo, the source speech and clip, and the three test signals as played; the checksums of the Set D and F files match tests/REFERENCE_2026.md. The two songs played for Set A are there too. Not found: take1_default.flac (only the voice_maxgain 10 take of that pair; the tests accept either). The six prediction takes are not recorded yet. tests/accuracy.mjs and tests/retiming.mjs can run wherever that repository is cloned: pass its folder with --takes, and copy its signals folder into tests/testsignal/ (ignored by git).",
     "baseline": "2026-11-09, main at 61fcb92: tests/accuracy.mjs on the 16 takes of Sets B to F gives every figure of the 'Every take' table in tests/REFERENCE_2026.md to the last digit shown, so the review fixes, the demo reader and Speex moved nothing in the measured model. The Set D demo answered W1-02's open question: Steam's sequence numbers restart at 0 after each end marker (REFERENCE finding 11). Set A and tests/retiming.mjs reproduce the document too. Read block by block (2026-11-09, a scratch copy that kept each half-second block): on the owner's speech 231 of 246 blocks are within 0.5 dB and 239 agree to 0.18 dB rms; the 7 others are the quiet half-seconds where a talk spurt ends (take -48 to -52 dBFS, the game's ambience in the recording against the model's silence) or where the receiver moved a spurt. On the test signal 170 of 177 agree to 0.20 dB rms and the 7 others are the known cases of findings 13 and 14. So the accuracy table's 0.96 and 1.45 dB are those few blocks, not a general error. What is left on the modern preset for speech is when phrases start: the game started 9 of this take's spurts 100 to 340 ms early or late, which the render models only as an option (voice_retime, findings 19 and 21).",
@@ -23,18 +23,6 @@
       "report": "docs/reports/W2-02-render-stream.md"
     },
     {
-      "order": "W3-04-native-rate-decode",
-      "branch": "claude/w3-04-native-rate-decode",
-      "stage": "review (built; CI green on cc22f32)",
-      "report": "docs/reports/W3-04-native-rate-decode.md"
-    },
-    {
-      "order": "W3-02/05/06 plan review",
-      "branch": "(main)",
-      "stage": "the three orders are being read by a builders'-model agent before any build",
-      "report": "docs/reports/W3-02-plan.md"
-    },
-    {
       "order": "W3-07-mixer-output",
       "branch": "claude/w3-07-mixer-output",
       "stage": "investigating (the stronger model; no app code)",
@@ -45,11 +33,22 @@
       "branch": "claude/w3-08-celt-encoder",
       "stage": "investigating (the stronger model; no app code)",
       "report": "docs/reports/W3-08-celt-encoder.md"
+    },
+    {
+      "order": "W3-09-steam-voice",
+      "branch": "claude/w3-09-steam-voice",
+      "stage": "investigating (the stronger model; public writing and Valve's public files; no app code)",
+      "report": "docs/reports/W3-09-steam-voice.md"
+    },
+    {
+      "order": "W3-02a-voice-channel",
+      "branch": "claude/w3-02a-voice-channel",
+      "stage": "building (new files only)",
+      "report": "docs/reports/W3-02a-voice-channel.md"
     }
   ],
   "next": [
-    "From W3-03: (1) W3-02, rewritten from the engine's rule: the receiver's queue as the engine runs it, with the listener's frame rate and voice_buffer_ms as its inputs (a plan first: it changes how renders are computed; after W2-02 merges, since it is in audio.js); (2) the gain's four small corrections, with the accuracy suite before and after; (3) the CELT profiles' settings; (4) tests/REFERENCE_2026.md brought up to date: findings 10, 15 and 21 corrected, the new findings written in with where each was read.",
-    "The owner's priority (2026-11-10): when phrases start, on the modern preset. W3-01 investigates whether voice_retime should run the receiver's queue model; a build order follows if the evidence supports it. The long-render queue is held after the two orders now running (W2-01, W2-02): W2-03 to W2-06 start only when the owner says so.",
+    "The receiver, in the plan's order (docs/reports/W3-02-plan.md, revision 2, read by a builders'-model agent before any build): W3-02a (the channel and the log replay; in flight) then W3-02b (the sender model and the timeline stage), both new files only; after W2-02 merges, one at a time in audio.js: W3-05 (the gain as the engine's rule, accepted by the exact Set H check), W3-06 (the CELT settings as read; W3-08 finds why the app's CELT is not the game's), W3-02c (the render and the stream run the channel behind an option), W3-02f (the flat rule retired), W3-02g (a demo's own packets); W3-02d (page controls and the default) and W3-02e (lane marks, real-take wording) beside them. The orchestrator runs each order's private checks against the owner's logs and takes. tests/REFERENCE_2026.md is brought up to date from the plan's proposed text once W3-07, W3-08 and W3-09 report. The long-render queue (W2-03 to W2-06) is held.",
     "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (in flight; meter.js only); W2-02 render-stream (next; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
     "With the takes reachable: a baseline run of tests/accuracy.mjs and tests/retiming.mjs on main (in progress on 2026-11-09), then the model questions it raises, each as an order for the stronger model (docs/PIPELINE.md, 'Which model does what'). The predictions dry run can be repeated too.",
     "After W2-03 has been live for a while: an order that makes process() a thin wrapper over the stream, so there is one render path, proved by the golden hashes W2-02 records.",
@@ -83,6 +82,10 @@
     {
       "finding": "The browser suite's live-recording check allows a lag of one sample; W1-04's data (58 recordings, peak at 0 every time, fractional 0.00-0.04) would support exactly zero. An earlier note here blamed a half-sample spread on the live chain and the render starting at different points: that spread came from Chromium's beep, not from the chain.",
       "why": "The order asked for one sample, and tests/verify.js pins the delay to the sample in Node. Tighten it when the live chain is next touched, after a few CI runs on GitHub's Chromium confirm the zero."
+    },
+    {
+      "finding": "filerate.js does not read WebM or Matroska (video.js does not parse them), so those files are still decoded at the audio device's rate, with a console line. A plain AAC file in ADTS at 24 kHz or less is decoded at twice its rate (the rule that keeps an HE-AAC file's upper band); HE-AAC itself was reasoned, not measured, and Firefox and Safari were not checked.",
+      "why": "Each only resamples, as every file was before; none gives a wrong pitch or length."
     }
   ],
   "retired_rules": [

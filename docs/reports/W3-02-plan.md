@@ -26,33 +26,45 @@ console logs and takes with scratch scripts; only numbers are quoted.
   prototype gets 50% of the transitions right (leaving the spurts: 11%) and puts a spurt's start 96 ms from the
   take's on average (leaving them: 150 ms); on the test signals, whose 440 ms silences sit on the threshold, it
   is worse than leaving them (80 to 114 ms against 29 to 83), as W3-01 found for its own model.
-- **What would change my mind:** W3-02a's `tests/retiming.mjs --engine` run giving the speech take a start error
+- **What would change my mind:** W3-02b's `tests/retiming.mjs --engine` run giving the speech take a start error
   above 130 ms; or a second speech take on which the render places spurts worse than leaving them. Then the
   default stays the source's timeline until the sender's gate is modelled with Steam's own spread.
 - **With a video** the recommendation is the source's timeline by default: the picture cannot follow, and sound
   that leads the lips by up to 0.35 s after a pause is a defect in a video that the game, which has no picture,
   does not have.
 
-These are recommendations; the orchestrator and the owner decide ("Decisions left", below).
+The orchestrator and the owner have since decided for all three (below).
 
 ## The order of work
 
-| Order | What | Needs | Can run beside | Budget |
-| --- | --- | --- | --- | --- |
-| W3-02a | `voice-channel.js`: the channel, the sender model, the timeline stage; the log replay; `retiming.mjs --engine` | nothing (new files) | W2-02, W3-04, W3-06 | 1 day |
-| W3-06 | the CELT profiles' settings, the Speex note | W2-02 merged (golden hashes) | W3-02a | 4 h |
-| W3-02b | `process()` and `createRender` run the channel under `timeline: 'game'`; default unchanged | W2-02, W3-02a, W3-06 if it is in flight (`audio.js`) | nothing in `audio.js` | 1 day |
-| W3-05 | the gain's four corrections | W3-02b | W3-02c | 4 h |
-| W3-02c | the page's controls, the default, the words; the flat rule retired | W3-02b, the owner's answers | W3-05 | 1 day |
-| W3-02d | a demo's own packets drive the channel | W3-02b, W3-05, W3-06 (`demo.js`) | W3-02c if it is still open | half a day |
+*Revised 2026-11-10 after the review (see "The review" at the end).*
 
-Files do not overlap inside a row's "beside" column: W3-02a adds files only (one line of `package.json` aside);
-W3-06 has `constants.js`, `opus-codec.mjs`, `demo.js` and three one-line call sites in `audio.js`; W3-02b and
-W3-05 have `audio.js`; W3-02c has `app/`, `index.html`, `README.md`. `tests/render-stream.verify.mjs` (W2-02's
-golden hashes) is touched by W3-06, W3-02b and W3-05 in turn, never by two at once.
+| Order | What | Starts after | Budget |
+| --- | --- | --- | --- |
+| W3-02a | `voice-channel.js`: the channel; the log tool and the replay | now (new files only) | 1 day |
+| W3-02b | the sender model and the timeline stage; `retiming.mjs --engine` | W3-02a | 1 day |
+| W3-05 | the gain as the engine computes it (verified on Set H) | W2-02 | half a day |
+| W3-06 | the CELT profiles' settings as read, the Speex note | W2-02, W3-05 | half a day |
+| W3-02c | `process()` and `createRender` run the channel under `timeline: 'game'`; default unchanged | W2-02, W3-05, W3-06, W3-02b | 1 day |
+| W3-02d | the page: controls, the default, the words | W3-02c | 1 day |
+| W3-02e | the page: drop marks on the codec lane, the real-take check's words | W3-02d | half a day |
+| W3-02f | the flat rule's code removed | W3-02d | 2 hours |
+| W3-02g | a demo's own packets drive the channel | W3-02c, W3-06, W3-02f | half a day |
 
-**W2-04** (rooms and the flat re-timing in the stream): its point 2 streams the rule this plan retires. If W3-02c
-removes the flat rule, W2-04 becomes rooms only.
+**What runs beside what.** W3-02a and W3-02b add or change only `voice-channel.js` and their own tests, so they
+run beside anything (one line of `package.json` aside). W3-05, W3-06, W3-02c, W3-02f and W3-02g all change
+`audio.js` (and W3-05, W3-06, W3-02c and W3-02f the golden hashes of `tests/render-stream.verify.mjs`), so they
+run one at a time, in that order. W3-02d and W3-02e change the page only and run one after the other, beside
+any one of the `audio.js` orders; W3-02f waits for W3-02d. The order between W3-05 and W3-06 is free; W3-05 is put
+first because its result is already verified against the game, and W3-06 may be better built together with the
+codec rebuild W3-08 will ask for (both re-record the CELT hashes).
+
+**Why W3-05 moved before the channel's wiring.** Set H showed that the exact reference for the gain is an engine
+codec on the source's timeline, which needs no channel. So the gain becomes the engine's first, as an object with
+a reset, and W3-02c only hands that object to the channel.
+
+**W2-04** (rooms and the flat re-timing in the stream): its point 2 streams the rule W3-02f removes; W2-04
+becomes rooms only.
 
 ## Decisions made in the plan
 
@@ -75,23 +87,20 @@ removes the flat rule, W2-04 becomes rooms only.
 9. **The loss model's lost frames ride with the next packet** in the game's timeline (Steam's decoder conceals
    when the next packet reveals the gap). Not measured in a log; said so in the order.
 
-## Decisions left to the orchestrator and the owner
+## Decisions since made, and those still open
 
-1. **The default** (above): game timeline on the page for the modern preset, or not yet.
-2. **Video:** source timeline by default (recommended), or the same default as audio.
-3. **The fixture.** `tests/voicequeue/setg.json` would hold, for each of six sections of the owner's logs, a flat
-   list of numbers: a packet's decoded sample count, the samples the mixer took between two ticks, the queue's
-   bytes on each tick. 156 KB as JSON, 9,808 ticks. Scanned: no 17-digit number, no letters beyond its six key
-   names and the section names (`run1`, `run2`, `run3-67`, `run3-100`, `run3-300`, `run3-maxgain1`), no path. What
-   it does reveal: when, within those recordings, the owner was speaking and pausing (packet sizes and times), and
-   nothing of what was said. It is at
-   the planner's scratch folder as `voice-queue-fixture.json` (the full path is in the planner's hand-back); I did not commit it. If the owner says no, W3-02a still
-   has the synthetic log test and the tool, and the orchestrator runs the tool on the private logs.
-4. **The flat rule** (`voice_retime`'s 41%): retired in W3-02c (recommended; the takes refute it), or kept as a
-   third choice.
-5. **A new registered prediction for `vaudio_celt_high`** before its take: both hypotheses of P2 are settings the
-   engine never selects (W3-06).
-6. **Two takes worth asking for** (under "What I could not settle").
+Decided on 2026-11-10 (`docs/PROGRESS.json`, the last decision): on the page the modern preset renders the game's
+timeline by default; a video and the engine's own default keep the source's; the flat rule is retired when that
+lands (W3-02f); the fixture built from the owner's logs stays private (it is in the private repository as
+`set-G-debug-probe/voice-queue-fixture.json`: six sections, a flat list of numbers each, 9,808 ticks), the public
+suite runs a synthetic log, and the orchestrator runs the private replay.
+
+Still open:
+
+1. **A new registered prediction for `vaudio_celt_high`** before its registered take: both hypotheses of P2 are
+   settings the engine never selects (W3-06).
+2. **Whether W3-06 is built alone or with the CELT rebuild** that W3-08's result will ask for.
+3. **Two takes worth asking for** (under "What I could not settle").
 
 ## What was measured, and how
 
@@ -130,7 +139,9 @@ ticks. The model's queue was compared with the log's on every tick.
 - **Where W3-03 and the logs differ.** Nowhere in the rule. Three details: its "Checks" text says the queue starts
   falling "about 6 ticks" after the first packet at 67 fps and "9 or 10 lines" at 100; the logs and its own
   formula say 7 and 10 lines. The first pull after a channel starts is 513 samples (or 1025), not 512, in 16 of 16
-  starts seen: one extra sample is taken at a start (not read in the engine; the model discards it). And the fade
+  starts seen: the mixer takes one extra sample at a start (not read in the engine). In the orders this is the
+  mixer's doing, not the channel's: a replay gives the channel the logged demand as it is, and a render's clock
+  asks for 513 on the first block and plays the last 512. And the fade
   and the underrun padding change samples, not counts, so no log can confirm them: they stay "read, not measured".
 
 ### What a restart throws away (first run, the rule replayed)
@@ -203,6 +214,11 @@ takes). The render does not get shorter: the mixer plays in real time and the qu
   debug variables on), and it matters for the long renders of W2: under the game's timeline a 30-minute song
   would have one such gap.
 - **Below 67 fps** several ticks run in one frame; the model spaces them evenly. Untested.
+- **The fade at a low frame rate.** At 67 fps a channel starts with 220 ms queued, and in the prototype the queue
+  dips to between 73 and 146 ms within a minute of continuous voice (at 100 fps to 108 to 192 ms; at 300 it stays
+  above 345). Under 100 ms the fade acts on what is being played, so by the rule as read a listener at 67 fps
+  hears the level dip by a decibel or two between packets. Nothing recorded shows it; a take at `fps_max 67`
+  with a steady tone would.
 - **The fade and the underrun padding** in sound: a take with `voice_writevoices` would not show them either (it
   taps before the ring). Only a recording at a low frame rate, where the queue sits under 100 ms, would.
 - **Loss under the game's timeline** (decision 9) and **the engine codecs' channel**: no log.
@@ -242,9 +258,11 @@ Not applied. New findings in that document's manner, then the corrections.
 >
 > From Set G's logs and Set D's demo: a spurt opens with one packet of 160 ms (8 frames in 17 of 23 openings after a pause; 6, 7 or 9 in the others); later packets hold 60 ms in 65%, 40 ms in 14%, 80 ms in 11% and 20 ms in 10%, 3 to 5 ticks apart; after the spurt's last sound comes the silence record, 62.5 ms (39 of 47) or 31.25 ms; a key press sends an empty packet, which opens a channel by itself (3 seen). The engine adds nothing: once a tick it sends whatever Steam returned as one message (read).
 >
-> ### 26. The gain law, as the engine has it
+> ### 26. The gain law, as the engine has it, verified sample for sample
 >
-> The engine's code confirms findings 3 and 4 constant by constant: 128-sample blocks at 44.1 kHz, the target `min(maxgain, 32767 / (mean + avggain x (peak - mean)))`, `voice_scale` entering twice, the ramp in whole 1/128 steps truncated toward zero, the int16 clamp. Four details differ from the model as first fitted (W3-05): the ramp's step is the difference divided by 127, the block size less one; the block mean is an integer division; a decoded block of zeros has no level, so its target is the cap (every spurt ends, after its silence record, with the gain at `voice_maxgain`); and the gain is reset to 1.0 whenever a channel is assigned, not when a spurt is appended. Checked against Set D: at a burst after a pause inside a spurt, at an appended spurt and at a restarted one, recording A is 8 to 12 times the decoded level from the first 1.3 ms step in which the decoded sound rises.
+> The engine's code confirms findings 3 and 4 constant by constant: 128-sample blocks at the voice rate, the target `min(maxgain, 32767 / (mean + avggain x (peak - mean)))`, `voice_scale` entering twice, the ramp in whole 1/128 steps truncated toward zero, the int16 clamp. Four details differ from the model as first fitted: the ramp's step is the difference divided by 127, the block size less one; the block mean is an integer division; a decoded block of zeros has no level, so its target is the cap (every spurt ends, after its silence record, with the gain at `voice_maxgain`); and the gain is reset to 1.0 whenever a channel is assigned, not when a spurt is appended.
+>
+> **Set H** checks it exactly. The owner ran `vaudio_celt` with a file as the microphone and had the game record its decoded voice (`voice_recordtofile`) with `voice_maxgain 1` and again with 10. The rule above, applied to the first recording, gives the second sample for sample over its first 291,840 samples (570 packets; the last packet differs between the two key presses). With the mean kept as a fraction 2,798 samples differ; with a zero block leaving the gain alone, 234; the divisor 127 or 128 makes no difference on that signal and rests on the reading. Against Set D: at a burst after a pause inside a spurt, at an appended spurt and at a restarted one, recording A is 8 to 12 times the decoded level from the first 1.3 ms step in which the decoded sound rises.
 >
 > ### 27. The game's debug variables
 >
@@ -266,7 +284,7 @@ path has no 256-sample operation."
 (finding 24)." After the list on re-timing add: "The difference between the two PCs is what finding 23 predicts for
 a listener at a lower frame rate; the second PC's frame rate was not recorded."
 
-**Finding 19**, last paragraph: after W3-02c, replace the description of `voice_retime` with the game's timeline
+**Finding 19**, last paragraph: after W3-02d, replace the description of `voice_retime` with the game's timeline
 (`voice_timeline game`, `fps_max`, `voice_buffer_ms`) and say the flat rule was retired and why (it cannot chain
 early starts; the speech take has two chains).
 
@@ -293,8 +311,47 @@ minutes at 300 frames a second); a listener under 67 frames a second; the queue 
 "Legacy profiles and rooms": the CELT profiles' settings are read from the game's module (W3-06); Speex's are what
 the engine asks for, with the module not shipped.
 
+## The review
+
+The three orders were read by an agent on the builders' model as the one who would build them, and revised on
+2026-11-10. What each finding led to:
+
+**W3-02**
+
+| Finding | What was done |
+| --- | --- |
+| The pseudo-code discarded a sample on a channel's first pull, against the fixture rule and the prototype | Accepted. The channel's `pull(n)` takes exactly `n`. The logs show 513 leaving the ring at a start, which is the mixer's demand: a replay passes it on as logged; a render's clock asks for 513 on the first block and plays the last 512. One section of the order says so. |
+| The fade and underrun tests did not say whether the pull was a first | Moot with the above. Both were also re-worked by hand: the underrun case now has 200 queued (the old 300 left no room for the zeros it claimed), and the fade's untouched count is 4411 for 8820 queued. |
+| The sender check compared the builder's output with itself | Accepted. The order now gives a reference schedule for one seed, packet for packet, and the prototype's shares to compare within 0.02, with the formulas written so that two implementations cannot round differently. |
+| Five sections against six; no pointer to the log format | Corrected to six (2,375 packets, 9,808 ticks); the two lines' formats are in the order, with the pointer to W3-03. |
+| Prerequisites and shared files | Accepted. The work is seven orders now; every `audio.js` order is in one sequence; the flat rule's removal is its own order (W3-02f), so the page order shares no file with the gain order. |
+| Checks a builder cannot run | Accepted. Every order lists what the builder runs and what the orchestrator runs privately, each with its command and expected output. The replay test takes `--fixture`; `createChannel` takes test settings for the six faults, with the prototype's mismatch counts per section; the log tool's rules are spelled out so its output can be compared with the private fixture; `retiming.mjs` gets a synthetic results file made by a script. |
+| The shifted-equality check could not hold next to a dropped sample | Accepted. Restated on a 44.1 kHz source at 150 fps (the prototype shows neither the fade nor an overflow acts there), over 200-sample windows away from a packet's edge, with the growth of the shift checked against the packet rate. |
+| Budgets | The first order is split (channel and replay; sender and timeline) and the page order is split (controls and default; views). |
+
+**W3-05**
+
+| Finding | What was done |
+| --- | --- |
+| The zero-block rule sat only under the game's timeline, so Set H would still miss | Accepted. Every block is run by the rule unless the gate did not send it: with no gate (Set H's case) every block is decoded, zeros included. With the gate on, an all-zero block counts as decoded when its first sample lies in a sent frame. |
+| The zeros-to-the-cap test was a block off | Accepted, and the numbers were run through the script that matched Set H: 19 and 99 in the block after the zeros, 100 at the start of the next. |
+| The divisor test was unreachable | Accepted: a full-scale block beside `maxGain` 255/128 gives 199 against 100. The integer-mean test got concrete numbers the same way (992 against 991). |
+| The reset test must not read the output | Accepted: `createGain` has `state()`, and the order moved before the channel's wiring, so the reset is tested on the gain object alone. |
+| Acceptance should be the exact Set H check | Accepted: `tests/gain-exact.mjs` (private data, expected 0 of 291,840), a public literal transcription test, and the accuracy bounds kept as a guard. The order is no longer "four small corrections" but the engine's rule in the engine's own variables, 32-bit floats included, because that is what was verified. |
+
+**W3-06**
+
+| Finding | What was done |
+| --- | --- |
+| It did not address Set H's mismatch | Accepted. The order says complexity cannot be the cause, that W3-08 has it (its preliminary report: the pitch post-filter is compiled out of the app's build), that a codec rebuild is its own order, and that every text it writes says the samples do not match yet. |
+| Stale: there is a `vaudio_celt_high` take | Accepted: the labels lose "unconfirmed by a take"; the packet sizes and rate are stated as confirmed by Set H; the PREDICTIONS paragraph mentions Set H and its 17 to 23 dB. |
+| `codecResultInfo` and the chain strip were left out | Accepted: both are in Files and Spec, with a check that fails if either is missed. |
+| `demo.js`: which rate wins | Not accepted as stated: on main `decode` takes a legacy speaker's rate from `LEGACY.rate` (the voice-init message's rate is stored and unused). The order now says that explicitly: `LEGACY.rate` is the sound's rate and `modeRate` only creates the codec. |
+| "Quality 3" is an inference | Accepted: said in the order and required in the comments. |
+| The tone test had no threshold; the band edge is 10 kHz | Accepted: 9 kHz within 1 dB, 10.5 kHz at least 40 dB down; "11 kHz" is corrected to about 10 kHz wherever it was written. |
+
 ## The scan
 
-Before the last push I searched the branch's diff against `origin/main` for 17-digit numbers, the player name and
+Before each last push (the plan's and the revision's) I searched the branch's diff against `origin/main` for 17-digit numbers, the player name and
 folder path that the logs hold, drive paths and e-mail addresses: none. The fixture and every script that read
 the private folder are in the scratch folder only.

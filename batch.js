@@ -231,9 +231,9 @@
 
   /* ---------------- rendering ---------------- */
 
+  // At the file's own rate, as a single source is (app/source.js).
   async function decodeFile(file) {
-    if (!state.decodeCtx) state.decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
-    return state.decodeCtx.decodeAudioData(await file.arrayBuffer());
+    return decodeAtFileRate(await file.arrayBuffer(), file.name, () => file.arrayBuffer());
   }
 
   async function renderItem(item, opts, key) {
@@ -248,6 +248,7 @@
       if (decoded.duration > MAX_AUDIO_SECONDS) throw new Error('longer than the 10 minute limit');
       if (batch.cancelled || !batch.items.includes(item)) throw abortError();
       item.duration = decoded.duration;
+      item.sourceRate = decoded.sampleRate;
       const mono = TF2Audio.bufferToMono(decoded);
       const source = captureSource({
         sampleRate: decoded.sampleRate, duration: decoded.duration, length: mono.length,

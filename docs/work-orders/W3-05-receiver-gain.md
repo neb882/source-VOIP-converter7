@@ -1,102 +1,166 @@
-# W3-05: the receiver's gain, four small corrections
+# W3-05: the receiver's gain, as the engine computes it
 
-**Branch:** `claude/w3-05-receiver-gain`, from `main` **after W3-02b has merged** (it needs the channel: the reset
-happens when a channel is assigned, and a "decoded block of zeros" is a packet's, which only the channel path
-has). **Worktree:** given in the brief. **Agent:** `tf-builder` (effort high), then `tf-reviewer`, then a second
-reader on the stronger model (it changes a measured constant's arithmetic). **Time budget:** 4 hours. **May run
-beside** W3-02c (no shared files).
+*Revised 2026-11-10 after the plan's review and after Set H (the findings and what was done about each are in
+`docs/reports/W3-02-plan.md`, "The review").*
+
+**Branch:** `claude/w3-05-receiver-gain`, from `main` **after W2-02 has merged** and when no other `audio.js` order
+is open (W3-06, W3-02c, W3-02f and W3-02g change it too). It comes **before W3-02c**, which takes the gain object
+this order makes. **Worktree:** given in the brief. **Agent:** `tf-builder` (effort high), then `tf-reviewer`,
+then a second reader on the stronger model (it changes a measured constant's arithmetic). **Time budget:** half a
+day.
 
 ## Why
 
-W3-03 read the automatic gain out of the owner's engine file (`docs/reports/W3-03-engine-binary.md`, section 2).
-It confirms the measured law of findings 3 and 4 constant by constant, and differs from `receiverAutoGain` in
-four details. None is expected to be audible; they matter for the sample-by-sample comparison with the game's own
-`voice_decompressed.wav` (the gain's output, whole packets end to end), which is the next proof planned for the
-modern preset.
+W3-03 read the automatic gain out of the owner's engine file (`docs/reports/W3-03-engine-binary.md`, section 2),
+and Set H then verified that reading sample for sample (`docs/PROGRESS.json`, `stands.gain_exact`): the owner ran
+`vaudio_celt` with a file as the microphone and let the game record its decoded voice once with `voice_maxgain 1`
+(the gain does nothing) and once with 10. The engine's rule applied to the first recording gives the second
+exactly over its first 291,840 samples (570 packets of 512; the last packet differs between the two key presses).
+The app's present rule differs on 3,032 of them. Which details matter, on that signal:
 
-The engine's update, as read:
+| The rule | Samples that differ from the game's, of 291,840 |
+| --- | ---: |
+| as the engine has it | 0 |
+| the ramp divided by 128 in place of 127 | 0 (this signal cannot tell; the 127 stands on W3-03's reading) |
+| the block mean kept as a fraction | 2,798 |
+| a decoded block of zeros leaving the gain alone | 234 |
+
+So this order makes the app's gain the engine's, and its acceptance is that exact check.
+
+## The engine's rule
 
 ```
-for each sample x at position i of its 128-sample block:
-    sum += |x| ; peak = max(peak, |x|)
-    x = clamp((fixed + i * step) * x >> 7, -32768, 32767)        # arithmetic shift: floor
-at the end of each block:
-    current = next * scale
-    fixed   = trunc(current * 128)
-    mean    = floor(sum / 128)                                    # integer division
-    next    = min(32767 / (mean + (peak - mean) * avggain), maxgain) * scale      # 32-bit floats
-    step    = trunc((next - current) / 127 * 128)                 # toward zero
-    sum = peak = 0
-when a channel is assigned: current = next = 1.0, fixed = 128, step = 0, position 0, sum = peak = 0
+state: current = next = 1.0 (32-bit floats), fixed = 128, step = 0, pos = 0, sum = 0, peak = 0     # a reset
+for each decoded sample x (an integer, -32768..32767), in order:
+    a = |x| ; sum += a ; peak = max(peak, a)
+    y = (fixed + pos * step) * x >> 7                  # arithmetic shift: floor((fixed + pos * step) * x / 128)
+    output clamp(y, -32768, 32767)
+    pos += 1
+    if pos == 128:
+        current = f32(next * scale)
+        fixed   = trunc(current * 128)
+        mean    = floor(sum / 128)                     # integer division
+        den     = f32(mean + (peak - mean) * avggain)
+        t       = den > 0 ? f32(32767 / den) : infinity
+        if t > maxgain: t = maxgain
+        next    = f32(t * scale)
+        step    = trunc(f32(f32(next - current) / 127 * 128))       # toward zero
+        pos = 0 ; sum = 0 ; peak = 0
 ```
 
-`next` holds one factor of `scale` and `current` a second, which is finding 4's "enters twice". In the app's
-variables (`prevTarget` is `next / scale`): `fixed = trunc(prevTarget * scale * scale * 128)` and
-`step = trunc((target - prevTarget * scale) / 127 * scale * 128)`.
+`f32` is `Math.fround`. This is, line for line, the script that matched Set H. `next` holds one factor of
+`voice_scale` and `current` a second, which is finding 4's "enters twice". The state is reset when a channel is
+assigned to a speaker, and at no other time. A decoded block of zeros has `den = 0`, so its target is the cap.
 
 ## Files
 
-May touch: `audio.js` (the gain helper that `receiverAutoGain`, `streamAutoGain` and the channel's gain object
-share since W3-02b; nothing else), `tests/verify.js` (the gain's section), `tests/render-stream.verify.mjs` (golden
-hashes, re-recorded: see Done means), `tests/predictions/PREDICTIONS.md` (the hashed-file note). May not touch:
-`voice-channel.js`, `constants.js`, `reference.js`, `tests/accuracy.mjs`, `tests/REFERENCE_2026.md` (the
-orchestrator pastes the plan's text for finding 4), `tests/predictions/predictions.json`, `docs/PROGRESS.json`.
+May touch: `audio.js` (the gain: `receiverAutoGain`, `streamAutoGain`, a new `createGain`, and the places in
+`process()`, `createRender` and `createLiveChain` that call them), `tests/verify.js` (only expectations of the
+gain's existing checks that the corrections move; say each), `tests/render-stream.verify.mjs` (golden hashes,
+re-recorded: see below), `package.json` (the `test` script), `tests/predictions/PREDICTIONS.md` (the hashed-file
+note). May add: `tests/gain.verify.mjs` (public), `tests/gain-exact.mjs` (reads private recordings; commits
+none). May not touch: `voice-channel.js`, `constants.js`, `reference.js`, `tests/accuracy.mjs`,
+`tests/REFERENCE_2026.md`, `tests/predictions/predictions.json`, `docs/PROGRESS.json`.
 
 ## Spec
 
-1. **The ramp's divisor is 127** (block size less one), in every path. Today it is the block size (128), which
-   gives a step one unit (1/128 of gain per sample) smaller whenever the difference in 1/128 units lies between a
-   multiple of 127 and the same multiple of 128.
-2. **The block mean is an integer**: `Math.floor(total / block)`, in every path.
-3. **32-bit floats** for `next`, `current` and the quotient (`Math.fround` at each step the engine stores a
-   float): do this only if a test can show a case where it changes a sample; otherwise leave doubles and say so.
-4. **A decoded block of zeros sends the gain to its cap**: mean and peak 0 give `next = maxgain x scale`. In the
-   channel's gain object (the `'game'` timeline) this is the rule with no exception: the object only ever sees
-   decoded packets, the silence record included, so every spurt ends with the gain at its cap. In the
-   `'source'` timeline (`receiverAutoGain`, `streamAutoGain`) the signal also holds the silences the gate did not
-   send, which are not blocks at all in the engine: there an all-zero block keeps leaving the state untouched, as
-   finding 4 measured for "no voice data", and the comment says which case it is.
-5. **The reset when a channel is assigned**: the channel's gain object's `reset()` sets the state above (gain
-   exactly 1.0 for the first 128 samples whatever `voice_scale` is; today's start state is `trunc(scale x 128)`).
-   An appended spurt is not reset. The `'source'` timeline has no channel and keeps its start state.
+1. **One helper** holds the rule above, in the engine's own variables (`current`, `next`, `fixed`, `step`, `pos`,
+   `sum`, `peak`), and `receiverAutoGain`, `streamAutoGain` and `createGain` all run it. Samples come in as floats
+   and are converted as now (`clamp(round(x * 32768), -32768, 32767)`), and go out as `y / 32768`.
+2. **`TF2Audio.createGain({ avgGain, maxGain, scale })`** returns `{ process(pcm), reset(), state() }`:
+   `process` returns a `Float32Array` of the same length at once (a sample's gain is known when it arrives; the
+   block's update happens when `pos` reaches 128, across calls); `reset()` sets the state of the first line;
+   `state()` returns a copy of the seven variables, for tests. This is the object W3-02c gives the voice channel:
+   every sample it sees is decoded, the silence record's zeros included.
+3. **Every render starts with a reset state** (a render begins with a channel being assigned): `fixed = 128` for
+   the first block whatever `voice_scale` is. Today the first block starts at `trunc(scale x 128)`.
+4. **Which blocks are decoded.** In the engine the gain only ever sees decoded samples. On the app's source
+   timeline the signal also holds the silences the gate did not send, which the engine's gain never sees. So
+   `receiverAutoGain` and `streamAutoGain` take `options.decoded`, a function of a voice-rate sample index that
+   says whether that sample was decoded; without it, every sample was.
+   - **No gate** (the engine codecs as shipped, any profile with the gate off, the codec bypassed): no function.
+     Every block is run by the rule, a block of zeros included. This is Set H's case, and it is exact.
+   - **The gate on** (Steam on the source's timeline, and a demo's received voice): `process()` and
+     `createRender` build the function from the frame log: sample `m` at the voice rate is codec sample
+     `c = floor(m x codecRate / voiceRate)`, in frame `floor((c + lookahead) / frameSamples)`; it was decoded
+     when that frame's code is not 0. The live chain does the same from its own frames (no lookahead is trimmed
+     there; it keeps the sent flags of its last 64 frames).
+   - **An all-zero block whose first sample was not decoded** is skipped as today: its samples stay zero, the
+     gain is held where the ramp reached it (`fixed += 128 * step; step = 0`), and `current`, `next` are
+     untouched. This stands in for "nothing arrived": the engine would not have run at all. It is an
+     approximation of the source's timeline only (the engine's blocks run over the decoded samples end to end;
+     the app's run over the timeline), and the comment says so. The game's timeline (W3-02c) has no such case.
+   - **Every other block**, zeros inside a sent frame included, is run by the rule.
+5. **The last, partial block** follows the current ramp and makes no update, as now (the engine would do the
+   same with a signal that ends there).
 6. With `agc: false` nothing changes.
 
-## Done means
+## The builder runs
 
-- `pnpm test` passes. In `tests/verify.js`, each of these fails without its correction (say how you checked):
-  - **127:** a steady block pair whose targets differ by 127/128 exactly: the step is 1 with the divisor 127 and
-    0 with 128; assert the last sample of the ramped block.
-  - **Integer mean:** a block with `sum = 128 x m + 127` gives the target of mean `m`, not `m + 0.99`: pick `m`
-    and a peak where the two targets give different `fixed` values, and assert the next block's first sample.
-  - **Zeros to the cap:** through the channel's gain object, a loud block, then 128 zeros, then a quiet block:
-    the block after the zeros starts at `maxgain x scale x scale` and the quiet block is ramped from there; through
-    `receiverAutoGain` the same input leaves the gain where the loud block put it.
-  - **Reset:** under `'game'` at 300 fps, a source with a pause of 1.2 s: the first 128 samples of the second
-    spurt's first packet leave the gain object at gain 1.0 (compare with the pre-gain samples), with
-    `voice_scale` 1 and 0.5; with a pause of 300 ms (appended) they do not.
-  - **The model of `voice_decompressed.wav`:** the gain object's outputs, packet after packet, are whole packets
-    (882 samples a frame, the silence record's zeros included); a test hook or `codecInfo.channel` exposes their
-    count so a later order can lay them beside the game's file.
-- **The accuracy suite, before and after** (the orchestrator or the builder, under the heavy lock):
-  `node tests/accuracy.mjs --takes <folder> --json <scratch>/after.json`, all 16 takes, against the baseline of
-  the same main. "Barely", fixed before the run: every row's level figure within **0.03 dB** rms of the baseline
-  and its correlation within 0.002; the largest band difference within **0.1 dB** and in the same band; samples
-  at the clamp within **0.2 percentage points**; the spurt count and the clock column unchanged. The Set B
-  `voice_scale 0.5` take is the one that exercises the ramp hardest (its sawtooth is the step): it must stay
-  within 0.3 dB on every segment of the "Results" table in `tests/REFERENCE_2026.md`, and the report quotes its
-  sawtooth's two ends (recorded 0.17 to 0.29 of full scale, modelled 0.16 to 0.28 today). **Stop and report** if
-  any row moves by more: the engine's arithmetic is read, so a larger move means the reading or its translation
-  is wrong, not that the takes are.
-- **Golden hashes:** every render with the auto-gain on changes in its last bits, so W2-02's golden hashes are
-  re-recorded in a commit of their own that says why (the divisor and the mean), after showing that the cases
-  with `agc: false` did not move. `createRender` stays equal to `process()` on every case.
+- **`node tests/gain.verify.mjs`** (new, in `pnpm test`):
+  - **Against a literal transcription.** The test holds its own copy of the rule above, written with integers
+    and `Math.fround` exactly as in the box (not shared with `audio.js`), and compares it sample for sample with
+    `receiverAutoGain` (no `decoded`), with `streamAutoGain` fed in pieces of 1, 7, 128 and 1,000 samples and
+    flushed, and with `createGain().process` fed in packets of 882 and 512, on seeded synthetic signals of at
+    least 40,000 samples each: noise bursts at levels from 20 to 32767 with runs of exact zeros between them (some
+    runs a whole number of blocks, some not), a full-scale square wave, a slow ramp, and a signal whose length is
+    not a multiple of 128; each at `voice_scale` 0.5, 1 and 2, `voice_maxgain` 1, 10 and 255/128, `voice_avggain`
+    0.25, 0.5 and 1. Not one sample may differ.
+  - **127** (all blocks decoded, `scale` 1, `maxGain` 255/128): block 0 is 128 samples of 32767, blocks 1 and 2
+    are 128 samples of 100. Block 1 comes out as 100. The last sample of block 2 is 199 (the step is 1:
+    `floor(100 x 255 / 128)`); with the divisor 128 it would be 100.
+  - **The integer mean** (`scale` 1, `maxGain` 10, `avgGain` 0.5): block 0 is 127 samples of 3303 and one of
+    3302 (mean 3302 as an integer, 3302.99 as a fraction; target 9.92188); blocks 1 and 2 are 128 samples of 100.
+    The first sample of block 2 is 992 (`fixed` 1270); with the fractional mean it would be 991.
+  - **Zeros to the cap** (`scale` 1, `maxGain` 10): block 0 is 128 samples of 16384, block 1 is zeros, blocks 2
+    and 3 are 128 samples of 10. Block 2 starts where the loud block's target left it and ramps toward the cap:
+    its first sample is 19 (`fixed` 255) and its last 99 (`step` 8); the first sample of block 3 is 100 (`fixed`
+    1280). In general the block after the zeros starts at `scale^2 x T(loud)` and ramps toward
+    `scale x maxgain`, and only the next starts at `scale^2 x maxgain`. With `decoded` saying that block 1 was not
+    decoded, block 2 is flat at 20 (`fixed` 256: where block 1's ramp ended, held).
+  - **Reset** (through `createGain`, read with `state()`): after `reset()`, 128 samples of 1000 come out as
+    1000 at `voice_scale` 0.5, 1 and 2, and `state().fixed` is then `trunc(scale x 128)`; `reset()` in the middle
+    of a block puts `pos` back to 0.
+  - **The gate's silences** (through `process()`, the Steam profile, a source of two noise bursts 2 s apart): the
+    samples between the bursts are zero, and the second burst's first block starts from the gain the first
+    burst's tail left (not from the cap, not from 1): compare with `receiverAutoGain` run on the same decoded
+    signal with a `decoded` function made from `codecInfo.frameLog` by the mapping of spec 4.
+  - Each check fails when its line is broken; say how you broke it and what failed.
+- **`node tests/gain-exact.mjs --synthetic`**: the private script below, run on two files the test makes itself
+  (a seeded signal, and the transcription's output for it), prints 0 differing samples; with one sample of the
+  second file changed it prints 1 and exits non-zero.
+- `pnpm test` passes with the gain's existing checks in `tests/verify.js`; where an expected number moves, the
+  report gives the old and new value and which rule moved it.
+- **Golden hashes:** every render with the auto-gain on changes, so the golden hashes of
+  `tests/render-stream.verify.mjs` are re-recorded in a commit of their own that says why, after showing that the
+  cases with `agc: false` did not move. `createRender` stays equal to `process()` on every case.
 - `tests/predictions/PREDICTIONS.md` gets one dated paragraph in the style of its last two: `audio.js` changed
-  after registration; the predictions were rendered with the divisor 128 and the fractional mean; they are scored
-  as registered; the expected effect on a prediction's levels is under 0.03 dB (quote the measured figure from the
-  accuracy run).
+  after registration; the predictions were rendered with the divisor 128, the fractional mean and zero blocks
+  that held the gain; they are scored as registered; the rule is now verified against the game sample for sample
+  (Set H); the expected effect on a prediction's levels (the orchestrator adds the measured figure).
 - CI passes on the pushed branch.
+
+## The orchestrator runs privately
+
+- **The exact check.** `node tests/gain-exact.mjs --takes <takes folder>`. The script (the builder
+  writes it; it loads `audio.js` as `tests/verify.js` does) finds `celt_gain1.wav` and `celt_gain10.wav` under
+  the folder (16-bit mono, 22050 Hz, 292,352 samples each), runs
+  `TF2Audio.receiverAutoGain(gain1 / 32768, { maxGain: 10, avgGain: 0.5, scale: 1 })`, converts back with
+  `round(y x 32768)` and compares with `celt_gain10.wav`. It prints the number of differing samples before the
+  last 512 and in the last 512, and exits non-zero unless the first is 0. **Expected: 0 of 291,840, and 511 in the
+  last packet.** It prints nothing of the recordings but those counts.
+- **The accuracy suite as a guard**, under the heavy lock, before and after on the same main:
+  `node tests/accuracy.mjs --takes <takes folder> --json <scratch>/after.json`, all 16 takes.
+  Expected, fixed before the run: every row's level figure within **0.03 dB** rms of the baseline and its
+  correlation within 0.002; the largest band difference within **0.1 dB** and in the same band; samples at the
+  clamp within **0.2 percentage points**; the spurt count and the clock column unchanged. The Set B
+  `voice_scale 0.5` take exercises the ramp hardest (its sawtooth is the step): it stays within 0.3 dB on every
+  segment of the "Results" table in `tests/REFERENCE_2026.md`. If a row moves by more, the orchestrator has the
+  builder run the suite with each of the rules of the table in "Why" switched back in turn (a scratch patch, not
+  committed) to say which one moved it, and decides with that; the exact check above outranks these bounds.
 
 ## Stop and ask
 
-- If W3-02b did not leave one shared helper for the gain's arithmetic: say so, and make it the first commit.
-- If correction 3 (32-bit floats) changes any accuracy row by more than the bounds above.
+- If the transcription and Set H's script could differ anywhere (the box above is the script; a doubt about a
+  rounding goes to the orchestrator, who has it).
+- If equality between `createRender` and `process()` cannot be kept with the `decoded` function.

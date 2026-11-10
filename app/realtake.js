@@ -89,8 +89,7 @@ async function loadReferenceTake(file) {
   const job = ++referenceJob;
   try {
     setReferenceStatus(`Decoding ${file.name}…`);
-    if (!state.decodeCtx) state.decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const decoded = await state.decodeCtx.decodeAudioData(await file.arrayBuffer());
+    const decoded = await decodeAtFileRate(await file.arrayBuffer(), file.name, () => file.arrayBuffer());
     if (job !== referenceJob) return;
     if (decoded.duration > MAX_AUDIO_SECONDS * 1.5) throw new Error('takes are limited to 15 minutes');
     referenceDecoded = { decoded, name: file.name };

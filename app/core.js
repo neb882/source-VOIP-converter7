@@ -91,7 +91,7 @@ const state = {
   processedBuffer: null, // Float32Array of last processed samples
   processedRate: null,
   decodedSource: null,   // AudioBuffer of the decoded source file
-  decodeCtx: null,       // shared AudioContext used only for decodeAudioData
+  decodeCtx: null,       // the device's AudioContext, for a file not decoded at its own rate (filerate.js)
   audioCtx: null,
   analyser: null,
   sourceNode: null,
