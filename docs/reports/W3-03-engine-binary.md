@@ -554,6 +554,9 @@ Read from `vaudio_celt.dll` and `Voice_Init` (`0x1800599f0`):
   not higher quality than `vaudio_celt` in bit rate; it has twice the frame length and the 44.1 kHz mode's band
   layout squeezed into half the spectrum. (Inferred from the three readings above, high confidence; a take would
   show it at once as an 11 kHz band edge and 46 ms frame losses.)
+  [Note, 2026-11-10: the measured edge is about 10 kHz, not 11. The mode, run on 22050 Hz tones, returns 9 kHz at
+  +0.35 dB and 10.5 kHz at -66 dB (`docs/work-orders/W3-06-celt-settings.md`); W3-08 then matched this mode to the
+  game's own recording sample for sample. Read "about 10 kHz" for "11 kHz" here and in check 5 below.]
 - **Encoder settings:** the codec class creates the mode, a mono encoder and a mono decoder, and its only control
   calls are request 8, which is `CELT_RESET_STATE`, on each (`0x180001f75` and after; again on the codec's reset).
   It never sets complexity, prediction, bit rate or VBR. The library's defaults therefore apply, and the module's
