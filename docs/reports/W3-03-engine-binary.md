@@ -3,8 +3,9 @@
 An investigation, 2026-11-10. No app code changed. Nothing of the game's files is in this repository: the report
 describes behaviour in its own words and cites constants with the place they were read.
 
-**Status of this file:** written in stages and committed as each question was answered. The section "What was not
-read" at the end is the list of what is still open.
+**Status of this file:** written in stages and committed as each question was answered. After the first version the
+owner ran the debug variables in the game; "Checked against the owner's console log" below lays that log beside the
+code. The section "What was not read" at the end is the list of what is still open.
 
 ## For the recording session (question 4, answered first)
 
@@ -56,7 +57,9 @@ For the legacy path, when it is used:
   writes the header with 44100 Hz. So if the console line `Voice_Init: Using Steam voice optimal sample rate N`
   (printed when the map loads) says 24000, the file's samples are at 24000 Hz under a header that says 44100, and
   it must be re-read at N. Its 1 MiB is then 21.8 s. Whether Steam still fills this buffer is Steam's business (its
-  documentation calls the uncompressed output deprecated); the file may come out empty.
+  documentation calls the uncompressed output deprecated). **Measured since (the owner's run): it does not.** The
+  file's length is the sum of the byte counts Steam reported, but only its first 42,748 samples hold sound and the
+  rest is zeros. `voice_micdata.wav` is not usable with the Steam codec.
 
 **The console variables print with `Msg`, so they need no `developer` setting.**
 
@@ -83,11 +86,61 @@ voice_showchannels 1; voice_writevoices 1`, and note the frame rate the game run
 `cl_showfps 1`), because the code says the restart latency follows it (question 1). Then speak or play the speech
 file as in Set B. Each tick's `bufsize` line, with the `incoming` lines between them, is the queue's whole history.
 
+## Checked against the owner's console log
+
+The owner ran a local game with the Steam codec, `voice_loopback 1`, `voice_showincoming 1`, `voice_showchannels 1`
+and `voice_recordtofile 1`, speaking for about 40 s. The log has 1,520 `incoming` lines and 6,249 `bufsize` lines.
+Numbers only are quoted here; the log itself stays private.
+
+| What the code says | What the log shows |
+| --- | --- |
+| One `bufsize` line per channel per 15 ms tick | **Confirmed.** While a channel plays, the queue falls by 1,326 bytes a line on average: 15.04 ms of sound. (Not one line per frame: at this frame rate that would be 3.3 ms.) |
+| The queue gets one sample fewer than each packet decodes to | **Confirmed exactly.** A packet of 7056 samples raises the queue by 14,110 bytes (7055 samples), one of 2646 by 5,290, one of 1764 by 3,526. Every add in the log that neither overflows nor meets a pull is `2 x (N - 1)`. |
+| The ring holds 44100 bytes whatever the settings; overflow drops the oldest | **Confirmed** as far as a log can: the queue never exceeds 44100, and 103 adds land exactly on it. Which end is dropped the log cannot show; the write function says the old data's head, the samples about to be played. |
+| The start wait is `voice_buffer_ms` counted down by one frame's duration per tick: `ceil(0.1 / frame duration)` ticks | **The log gives 30 ticks.** Of 21 channels opened in the log, 14 start to drain after 30 ticks, 5 after 31, 1 after 32 (and one is the grace case below). 30 ticks is what the formula gives for a frame of 3.33 ms: **300 fps, the game's default `fps_max`**. The wait does not depend on what arrived meanwhile: the queue held 31 ms, 182 ms, 340 ms, 371 ms or the full 500 ms when it began to drain. So the wait is 450 ms of real time here, not 100. The owner's frame rate was not noted; if it was not about 300, this reading is wrong. |
+| A spurt opens with a burst, so at this frame rate the ring overflows during the wait | **Confirmed.** Of the 17 spurts that opened a channel, 16 begin with a packet of 7056 samples (160 ms, eight frames; the other with 5292), and 16 have filled the ring to 44100 bytes before they start to play. Between 20 and 120 ms was dropped while each of those waited, and roughly up to 90 ms more in the 0.6 s after it started. These are the skips W3-01 found after restarts, and with the one sample per packet they are all the "latency trimming" there is. |
+| The channel ends on the first tick after the mixer empties the ring; a packet that comes first is appended | **Both seen.** Channels vanish from the log once their queue is empty (no line is printed for a free channel), and the next packet then finds a fresh, empty queue and waits 30 ticks. Once, a spurt's first packet came on the very tick after the queue had run down to 84 samples: it was appended to the empty queue and drained from the next line on, with no wait. That is the one-tick grace. |
+| The engine queues whatever Steam's decoder returns for the records at an end of transmission | **Seen directly, and this settles rule 2:** the decoder returns 2756 or 2757 samples (62.5 ms at 44.1 kHz) 22 times and 1378 samples (31.25 ms) 5 times, 3 to 5 ticks after a spurt's last sound. They go into the queue like speech. |
+| The mixer pulls a frame's worth at a time, in blocks of at most 1020 | **Refined by the log:** each line shows a pull of 1024 or 2048 bytes: the mixer takes 512 samples at a time, once or twice a tick. (A few are 513 or 1025 samples, and partial ones end a queue.) Where the 512 comes from was not read. |
+
+**Three things the log shows that the first reading did not have:**
+
+1. **An empty packet opens a channel by itself.** Three times a packet decodes to **0 samples**, each 0.5 to 0.6 s
+   after the previous sound, two of them followed within 1 to 5 ticks by a silence record. The third is exactly
+   where `voice_decompressed.wav` begins, and that file begins at a key press. So these look like what Steam sends
+   when recording is started again (the engine stops and restarts Steam's recording at every `+voicerecord`):
+   inferred, the code does not show what Steam sends. By then the old channel had ended, so the empty packet
+   **assigns a new channel and starts its 30-tick wait** with nothing, or only the silence record, queued. Speech that arrives during that wait is appended behind the record and starts
+   to play when the wait that began at the key press runs out. In the log, speech that arrived 27 ticks after such
+   a key press began to play two ticks later, not 30. This is a restart well under L0 (W3-01's 5(c)), and it will
+   happen to anyone who presses the key shortly before speaking.
+2. **The packets Steam hands out are 60 ms**, three frames (2646 samples, 944 of the 1,520), with 20, 40 and 80 ms
+   as the other common sizes: the 17.8 messages a second of the Set D demo.
+3. **`voice_decompressed.wav` is whole packets, after the gain.** Its 338,413 samples are exactly the sum of 138
+   consecutive packets' decoded sizes in the log (the full N of each, so it is taken before the one sample is
+   dropped), from the fourth key press to the moment that recording stopped; the 83 packets that came after are
+   not in it. 11% of its samples are at full scale: it is the gain's output. Nothing but the key and the 1 MiB
+   limit bounds its length; the owner's 40 s were several key presses, and each press starts the file again.
+
+**The orchestrator's six readings of the log, against the code:** (1) agreed, with the correction that the queue
+grows by `2 x (N - 1)` bytes, and that the lines are ticks, not frames. (2) agreed; the old head is what is dropped.
+(3) agreed that it is a time and not a fill level; it is 30 ticks of 15 ms, 450 ms, and the code says it is 100 ms
+times the frame rate over 66.7. (4) agreed as an observation. (5) the lengths are one key press each, see 3 above;
+the microphone file is not filled by Steam. (6) agreed: under the Steam codec the file's samples are never read.
+Under `vaudio_celt` (set `sv_voicecodec vaudio_celt` and reload the map) the code does use the file, and a
+22050 Hz 16-bit mono file with a plain 44-byte header beside the executable is the right one for both CELT codecs.
+
+**Its four questions.** What sets the start delay: `voice_buffer_ms`, counted down by a frame's duration once per
+tick, so 100 ms only at 67 fps. What ends a channel: the mixer's first pull that leaves the ring empty marks it,
+and the next tick frees it, so at most 15 ms; `voice_fadeouttime` is not a time-out but the length of the fade over
+the last samples in the queue. Is the 0.5 s fixed: yes, 44100 bytes set once at start-up for every codec (so 1 s
+for the CELT codecs and 2 s for Speex). What is dropped: the old data's head.
+
 ## Summary
 
 | Question | Answer | Confidence |
 | --- | --- | --- |
-| 1. The queue | A 22050-sample ring per speaker (0.5 s at 44.1 kHz). A new channel waits `voice_buffer_ms` before playing, but the wait is counted down by one **frame's** duration once per **tick**, so it lasts about `voice_buffer_ms` x frame rate x 0.015: 100 ms at 67 fps, about 350 ms at 233 fps. A spurt's first packets bring about 150 ms of sound at once, so above about 235 fps the ring overflows at every restart and the level the takes call L0 is the ring's limit, 0.5 s less that burst: about 350 ms. A channel ends on the tick after its ring runs dry; a packet that comes before that is appended. One sample is dropped from every packet. | Code: high. That this is the measured L0: medium, until a take at a known frame rate. |
+| 1. The queue | A 22050-sample ring per speaker (0.5 s at 44.1 kHz). A new channel waits `voice_buffer_ms` before playing, but the wait is counted down by one **frame's** duration once per **tick**, so it lasts about `voice_buffer_ms` x frame rate x 0.015: 100 ms at 67 fps, about 350 ms at 233 fps. A spurt's first packets bring about 150 ms of sound at once, so above about 235 fps the ring overflows at every restart and the level the takes call L0 is the ring's limit, 0.5 s less that burst: about 350 ms. A channel ends on the tick after its ring runs dry; a packet that comes before that is appended. One sample is dropped from every packet. | Code: high. The owner's log agrees in every count (ring, one sample, a wait of 30 ticks); that the wait follows the frame rate is still a prediction until a take at another `fps_max`. |
 | 2. Gain and output | The measured law is confirmed constant by constant, including `voice_scale` entering twice. Corrections: a block of zeros drives the gain to the cap (it is not left untouched), and the gain is reset to 1.0 whenever a channel restarts. Steam's decoder, not the engine, makes the 44.1 kHz. | High |
 | 3. The sender | Once per client tick the engine asks Steam for compressed voice (up to 2048 bytes) and sends whatever comes as one message. It adds nothing to the payload and has no end-of-transmission logic of its own for Steam. | High |
 | 4. Debug variables | Above. | High |
@@ -226,7 +279,8 @@ not `voice_buffer_ms` as it stands. 0.5 s less a burst of 125 to 170 ms is 330 t
 ring's limit, which needs a start delay above about 350 ms, a game running above about 235 fps (TF2's default cap
 is 300). The second PC's level under 280 ms needs a start delay under 280 ms, below about 190 fps, with no
 overflow. The owner's frame rates in those sessions are not recorded, so this is a prediction, with a cheap test:
-the same take with `fps_max 67` and with the usual cap (checks, below).
+the same take with `fps_max 67` and with the usual cap (checks, below). The owner's console log, made after this
+was written, shows a wait of 30 ticks and a ring that is full at nearly every restart: the first PC at 300 fps.
 
 ### The mixer pulls (read; `0x1800590b0`, called through the voice sound source at `0x18005b790`)
 
@@ -346,8 +400,10 @@ the one-tick grace, the 0.5 s ceiling, the gain reset, and the fade.
    the ring runs dry for a moment and the next packet comes before the next tick, the mixer has already been given
    repeated and zeroed samples for what was missing (up to a tick's worth, 15 ms, and a frame's), and playback goes
    on later by that much. Not proved: it needs the queue to run dry inside a spurt, which a `bufsize` log shows.
-   (c) **One restart 156 ms under L0.** *Allowed by the code:* the countdown is in frame durations, so a few long
-   frames during it (a hitch, or the game losing focus) end it early. The code cannot say that this happened.
+   (c) **One restart 156 ms under L0.** *Explained, two ways.* The owner's log shows one: pressing the talk key
+   makes Steam send an empty end marker, which opens a channel and starts the wait before any speech has come, so
+   speech that follows within the wait starts early by the time already waited. The other: the countdown is in frame durations, so a few long frames
+   during it (a hitch, or the game losing focus) end it early.
    (d) **Two changes of almost exactly 100.0 ms.** *Not shown.* The only exact 100 ms in the receiver are the fade
    length (4410 samples), which changes level and not timing, and the countdown, which is 100 ms of real time only
    at 67 fps.
@@ -403,10 +459,18 @@ at the end of each block:
 | The remainder below one step lands at the block edge (finding 4) | **Confirmed:** each block starts again from `int(current x 128)`. |
 | The clamp is int16 (finding 1) | **Confirmed:** -32768 to 32767 after the shift. The shift is arithmetic, so negative products round down. |
 | "All-zero blocks, when no voice data arrives, leave the gain untouched" (finding 4) | **Corrected in part.** When no data arrives nothing runs, so the state is untouched: true. But a block of zero samples that **is** decoded (a silence record, the digital silence inside a spurt) has mean and peak 0, the division gives infinity, and the cap applies: `next = maxgain x scale`. So every spurt ends, after its 62.5 ms silence record, with the gain at its cap. |
-| (not in the model) | **New: the gain is reset when a channel is assigned** (current = next = 1.0, step 0, block position 0). The first 128 samples of a restarted spurt are at gain 1.0 exactly (128/128, whatever `voice_scale` is; the app starts at `scale`), the second block ramps from `scale` to `scale x T(block 0)`, and so on. An **appended** spurt is not reset: it starts from the gain the previous spurt's silence record left, which is the cap. So a restarted spurt and an appended one start differently, the first quiet for 2.9 ms, the second at full boost. |
+| (not in the model) | **New: the gain is reset when a channel is assigned** (current = next = 1.0, step 0, block position 0). The first 128 samples of a restarted spurt are at gain 1.0 exactly (128/128, whatever `voice_scale` is; the app starts at `scale`), the second block ramps from `scale` to `scale x T(block 0)`, and so on. An **appended** spurt is not reset: it starts from the gain the previous spurt's silence record left, which is the cap. In practice both begin inside Steam's 120 ms of pre-roll, so by the loud onset the gain has followed the pre-roll in either case; the difference is in the first 6 ms of the pre-roll. |
 | The voice rate is 44.1 kHz; the receiver adds no EQ (finding 14) | **Confirmed** for the voice path: decoder output at 44100 Hz, gain, ring, then the ordinary 16-bit mono mixer. The resampling from 24 kHz is inside Steam's `DecompressVoice`, which is not in these files. |
 | Output stage `[0.1, 0.8, 0.1]` | **Not found in the voice path.** Nothing between the decoder and the mixer filters the voice. The mixer's own output stages were not read. |
 | `volume` | Not read (it is in the mixer, not the voice code). |
+
+**A check on the zero-block rule from Set D.** If quiet blocks drive the gain to its cap, a loud onset after any
+quiet stretch must begin at the cap. In recording A the three kinds of onset were compared with the same instants
+in Steam's decoded packets, in 1.3 ms steps: a burst after a 500 ms pause inside a spurt, an appended spurt and a
+restarted one. In each the recording is about 10 times the decoded level from the first step in which the decoded
+sound rises (ratios of 8 to 12 before the clip), and reaches the clip within 3 to 5 ms because the decoded attack
+itself takes that long. So the gain is at its cap at every loud onset, as the code says, and the slow-looking
+onsets of finding 4 are the codec's attack times 10, not a gain that starts low.
 
 With `voice_maxgain 1` and `voice_scale 1` the gain is exactly 1.0 unless a block's blended level is above 32767
 (mean and peak both 32768, which needs a block of -32768 throughout), so `voice_decompressed.wav` is then the
@@ -533,8 +597,10 @@ Read from `Voice_Init` and the two rate functions:
    the receiver dropping one sample per packet, and it scales with the packet rate.
 4. **Finding 4 and the app's `receiverAutoGain`:** decoded zeros drive the gain to its cap (the app holds the gain
    through any zero block); the gain is reset to 1.0 at each restart and not at an append (the app carries it
-   across every gap); the ramp's divisor is 127, not 128; the mean is an integer. Whether a render changes audibly
-   depends on where zeros and restarts fall; the first two decide how a spurt's first few milliseconds sound.
+   across every gap); the ramp's divisor is 127, not 128; the mean is an integer. None of these is likely to be
+   audible: exact zeros come from the decoder almost only as the silence record, and a spurt opens with 120 ms of
+   pre-roll in which the gain settles whichever way it started. They matter for a sample-exact comparison with
+   `voice_decompressed.wav`.
 5. **`celt_44`:** frame 1024 and 128 bytes, at an effective 22.05 kHz, not 256 and 120 at 44.1 kHz.
 6. **`celt_22` and `celt_44`, complexity:** 5, not 10.
 7. **The fade:** not in the model at all. The last 100 ms of every queue fades out, and sound played from a queue
@@ -543,12 +609,14 @@ Read from `Voice_Init` and the two rate functions:
 
 ## Checks the owner could run
 
+0. **The frame rate of the run already made.** If the owner can say what the game ran at for the console log
+   (`fps_max`, or the counter), 300 confirms the reading at once.
 1. **L0 against the frame rate (the main one).** Set D's setup or plain loopback, the network test signal
    (`tf2_voice_nettest_v1.wav`, whose bursts alternate early and restart), `voice_showchannels 1` and
    `voice_showincoming 1` logged with `con_logfile`, once with `fps_max 67` and once with `fps_max 300` (noting the
    frame rate actually reached). Predicted: at 67 fps the `bufsize` lines start falling about 6 ticks after the
-   first `incoming` line of a restarted spurt, `bufsize` never reaches 44100, no burst starts early and no
-   restarted burst loses sound; at the higher rate the wait is about `1.5 ms x fps` and, above about 235 fps,
+   first `incoming` line of a restarted spurt (against 30 in the log already made), `bufsize` never reaches 44100,
+   no burst starts early and no restarted burst loses sound; with `fps_max 100` it is 9 or 10 lines; at the higher rate the wait is about `1.5 ms x fps` and, above about 235 fps,
    `bufsize` sits at 44100 at each restart. If L0 does not move with the frame rate, this reading is wrong.
 2. **`voice_buffer_ms 200` at a fixed frame rate** (W3-01's take 2): predicted to double the wait, up to the ring's
    0.5 s, beyond which the start of every restarted spurt is cut off.
