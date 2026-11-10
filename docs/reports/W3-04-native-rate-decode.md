@@ -155,3 +155,40 @@ nothing falls back to the device context. The next commit rewrote that check.
 Before the final push I scanned `git diff origin/main...HEAD` and the commit messages for recordings, personal
 details, real SteamIDs and model names. Nothing was found apart from the commit trailers; the fixtures carry only
 ffmpeg's encoder tags.
+
+## Review and fix round
+
+The reviewer found no defect in the reader or the decode path; it proved three test gaps, each fixed here.
+
+- **F1, the offline-cache check could not fail** (`7096ba6`). The old check ran after the page had
+  reloaded under the service worker, which caches every script a controlled page fetches, so `./filerate.js` (or
+  any entry) could be missing from `ASSETS` unnoticed; on a real first visit the page would then fail offline with
+  "TF2FileRate is not defined". New section Browser 4b, in a fresh context:
+  - it lists the files the page needs without reading `sw.js`: the page (`./`, `index.html`), what its markup links
+    (scripts, style, icon, manifest), the manifest's icons and, by hand (`RUNTIME_FILES`), what the code loads at
+    run time (workers, audio worklets, codec modules and their WebAssembly modules); it checks those files exist
+    and that `ASSETS` lists nothing outside them, so the two stay in step
+  - it registers the worker on the first visit and, once the worker is ready and before any reload, checks every
+    needed file is in the cache
+  - then offline: reload, load a 22.05 kHz WAV (status shows 22,050 Hz), render with libopus 1.1.5, no page errors.
+
+  Each of the 43 entries of `ASSETS` was removed in turn (one at a time, the section run alone): all 43 fail with
+  "after the first visit, before any reload, every file the page needs offline is cached", `./filerate.js` and
+  `./vendor/lame/index.mjs` among them. No asset was missing, so `sw.js` is unchanged (still `v19`). The old check
+  is kept.
+- **F2, nothing tested the load id after the decode** (`861d69e`). In Browser 7 a 500 s WAV made in the page is
+  loaded, and a 0.2 s one once its decode has begun (a wrapper on `BaseAudioContext.prototype.decodeAudioData`
+  signals the start), on the file-rate path and on the fallback (a context that refuses every rate). The short one
+  must be the source. With `if (id !== sourceLoadId) return false;` removed from `app/source.js` both fail:
+  "a file chosen while a longer one is still decoding stays the source (file-rate path) (race-long.wav, 44100 Hz)"
+  and, run alone, "(device-rate fallback) (race-long.wav, 48000 Hz)". Neither file is committed. The earlier
+  "decode fails" check now restores the context by deleting its stand-in rather than assigning the original.
+- **F3, two MP4/MOV sample-entry paths had no test** (`9c11c87`). Two 0.1 s ffmpeg fixtures: `tone_96000_lpcm.mov`
+  (version 2 sound description: its 16.16 field holds 1, the rate is the float64) and `tone_88200.m4a` (ALAC: the
+  16.16 field is 0, the rate comes from the timescale). Node reads both; the browser decodes the MOV at 96 kHz,
+  9,600 samples (Chromium does not decode ALAC). Reading the 16.16 field for version 2 fails "filerate/
+  tone_96000_lpcm.mov: MOV lpcm at 96000 Hz null"; `field || 44100` fails "filerate/tone_88200.m4a: MP4 alac at
+  88200 Hz {"rate":44100,...}".
+
+Checks: `pnpm test` passes (53 file-rate checks); the browser suite passes, 215 checks. The merge commit `cc22f32`
+of the first round lacks the commit trailers; it is pushed and is not rewritten. Later merges carry them.
