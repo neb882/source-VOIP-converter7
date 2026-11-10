@@ -513,6 +513,19 @@ export async function main() {
     check('under water, no room (the water slot started 44,100 samples before)', pathCase('under water, no room', null, true));
     check('under water, preset 6', pathCase('under water, preset 6', 6, true));
     check('under water, tunnel', pathCase('under water, tunnel', tunnel, true));
+    // The path's order (item 11), pointed: direct + room slot(room), then the water slot, whose instance of 14 has
+    // run 44,100 samples of silence first. Built by hand from two instances on the two streams.
+    {
+      const voice = [...NOISE, ...new Array(22050).fill(0)];
+      const sh = R.shares(TABLE[17]);
+      const d = Int32Array.from(voice, (s) => R.entry(s, sh.direct)), r = Int32Array.from(voice, (s) => R.entry(s, sh.room));
+      const got = R.createRoomPath({ room: 17, water: true, roomDraw: drawOf(2), waterDraw: drawOf(5) }).process(d, r);
+      const room = R.createInstance(17, drawOf(2)), water = R.createInstance(14, drawOf(5));
+      for (let i = 0; i < 44100; i++) water.next(0);
+      const want = Array.from(d, (x, i) => water.next((x + room.next(r[i])) | 0));
+      check('a path under water is water(direct + room(room)), its water instance 44,100 samples of silence ahead',
+        same(Array.from(got), want), `first difference at ${firstDiff(Array.from(got), want)}`);
+    }
     check(`every line of reference.out was checked (${REF.rows.size})`, done.size === REF.rows.size && [...REF.rows.keys()].every((k) => done.has(k)));
   }
 
@@ -557,6 +570,19 @@ export async function main() {
     const cap = L.synthetic['never settles (the cap)'];
     check('synthetic: never settles: the cap, 882,000', tailOf({ h: cap.h, p: cap.p }, false, S) === 882000 &&
       TAILS.get('synthetic: the cap').square === 882000);
+    // A hand case for the rule's band: a reverb comb of feedback 1 (4091), 441 samples, gain cut to 1024, holding
+    // -400 keeps it for ever ((-400 x 4091) >> 12 = -400), so the output rests at (-400 x 1024) >> 12 = -100 from
+    // the first sample. Its values lie within 32 of each other, far from 0: the output ends 22,050 samples after the
+    // voice (Decision 8: a band, not a level).
+    {
+      const path = R.createRoomPath({ room: one([2, [10, 10, 1, 1, 1, 0, 0]]) });
+      const n = 441 + 30000, r = new Int32Array(n);
+      r.fill(-400, 0, 441);
+      const out = path.process(new Int32Array(n), r);
+      const t = path.tailLeft();
+      check('a tail resting at -100 ends 22,050 samples after the voice (the rule is a band, not a level)',
+        out.every((v) => v === -100) && t.ended && t.length === 22050 && t.at === 441 + 22049);
+    }
     console.log(`        (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
   }
 
@@ -765,6 +791,18 @@ export async function main() {
       same(c, { room: 26, direct: 229 }) && same(d, { room: 72, direct: 183 }) && same(path.state().mix.map((v) => +v.toFixed(3)), [0.4, 0.9, 80, 0.7]));
     check('during a fade to none the shares stay; once it has ended they are 0/256 again',
       same(e, { room: 72, direct: 183 }) && same(f, { room: 0, direct: 256 }) && same(g, f));
+    // The two slots' fade times (R1 1's slot table): the room's 0.2 s, the water's 0.1 s.
+    {
+      const pf = R.createRoomPath({ seed: 1 });
+      pf.setRoom(6); pf.setWater(true);
+      const zz = new Int32Array(4411);
+      pf.process(zz, zz.slice());
+      const at4411 = pf.state();
+      pf.process(new Int32Array(4410), new Int32Array(4410));
+      const at8821 = pf.state();
+      check('a path\'s water slot fades over 0.1 s (4,411 samples), its room slot over 0.2 s (8,821)',
+        !at4411.water.fading && at4411.room.fading && !at8821.room.fading && at8821.water.preset === 14 && at8821.room.preset === 6);
+    }
     const made = R.createRoomPath({ room: 126 });
     check('a path made with a room has its shares at once (126: 5/250)', same(made.shares(), { room: 5, direct: 250 }));
     // The four mix values change when the slot takes a preset (R2 d, "setting a preset on a slot"), not when it is
