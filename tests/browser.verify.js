@@ -673,8 +673,8 @@ async function verifyDemo(page) {
   check(after.source === 'after-demo.wav' && after.process, 'a demo that cannot be read leaves the loaded source ready to process', after.source);
 }
 
-// A render with the speex profile names Speex wherever the page describes
-// the codec, and the chain strip shows the bitrate Speex runs at for every
+// A render with the speex profile names Speex 1.0.2 wherever the page
+// describes the codec, and the chain strip shows its one setting for every
 // snd_bits the page allows. Ends back on the Modern preset with a Steam render.
 async function verifySpeexPage(page) {
   console.log('\n[Browser 3c2] The speex profile on the page');
@@ -698,10 +698,12 @@ async function verifySpeexPage(page) {
   }, consoleBefore);
   const sVoice = seen.console.split('\n').filter(l => l.includes('S_Voice')).join(' | ') || seen.console.slice(0, 300);
   check(seen.legend.length === 1 && seen.legend[0] === `Speex ${seen.frames}`, 'a speex render\'s codec lane counts every frame as Speex', seen.legend.join(', '));
-  check(/S_Voice: Speex 1\.2\.1, 8 kbps CBR, 20-byte packets of 20 ms, native PLC \(Speex 100%\)/.test(seen.console),
-    'the console line names Speex 1.2.1 and its mode', sVoice);
-  check(/Ready · Speex 1\.2\.1 · 8 kbps/.test(seen.status), 'the status line names Speex 1.2.1', seen.status);
-  check(seen.chain.includes('Speex 8 kHz narrowband · CBR 8 kbps · 20 ms frames'), 'the chain strip describes Speex', seen.chain);
+  check(/S_Voice: Speex 1\.0\.2, 11\.025 kbps CBR, 20-byte packets of 14\.5 ms, a lost frame plays as zeros \(Speex 100%\)/.test(seen.console),
+    'the console line names Speex 1.0.2, its frames, and zeros for a lost frame', sVoice);
+  check(/Ready · Speex 1\.0\.2 · 11\.025 kbps/.test(seen.status), 'the status line names Speex 1.0.2', seen.status);
+  const words = 'Speex 1.0.2 on 11.025 kHz sound · 20-byte frames of 14.51 ms · 11.025 kbit/s';
+  check(seen.chain === `Codec${words}` && seen.option === `vaudio_speex (${words})`, 'the chain strip and the codec menu describe the game\'s Speex module',
+    `${seen.chain} / ${seen.option}`);
   const texts = [...seen.legend, ...seen.legendTitles, sVoice, seen.status, seen.chain, seen.option];
   check(texts.every(t => !/CELT|Opus|SILK/.test(t)), 'nothing on the page calls a speex render CELT, Opus or SILK', texts.filter(t => /CELT|Opus|SILK/.test(t)).join(' / '));
   const hex = await page.evaluate(() => {
@@ -713,16 +715,17 @@ async function verifySpeexPage(page) {
     return [...out];
   });
   check(hex.includes(seen.color), 'the codec lane draws Speex frames in their own colour', seen.color);
-  // The bitrate of the quality Speex picks: the library's narrowband modes.
-  const expected = { 4: 2.15, 5: 2.15, 6: 2.15, 7: 3.95, 8: 3.95, 9: 3.95, 10: 5.95, 11: 5.95, 12: 5.95, 13: 5.95, 14: 8, 15: 8, 16: 8 };
+  // snd_bits picks nothing for vaudio_speex: the strip keeps the module's one
+  // setting and says so once snd_bits leaves 16.
   const strip = [];
-  for (const bits of Object.keys(expected)) {
-    await page.locator('#bits').fill(bits);
+  for (let bits = 4; bits <= 16; bits++) {
+    await page.locator('#bits').fill(String(bits));
     await page.locator('#bits').dispatchEvent('change');
-    strip.push([bits, (await page.locator('#signal-chain').textContent()).match(/CBR ([\d.]+) kbps/)?.[1]]);
+    strip.push([bits, await page.evaluate(() => [...document.querySelectorAll('#signal-chain li')].find(li => li.querySelector('b').textContent === 'Codec').textContent)]);
   }
-  check(strip.every(([bits, kbps]) => Number(kbps) === expected[bits]), 'at every snd_bits from 4 to 16 the chain strip shows the bitrate Speex runs at',
-    strip.map(([b, k]) => `${b}:${k}`).join(' '));
+  check(strip.every(([bits, text]) => text === `Codec${words}${bits === 16 ? '' : ' · snd_bits not used'}`),
+    'at every snd_bits from 4 to 16 the chain strip shows the module\'s one setting, and that snd_bits is not used',
+    strip.filter(([bits, text]) => text !== `Codec${words}${bits === 16 ? '' : ' · snd_bits not used'}`).map(([b, t]) => `${b}: ${t}`).join(' / ') || 'all as expected');
   await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
   await render();
 }
@@ -887,8 +890,8 @@ async function verifyLiveMonitor(page) {
   const speexTake = await page.evaluate((n) => ({ console: document.getElementById('console-out').textContent.slice(n).split('\n').filter(l => l.includes('S_Voice')).join(' | '),
     status: document.getElementById('source-status').textContent,
     legend: [...document.querySelectorAll('#viz-legend .lg-item')].filter(e => e.querySelector('.lg-box')).map(e => e.textContent) }), consoleFrom);
-  check(mode === 'Speex' && /S_Voice: Speex 1\.2\.1, 8 kbps CBR, 20 ms, native PLC \(Speex 100%\)/.test(speexTake.console)
-    && /Speex 1\.2\.1 · 8 kbps/.test(speexTake.status) && speexTake.legend.some(t => /^Speex \d+$/.test(t))
+  check(mode === 'Speex' && /S_Voice: Speex 1\.0\.2, 11\.025 kbps CBR, 14\.5 ms, a lost frame plays as zeros \(Speex 100%\)/.test(speexTake.console)
+    && /Speex 1\.0\.2 · 11\.025 kbps/.test(speexTake.status) && speexTake.legend.some(t => /^Speex \d+$/.test(t))
     && !speexTake.legend.some(t => /^(SILK|Hybrid|CELT|DTX) /.test(t))
     && ![speexTake.console, speexTake.status, ...speexTake.legend].some(t => /CELT|Opus|SILK/.test(t)),
     'the live panel and a recorded speex take name Speex, not CELT or Opus', `mode ${mode}; ${speexTake.console}; ${speexTake.legend.join(', ')}`);
@@ -1064,7 +1067,7 @@ const RUNTIME_FILES = ['audio-worker.js', 'mic-capture.js', 'live-worker.js', 'l
   'vendor/libopus/index.mjs', 'vendor/libopus/generated/libopus.generated.mjs',
   'vendor/libopus-1.1/index.mjs', 'vendor/libopus-1.1/libopus-1.1.5.wasm.mjs',
   'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs',
-  'vendor/speex/index.mjs', 'vendor/speex/speex-1.2.1.wasm.mjs',
+  'vendor/speex-1.0.2/index.mjs', 'vendor/speex-1.0.2/speex-1.0.2.wasm.mjs',
   'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs'];
 
 // A first visit: the service worker installs and takes control while the
@@ -1368,7 +1371,7 @@ async function main() {
       const cache = await caches.open(name);
       const needed = ['batch.js', 'formats.js', 'flac.js', 'zip.js', 'meter.js', 'reference.js', 'video.js', 'filerate.js', 'demo.js', 'live.js', 'live-worker.js', 'live-worklet.js',
         'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs', 'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs',
-        'vendor/speex/index.mjs', 'vendor/speex/speex-1.2.1.wasm.mjs'];
+        'vendor/speex-1.0.2/index.mjs', 'vendor/speex-1.0.2/speex-1.0.2.wasm.mjs'];
       return (await Promise.all(needed.map(path => cache.match(new URL(path, location.href).href)))).every(Boolean);
     }, SHELL_CACHE), 'batch, format, meter, reference, video, file-rate, demo, live-monitor, CELT, Speex and MP3 encoder files are cached for offline use');
     // Restore the normal registration while still online. Otherwise reloading
@@ -1387,9 +1390,9 @@ async function main() {
     // The speex profile's codec comes from the cache too.
     await page.locator('#codec').selectOption('speex');
     await page.locator('#process').click();
-    await page.waitForFunction(() => document.getElementById('console-out').textContent.includes('S_Voice: Speex 1.2.1'));
-    check((await page.locator('#console-out').textContent()).includes('S_Voice: Speex 1.2.1, 8 kbps CBR, 20-byte packets of 20 ms'),
-      'the speex profile converts audio offline with Speex 1.2.1 in 20-byte packets');
+    await page.waitForFunction(() => document.getElementById('console-out').textContent.includes('S_Voice: Speex 1.0.2'));
+    check((await page.locator('#console-out').textContent()).includes('S_Voice: Speex 1.0.2, 11.025 kbps CBR, 20-byte packets of 14.5 ms'),
+      'the speex profile converts audio offline with Speex 1.0.2 in 20-byte packets');
     await context.setOffline(false);
     check(pageErrors.length === 0, 'complete conversion and recording flow has no page errors', pageErrors.join('; '));
 

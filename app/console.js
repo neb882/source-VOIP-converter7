@@ -304,7 +304,7 @@ const cvars = {
   'volume':          { help: 'Output volume of the rendered file (0.0 - 1.0)', link: 'volume' },
   'dsp_hpf':         { help: 'Optional sender high-pass cutoff (0 = off)', link: 'hp' },
   'dsp_lpf':         { help: 'Optional sender low-pass cutoff (20000 = off)', link: 'lp' },
-  'snd_bits':        { help: 'Codec bitrate scale (16 = profile bitrate)', link: 'bits' },
+  'snd_bits':        { help: 'Codec bitrate scale (16 = profile bitrate; vaudio_speex has one bitrate and ignores it)', link: 'bits' },
   'net_fakeloss':    { help: 'Voice frames lost %, in bursts of ~2.2 frames concealed by the codec (TF2 net_fakeloss 5/10/15 on a listen server lost ~22/45/64%)', link: 'loss' },
   'net_fakejitter':  { help: 'Network jitter in ms: late voice frames, 3.2% at 50 ms, one in ten played as silence', link: 'jitter' },
   'net_split':       { help: 'Packet grouping in ms (whole 20 ms frames)', link: 'frameMs' },
@@ -454,16 +454,6 @@ function setActivePreset(name) {
   });
 }
 
-// The bitrate Speex runs at for snd_bits: the quality whose bitrate is
-// nearest the scaled one, the highest of those sharing a mode, as
-// vendor/speex/index.mjs picks it.
-function speexBitrate(codec, bits) {
-  const target = codec.bitrate * Math.min(32, Math.max(2, bits)) / 16, rates = codec.qualityBitrates;
-  let best = 0;
-  rates.forEach((rate, quality) => { if (Math.abs(rate - target) <= Math.abs(rates[best] - target)) best = quality; });
-  return rates[best];
-}
-
 // Live, human-readable summary of the voice path the next render will use.
 function updateSignalChain() {
   if (!els.chain) return;
@@ -487,7 +477,8 @@ function updateSignalChain() {
     ['Capture', `${channelLabel}mic ×${gain.toFixed(1)}${filters.length ? ' · ' + filters.join(' · ') : ''} · ${gateOn ? `gate > ${gateDb} dBFS` : 'no gate'}`, gain > 1 ? 'hot' : ''],
     ['Codec', !codecOn ? 'bypassed' : codec.engine === 'celt011'
       ? `CELT 0.11 ${codec.modeRate ? `${codec.modeRate / 1000} kHz mode on ${codec.codecRate / 1000} kHz sound` : `${codec.codecRate / 1000} kHz`} · ${Math.max(8, Math.round(codec.packetBytes * bits / 16))}-byte packets of ${(1000 * codec.frameSize / codec.codecRate).toFixed(1)} ms`
-      : codec.engine === 'speex' ? `Speex ${codec.codecRate / 1000} kHz narrowband · CBR ${speexBitrate(codec, bits) / 1000} kbps · 20 ms frames`
+      // The game's module has one setting for vaudio_speex: snd_bits picks nothing.
+      : codec.engine === 'speex' ? `Speex 1.0.2 on ${codec.codecRate / 1000} kHz sound · ${codec.packetBytes}-byte frames of ${(1000 * codec.frameSize / codec.codecRate).toFixed(2)} ms · ${codec.bitrate / 1000} kbit/s${bits !== 16 ? ' · snd_bits not used' : ''}`
       : `Opus ${codec.codecRate / 1000} kHz · ${codec.encoder?.vbr ? 'VBR ' : ''}${kbps} kbps${codec.encoder?.dtx ? ' · DTX' : ''} · ${mode}`, codecOn ? '' : 'off'],
     ['Network', `${packetMs} ms packets · ${loss}% lost${jitter > 0 ? ` · ${jitter} ms jitter` : ''}`, loss > 0 || jitter > 0 ? 'hot' : ''],
     ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · int16 clip` : 'unity gain · int16 clip'}${els.retime && els.retime.value === '1' ? ' · spurts re-timed' : ''}`, ''],

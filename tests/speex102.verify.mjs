@@ -1,12 +1,14 @@
 // Speex 1.0.2 as the game's vaudio_speex module runs it (vendor/speex-1.0.2,
 // tests/speex102/build.mjs), checked against a native build of the same source
 // and against the reading of the module (docs/reports/W3-09-steam-voice.md,
-// section 5), point by point.
+// section 5), point by point; then the speex profile that runs it (W3-12b).
 //   node tests/speex102.verify.mjs
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import * as opus from '../opus-codec.mjs';
 import { createCodec, createFramer, toInt16, frameSize, packetBytes, version } from '../vendor/speex-1.0.2/index.mjs';
-import { createCodec as createCodec121 } from '../vendor/speex/index.mjs';
 import { testSignals, testRuns, wasmStream, digest, RESET_AT } from './speex102/native.mjs';
 
 let passed = 0;
@@ -140,39 +142,18 @@ console.log('\n[Speex 1.0.2] Section 5, point by point');
 
 console.log('\n[Speex 1.0.2] It is 1.0.2 and not a neighbour');
 {
-  // The 1.2.1 module (vendor/speex) on the same samples: it takes and gives
-  // floats at full scale 1, at its quality 4 (the same sub-mode).
-  const signal = signals.speech;
-  const own = await code(signal), other = await createCodec121(4), decoder121 = await createCodec121(4);
-  const decoded121 = new Float64Array(own.floats.length);
-  let differ = 0;
-  frames(signal).forEach((frame, f) => {
-    const packet121 = other.encode(Float32Array.from(frame, v => v / 32768));
-    if (!sameBytes(packet121, own.packets[f])) differ++;
-    decoded121.set(decoder121.decode(own.packets[f]).map(v => v * 32768), f * frameSize);
-  });
-  other.free(); decoder121.free();
-  check('on the speech-like signal the packets differ from those of the Speex 1.2.1 module',
-    differ > own.packets.length / 2, `${differ} of ${own.packets.length} packets differ`);
-  // 1.2.1's decoder reads 1.0.2's packets (the bit-stream is the same). It
-  // differs from 1.0.2's decoder in two known ways, so they are allowed for:
-  // its output is 40 samples later (its decoder's look-ahead, half of the 80
-  // the vendor/speex module reports), and it high-passes what it decodes
-  // (libspeex/filters.c in 1.2.1: highpass(), filter 2, the narrowband output
-  // one), which turns the phase of this signal's 140 Hz fundamental. The same
-  // filter is run on 1.0.2's decode before the comparison.
-  const num = [0.96723, -1.93445, 0.96723], den = [1, -1.93338, 0.93553];
-  const filtered = new Float64Array(own.floats.length);
-  let m0 = 0, m1 = 0;
-  own.floats.forEach((x, i) => {
-    const y = num[0] * x + m0;
-    m0 = m1 + num[1] * x - den[1] * y;
-    m1 = num[2] * x - den[2] * y;
-    filtered[i] = y;
-  });
-  const { lag, r } = peakLag(filtered, decoded121, -80, 80, 400);
-  check('Speex 1.2.1\'s decoder reads the 1.0.2 packets: its sound correlates above 0.9 with 1.0.2\'s own decode',
-    lag === 40 && r > 0.9, `r ${r.toFixed(3)} at a lag of ${lag} samples; unfiltered at lag 0, r ${correlate(own.floats, decoded121, 0, 400).toFixed(3)}`);
+  // The Speex 1.2.1 module the profile ran before W3-12b (vendor/speex, since
+  // removed), at its quality 4 (the same sub-mode), on the speech-like signal
+  // taken in as floats at full scale 1: the SHA-256 of its packets back to
+  // back, recorded from that module before it was removed. A 1.2.1 build
+  // behind this module's interface would give these packets.
+  const SPEEX_121_SPEECH_PACKETS = '4de57d83ef2dc9e6c30e84233ec44b3b68a2588509efbb21c2efa43618525f80';
+  const own = await code(signals.speech);
+  const hash = crypto.createHash('sha256');
+  for (const packet of own.packets) hash.update(packet);
+  const got = hash.digest('hex');
+  check('on the speech-like signal the packets are not those of the Speex 1.2.1 module (its recorded hash)',
+    got !== SPEEX_121_SPEECH_PACKETS, got.slice(0, 16));
 }
 
 console.log('\n[Speex 1.0.2] Decoded samples wrap past full scale');
@@ -313,4 +294,426 @@ console.log('\n[Speex 1.0.2] Codecs side by side');
     `${others.length} codecs made during the run${wrong >= 0 ? `; wrong at frame ${wrong}${failure}` : ''}${interleaved ? '' : '; interleaved differs'}`);
 }
 
-console.log(`\n${passed} Speex 1.0.2 checks passed`);
+
+// ---------------------------------------------------------------------------
+// The speex profile (W3-12b): the module above on the engine's 11025 Hz sound,
+// with no resampling to 8000 Hz, through audio.js.
+// ---------------------------------------------------------------------------
+const engineCode = fs.readFileSync(new URL('../constants.js', import.meta.url), 'utf8') + '\n' +
+  fs.readFileSync(new URL('../audio.js', import.meta.url), 'utf8');
+// audio.js on an opus-codec.mjs whose Speex calls are watched: the samples and
+// packets of each speexRoundTrip a render makes (the 11025 Hz voice signal,
+// before the receiver), and each frame-by-frame stream's restarts, decodes and
+// lost frames.
+function watchedEngine() {
+  const log = { trips: [], restarts: 0, decodes: 0, conceals: 0, sent: [] };
+  const watch = (make) => async (...args) => {
+    const stream = await make(...args);
+    return { ...stream,
+      async restart() { log.restarts++; log.sent.push('restart'); return stream.restart(); },
+      encode(frame) { const encoded = stream.encode(frame); log.sent.push(Array.from(encoded.packet).join()); return encoded; },
+      decode(packet) { log.decodes++; return stream.decode(packet); },
+      conceal() { log.conceals++; return stream.conceal(); },
+      free() { stream.free(); } };
+  };
+  const watched = { ...opus, createVoiceStream: watch(opus.createVoiceStream), createCeltStream: watch(opus.createCeltStream),
+    createSpeexStream: watch(opus.createSpeexStream),
+    async speexRoundTrip(samples, rate, options) {
+      const packets = [];
+      const result = await opus.speexRoundTrip(samples, rate, { ...options, onPacket: (f, packet) => packets.push({ f, packet }) });
+      log.trips.push({ input: Float32Array.from(samples), rate, output: result.samples, info: result.info, packets });
+      return result;
+    } };
+  const box = { window: {}, Blob, console, TF2Opus: watched };
+  vm.createContext(box);
+  vm.runInContext(engineCode, box);
+  return { A: box.window.TF2Audio, log, profiles: vm.runInContext('CODEC_PROFILES', box) };
+}
+const { A, profiles: PROFILES } = watchedEngine();
+const { FRAME } = opus;
+const NB = 11025;   // the engine's rate for vaudio_speex: the codec's and the voice's
+const buffer = (data, sampleRate) => ({ sampleRate, length: data.length, numberOfChannels: 1, getChannelData: () => data });
+const rms = (x, a = 0, b = x.length) => { let t = 0; for (let i = a; i < b; i++) t += x[i] * x[i]; return Math.sqrt(t / Math.max(1, b - a)); };
+const db = (v) => 20 * Math.log10(Math.max(v, 1e-12));
+const same = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
+function lcgFloat(seed) {
+  return () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32 * 2 - 1; };
+}
+// Voiced sound with harmonics from the second up to 4.5 kHz, in syllables.
+function voiced(seconds, rate, level = 0.2) {
+  const x = new Float32Array(Math.round(seconds * rate));
+  let phase = 0;
+  for (let i = 0; i < x.length; i++) {
+    const t = i / rate, f0 = 170 + 50 * Math.sin(2 * Math.PI * 0.9 * t);
+    phase += f0 / rate;
+    let v = 0;
+    for (let h = 2; h * f0 <= 4500; h++) v += Math.sin(2 * Math.PI * h * phase + 0.3 * h * h) / h;
+    x[i] = level * v * Math.abs(Math.sin(Math.PI * 2.7 * t)) ** 0.5;
+  }
+  return x;
+}
+// Mean power per bin in [lo, hi) Hz, in dB (Welch, 1024-point Hann): a
+// spectral level, so bands of different widths compare.
+function bandLevel(x, rate, lo, hi) {
+  const n = 1024, re = new Float64Array(n), im = new Float64Array(n);
+  let power = 0, bins = 0;
+  for (let start = 0; start + n <= x.length; start += n / 2) {
+    for (let i = 0; i < n; i++) { re[i] = x[start + i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / n)); im[i] = 0; }
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      for (let i = 0; i < n; i += len) for (let k = 0; k < len / 2; k++) {
+        const c = Math.cos(-2 * Math.PI * k / len), sn = Math.sin(-2 * Math.PI * k / len), q = i + k + len / 2;
+        const xr = re[q] * c - im[q] * sn, xi = re[q] * sn + im[q] * c;
+        re[q] = re[i + k] - xr; im[q] = im[i + k] - xi; re[i + k] += xr; im[i + k] += xi;
+      }
+    }
+    for (let k = 1; k < n / 2; k++) {
+      const f = k * rate / n;
+      if (f >= lo && f < hi) { power += re[k] ** 2 + im[k] ** 2; bins++; }
+    }
+  }
+  return 10 * Math.log10(Math.max(power / Math.max(1, bins), 1e-30));
+}
+// The lag of the highest normalised correlation of b against a within +-span,
+// with its parabolic fraction.
+function bestLag(a, b, span, margin) {
+  const r = {};
+  let lag = -span;
+  for (let l = -span; l <= span; l++) { r[l] = correlate(a, b, l, margin); if (r[l] > r[lag]) lag = l; }
+  const fraction = lag > -span && lag < span ? 0.5 * (r[lag - 1] - r[lag + 1]) / (r[lag - 1] - 2 * r[lag] + r[lag + 1]) : 0;
+  return { lag, at: lag + fraction, r: r[lag] };
+}
+
+console.log('\n[speex profile] The profile and what a render says it ran');
+{
+  const p = PROFILES.speex;
+  check('the profile: Speex at 11025 Hz (the voice rate too), 160-sample frames in 20 bytes, 11025 bit/s, no sender gate',
+    p.engine === 'speex' && p.codecRate === 11025 && p.voiceRate === 11025 && p.frameSize === 160 && p.packetBytes === 20
+    && p.bitrate === 11025 && p.mixer === 'linear' && !p.senderGate && !('qualityBitrates' in p)
+    && p.displayName === 'vaudio_speex (Speex 1.0.2 on 11 kHz sound, 11 kbps)',
+    `${p.codecRate} Hz, ${p.frameSize} samples, ${p.packetBytes} bytes, ${p.bitrate} bit/s; ${p.displayName}`);
+  const src = voiced(1, 48000);
+  const r = await A.process(buffer(src, 48000), { codec: 'speex' });
+  const info = r.codecInfo;
+  check('a render\'s codecInfo: Speex 1.0.2 at 11025 Hz, 14.51 ms frames of 160 samples, 20 bytes, 11025 bit/s',
+    r.realOpus && info.backend === 'speex' && info.version === 'Speex 1.0.2' && info.runtime === 'speex-1.0.2'
+    && info.sampleRate === 11025 && info.frameSamples === 160 && info.frameMs.toFixed(2) === '14.51' && info.packetBytes === 20
+    && info.bitrate === 11025 && info.lookahead === 80 && info.voiceRate === 11025,
+    `${info.version}, ${info.sampleRate} Hz, ${info.frameMs.toFixed(2)} ms, ${info.packetBytes} bytes, ${info.bitrate} bit/s`);
+  check('quality 4, complexity 2 and enhancement on, read back from the codec; constant bit rate, no DTX; a lost frame plays as zeros',
+    info.quality === 4 && info.complexity === 2 && info.enhancement === true && !info.vbr && !info.dtx && info.dtxFrames === 0
+    && info.plc === 'zeros', `quality ${info.quality}, complexity ${info.complexity}, enhancement ${info.enhancement}, plc ${info.plc}`);
+  check('every frame is one 20-byte packet, logged and counted as Speex (code 7)', info.frames === Math.ceil((Math.round(src.length * NB / 48000) + 80) / 160)
+    && info.frameBytes.every(b => b === 20) && info.encodedBytes === 20 * info.frames && info.frameLog.every(c => c === FRAME.speex)
+    && FRAME.speex === 7 && JSON.stringify(info.modes) === JSON.stringify({ silk: 0, hybrid: 0, celt: 0, speex: info.frames }),
+    `${info.frames} frames, ${info.encodedBytes} bytes`);
+  check('no sender gate by default: the engine codec transmits continuously', info.gate === null && info.gatedFrames === 0);
+  // snd_bits picks nothing: the module has one table row for the engine's argument.
+  const short = src.subarray(0, 24000), base = await A.process(buffer(short, 48000), { codec: 'speex' }), differ = [];
+  for (const bits of [2, 4, 10, 15, 24, 32]) {
+    const other = await A.process(buffer(short, 48000), { codec: 'speex', bits });
+    if (!same(other.samples, base.samples) || other.codecInfo.bitrate !== 11025 || !other.codecInfo.frameBytes.every(b => b === 20)) differ.push(bits);
+  }
+  check('snd_bits changes nothing: every value gives the same samples, 20-byte packets and 11025 bit/s', differ.length === 0,
+    differ.length ? `differs at snd_bits ${differ.join(' ')}` : 'snd_bits 2, 4, 10, 15, 24, 32 as 16');
+  await assert.rejects(() => opus.speexRoundTrip(new Float32Array(160), 8000), /runs on 11025 Hz sound/);
+  await assert.rejects(() => opus.createSpeexStream(8000), /runs on 11025 Hz sound/);
+  check('the codec refuses sound at any rate but 11025 Hz', true);
+}
+
+console.log('\n[speex profile] Where the 16 bits are made');
+{
+  // speexInput: x * 32768 to nearest, ties to even, clamped.
+  const got = opus.speexInput(Float32Array.of(0.5, 1.5, 2.5, -0.5, -1.5, -2.5, 3.25, 32767.5, 40000, -32768.5, -40000).map(v => v / 32768));
+  check('the float sound is rounded to 16 bits with ties to even and clamped (0.5 to 0, 1.5 to 2, 2.5 to 2, past full scale to 32767 and -32768)',
+    sameBytes(got, Int16Array.of(0, 2, 2, 0, -2, -2, 3, 32767, 32767, -32768, -32768)), Array.from(got).join(' '));
+  // The stream's encode is the module's encode of that rounding, and its
+  // decode the module's 16-bit output / 32768. A frame of half steps would
+  // code otherwise if anything rounded another way, or earlier.
+  const stream = await opus.createSpeexStream(NB), codec = await createCodec();
+  const frames160 = Array.from({ length: 40 }, (_, f) => Float32Array.from({ length: 160 }, (_, i) => (Math.round(9000 * Math.sin((f * 160 + i) * 0.07)) + 0.5) / 32768));
+  let packetsDiffer = 0, outputDiffer = 0, notSteps = 0;
+  for (const frame of frames160) {
+    const e = stream.encode(frame), want = codec.encode(opus.speexInput(frame));
+    if (!sameBytes(e.packet, want)) packetsDiffer++;
+    const out = stream.decode(e.packet), q = codec.decode(want);
+    for (let i = 0; i < 160; i++) { if (out[i] * 32768 !== q[i]) outputDiffer++; if (!Number.isInteger(out[i] * 32768)) notSteps++; }
+  }
+  stream.free(); codec.free();
+  check('the stream encodes that rounding with the module, and decodes to the module\'s 16-bit samples / 32768',
+    packetsDiffer === 0 && outputDiffer === 0 && notSteps === 0, `${packetsDiffer} packets and ${outputDiffer} samples differ; ${notSteps} not whole steps`);
+}
+
+console.log('\n[speex profile] Sound: the band to 5.5 kHz, nothing shifted, the delay trimmed');
+{
+  // Seeded white noise at -20 dBFS RMS, at 11025 Hz, the gain off. Measured
+  // on the 11025 Hz voice signal, the codec's output in the render (the hook),
+  // so that the mixer's images and its droop are not in the bands.
+  const { A: W, log } = watchedEngine();
+  const next = lcgFloat(20261110), amp = 0.1 * Math.sqrt(3);
+  const noise = Float32Array.from({ length: 6 * NB }, () => amp * next());
+  const r = await W.process(buffer(noise, NB), { codec: 'speex', agc: false, volume: 1 });
+  const voice = log.trips[0].output, rate = log.trips[0].info.sampleRate;
+  const speech = bandLevel(voice, rate, 700, 2700), top = bandLevel(voice, rate, 4300, 4900);
+  const renderTop = bandLevel(r.samples, r.sampleRate, 4300, 4900) - bandLevel(r.samples, r.sampleRate, 700, 2700);
+  check('white noise at -20 dBFS: 4.3 to 4.9 kHz is within 8 dB of 0.7 to 2.7 kHz (the codec sees 3.1 to 3.6 kHz)',
+    rate === NB && Math.abs(top - speech) <= 8 && log.trips.length === 1,
+    `${(top - speech).toFixed(1)} dB at the voice rate (${rate} Hz); ${renderTop.toFixed(1)} dB in the render at ${r.sampleRate} Hz, the mixer's droop included`);
+  // A train of pulses 200 a second: one sample of 0.5 every 55.125 samples.
+  const pulses = new Float32Array(3 * NB);
+  for (let k = 0; Math.round(k * 55.125) < pulses.length; k++) pulses[Math.round(k * 55.125)] = 0.5;
+  const out = (await A.process(buffer(pulses, NB), { codec: 'speex', agc: false, volume: 1 })).samples, sr = 44100;
+  let best = 0, bestR = -Infinity;
+  for (let lag = Math.round(0.002 * sr); lag <= Math.round(0.0075 * sr); lag++) {
+    const c = correlate(out, out, lag, sr / 4);
+    if (c > bestR) { bestR = c; best = lag; }
+  }
+  const ms = 1000 * best / sr;
+  check('nothing is shifted: pulses 200 a second come out with their strongest autocorrelation lag between 4.9 and 5.1 ms',
+    ms >= 4.9 && ms <= 5.1, `${ms.toFixed(3)} ms, r ${bestR.toFixed(3)}`);
+  // A voice-band source: on the codec's own timeline, and in the render.
+  const { A: W2, log: log2 } = watchedEngine();
+  const x = voiced(3, NB);
+  await W2.process(buffer(x, NB), { codec: 'speex', agc: false, volume: 1 });
+  const own = bestLag(log2.trips[0].input, log2.trips[0].output, 40, 800);
+  const x48 = voiced(3, 48000), r48 = (await A.process(buffer(x48, 48000), { codec: 'speex', agc: false, volume: 1 })).samples;
+  const at48 = bestLag(x48, r48, 60, 12000);
+  check('the codec\'s 80 samples are trimmed: a voice-band source comes out aligned within one sample at 11025 Hz',
+    own.lag === 0 && Math.abs(own.at) < 1 && Math.abs(at48.at) < 48000 / NB && own.r > 0.8 && log2.trips[0].info.lookahead === 80,
+    `at 11025 Hz ${own.at.toFixed(2)} samples (r ${own.r.toFixed(3)}); the render at 48 kHz ${at48.at.toFixed(2)} samples (r ${at48.r.toFixed(3)})`);
+}
+
+console.log('\n[speex profile] Decoded samples wrap: the count at the decoder\'s output');
+{
+  // A loud voice: some decoded samples pass full scale and wrap.
+  const loud = Float32Array.from(voiced(2, 48000, 1.2), v => Math.max(-1, Math.min(1, v)));
+  const r = await A.process(buffer(loud, 48000), { codec: 'speex', agc: false, volume: 1 });
+  check('a loud source gives wrapped samples in the render (counted at the decoder\'s output)', r.codecInfo.wrappedSamples > 0,
+    `${r.codecInfo.wrappedSamples} samples wrapped`);
+  // Part a's own speech-like signal as the module gets it: its 16-bit samples
+  // at 11025 Hz, each / 32768, the microphone gain at 1 and no filter, so that
+  // only the new rounding stands before the codec. Through the profile's
+  // stream, frame by frame, its 276 frames wrap 2,106 samples (part a's
+  // count); a render codes a 277th frame to flush the codec's 80-sample delay,
+  // which wraps 16 more.
+  const speech = Float32Array.from(signals.speech, v => v / 32768);
+  const stream = await opus.createSpeexStream(NB);
+  for (let f = 0; f < speech.length / 160; f++) stream.decode(stream.encode(speech.subarray(f * 160, (f + 1) * 160)).packet);
+  const streamed = stream.wrapped;
+  stream.free();
+  const rs = await A.process(buffer(speech, NB), { codec: 'speex', agc: false, volume: 1 });
+  check('part a\'s speech-like signal wraps 2,106 samples in its 276 frames, and 2,122 in a render (277 frames)',
+    streamed === 2106 && rs.codecInfo.wrappedSamples === 2122 && rs.codecInfo.frames === 277,
+    `${streamed} through the stream; ${rs.codecInfo.wrappedSamples} in a render of ${rs.codecInfo.frames} frames`);
+}
+
+// Two identical 1.4 s parts at 48 kHz: a -65 dBFS noise floor and a voiced
+// burst from 0.4 to 0.9 s. With the gate on they make two talk spurts.
+const gateParts = (() => {
+  const part = new Float32Array(Math.round(1.4 * 48000)), next = lcgFloat(11);
+  let phase = 0;
+  for (let i = 0; i < part.length; i++) {
+    part[i] = 0.001 * next();
+    if (i >= 0.4 * 48000 && i < 0.9 * 48000) {
+      const f0 = 170 + 30 * Math.sin(2 * Math.PI * 1.3 * i / 48000);
+      phase += f0 / 48000;
+      for (let h = 2; h * f0 <= 4500; h++) part[i] += 0.1 * Math.sin(2 * Math.PI * h * phase + 0.3 * h * h) / h;
+    }
+  }
+  const x = new Float32Array(2 * part.length);
+  x.set(part); x.set(part, part.length);
+  return x;
+})();
+
+console.log('\n[speex profile] A new talk spurt is the codec\'s reset, never a new codec');
+{
+  const { A: W, log } = watchedEngine();
+  const r = await W.process(buffer(gateParts, 48000), { codec: 'speex', gate: true, agc: false, volume: 1 });
+  const info = r.codecInfo, trip = log.trips[0];
+  // The gate counts 14.51 ms frames: 120 ms of pre-roll is 8, 440 ms of hold 30.
+  check('the profile\'s gate switch reaches the Speex round trip, in 14.51 ms frames (pre-roll 8, hold 30)',
+    info.gate === -39.5 && info.spurts === 2 && info.prerollFrames === 8 && info.holdFrames === 30
+    && info.frameBytes.every((n, f) => (info.frameLog[f] === FRAME.gated) === (n === 0)),
+    `${info.spurts} spurts, ${info.gatedFrames} of ${info.frames} frames gated, pre-roll ${info.prerollFrames}, hold ${info.holdFrames}`);
+  // The spurts, from the packets sent.
+  const spurts = [];
+  trip.packets.forEach(({ f, packet }, k) => {
+    if (!k || f !== trip.packets[k - 1].f + 1) spurts.push([]);
+    spurts[spurts.length - 1].push({ f, packet });
+  });
+  // The decoder as the module runs it: the first spurt, reset(), the second;
+  // and the second spurt by a new codec instead.
+  const decodeAll = (codec, list) => list.map(({ packet }) => codec.decode(packet));
+  const kept = await createCodec(), fresh = await createCodec();
+  decodeAll(kept, spurts[0]);
+  kept.reset();
+  const withReset = decodeAll(kept, spurts[1]), withNew = decodeAll(fresh, spurts[1]);
+  kept.free(); fresh.free();
+  // Frame f plays from f * 160 - 80.
+  const played = (f) => trip.output.subarray(f * 160 - 80, f * 160 + 80);
+  const frameAs = (q) => Float32Array.from(q.subarray(0, 160), v => v / 32768);
+  const second = spurts[1] || [];
+  const asReset = second.every(({ f }, k) => same(played(f), frameAs(withReset[k]).subarray(0, played(f).length)));
+  const firstThree = second.slice(0, 3).map(({ f }, k) => same(played(f), frameAs(withNew[k]).subarray(0, played(f).length)));
+  check('the second spurt\'s decoded frames are those of a decoder reset (request 26) between the spurts',
+    spurts.length === 2 && second.length > 20 && asReset, `${spurts.length} spurts of ${spurts.map(s => s.length).join(' and ')} frames`);
+  check('and not those of a new codec: at least one of its first three frames differs', firstThree.includes(false),
+    `the first three frames ${firstThree.map(v => (v ? 'equal' : 'differ')).join(', ')} with a new codec`);
+  // The encoder side: the packets are those of an encoder reset between the
+  // spurts, fed the same frames of the codec's input.
+  const enc = await createCodec(), frameOf = (f) => {
+    const frame = new Float32Array(160);
+    frame.set(trip.input.subarray(f * 160, Math.min(trip.input.length, (f + 1) * 160)));
+    return opus.speexInput(frame);
+  };
+  let encoderAgrees = true;
+  spurts.forEach((list, k) => {
+    if (k) enc.reset();
+    for (const { f, packet } of list) if (!sameBytes(enc.encode(frameOf(f)), packet)) encoderAgrees = false;
+  });
+  enc.free();
+  check('the encoder is reset too: every packet is that of an encoder reset (request 26) between the spurts', encoderAgrees);
+  // The stream (createRender and the live chain): restart() is the same reset.
+  const stream = await opus.createSpeexStream(NB), ref = await createCodec();
+  const frames40 = Array.from({ length: 40 }, (_, f) => Float32Array.from(signals.speech.subarray(f * 160, f * 160 + 160), v => v / 32768));
+  const pass = () => frames40.map(frame => stream.decode(stream.encode(frame).packet));
+  pass();
+  await stream.restart();
+  const again = pass();
+  frames40.forEach(frame => ref.decode(ref.encode(opus.speexInput(frame))));
+  ref.reset();
+  const refAgain = frames40.map(frame => frameAs(ref.decode(ref.encode(opus.speexInput(frame)))));
+  stream.free(); ref.free();
+  const newCodec = await opus.createSpeexStream(NB), fromNew = frames40.map(frame => newCodec.decode(newCodec.encode(frame).packet));
+  newCodec.free();
+  check('the stream\'s restart() is the codec\'s reset, not a new codec',
+    again.every((o, i) => same(o, refAgain[i])) && !again.slice(0, 3).every((o, i) => same(o, fromNew[i])));
+}
+
+console.log('\n[speex profile] Loss: a lost frame plays as zeros, and the decoder never sees it');
+{
+  const x = voiced(2, NB), lost = 40, late = 60, packets = [];
+  const clean = await opus.speexRoundTrip(x, NB, { onPacket: (f, packet) => packets.push(packet) });
+  const lossy = await opus.speexRoundTrip(x, NB, { makeLossMask: count => Uint8Array.from({ length: count }, (_, f) => f === lost ? 1 : f === late ? 2 : 0) });
+  const info = lossy.info, at = (samples, f) => samples.subarray(f * 160 - 80, f * 160 + 80);
+  check('the frame log marks the lost frame and the late one; the counts agree; plc says zeros',
+    info.frameLog[lost] === FRAME.lost && info.frameLog[late] === FRAME.late && info.lostFrames === 1 && info.underrunFrames === 1
+    && info.plc === 'zeros' && info.frameBytes[lost] === 20, `frame ${lost}: code ${info.frameLog[lost]}, frame ${late}: code ${info.frameLog[late]}`);
+  check('the lost frame and the late one play as zeros', at(lossy.samples, lost).every(v => v === 0) && at(lossy.samples, late).every(v => v === 0)
+    && rms(at(clean.samples, lost)) > 0.01 && rms(at(clean.samples, late)) > 0.01);
+  // The frame after the lost one is what a decoder gives that never saw it.
+  const ref = await createCodec();
+  for (let f = 0; f < lost; f++) ref.decode(packets[f]);
+  const after = Float32Array.from(ref.decode(packets[lost + 1]), v => v / 32768);
+  ref.free();
+  check('the decoder is not called for a lost frame: the next frame is decoded as if the packet never came',
+    same(at(lossy.samples, lost + 1), after) && !same(at(clean.samples, lost + 1), after));
+  const r = await A.process(buffer(voiced(3, 48000), 48000), { codec: 'speex', lossPct: 15, seed: 3 });
+  check('net_fakeloss in a render: lost frames are logged and play as zeros',
+    r.codecInfo.lostFrames > 5 && r.codecInfo.frameLog.filter(c => c === FRAME.lost).length === r.codecInfo.lostFrames
+    && r.codecInfo.plc === 'zeros' && r.samples.every(Number.isFinite), `${r.codecInfo.lostFrames} of ${r.codecInfo.frames} frames lost`);
+  const stream = await opus.createSpeexStream(NB);
+  const silent = stream.conceal();
+  stream.free();
+  check('the stream\'s conceal() is a frame of zeros', silent.length === 160 && silent.every(v => v === 0));
+}
+
+// A live chain fed `x` 20 ms at a time: its output, frame codes and stats.
+async function runLive(engine, x, opts, rate = 48000) {
+  const chain = await engine.createLiveChain(opts, rate);
+  const parts = [];
+  for (let o = 0; o < x.length; o += rate / 50) parts.push(await chain.process(x.subarray(o, o + rate / 50)));
+  const codes = chain.takeFrameCodes();
+  chain.free();
+  const out = new Float32Array(parts.reduce((t, p) => t + p.length, 0));
+  parts.reduce((o, p) => { out.set(p, o); return o + p.length; }, 0);
+  return { out, codes, stats: chain.stats, chain };
+}
+
+console.log('\n[speex profile] The live chain runs the same codec frame by frame');
+{
+  const src = voiced(3, 48000), opts = { codec: 'speex', volume: 1 };
+  const { out: live, codes, stats, chain } = await runLive(A, src, opts);
+  const offline = (await A.process(buffer(src, 48000), opts)).samples;
+  // The chain's delay: the codec's 80 samples at 11025 Hz and the output FIR's one sample at 44.1 kHz.
+  const shift = Math.round((80 / NB + 1 / 44100) * 48000);
+  const r = correlate(offline, live.subarray(shift), 0, 24000);
+  const level = db(rms(live, shift + 24000, live.length - 24000) / rms(offline, 24000, live.length - shift - 24000));
+  let peak = 0;
+  for (let d = -3; d <= 3; d++) if (correlate(offline, live.subarray(shift), d, 24000) > correlate(offline, live.subarray(shift), peak, 24000)) peak = d;
+  check('the live chain codes with Speex 1.0.2 at 11025 bit/s and reproduces the render (waveform and level)',
+    chain.version === 'Speex 1.0.2' && chain.bitrate === 11025 && r > 0.9 && Math.abs(level) < 0.5, `r ${r.toFixed(3)}, ${level.toFixed(2)} dB`);
+  check('its stated delay includes the codec\'s 80 samples at 11025 Hz, and lines it up with the render to the sample',
+    chain.contentDelay === shift && peak === 0 && chain.frameSize === 160 && chain.codecRate === NB, `contentDelay ${chain.contentDelay}, peak at ${peak}`);
+  check('its frames are 20-byte Speex packets, logged and counted as Speex',
+    codes.length === stats.frames && codes.every(c => c === FRAME.speex) && stats.bytes === 20 * stats.sent
+    && stats.modes.speex === stats.sent && stats.lastMode === 'speex', `${stats.sent} frames, ${stats.bytes} bytes`);
+  const lossOpts = { codec: 'speex', lossPct: 15, seed: 4, agc: false, volume: 1 };
+  const lossy = await runLive(A, src, lossOpts), lossyRender = await A.process(buffer(src, 48000), lossOpts);
+  const lossR = correlate(lossyRender.samples, lossy.out.subarray(shift), 0, 24000);
+  check('with net_fakeloss the live chain loses the render\'s frames and plays them as zeros, as the render does',
+    lossy.stats.lost > 10 && lossy.codes.every((c, f) => c === lossyRender.codecInfo.frameLog[f]) && lossR > 0.99,
+    `${lossy.stats.lost} of ${lossy.stats.frames} lost, r ${lossR.toFixed(4)}`);
+  // The gate: the render's frames, and one reset per talk spurt after the first.
+  const watched = watchedEngine();
+  const gated = await runLive(watched.A, gateParts, { codec: 'speex', gate: true });
+  const render = (await A.process(buffer(gateParts, 48000), { codec: 'speex', gate: true })).codecInfo.frameLog;
+  const wrong = gated.codes.filter((c, f) => (c === FRAME.gated) !== (render[f] === FRAME.gated)).length;
+  check('with the gate on, the live chain sends the render\'s frames, and restarts the codec once, for the second spurt',
+    gated.codes.length > 150 && wrong === 0 && gated.stats.spurts === 2 && watched.log.restarts === 1,
+    `${gated.codes.length} frames, ${gated.stats.spurts} spurts, ${watched.log.restarts} restart; ${wrong} differ from the render`);
+  // snd_bits in the live chain: nothing changes.
+  const short = src.subarray(0, 24000), base = await runLive(A, short, { codec: 'speex' }), off = [];
+  for (const bits of [4, 10, 24]) {
+    const run = await runLive(A, short, { codec: 'speex', bits });
+    if (!same(run.out, base.out) || run.chain.bitrate !== 11025 || run.stats.bytes !== base.stats.bytes) off.push(bits);
+  }
+  check('snd_bits changes nothing in the live chain either', off.length === 0, off.length ? `differs at ${off.join(' ')}` : 'snd_bits 4, 10, 24 as 16');
+}
+
+console.log('\n[Live chain] Every profile: a codec restart per talk spurt, and late frames play silence');
+{
+  // Shared code in audio.js, so Steam and vaudio_celt as well as Speex.
+  for (const codec of ['steam', 'celt_22', 'speex']) {
+    const w1 = watchedEngine();
+    const run1 = await runLive(w1.A, gateParts, { codec, gate: true });
+    check(`${codec}: the live chain restarts the codec for each talk spurt after the first`,
+      run1.stats.spurts === 2 && w1.log.restarts === 1, `${run1.stats.spurts} spurts, ${w1.log.restarts} restarts`);
+    const w2 = watchedEngine();
+    const run = await runLive(w2.A, voiced(3, 48000), { codec, gate: false, jitterMs: 500, seed: 9 });
+    const late = run.codes.filter(c => c === FRAME.late).length, lostCount = run.codes.filter(c => c === FRAME.lost).length;
+    check(`${codec}: a late frame plays silence; a lost one goes to the stream's conceal()`,
+      run.stats.late > 0 && late === run.stats.late && lostCount === run.stats.lost && w2.log.conceals === run.stats.lost
+      && w2.log.decodes === run.stats.sent - run.stats.lost - run.stats.late,
+      `${run.stats.late} late, ${run.stats.lost} lost; ${w2.log.conceals} to conceal(), ${w2.log.decodes} decoded of ${run.stats.sent}`);
+  }
+}
+
+console.log('\n[speex profile] Determinism, and the last partial frame');
+{
+  const src = voiced(2, 48000), opts = { codec: 'speex', lossPct: 10, jitterMs: 50, seed: 7 };
+  const a = await A.process(buffer(src, 48000), opts), b = await A.process(buffer(src, 48000), opts);
+  check('the same input and settings give the same samples', same(a.samples, b.samples) && same(a.codecInfo.frameLog, b.codecInfo.frameLog));
+  for (const length of [100 * 160 + 37, 100 * 160]) {
+    const x = voiced(length / NB + 0.01, NB).subarray(0, length);
+    const { samples, info } = await opus.speexRoundTrip(x, NB);
+    const tail = rms(samples, length - 80, length), source = rms(x, length - 80, length);
+    check(`the last 80 samples of a ${length}-sample source are coded (frames ${info.frames})`,
+      info.frames === Math.ceil((length + 80) / 160) && tail > 0.3 * source, `${db(tail).toFixed(1)} dB against ${db(source).toFixed(1)} dB`);
+  }
+}
+
+console.log('\n[speex profile] Wording');
+{
+  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const option = /<option value="speex">([^<]*)<\/option>/.exec(html)?.[1] || '';
+  check('the page\'s option names Speex 1.0.2 on 11.025 kHz sound in 20-byte frames of 14.51 ms at 11.025 kbit/s',
+    option === 'vaudio_speex (Speex 1.0.2 on 11.025 kHz sound · 20-byte frames of 14.51 ms · 11.025 kbit/s)', option);
+}
+
+console.log(`\n${passed} Speex 1.0.2 and speex profile checks passed`);
