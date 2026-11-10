@@ -22,9 +22,16 @@
       "branch": "claude/w2-02-render-stream",
       "stage": "building",
       "report": "docs/reports/W2-02-render-stream.md"
+    },
+    {
+      "order": "W3-01-phrase-timing",
+      "branch": "claude/w3-01-phrase-timing",
+      "stage": "investigating (the stronger model; no app code)",
+      "report": "docs/reports/W3-01-phrase-timing.md"
     }
   ],
   "next": [
+    "The owner's priority (2026-11-10): when phrases start, on the modern preset. W3-01 investigates whether voice_retime should run the receiver's queue model; a build order follows if the evidence supports it. The long-render queue is held after the two orders now running (W2-01, W2-02): W2-03 to W2-06 start only when the owner says so.",
     "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (in flight; meter.js only); W2-02 render-stream (next; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
     "With the takes reachable: a baseline run of tests/accuracy.mjs and tests/retiming.mjs on main (in progress on 2026-11-09), then the model questions it raises, each as an order for the stronger model (docs/PIPELINE.md, 'Which model does what'). The predictions dry run can be repeated too.",
     "After W2-03 has been live for a while: an order that makes process() a thin wrapper over the stream, so there is one render path, proved by the golden hashes W2-02 records.",
@@ -88,7 +95,8 @@
     "Pinned codecs, seeded renders, registered predictions, the source timeline by default, no uploads, a failing test with every fix."
   ],
   "dead_ends": [
-    "Loading the game's own codec libraries through their interface: the interface header (ivoicecodec.h) is not in Valve's public SDK (checked 2026-11-09)."
+    "Loading the game's own codec libraries through their interface: the interface header (ivoicecodec.h) is not in Valve's public SDK (checked 2026-11-09).",
+    "Valve's public SDK (ValveSoftware/source-sdk-2013, checked 2026-11-10 for the phrase-timing work): it has the game code and the Steam voice API headers, but none of the engine's voice receiver, its queue or its console variables."
   ],
   "process_notes": [
     "2026-11-09: adopted docs/PIPELINE.md, adapted from the owner's song-charting project.",
