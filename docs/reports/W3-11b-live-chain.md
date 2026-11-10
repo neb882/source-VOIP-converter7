@@ -403,6 +403,7 @@ the recorded hashes.
 | `pnpm test:vendor`, under the lock | pass |
 | the browser suite, under the lock (`CHROMIUM_EXECUTABLE` set) | pass, 238 checks |
 | After the fix round, under the lock | `pnpm test` pass, 601 s (`tests/verify.js` 299 checks, 0 failed; [10b]'s `steam` section 99 s alone, about 240 before); `pnpm test:vendor` pass; the browser suite pass, 240 checks (the speex take's console check now finds its place by a marker line, not a length: the console keeps 600 lines, and the fix round's checks pushed older ones out, so a length pointed into later text) |
+| CI after the fix round | pass on `46b57df` (run 42903526475); `b7d2bf3` failed on the speex take's console check, fixed in `46b57df`; later commits change only this report |
 | CI (`tests` workflow) at the build | pass on `5aadf1b` (the last code change, run 42890081492) and on `434ebcf` (run 42890497723); the commits after it change only this report. The two failing runs before `5aadf1b` were the browser checks fixed there (the gate text against a profile with no gate; the 3f take race) |
 
 ## Review
