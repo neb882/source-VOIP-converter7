@@ -1149,30 +1149,34 @@ function timelineChecks() {
   console.log('The timeline: spurts of 2 s with 300, 500 and 1200 ms of silence (seeds 1 to 50)');
   {
     const runs = sweep([0.3, 0.5, 1.2], 300);
-    check('300 fps: the 300 ms silence never ends the sender\'s spurt (its hold is 0.4 s): the first two are one spurt', runs.every((r) => r.sp[0].i === 0 && r.sp[1].i === 0));
+    check('300 fps: the 300 ms silence never ends the sender\'s spurt (its hold is about 0.4 s): the first two are one spurt', runs.every((r) => r.sp[0].i === 0 && r.sp[1].i === 0));
     const first = runs.map((r) => r.sp[0]);
     check('300 fps: the first spurt opens a channel, its offsetStartMs between -20 and +90', first.every((s) => s.opened && s.offsetStartMs >= -20 && s.offsetStartMs <= 90),
       `${range(first.map((s) => s.offsetStartMs))} ms; dropped ${range(first.map((s) => s.droppedMs))} ms`);
     const own = runs.map((r) => r.sp[2]).filter((s) => s.own);
-    // 38 of these 50 seeds: in the other 12 the chunk after the final one is active (the ENDED
+    // 42 of these 50 seeds: in the other 8 the chunk after the final one is active (the ENDED
     // state: no record), so the timeline keeps one spurt. The seeds are fixed: the count is exact.
-    check('300 fps: after 500 ms the next spurt is one of its own in 38 of the 50 seeds, and then is appended, starting -20 to +60 ms from the source',
-      own.length === 38 && own.every((s) => !s.opened && s.offsetStartMs >= -20 && s.offsetStartMs <= 60), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
+    // (On W3-02b's clock it was 38 of 50, starting -20 to +60 ms; re-derived for W3-16's clock,
+    // whose capture steps are read up to 44 ms after their time.)
+    check('300 fps: after 500 ms the next spurt is one of its own in 42 of the 50 seeds, and then is appended, starting 0 to +80 ms from the source',
+      own.length === 42 && own.every((s) => !s.opened && s.offsetStartMs >= 0 && s.offsetStartMs <= 80), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
     const last = runs.map((r) => r.sp[3]);
     check('300 fps: after 1200 ms it opens a channel and loses 30 to 170 ms to overflow', last.every((s) => s.own && s.opened && s.droppedMs >= 30 && s.droppedMs <= 170),
       `${range(last.map((s) => s.droppedMs))} ms; starts ${range(last.map((s) => s.offsetStartMs))} ms`);
     const slow = sweep([0.3, 0.5, 1.2], 66.67);
     const opened = slow.flatMap((r) => r.sp.filter((s) => s.own && s.opened)), app = slow.flatMap((r) => r.sp.filter((s) => s.own && !s.opened));
-    check('67 fps: every spurt but the one after 500 ms opens a channel, each opened one within 80 ms of the source, nothing dropped',
+    // Within 100 ms since W3-16's clock (80 before).
+    check('67 fps: every spurt but the one after 500 ms opens a channel, each opened one within 100 ms of the source, nothing dropped',
       slow.every((r) => r.sp[0].opened && r.sp[3].own && r.sp[3].opened && (!r.sp[2].own || !r.sp[2].opened) && r.info.droppedSamples === 0 && r.info.drops.length === 0)
-      && opened.every((s) => Math.abs(s.offsetStartMs) <= 80), `opened ${range(opened.map((s) => s.offsetStartMs))} ms; appended ${range(app.map((s) => s.offsetStartMs))} ms`);
+      && opened.every((s) => Math.abs(s.offsetStartMs) <= 100), `opened ${range(opened.map((s) => s.offsetStartMs))} ms; appended ${range(app.map((s) => s.offsetStartMs))} ms`);
   }
   console.log('The timeline: an early start (900, 600 and 1200 ms of silence; seeds 1 to 50)');
   {
     const runs = sweep([0.9, 0.6, 1.2], 300);
     const after = runs.map((r) => r.sp[1]), app = after.filter((s) => !s.opened);
-    check('300 fps: after 900 ms the spurt is appended in at least 45 seeds, and then starts 190 to 330 ms early',
-      after.every((s) => s.own) && app.length >= 45 && app.every((s) => s.offsetStartMs >= -330 && s.offsetStartMs <= -190), `${app.length} of 50; ${range(app.map((s) => s.offsetStartMs))} ms`);
+    // 160 to 310 ms early since W3-16's clock (190 to 330 before).
+    check('300 fps: after 900 ms the spurt is appended in at least 45 seeds, and then starts 160 to 310 ms early',
+      after.every((s) => s.own) && app.length >= 45 && app.every((s) => s.offsetStartMs >= -310 && s.offsetStartMs <= -160), `${app.length} of 50; ${range(app.map((s) => s.offsetStartMs))} ms`);
     const slow = sweep([0.9, 0.6, 1.2], 66.67);
     check('67 fps: the same spurt opens a channel (the queue holds only 0.25 s)', slow.every((r) => r.sp[1].opened && Math.abs(r.sp[1].offsetStartMs) <= 80),
       range(slow.map((r) => r.sp[1].offsetStartMs)));
@@ -1181,7 +1185,7 @@ function timelineChecks() {
   {
     const drift = (fps) => Array.from({ length: 10 }, (_, k) => { const s = engineRun({ loud: [[0.5, 60.5]], seconds: 62, fps, seed: k + 1 }).info.spurts[0]; return s.offsetEndMs - s.offsetStartMs; });
     const d150 = drift(150), d300 = drift(300);
-    check('150 fps: offsetEndMs - offsetStartMs between -26 and -22 ms (one sample for each of 17.88 messages a second)', d150.every((d) => d >= -26 && d <= -22), `${range(d150)} ms`);
+    check('150 fps: offsetEndMs - offsetStartMs between -26 and -22 ms (one sample for each of 17.90 messages a second)', d150.every((d) => d >= -26 && d <= -22), `${range(d150)} ms`);
     check('300 fps: that or lower', d300.every((d) => d <= -22), `${range(d300)} ms`);
   }
   console.log('tests/retiming.mjs --engine on the stand-in results');
@@ -1203,6 +1207,16 @@ function timelineChecks() {
       check('--engine: the engine\'s start error is under "none"\'s, and its columns differ between 1 seed and 50 (each seed draws its own clock)',
         one && fifty && fifty.engine[2] < fifty.none[1] && one.engine.join() !== fifty.engine.join(), `1 seed ${one && one.engine.join(', ')}; 50 seeds ${fifty && fifty.engine.join(', ')}; none ${fifty && fifty.none.join(', ')}`);
       check('without --engine there is no engine column or line', plain.status === 0 && !/engine|Engine/.test(plain.stdout) && /queue {2}rule \| transitions/.test(plain.stdout));
+      // --uptime (W3-16): the sender's Steam age, passed to engineRun; left out, the sender's default.
+      const month = runIt('--engine', '--seeds', '5', '--uptime', '3110400'), dflt = runIt('--engine', '--seeds', '5'), named = runIt('--engine', '--seeds', '5', '--uptime', '777600');
+      const r5 = row(dflt), rm = row(month), rn = row(named);
+      check('--engine --uptime: the sender runs with that uptime (36 days gives other engine columns than the default; 777600 the default\'s), and the Engine line names it',
+        r5 && rm && rn && r5.engine.join() !== rm.engine.join() && r5.engine.join() === rn.engine.join()
+        && /up 3110400 s/.test(month.stdout) && /up the default 777600 s/.test(dflt.stdout), `default ${r5 && r5.engine.join(', ')}; 3110400 ${rm && rm.engine.join(', ')}`);
+      // --uptime 0 is a value, not "left out": it reaches the sender as 0.
+      const zero = runIt('--engine', '--seeds', '5', '--uptime', '0'), r0 = row(zero);
+      check('--engine --uptime 0 reaches the sender as 0, not as the default (other engine columns), and the Engine line names it',
+        r0 && r5 && r0.engine.join() !== r5.engine.join() && /up 0 s/.test(zero.stdout), `0: ${r0 && r0.engine.join(', ')}; default ${r5 && r5.engine.join(', ')}`);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

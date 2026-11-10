@@ -142,6 +142,16 @@
             <label for="vad_threshold">Gate opens above dBFS <code class="cvar">voice_vad_threshold</code></label>
             <input id="vad_threshold" type="number" value="-39.5" min="-70" max="-10" step="0.5">
           </div>
+          <div class="control">
+            <label for="steam_uptime" title="Steam stops sending 0.4 s after the last chunk loud enough to pass, timed on a clock that gets coarser the longer Steam has run: 0.40 s on a fresh start, anywhere from 0.38 to 0.50 s after two weeks.">Sender's Steam has been running</label>
+            <select id="steam_uptime">
+              <option value="14400">since today</option>
+              <option value="388800">a few days</option>
+              <option value="777600" selected>about a week</option>
+              <option value="1555200">about two weeks</option>
+              <option value="3110400">about a month</option>
+            </select>
+          </div>
         </fieldset>
 
         <fieldset class="chain-group advanced-control">

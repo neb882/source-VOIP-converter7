@@ -72,6 +72,7 @@ const els = {
   vad:       document.getElementById('vad'),
   captureChannel: document.getElementById('capture_channel'),
   vadThreshold: document.getElementById('vad_threshold'),
+  steamUptime: document.getElementById('steam_uptime'),
   volume:    document.getElementById('volume'),
   loss:      document.getElementById('loss'),
   jitter:    document.getElementById('jitter'),

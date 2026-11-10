@@ -1212,7 +1212,7 @@ async function main() {
     console.log('\n[Browser 2] Accessibility, disclosure, and safe console');
     const controlIds = ['codec', 'listener_position', 'gain', 'voice_scale', 'hp', 'lp', 'env',
       'c_dur', 'c_dec', 'c_mix', 'agc', 'maxgain', 'avggain', 'volume', 'bits', 'frameMs', 'loss', 'warble_on',
-      'capture_channel', 'vad', 'vad_threshold', 'jitter'];
+      'capture_channel', 'vad', 'vad_threshold', 'steam_uptime', 'jitter'];
     const unlabeled = await page.evaluate((ids) => ids.filter((id) => {
       const element = document.getElementById(id);
       return !element || !element.labels || element.labels.length === 0;
@@ -1336,6 +1336,42 @@ async function main() {
     // and in both workers; the footer credits FFmpeg's libswresample.
     check(parity.sender === 'steam' && parity.calls > 0, 'the audio worker renders steam through Steam\'s sender and the decoder\'s resampler',
       `${parity.sender}, ${parity.calls} resampler calls`);
+    // W3-16: "Sender's Steam has been running", shown for the steam profile
+    // only, sent as steamUptime, kept with the other settings; the sender's
+    // hold depends on it.
+    {
+      const shown = async (codec) => {
+        await page.locator('#codec').selectOption(codec);
+        return page.evaluate(() => ({ hidden: document.getElementById('steam_uptime').closest('.control').hidden, sent: renderOptions().steamUptime }));
+      };
+      const onSteam = await shown('steam'), onCelt = await shown('celt_22'), on48 = await shown('steam_48'), back = await shown('steam');
+      check(!onSteam.hidden && onCelt.hidden && on48.hidden && !back.hidden && onSteam.sent === 777600 && onCelt.sent === undefined && on48.sent === undefined,
+        'the choice "Sender\'s Steam has been running" is on the page for steam only, sent as steamUptime (777600, about a week, by default)',
+        JSON.stringify({ onSteam, onCelt, on48 }));
+      await page.locator('#steam_uptime').selectOption('3110400');
+      const kept = await page.evaluate(() => {
+        const cfg = collectConfig(), opts = renderOptions();
+        applyConfig({ uptime: '14400' });
+        const after = document.getElementById('steam_uptime').value;
+        applyConfig({ uptime: '777600' });
+        return { cfg: cfg.uptime, sent: opts.steamUptime, after, back: document.getElementById('steam_uptime').value };
+      });
+      check(kept.cfg === '3110400' && kept.sent === 3110400 && kept.after === '14400' && kept.back === '777600',
+        'the choice is kept with the other settings (share link, saved presets) and sent with the render\'s options', JSON.stringify(kept));
+      const hold = await page.evaluate(async () => {
+        const data = new Float32Array(3 * 24000);
+        for (let i = 0; i < 24000; i++) data[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / 24000);
+        const src = { sampleRate: 24000, length: data.length, numberOfChannels: 1, getChannelData: () => data };
+        const at = async (steamUptime) => (await TF2Audio.process(src, { codec: 'steam', seed: 9, steamUptime })).codecInfo.sender;
+        const today = await at(14400), month = await at(3110400);
+        let refused = '';
+        try { await TF2Audio.process(src, { codec: 'steam', steamUptime: -1 }); } catch (e) { refused = `${e.name}: ${e.message}`; }
+        return { today: today.spurts[0].frames, month: month.spurts[0].frames, uptimes: [today.uptime, month.uptime], refused };
+      });
+      check(hold.month > hold.today && hold.uptimes.join() === '14400,3110400' && /^RangeError: .*uptime/.test(hold.refused),
+        '1 s of loud tone then 2 s of silence, one seed: the spurt is longer at "about a month" than at "since today"; a steamUptime of -1 is refused',
+        `${hold.today} and ${hold.month} frames; ${hold.refused}`);
+    }
     // The live monitor's worker runs no steam render before W3-11b, so only its
     // own scope can show the two modules missing: it is read there once the
     // worker has answered, then the worker is stopped.

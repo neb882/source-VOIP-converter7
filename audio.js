@@ -879,6 +879,10 @@
   // dBFS (-90 to 0), meanMin = 32767 x 10^(dB / 20); the peak rule does not
   // move. The gate off is the sender's own setting: every chunk is sent, as
   // one spurt, and everything after the sender is the same path.
+  // opts.steamUptime (W3-16): undefined or null passes nothing (the sender's
+  // own 777600 s); anything else is passed as the sender's uptime, unclamped,
+  // so a value that is not a finite number from 0 to 4,000,000 throws the
+  // sender's RangeError.
   function steamSenderOptions(opts, gateOn, seed) {
     const S = steamModules().sender.STEAM_SENDER;
     const raw = opts.gateThresholdDb;
@@ -888,6 +892,7 @@
     const sender = { seed };
     if (!gateOn) sender.gate = false;
     if (db !== null) sender.meanMin = meanMin;
+    if (opts.steamUptime != null) sender.uptime = opts.steamUptime;
     return { sender, gate: gateOn, meanMin, thresholdDb: db === null ? -40 : db };
   }
 
@@ -1032,7 +1037,7 @@
       gatedFrames: count(FRAME_CODES.gated), dtxFrames: count(FRAME_CODES.dtx), spurts: info.spurts.length,
       gate: settings.gate ? settings.thresholdDb : null, prerollFrames: 0, holdFrames: 0,
       encodedBytes, modes, plc: 'opus', frameLog, frameBytes,
-      sender: { rule: 'steam', gate: settings.gate, meanMin: settings.meanMin, chunks: info.chunks, messages: info.messages, spurts: info.spurts },
+      sender: { rule: 'steam', gate: settings.gate, meanMin: settings.meanMin, uptime: info.uptime, chunks: info.chunks, messages: info.messages, spurts: info.spurts },
       resampler: { kernel: resampler.kernel, calls: timeline.calls() } };
   }
 
@@ -1058,6 +1063,9 @@
    *   gateThresholdDb: gate opening level, frame RMS in dBFS [profile/-39.5];
    *                 for `steam` (senderGate.rule 'steam') the mean of |x|
    *                 over a capture chunk in dBFS, null for Steam's own (-40)
+   *   steamUptime:  `steam` only: seconds the sender's Steam had been running,
+   *                 0 to 4,000,000; its float clock sets the hold's real
+   *                 length (W3-16). null for the sender's own   [777600]
    *   onDecoded, onResampled, onGain, swrKernel: tests only, `steam` only:
    *                 each message's 16-bit samples as given to the
    *                 resampler; each packet() result; the voice-rate signal
@@ -1867,9 +1875,9 @@
    *                the output
    *   free()       releases the codec (finish() does too)
    * Concatenated, the output is process()'s samples and codecInfo is its
-   * codecInfo. A room (dspRoom, listenerPos, customEnv) and retime are
-   * rejected with a RangeError: not streamed yet. Each push and finish
-   * must resolve before the next call.
+   * codecInfo; steamUptime is taken as process() takes it. A room (dspRoom,
+   * listenerPos, customEnv) and retime are rejected with a RangeError: not
+   * streamed yet. Each push and finish must resolve before the next call.
    */
   async function createRender(source, opts = {}) {
     if (!source || !Number.isFinite(source.sampleRate) || source.sampleRate <= 0 ||
