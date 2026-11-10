@@ -305,7 +305,79 @@ from a seeded point, a seeded run of 2 to 10 s, then 3 s recorded and lined up a
 
 ## What the worklet does with held sound, and the worker's cost
 
-WORKLET
+Replayed in Node (`agents/w3-11b/worklet.js`): one minute of seeded talk at 48 kHz in 20 ms blocks, each block's output
+put through `live-worklet.js`'s queue rule (40 ms prebuffer, a skip down to it above 2.5 times that), with the blocks
+arriving every 20 ms and no other stall.
+
+| Run | Chain's cost | Worst block | Lost / late slots | Underruns | Skips |
+| --- | --- | --- | --- | --- | --- |
+| no loss | 10.1 s for 60 s (0.17 of real time) | 31.5 ms | 0 / 0 | 0 | 0 |
+| 15% loss, 50 ms jitter, seed 1 | 10.4 s (0.17) | 23.7 ms | 348 / 4 | 1 | 0 |
+
+In this run the waits for the cursor were short enough that the held sound, when it came, fitted under the skip
+limit: one underrun (the queue ran dry once and refilled), nothing skipped. A run of 8 to 10 lost frames holds the
+output for up to 200 ms; the queue then runs dry, and when the held sound arrives at once anything over 100 ms queued
+is skipped down to 40 ms, as after any stall. The worklet was not changed. The worst block took longer than 20 ms in
+both runs (the first block, and blocks that open a spurt, where a new encoder and decoder are made): the worker's
+real-time margin is the worklet's queue, as before. Measured on the build machine under Node, with nothing else
+running; a browser's worker is slower than Node's.
+
+## Screenshots
+
+`docs/reports/W3-11b/`: the Sender controls with the threshold at -40 (`desktop-threshold.png`,
+`phone-threshold.png`), the chain strip with "gate > -40 dBFS · chunks · 100 ms kept · 0.4 s hold"
+(`desktop-chain-strip.png`, `phone-chain-strip.png`) and the live monitor running on the fake microphone: "● TX",
+"0 concealed · 0 late", "latency 309 ms", "Low latency (no pre-roll, saves 80 ms)" (`desktop-live.png`,
+`phone-live.png`). Chromium headless with the suite's probe as the microphone, 1366 × 900 and 390 × 844.
+
+## The texts of item 6, as they now read
+
+- The chain strip's gate, `steam`: "gate > -40 dBFS · chunks · 100 ms kept · 0.4 s hold"; the others: "gate > -39.5
+  dBFS" (or "no gate").
+- The threshold's help (console and title), `steam`: "Gate opening level: the mean of |x| over a capture chunk, in
+  dBFS; Steam's own is -40 (1% of full scale); a sine opens at -39.1 dBFS RMS. Chunks · 100 ms kept · 0.4 s hold. A
+  typed level reaches the real-take check as a 20 ms RMS level, about 1 dB from this gate"; the others: "Gate opening
+  level: 20 ms frame RMS in dBFS (measured -39.5); 120 ms pre-roll, 440 ms hold".
+- The render's console line, `steam`: "S_Voice: N frames concealed, M late frames played as silence; frames lost at a
+  spurt's end are not played"; the others as before. The net graph's loss figure, `steam`, title: "% of frames sent
+  that were concealed or late; frames lost at a spurt's end are not played". The live panel's net, `steam`: "N
+  concealed · M late"; its title: "Frames concealed (lost frames the decoder filled in when the next one arrived) and
+  late (silence), by the network settings".
+- Latency title, `steam`: "Microphone to speaker: what the voice chain holds back (Steam's longest capture chunk and
+  its 100 ms pre-roll, the codec's lookahead, the filters' waits), the playback queue and the audio device's
+  buffers"; the others as before.
+- Low latency, `steam`: label "Low latency (no pre-roll, saves 80 ms)" once running; title "Hold back Steam's longest
+  capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but each
+  phrase's pre-roll is not played. Saves 80 ms. Not how TF2 sounds."; the others as before.
+- Push-to-talk title, `steam`: "Send only while V (TF2's +voicerecord key) or the Talk button is held. This is the
+  app's stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by
+  its own hold. Steam's own key rules (it goes on sending for half a second after a release) are not built yet."; the
+  others as before.
+- `steam_48`: "Fullband Opus (48 kHz / 64 kbps, experimental, not the game's path)".
+- README: the gate paragraph (Steam's chunks for `steam`, the frame gate for the others), the settings table's Sender
+  row, the live monitor (the render's own chain, the key counted as held and `voice_vox` not read, about 0.3 s, the
+  push-to-talk and low-latency bullets, the Record bullet's missing tail), `steam_48`'s row, and the limits (the read
+  clock is a seeded model).
+- `live.js`'s header and `constants.js`'s `steam` comment (the three numbers are read by neither the render nor the
+  live chain).
+
+## Golden hashes
+
+`node tests/render-stream.verify.mjs --hashes` on `fdf6d31` (a checkout in the scratch folder) and on this branch, once
+after the engine's first commit and again on the final tree (`5aadf1b`'s code): **all 51 cases identical**, WAV and
+`codecInfo` hashes alike (`steam` with the codec on, gate on and off, `steam_48`, CELT, Speex, the codec bypassed, a
+demo's received voice). No expectation was re-recorded. The suite's own run (in `pnpm test`, 270 checks) passes against
+the recorded hashes.
+`tests/steam-sender.verify.mjs` and `tests/opus.verify.mjs` pass untouched.
+
+## Runs
+
+| Run | Result |
+| --- | --- |
+| `pnpm test`, under the lock | pass (`tests/verify.js` 295 checks, 0 failed; 626 s in all, of which [10b]'s steam section is about 4 minutes) |
+| `pnpm test:vendor`, under the lock | pass |
+| the browser suite, under the lock (`CHROMIUM_EXECUTABLE` set) | pass, 238 checks |
+| CI on the head | CI |
 
 ## For W3-10's builder
 
