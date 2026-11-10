@@ -21,34 +21,25 @@
   },
   "in_flight": [
     {
-      "order": "W3-02a-voice-channel",
-      "branch": "claude/w3-02a-voice-channel",
-      "stage": "building (new files only)",
-      "report": "docs/reports/W3-02a-voice-channel.md",
-      "state": "fixing",
-      "note": "Built (head b3fdaaa, CI green, 68 checks). The orchestrator's private runs, 2026-11-10: the replay of the six log sections has 0 mismatching ticks of 9,808 with every fault mismatching somewhere, and the builder's log tool gives the planner's fixture event for event on all six sections. With a reviewer on the builders' model (mutations, a model of its own to compare against, the log tool under bad input). Review done: the module agreed with the reviewer's own model on 6,000 seeds (2.09M operations) with no mismatch; the findings are gaps in the suite (sample content after a ring wrap, starved on an empty pull, the fade's option and edge) and small log-tool issues. With the builder as fixer."
-    },
-    {
-      "order": "W3-11-plan",
-      "state": "second plan review",
-      "branch": "claude/w3-11-plan",
-      "note": "Revised after the plan's review (28 findings, all taken; head dbc116d, not merged): W3-13 rewritten to libswresample's float path with the CPU kernel as a named setting (fma3 default, not confirmed on Steam) and sixteen native reference hashes; W3-11 split into a (the render) and b (the live chain and the page), steam only, steam_48 left as it is, the library's own 16-bit decode by rebuilding the pinned Opus module; W3-02 revision 3a; W3-12 a and b. Two tools specified so the owner's file-input recording can be dropped in as the reference. With the same plan reviewer for a second read. For the owner before W3-13 merges: a modified LGPL file in the default render's path."
-    },
-    {
       "order": "W3-12a-speex-102",
       "state": "building",
       "branch": "claude/w3-12a-speex-102",
-      "note": "Speex 1.0.2 from the public source as a reproducible module with its native comparison; new files only. The order is on claude/w3-11-plan until the plan merges."
+      "note": "Speex 1.0.2 from the public source as a reproducible module with its native comparison; new files only."
+    },
+    {
+      "order": "W3-05-receiver-gain",
+      "state": "building",
+      "branch": "claude/w3-05-receiver-gain",
+      "note": "The engine's gain rule in process() and the stream; re-records the hashes of cases with the gain on. Private acceptance by the orchestrator: tests/gain-exact.mjs --takes, 0 of 291,840 samples."
     }
   ],
   "next": [
-    "The receiver, in the plan's order (docs/reports/W3-02-plan.md, revision 2, read by a builders'-model agent before any build): W3-02a (the channel and the log replay; in flight) then W3-02b (the sender model and the timeline stage), both new files only; after W2-02 merges, one at a time in audio.js: W3-05 (the gain as the engine's rule, accepted by the exact Set H check), W3-06 (the CELT settings as read; W3-08 finds why the app's CELT is not the game's), W3-02c (the render and the stream run the channel behind an option), W3-02f (the flat rule retired), W3-02g (a demo's own packets); W3-02d (page controls and the default) and W3-02e (lane marks, real-take wording) beside them. The orchestrator runs each order's private checks against the owner's logs and takes. tests/REFERENCE_2026.md is brought up to date from the plan's proposed text once W3-07, W3-08 and W3-09 report. The long-render queue (W2-03 to W2-06) is held.",
-    "W3-10 (docs/work-orders/W3-10-output-stage.md, written, not started): the output stage as the listener gets it, after the receiver's orders, since it re-records every golden hash.",
-    "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (in flight; meter.js only); W2-02 render-stream (next; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
-    "With the takes reachable: a baseline run of tests/accuracy.mjs and tests/retiming.mjs on main (in progress on 2026-11-09), then the model questions it raises, each as an order for the stronger model (docs/PIPELINE.md, 'Which model does what'). The predictions dry run can be repeated too.",
-    "After W2-03 has been live for a while: an order that makes process() a thin wrapper over the stream, so there is one render path, proved by the golden hashes W2-02 records.",
-    "Score the six registered predictions when their takes exist (tests/predictions/PREDICTIONS.md).",
-    "Repeat the predictions scorer's dry run after the 2026-11-09 change to reference.js; it needs a real take for its game sound."
+    "Order of work (docs/reports/W3-11-plan.md): W3-05 (building), then W3-06 (CELT with the codec's rebuild), then W3-12b (Speex profile), each alone in audio.js; beside them W3-12a (building), W3-13 (resampler module) and W3-02b (sender and timeline), new files only. Then W3-11a, W3-11b, W3-02c, W3-02d, W3-02f with W3-02e, W3-02g, and W3-10 last. Two builders at most.",
+    "Row R: before W3-12b, W3-13 or W3-11a merges, the orchestrator writes findings 22 to 31 and the listed corrections into tests/REFERENCE_2026.md from the proposed text in docs/reports/W3-02-plan.md and docs/reports/W3-11-plan.md.",
+    "W3-14 (an investigation on the stronger model, by the orchestrator): when the owner's Steam console recording exists (mic_inputfile with the two clips in the private repository), the forward comparison that decides the resampler kernel, the soft clip and whether the app's encoder gives Steam's packets.",
+    "For the owner: a yes on a modified LGPL file (the resampler port) before W3-13 merges; the Steam console test.",
+    "Still open: a registered prediction for vaudio_celt_high; the long-render queue W2-03 to W2-06 is HELD by the owner's priority.",
+    "W3-10 (docs/work-orders/W3-10-output-stage.md, written, not started): the output stage as the listener gets it, after the receiver's orders, since it re-records every golden hash."
   ],
   "waiting_on_the_owner": [],
   "open_questions": [
@@ -155,6 +146,8 @@
     }
   ],
   "done": [
-    "W2-02 render-stream: merged 2026-11-10 (pull request 8, main 43fd35f, cache v20). TF2Audio.createRender gives process()'s render a chunk at a time; 47 cases, 145 checks; review 20,656 differential runs with no mismatch."
+    "W2-02 render-stream: merged 2026-11-10 (pull request 8, main 43fd35f, cache v20). TF2Audio.createRender gives process()'s render a chunk at a time; 47 cases, 145 checks; review 20,656 differential runs with no mismatch.",
+    "W3-02a voice-channel: merged 2026-11-10 (pull request 9, main 1ee4968). voice-channel.js is the game's receiver queue as a module, with the log tool and replay; 101 checks; private runs: 0 mismatching ticks of 9,808 on the owner's six log sections and the reference fixture event for event; nothing loads it yet.",
+    "The plan after W3-09: merged 2026-11-10 (docs). Orders W3-02 revision 3, W3-11 a and b, W3-12 a and b, W3-13, W3-14; docs/reports/W3-11-plan.md has the order of work."
   ]
 }
