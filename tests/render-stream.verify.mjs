@@ -121,7 +121,11 @@ function receivedVoice(seconds, seed) {
 
 /* ---------------- the cases ---------------- */
 
-// The options the page sends for its default settings (app/render.js).
+// The options the page sends (app/render.js), at its settings before W3-10,
+// with volume 0.5 given explicitly: at 0.5 every odd sample of the mix is a
+// tie, so the cases exercise mixOut's rounding to even. (The page's own
+// default is 1 since W3-10; no device rate is given, so every case is at
+// 48000 Hz, the default.)
 const PAGE = { codec: 'steam', listenerPos: 'open', dspRoom: 0, customEnv: null, captureChannel: 'left', micGain: 1, voiceScale: 1,
   hp: 0, lp: 20000, bits: 16, agc: true, retime: false, maxGain: 10, avgGain: 0.5, gate: null, gateThresholdDb: -39.5, volume: 0.5,
   lossPct: 0, frameMs: 20, enableWarble: true, jitterMs: 0 };
@@ -565,6 +569,68 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
     const whole = await B.process(buffer(sources.get(name), c.rate), c.opts);
     check(`${name}: the engine loaded in a vm context gives the same render`, sha256(await wavBytes(whole.blob)) === GOLDEN[name]?.[0]
       && infoHash(whole.codecInfo) === GOLDEN[name]?.[1]);
+  }
+}
+
+/* ---------------- 1b. W3-10's control: the spec's model ---------------- */
+
+// A model of docs/work-orders/W3-10-output-stage.md, written here from the
+// order's text and not from audio.js: from a case's gain output (its hash
+// checked above) to the render's samples. The voice-rate value as a whole
+// 16-bit value (nearest, ties to even, clamped); the entry,
+// trunc(fround(s x 255) / 256); the upsampling by two, out[2k] = (prev +
+// x[k]) >> 1 and out[2k + 1] = x[k] from state 0, once at 22050 Hz and
+// twice at 11025 Hz, run on over a voice sample of zeros and cut to 2N + 1
+// (4N + 3); the listener's low-pass at the seam, through the engine's own
+// applyBiquad on the mix over 32768, times 32768, rounded to even (the
+// amendment's point 6; no golden case has a room with an effect); the clip
+// to +-32767, volume as a single, rounded to even; the device stage,
+// y[n] = roundEven((x[k] (D - r) + x[k + 1] r) / D) with n N = D k + r
+// (147 and 160 at 48000 Hz) and zeros past the mix; cut or padded to
+// round(source length x device rate / source rate); over 32768.
+{
+  const roundEven = (v) => { const fl = Math.floor(v), d = v - fl; return d > 0.5 ? fl + 1 : d < 0.5 ? fl : (fl % 2 === 0 ? fl : fl + 1); };
+  const f32 = Math.fround;
+  function specModel(gain, c, sourceLength) {
+    const o = c.opts, num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+    const profile = Object.hasOwn(engine.CODEC_PROFILES, o.codec) ? engine.CODEC_PROFILES[o.codec] : engine.CODEC_PROFILES.steam;
+    const volume = Math.min(1, Math.max(0, num(o.volume, 1)));
+    const device = Number.isInteger(o.deviceRate) && o.deviceRate >= 44100 && o.deviceRate <= 192000 ? o.deviceRate : 48000;
+    const stages = { 44100: 0, 22050: 1, 11025: 2 }[profile.voiceRate];
+    let mix = Array.from(gain, (g) => Math.trunc(f32(Math.max(-32768, Math.min(32767, roundEven(g * 32768))) * 255) / 256));
+    if (stages && mix.length) {
+      const n = mix.length;
+      mix.push(0);
+      for (let s = 0; s < stages; s++) {
+        const up = new Array(2 * mix.length);
+        let prev = 0;
+        for (let k = 0; k < mix.length; k++) { up[2 * k] = (prev + mix[k]) >> 1; up[2 * k + 1] = mix[k]; prev = mix[k]; }
+        mix = up;
+      }
+      mix.length = (1 << stages) * n + (1 << stages) - 1;
+    }
+    const lp = o.listenerPos && engine.LISTENER_POSITIONS[o.listenerPos] ? engine.LISTENER_POSITIONS[o.listenerPos].extraLpf : null;
+    if (lp) mix = Array.from(A.applyBiquad(Float32Array.from(mix, (v) => v / 32768), A.biquadCoefs('lowpass', 44100, lp, 0.8)), (y) => roundEven(y * 32768));
+    const out = mix.map((v) => roundEven(f32(f32(Math.max(-32767, Math.min(32767, v))) * f32(volume))));
+    const length = Math.round(sourceLength * device / c.rate), y = new Float32Array(length);
+    // Whole numbers (| 0: a zero has no sign here).
+    if (device === 44100) for (let n = 0; n < Math.min(length, out.length); n++) y[n] = (out[n] | 0) / 32768;
+    else {
+      const g = (a, b) => (b ? g(b, a % b) : a), N = 44100 / g(44100, device), D = device / g(44100, device);
+      for (let n = 0; n < length; n++) {
+        const k = Math.floor(n * N / D), r = n * N - k * D;
+        y[n] = (roundEven(((out[k] ?? 0) * (D - r) + (out[k + 1] ?? 0) * r) / D) | 0) / 32768;
+      }
+    }
+    return y;
+  }
+  console.log('\n[1b] W3-10\'s control: a model of the order\'s spec, applied to each case\'s gain output, gives the render');
+  for (const c of CASES) {
+    const want = specModel(gains.get(c.name), c, sources.get(c.name).length), got = renders.get(c.name).samples;
+    let first = -1;
+    for (let i = 0; i < Math.max(want.length, got.length); i++) if (!Object.is(want[i], got[i])) { first = i; break; }
+    check(`${c.name}: the spec's model gives process()'s samples, bit for bit`, first === -1 && want.length === got.length,
+      first === -1 ? `${got.length} samples` : `${got.length} samples, the model ${want.length}; the first difference at ${first}: render ${got[first] * 32768}, model ${want[first] * 32768}`);
   }
 }
 
