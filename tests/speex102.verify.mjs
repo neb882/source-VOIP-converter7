@@ -4,6 +4,7 @@
 // section 5), point by point.
 //   node tests/speex102.verify.mjs
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { createCodec, createFramer, toInt16, frameSize, packetBytes, version } from '../vendor/speex-1.0.2/index.mjs';
 import { createCodec as createCodec121 } from '../vendor/speex/index.mjs';
 import { testSignals, wasmStream, digest } from './speex102/native.mjs';
@@ -87,16 +88,15 @@ console.log('[Speex 1.0.2] The WebAssembly build agrees with a native build (tes
       wasm.frames === count && wasm.packets === packets && wasm.floats === floats && wasm.samples === samples,
       `${wasm.frames} frames`);
   }
-  // wasmStream makes its 16-bit output itself; the codec's own decode() must agree.
-  const codec = await createCodec(), check16 = await createCodec(), mismatched = [];
-  frames(signals.speech).forEach((frame, f) => {
-    const packet = codec.encode(frame);
-    check16.encode(frame);
-    const own = codec.decode(packet), floats = check16.decodeFloats(packet);
-    if (!own.every((v, i) => v === ((Math.trunc(floats[i]) << 16) >> 16))) mismatched.push(f);
-  });
-  codec.free(); check16.free();
-  check('decode() gives the 16-bit output recorded above', mismatched.length === 0, `${mismatched.length} frames differ`);
+  // wasmStream converts the floats itself; the codec's own decode() must give
+  // the 16-bit output of the native build, which converts with a C cast.
+  for (const [name, signal] of Object.entries(signals)) {
+    const codec = await createCodec(), hash = crypto.createHash('sha256');
+    for (const frame of frames(signal)) hash.update(new Uint8Array(codec.decode(codec.encode(frame)).buffer));
+    codec.free();
+    const got = hash.digest('hex');
+    check(`${name}: decode() gives the native build's 16-bit output`, got === NATIVE[name][3], got.slice(0, 16));
+  }
 }
 
 console.log('\n[Speex 1.0.2] Section 5, point by point');
@@ -115,7 +115,11 @@ console.log('\n[Speex 1.0.2] Section 5, point by point');
     `${codec.encoderCtl(GET_SAMPLING_RATE)} / ${codec.decoderCtl(GET_SAMPLING_RATE)}`);
   codec.free();
   const all = [];
-  for (const signal of Object.values(signals)) all.push(...(await code(signal)).packets);
+  for (const signal of Object.values(signals)) {
+    const encoder = await createCodec();
+    for (const frame of frames(signal)) all.push(encoder.encode(frame));
+    encoder.free();
+  }
   check(`every packet is 20 bytes (${all.length} packets of the four test signals)`,
     all.length === 516 && all.every(p => p.length === 20));
   // A narrowband frame starts with the wideband bit (0) and a 4-bit sub-mode.
@@ -166,7 +170,7 @@ console.log('\n[Speex 1.0.2] Decoded samples wrap past full scale');
 {
   const codec = await createCodec(), floatsOf = await createCodec();
   let passedFull = 0, jumps = 0, mismatches = 0, peak = 0, firstJump = '';
-  let previous = null;
+  let previous = null;   // the last 16-bit sample and float of the frame before
   for (const frame of frames(signals.square)) {
     const packet = codec.encode(frame);
     floatsOf.encode(frame);
@@ -177,15 +181,17 @@ console.log('\n[Speex 1.0.2] Decoded samples wrap past full scale');
       if (out[i] !== ((Math.trunc(x) << 16) >> 16)) mismatches++;
       const over = x > 32767 || x < -32768;
       if (over) passedFull++;
-      const before = i ? out[i - 1] : previous;
-      if (over && before !== null && Math.abs(out[i] - before) > 60000) {
-        if (!jumps++) firstJump = `${before} to ${out[i]} at float ${x.toFixed(1)}`;
+      const before = i ? [out[i - 1], floats[i - 1]] : previous;
+      // A wrap: the output leaps by more than 60000 where the wave itself
+      // moved by less (a clamp can never move the output more than the wave).
+      if (over && before && Math.abs(out[i] - before[0]) > 60000 && Math.abs(x - before[1]) < 60000) {
+        if (!jumps++) firstJump = `${before[0]} to ${out[i]} where the float went from ${before[1].toFixed(1)} to ${x.toFixed(1)}`;
       }
     }
-    previous = out[frameSize - 1];
+    previous = [out[frameSize - 1], floats[frameSize - 1]];
   }
   codec.free(); floatsOf.free();
-  check('a full-scale square wave decodes past full scale, and the 16-bit output jumps by more than 60000 there',
+  check('a full-scale square wave decodes past full scale, and the 16-bit output wraps there (a jump of more than 60000)',
     passedFull > 0 && jumps > 0, `peak ${peak.toFixed(1)}; ${passedFull} samples past full scale, ${jumps} jumps; first ${firstJump}`);
   check('the 16-bit output is (trunc(x) << 16) >> 16 of the decoded floats, sample for sample', mismatches === 0,
     `${mismatches} samples differ`);
