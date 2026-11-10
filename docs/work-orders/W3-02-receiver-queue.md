@@ -585,6 +585,16 @@ so do W3-11a's and this order's. **Time budget:** 1 day.
 >   origin one named value. This order's clock has block `b` at output samples `512 b - D`. Under `'game'`
 >   it sets W3-10's origin to its own, so the channel's pulls and the mix stage's blocks are the same blocks,
 >   as in the game.
+> - **The first pull, read** (`docs/reports/W3-10-upsampler-read.md`, section 3, seen in passing): the
+>   wave mixer keeps one sample of look-ahead. On a channel's first block it asks for `count + 1` samples
+>   (the 513 of the logs) and **mixes the first `count` of them**; the extra, last sample is kept with the
+>   channel and is the first sample mixed in the next block, in front of that block's new samples. No
+>   sample is skipped and the stream stays in order. "The first pull" above, and `createTimeline` as W3-02b
+>   built it, have the render "ask for 513 and play the last 512", dropping the queue's first sample
+>   unheard: by the read it is the **first** 512, and nothing is dropped. One sample at each channel's
+>   start; the planner's pass on this order corrects the model's text and says what changes in
+>   `voice-channel.js` (which this order may not touch as written). The voice source's side of the pull was
+>   not re-read.
 > - **The room path is W3-17c's, and its slot and tail live at the mix**, after this order's stage. The slot
 >   is asked for its shares once per mixer block; this order calls the path's `spurtStart()` at each channel
 >   it opens (W3-17c calls it once, at the render's start). With a room the render is longer than the source

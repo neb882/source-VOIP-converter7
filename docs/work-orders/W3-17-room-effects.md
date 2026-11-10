@@ -88,9 +88,12 @@ for that.
    is upsampled by W3-10's rule, the room buffer passes the room slot, and the sum goes to W3-10's clip;
    under water the sum passes the water slot first. The module's own `entry` is the tested statement of the
    law: part c checks W3-10's function against it on every 16-bit sample. *As W3-10 is now written
-   (2026-11-10) the three functions are `TF2Audio.mixEntry(s, volume)`, `mixUpsample2(buffer)` and
-   `mixClip`, and its stage already runs in the mixer's 512-sample blocks from the render's first sample
-   (`opts.onMixBlock` shows them).* **W3-10 re-records every golden hash once; part c moves none of them
+   (2026-11-10, revised after the engine's read of the upsampler and its plan review) the functions are
+   `TF2Audio.mixEntry(s, volume)`, `mixUpsample2(x, state)` (one state per buffer and per stage, so the
+   room's buffer and the direct one each have their own) and `mixOut` with `mixClip` inside it. Its stage
+   knows the mixer's 512-sample blocks as positions from the render's first sample (`opts.onMixBlock` shows
+   them) and holds nothing back for them: holding a partial block is this part's, with a room on (item 4
+   of part c).* **W3-10 re-records every golden hash once; part c moves none of them
    and adds its own, so nothing is recorded twice.**
 4. **"No room" means no slot, no tail and no new key.** A render with no room and not under water builds
    nothing of this order: no slot, no extra output, no new key in `codecInfo`. Every existing golden hash and
@@ -776,9 +779,14 @@ orders.
    function, with the volumes `255 x direct / 256` and `255 x room / 256` (`shares()` of the path, asked per
    512-sample mixer block); each of the two buffers is brought to 44100 Hz by W3-10's upsampling (nothing for
    a 44100 Hz voice); `createRoomPath().process(direct, room)` gives the sum; W3-10's clip, `volume`,
-   rounding and device stage follow, unchanged. The blocks are W3-10's: 512 samples of the 44100 Hz mix
-   from the render's first sample, in `process()` and in `createRender` at any chunking (the amendment's
-   point 3); for a 22050 Hz voice a block is 256 voice samples, for 11025 Hz 128. **`spurtStart()` is called
+   rounding and device stage follow, unchanged. The blocks are W3-10's positions: 512 samples of the 44100 Hz
+   mix from the render's first sample, in `process()` and in `createRender` at any chunking (the
+   amendment's point 3); for a 22050 Hz voice a block is 256 voice samples, for 11025 Hz 128. **W3-10 holds
+   nothing back for a block, since with no room nothing depends on one. With a room on or under water, this
+   part does: the stream keeps a partial block until it is whole (up to 511 mix samples) and gives the
+   path whole blocks, each starting on a block's first sample; the last block of a render may be short.**
+   A render with no room and not under water holds nothing, as before this part. (W3-10's upsampler keeps
+   a state per buffer and per stage: the two buffers here each have their own.) **`spurtStart()` is called
    once, at the render's start**: there is no voice channel in a render yet. When W3-02c brings the game's
    timeline it calls `spurtStart()` at each channel it opens and moves the blocks' origin to its clock's;
    with a fixed room neither changes a sample (the module runs sample by sample and the four mix values do
@@ -933,7 +941,10 @@ loading needs.
    mix stage after it. `spurtStart()` is called at the first delivered message of each spurt the sender
    opens: a stand-in for the channel's start, said in a comment, until a channel runs live. The chain's
    mix stage calls the worker's path once per 512-sample block, between W3-10's upsampling and its clip;
-   the path keeps its own count of blocks across a rebuilt chain. At the
+   the path keeps its own count of blocks across a rebuilt chain. **With a room on or under water the live
+   chain therefore holds a partial block until it is whole: up to 511 samples at 44100 Hz, 11.6 ms, counted
+   in `stats.latencyMs` (not in `contentDelay`: it holds samples back and shifts none). With neither, it
+   holds nothing, as W3-10 left it.** At the
    context's rate the live chain converts as W3-10 left it. Measure the room's cost in the live worker on the
    build machine for `great_hall` during a fade and give it in the report (this plan's prototype: 167 ns a
    sample for two twelve-line presets, under 1% of real time).

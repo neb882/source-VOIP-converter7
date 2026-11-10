@@ -260,3 +260,60 @@ page's default.
 **Not settled by this revision:** W3-11c's third model point (a key change lands between two reads of a sender
 that reads ahead of its own clock) is the app's own and no run settles it; why Set J's release left 0.67 s
 uncollected.
+
+## Second addendum, 2026-11-10: W3-10 after the upsampler's read and its plan review
+
+Two things came in for W3-10: the engine's read of the upsampler (`docs/reports/W3-10-upsampler-read.md`) and
+a plan review by a builder's model (9 must-fix, 12 should-fix, 9 notes, 20 mutations; it confirmed the entry
+on all 65,536 samples, the plateaus, the images at -65.38 and -66.17 dB and the response). The orchestrator
+ruled, and the order was revised whole (branch `claude/w3-plan-maintenance-5`: `W3-10-output-stage.md`; three
+sentences of `W3-17-room-effects.md`; one bullet in W3-02c's note; this addendum). Budget 2.5 days (was 1.5).
+
+**The read corrects the order.** The first rewrite had `y[2i] = x[i]` and the mean after it. The engine has
+the mean first, made with the input kept from before: `y[2i] = (prev + x[i]) >> 1`, `y[2i + 1] = x[i]`, the
+state per buffer and per stage, 0 at first, never reset by a channel or a block. So the function is stateful,
+needs no look-ahead, and gives the same samples at any chunking; a voice of `N` samples gives `2N + 1`
+outputs (`4N + 3` for Speex); a CELT render is one mix sample late and a Speex render three, as in the game.
+The read's pseudo-code and its two boundary tables are in the order as code and as test vectors, with its two
+mutations (the old phase; the state reset per block). The "open" point on a block's edge is closed.
+
+| # | Finding | What was done |
+| --- | --- | --- |
+| M1 | the WAV writer truncates and scales positives by 32767: every file is one unit low on positive samples | fixed in this order: `round(s x 32768)`, ties to even, clamped, in `toInt16` for every caller and in `video.js`'s PCM; a check on the file's bytes (4896, 4915, 32639, -32640 as themselves); `formats.verify.mjs` re-derived; the report and the reference say it corrects what the user downloads |
+| M2 | the device stage's arithmetic was not pinned | the integer form `(x[k](D - r) + x[k+1] r) / D`, rounded to 16 bits with ties to even, marked as a model of the system's mixer |
+| M3 | four checks could not see their mutations | exports `mixDevicePosition` (checked against `BigInt`), `mixOut` (the stage after the sum), `onGain` on every profile, `onMixBlock` with the block's samples; hand cases for each, the device's as exact vectors (a ramp of 160s gives `147 n`; the tie at output 80) |
+| M4 | the output's length contradicted today's contract | the contract is kept: the source's duration at the device's rate, the device stage's output cut or padded to it; the upsampler's last mean is in the mix and the cut decides whether it is in the file |
+| M5 | the live chain's figures that this order moves were not named | item 8: `contentDelay` (0 on `steam`; the frame path less the FIR, plus the upsampler's 1 or 3 samples), both `latencyMs` figures, 3f's window, [10b]'s two `steam_48` hashes and its `contentDelay` check, the frame-path check, each re-derived with old and new |
+| M6 | blocks in the stream: held or not; the upsampler at an edge | the blocks are positions, exposed by the hook, and nothing is held back; the upsampler is stateful; holding a partial block moved to W3-17c (with a room on) and is counted in the live chain's latency in W3-17d |
+| M7 | the upsampler's rule | settled by the read, as above |
+| M8 | item 7 ("samples at the clamp") rested on a misreading and needed a forbidden file | struck; `accuracy.mjs` may print the exact-ceiling share beside its figures; `reference.js` untouched |
+| M9 | "no case keeps its hash" was wrong and left no control | stated: every WAV hash moves but the empty source's, no `codecInfo` hash moves, no new `codecInfo` key; the control: gain-output hashes before and after, and a model of the spec written in the test that gives every golden render |
+| S10 | the live chain at other context rates | the linear rule above 44100, nothing at 44100, the sinc resampler only below; a check that the live output equals the render's after the mix point at 48000 and 44100 |
+| S11 | `deviceRate`'s domain | an integer from 44100 to 192000, anything else the default; the page offers two |
+| S12 | the amendment's reason; `PAGE` read two ways | `PAGE` keeps `volume: 0.5` explicitly (ties to even), its comment changed; the default moves no golden hash and is made here because this order owns the stage and its words |
+| S13 | places that depend on 0.5 | listed, each with its fix (the check that would compare a render with itself becomes 0.3 against 1) |
+| S14 | the device choice on the page | a console-style name marked as the app's own (`snd_device_rate`), a link and settings key (`dev`), kept across built-in presets, shown in the chain strip |
+| S15 | the new default meets the meter and the exports | said to be intended: one sentence beside the control, the meter's note, the lossy exports' note suggests lowering `volume`; no hidden limiter |
+| S16 | `reference.js` assumes 48000 | settled: harmless, since scored renders are at 48000 and the ceiling figure does not use the block; the stop is a scored render at another rate |
+| S17 | the `mixer` key "if nothing else reads it" | the key, `linearStage`, `streamResampleLinear` and `linearLength` go; `resampleLinear` stays exported with its check; the check that reads `mixer` changes |
+| S18 | an example that read two ways | written with `mixEntry` in it, under the read's rule: `127, 255, 254, 254, 127` entered first, `127, 255, 255, 254, 126` upsampled first |
+| S19 | a value that is not whole had no check | added (`voice_scale 0.5`, auto-gain off, a `k + 0.5`) |
+| S20 | the private table's expectation | by band, as the reviewer computed: anchor about -0.025 dB; 5 to 12 kHz +0.10 to +0.13; 12 to 16 kHz -0.12; 16 to 19 kHz -0.90; "the 13 to 18 kHz bands closer" is gone |
+| S21 | budget and files | 2.5 days; every file the reviewer lists is named, and `mixStages()` |
+
+The notes that cost a sentence are in: `fround` on the volume inside `mixEntry`; `soundfade` is 0 and not
+modelled; the images tested at -6 dBFS or louder; how Set B's median plateau is measured; the blocks' origin
+a multiple of 4; the hook in the live chain; the two mistakes only W3-17c can catch. The mutation table has
+24 rows: the reviewer's 20 less the one W3-10 cannot reach, the read's two, and three of this revision (the
+length by the mix's, a float device value, a second state missing for Speex).
+
+**Choices made in the revision, for the orchestrator to overrule:** `toInt16` changes for every caller (the
+MP3 encoder's input too), not only the WAV; the names `snd_device_rate` and `dev`; the sentence beside
+`volume` ("At 1, the game's default, a loud voice fills the whole range, as it does in the game"); a band
+that moves by more than 0.05 dB from the expected figures holds the merge. In W3-17, one sentence beyond the
+move of the block hold was changed: Decision 3's list of W3-10's functions, which named the upsampler without
+its state.
+
+**For W3-02's orders, from the same read:** on a channel's first block the wave mixer asks for one sample
+more and mixes the first `count` of them, keeping the last for the next block. `createTimeline` as built
+plays the last 512 of 513 and drops the queue's first sample. It is in W3-02c's note for its planner.
