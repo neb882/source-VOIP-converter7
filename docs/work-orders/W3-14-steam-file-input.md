@@ -51,9 +51,15 @@ that is known to the sample. That one recording can settle all three.
 - **The recommendation: search the phase always, and ask the owner for a fresh start as well.** The search
   (step 1) costs nothing and does not depend on how the run was made, so the method never assumes a fresh
   stream. A fresh start is still worth asking for, because it is the only way the first-packet flush gets
-  into a recording (W3-09 lists it as never seen). The sentence for the owner's steps: *"Quit Steam
-  completely and start it again before the run; start the game, load the map, and make the first recording
-  with the very first key press after that; note which recording was the first."* If the first recording's
+  into a recording (W3-09 lists it as never seen). The owner's steps, in full: *"(1) Quit Steam
+  completely and start it again before the run. (2) Do not open the game's voice options or its microphone
+  test before the first recording (that also brings voice up, and a decoder with it). (3) Note Steam's
+  console line `loaded voice input file ...`. (4) Make the first recording with the very first key press
+  after loading the map, and note which recording was the first. (5) After each key press, once the file is
+  written (about half a second after release), copy `voice_decompressed.wav` from the game's folder aside
+  before pressing again: each press overwrites it. (6) Keep the console log with `voice_showincoming 1` on.
+  (7) Note the PC's processor model."* The processor matters because the resampler's kernel is the receiving
+  PC's (with loopback, the same PC): one without FMA3 or AVX rules kernels out before anything is run. If the first recording's
   best phase is 0 and its first packet's last 29 or so output samples fit the mirrored flush, that is the
   first-packet behaviour seen; if its phase is not 0, Steam's decoder was not new, and nothing is lost.
 
@@ -70,16 +76,28 @@ rounding, a search one step up and down) does not work: the plan's second read p
 25 wrong inputs in 12,000, more than the kernels differ by. Do not rebuild it. Its scripts are in the review's
 scratch folder (`recov.mjs`, `recov2.mjs`, `kdiff.mjs`) if the session still has them.
 
-1. **Structure, from the recording alone.** For each of the 147 phases, fit a stretch of the recording as the
-   resampler's output of some 24 kHz signal (the least-squares fit, with no rounding) and take the residual.
-   The right phase stands out at once (the prototype: 0.19 of a 16-bit step, against 350 to 420 at the wrong
-   ones). **If the best residual is over one step, stop:** the recording is not this resampler's plain output,
-   and W3-09's reading of the path is in question; report that. Then mark the spurts and the silence records
-   (runs of zeros of 1378 or 2756 samples and the like) and keep the fitted samples, which are good enough to
-   line things up and not good enough to compare.
+1. **Structure: the packets from the console log, the phase from the recording.** The owner runs
+   `voice_showincoming 1` with a console log, which gives every packet's decoded sample count in order. That
+   is the packet structure with no fitting: a sound message's frames are its count over 882, and a silence
+   record's count is its own (with a file as the microphone there is no capture grid, so **a record can be
+   any length**, not only 1378 or 2756). Line the log up with the recording by the running sum of counts (the
+   file holds whole packets from a key press on). The least-squares fit is used for two things only: for each
+   of the 147 phases, fit a stretch of the recording as the resampler's output of some 24 kHz signal (no
+   rounding) and take the residual. The right phase stands out at once (the prototype: 0.19 of a 16-bit step,
+   against 350 to 420 at the wrong ones). **If the best residual is over one step, stop:** the recording is
+   not this resampler's plain output, and W3-09's reading of the path is in question; report that. Keep the
+   fitted samples, which are good enough to line the clip up and not good enough to compare. If there is no
+   log, mark the spurts and records from the recording's runs of exact zeros and say that the frame counts
+   are then inferred.
 2. **Where each spurt began in the clip.** Correlate the fitted samples with the looped clip, then try every
-   start within 480 samples of the peak. The pre-roll (the spurt's first 2400 samples) is the clip's earlier
-   samples, or zeros if Steam had kept nothing: try both.
+   start within 480 samples of the peak. A press of 13 s against the file's 11.9 s is fine: the first 1.1 s or
+   so of the clip's second loop is the overlap this search uses. **Three cases for the spurt's opening, try
+   each:** (a) a pre-roll of the clip's earlier samples (the gate was SILENT with sound kept); (b) a pre-roll
+   of 2400 zeros (a fresh capture, nothing kept); (c) **no pre-roll at all.** With the continuous clip the
+   gate never closes, so when a key is released the 0.5 s tail runs out with the spurt still open; the next
+   press sends the end marker alone, and its first active chunk opens from the ENDED state, a new spurt with
+   no pre-roll that starts at that chunk. So every recording after the first of a run is expected to be case
+   (c), and the first to be (a) or (b).
 3. **Forward.** From each candidate start: cut the clip into 480-sample frames, the last padded with zeros;
    encode with the `steam` profile's encoder, a fresh state per spurt (libopus 1.1.5, 24000 Hz, VOIP, 32000
    bit/s, signal voice, DTX on, complexity 9); decode with the 16-bit decoder, a fresh state per spurt; lay the
