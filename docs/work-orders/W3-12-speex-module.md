@@ -161,9 +161,11 @@ There is nothing private to run.
   figures are the planner's estimate and were not tried: **if the check fails on a build that passes
   everything else, report both figures and stop**, do not tune the band or the bound); **nothing is shifted**: a train of pulses 200 a second (one sample of
   0.5 every 55.125 samples at 11025 Hz, rounded) comes out with its strongest autocorrelation lag between 4.9
-  and 5.1 ms; a loud source gives wrapped samples in the render (the suite's speech-like signal at the level part a
-  used wraps 2,106 samples at the decoder: the render's count at the decoder's output, through a hook, is
-  that); **the reset**: with the gate on and two bursts, the second spurt's decoded frames equal a decode that
+  and 5.1 ms; a loud source gives wrapped samples in the render: at least one, counted at the decoder's output
+  through a hook, and the count goes in the report. (Part a's 2,106 comes out only when the source is part
+  a's own 16-bit samples at 11025 Hz, each divided by 32768, with the microphone gain at 1 and no high-pass
+  or low-pass, so that nothing but the new rounding stands before the codec: add that case too, with 2,106
+  as its expected count, if the suite can make the signal the same way.) **the reset**: with the gate on and two bursts, the second spurt's decoded frames equal a decode that
   called `reset()` between them and differ, in at least one of its first three frames, from a decode with a
   new codec; the delay: a voice-band source comes out aligned within one sample at 11025 Hz; `createRender` equals
   `process()`.
