@@ -104,6 +104,32 @@ console.log('\n[1] receiverAutoGain, streamAutoGain and createGain against a lit
     && reach.fixedAt.some((f, i) => i > 0 && f > reach.fixedAt[i - 1]) && reach.fixedAt.some((f, i) => i > 0 && f < reach.fixedAt[i - 1]));
 }
 
+/* ---------------- 1b. the 32-bit floats ---------------- */
+
+console.log('\n[1b] The 32-bit floats: cases where a rounding to 32 bits changes the output');
+{
+  // Found by a search (none of section 1's settings reaches them: their
+  // values are exact in 32 bits). Two blocks with a given integer mean and
+  // peak, then a probe block of 1000s that shows the gain they left. Each
+  // case changes when its one rounding is done in doubles instead. The
+  // rounding of the difference next - current and of the step before its
+  // truncation changed nothing in 3 x 10^7 cases searched; they are in the
+  // transcription as the box writes them.
+  const probe = block(1000);
+  const meanPeak = (M, P) => { const rest = 128 * M - P, q = Math.floor(rest / 127), r = rest - 127 * q; return [P, ...Array.from({ length: 127 }, (_, i) => q + (i < r ? 1 : 0))]; };
+  const flat = (v) => block(v);
+  for (const [name, b0, b1, o, at, f32, doubles] of [
+    ['current = f32(next x scale)', meanPeak(1181, 8337), meanPeak(10893, 16183), { avgGain: 0.7, scale: 0.7 }, 256, 2593, 2585],
+    ['den = f32(mean + (peak - mean) x avggain)', meanPeak(6471, 14913), meanPeak(10742, 22570), { avgGain: 0.7, scale: 0.7 }, 256, 1296, 1289],
+    ['next = f32(t x scale)', meanPeak(2652, 15084), meanPeak(13378, 26915), { avgGain: 0.7, scale: 0.7 }, 256, 1406, 1414],
+    ['t = f32(32767 / den)', flat(25547), flat(3485), { avgGain: 0.5, scale: 0.7 }, 383, 5585, 6578]
+  ]) {
+    const xs = blocks(b0, b1, probe), settings = { maxGain: 10, ...o };
+    const want = engineGain(xs, settings).out, got = toInts(A.receiverAutoGain(toFloat(xs), settings));
+    check(`${name}: sample ${at} is ${f32} (in doubles ${doubles})`, want[at] === f32 && differing(got, want) === 0, `${got[at]}`);
+  }
+}
+
 /* ---------------- 2. the details, with the order's numbers ---------------- */
 
 console.log('\n[2] Each detail of the rule, with the order\'s numbers');
@@ -140,6 +166,12 @@ console.log('\n[2] Each detail of the rule, with the order\'s numbers');
     held.subarray(256, 384).every(v => v === 20), `${held[256]}..${held[383]}`);
   const heldDecoded = run(zerosIn, { scale: 1, maxGain: 10, avgGain: 0.5 }, () => true);
   check('a decoded() that says every sample was decoded changes nothing', differing(heldDecoded, z) === 0);
+  // The block's first sample decides: a sent frame that starts inside a
+  // block of zeros leaves it held, and one that ends inside it does not.
+  const late = run(zerosIn, { scale: 1, maxGain: 10, avgGain: 0.5 }, (i) => !(i >= 128 && i < 200));
+  const early = run(zerosIn, { scale: 1, maxGain: 10, avgGain: 0.5 }, (i) => !(i >= 200 && i < 256));
+  check('a block of zeros is held when its first sample was not decoded, and run when it was',
+    late.subarray(256, 384).every(v => v === 20) && differing(early, z) === 0, `${late[256]}..${late[383]}; ${early[256]}..${early[383]}`);
   // Only an all-zero block is held: one sample of 1 in a block not decoded runs the rule.
   const notAllZero = run(blocks(block(16384), [1, ...block(0, 127)], block(10)), { scale: 1, maxGain: 10, avgGain: 0.5 }, (i) => !(i >= 128 && i < 256));
   check('a block not decoded but not all zeros is run by the rule', notAllZero[256] !== 20, `${notAllZero[256]}`);
@@ -263,6 +295,41 @@ console.log('\n[4] The gate\'s silences: process(), the Steam profile');
     !decoded(last * 128) && !decoded(first * 128) && peakOf(last) < 100 && peakOf(first) < 100 && t.fixedAt[first + 1] === cap * 128,
     `peaks ${peakOf(last)} and ${peakOf(first)}; the tail's ringing block starts at ${t.fixedAt[last]}, the next at ${t.fixedAt[last + 1]}`
     + ` and ramps to ${start}; then ${t.fixedAt[first + 1]}`);
+}
+
+/* ---------------- 5. the live chain ---------------- */
+
+console.log('\n[5] The live chain: frames not sent hold the gain');
+{
+  // Push-to-talk with the key up sends nothing, so the gain must not run on
+  // those frames. celt_44 with the codec bypassed: the codec and voice
+  // rates are the device's (44.1 kHz) and frames are 256 samples (two
+  // blocks), so the gap's zeros meet the gain on block edges with no
+  // resampler ringing. At voice_scale 0.5 a steady tone's gain saws from
+  // s^2 x T up to s x T in each block. Held, the first block after the gap
+  // is flat at where the last ramp ended (s x T); run as decoded zeros, the
+  // gap would leave it ramping from s^2 x cap toward s x cap.
+  const rate = 44100, chain = await A.createLiveChain({ codec: 'celt_44', enableWarble: false, voiceScale: 0.5, avgGain: 1, maxGain: 10, volume: 0.5 }, rate);
+  const tone = (n, from) => Float32Array.from({ length: n }, (_, i) => 0.14 * Math.sin(2 * Math.PI * 441 * (from + i) / rate));
+  const parts = [];
+  let t = 0;
+  for (const [talking, frames] of [[true, 80], [false, 40], [true, 40]]) {
+    chain.setTalking(talking);
+    for (let k = 0; k < frames; k++, t += 256) parts.push(await chain.process(tone(256, t)));
+  }
+  const y = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+  parts.reduce((o, p) => { y.set(p, o); return o + p.length; }, 0);
+  let gapStart = 70 * 256;
+  while (y[gapStart] !== 0) gapStart++;
+  let after = gapStart;
+  while (y[after] === 0) after++;
+  const peak = (from, to) => { let p = 0; for (let i = from; i < to; i++) p = Math.max(p, Math.abs(y[i])); return p; };
+  // 441 Hz has a whole period in 100 samples: the first and last 100 of the block.
+  const startPeak = peak(after, after + 100), endPeak = peak(after + 28, after + 128), before = peak(gapStart - 100, gapStart);
+  check('after a key-up gap the first block is flat at the gain the last block\'s ramp reached',
+    after - gapStart > 30 * 256 && Math.abs(endPeak / startPeak - 1) < 0.02 && Math.abs(startPeak / before - 1) < 0.05,
+    `gap ${after - gapStart} samples; peaks ${before.toFixed(4)} before it, ${startPeak.toFixed(4)} and ${endPeak.toFixed(4)} after`);
+  chain.free();
 }
 
 console.log(`\n${passed} gain checks passed, ${failed} failed`);
