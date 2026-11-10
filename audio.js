@@ -917,7 +917,7 @@
     else if (enableCodec) {
       const opus = await loadOpusModule();
       const bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
-      // The codec's own frame length: 20 ms for Opus, frameSize for CELT.
+      // The codec's own frame length: 20 ms for Opus, frameSize for CELT and Speex.
       const codecFrameMs = codec.frameSize ? 1000 * codec.frameSize / codecRate : frameMs;
       const common = {
         gate: gateOn ? { thresholdDb: gateDb, prerollFrames: Math.round(gateSpec.prerollMs / codecFrameMs),
@@ -930,7 +930,7 @@
         ? await opus.celtRoundTrip(samples, codecRate, { ...common, frameSize: codec.frameSize, complexity: codec.complexity,
           packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)), ...celtModeRate(codec) })
         : codec.engine === 'speex'
-        ? await opus.speexRoundTrip(samples, codecRate, { ...common, bitrate: codec.bitrate * bits / 16 })
+        ? await opus.speexRoundTrip(samples, codecRate, common)
         : await opus.roundTrip(samples, codecRate, bitrate, { ...common,
           application: codec.application, signal: codec.signal,
           runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
@@ -1247,12 +1247,12 @@
         ? await opus.createCeltStream(codecRate, { frameSize: codec.frameSize, complexity: codec.complexity,
           packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)), ...celtModeRate(codec) })
         : codec.engine === 'speex'
-        ? await opus.createSpeexStream(codecRate, { bitrate: codec.bitrate * bits / 16 })
+        ? await opus.createSpeexStream(codecRate)
         : await opus.createVoiceStream(codecRate, Math.max(6000, Math.round(codec.bitrate * bits / 16)), {
           application: codec.application, signal: codec.signal,
           runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
     }
-    // 20 ms for Opus; CELT profiles have their own frame (23.2 ms for vaudio_celt).
+    // 20 ms for Opus; CELT and Speex have their own frame (23.2 ms for vaudio_celt, 14.51 ms for vaudio_speex).
     const frameSize = codec.frameSize || codecRate / 50, frameSeconds = frameSize / codecRate;
     const threshold = 10 ** (gateDb / 20);
     // opts.lowLatency (live only, not how TF2 behaves): no pre-roll, so the
@@ -1350,7 +1350,7 @@
     }
 
     return { process, stats, contentDelay, codecRate, frameSize, frameSeconds, version: voice ? voice.version : null,
-      // Speex reports the bitrate of the quality it runs at.
+      // Speex reports its own bitrate (11025 bit/s), whatever snd_bits says.
       bitrate: voice?.bitrate ?? Math.max(6000, Math.round(codec.bitrate * bits / 16)), vbr: !!codec.encoder?.vbr, dtx: !!codec.encoder?.dtx,
       gateDb: gateOn ? gateDb : null, autoGain, voiceRate: codec.voiceRate, realOpus: !!voice,
       setTalking(on) { talking = !!on; stats.talking = talking; },
@@ -1671,7 +1671,7 @@
         voice = await opus.createCeltStream(codecRate, { frameSize: codec.frameSize, complexity: codec.complexity, packetBytes, ...celtModeRate(codec) });
       } else if (codec.engine === 'speex') {
         kind = 'speex';
-        voice = await opus.createSpeexStream(codecRate, { bitrate: codec.bitrate * bits / 16 });
+        voice = await opus.createSpeexStream(codecRate);
       } else {
         kind = 'opus';
         voice = await opus.createVoiceStream(codecRate, bitrate, { application: codec.application, signal: codec.signal,
@@ -1802,12 +1802,14 @@
         encodedBytes, modes, plc: 'celt', frameLog, frameBytes };
     }
     if (kind === 'speex') {
-      return { backend: 'speex', version: voice.version, runtime: 'speex-1.2.1', sampleRate,
+      // The game's Speex 1.0.2 module on 11025 Hz sound; a lost frame plays as
+      // zeros; wrappedSamples counts decoded samples that wrapped past full scale.
+      return { backend: 'speex', version: voice.version, runtime: 'speex-1.0.2', sampleRate,
         bitrate: voice.bitrate, quality: voice.quality, application: 'speex', signal: 'auto', complexity: voice.complexity,
         vbr: false, dtx: false, enhancement: voice.enhancement, frameSamples: size, frameMs: 1000 * size / sampleRate,
-        packetBytes: Math.ceil(voice.bitrate * size / sampleRate / 8),
+        packetBytes: voice.packetBytes,
         lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts, ...gateInfo,
-        encodedBytes, modes, plc: 'speex', frameLog, frameBytes };
+        encodedBytes, modes, plc: 'zeros', wrappedSamples: voice.wrapped, frameLog, frameBytes };
     }
     // Opus, with the defaults roundTrip and its encoder settings give.
     return { backend: 'libopus', version: voice.version, runtime: codec.encoder?.runtime ?? '1.6.1', sampleRate, bitrate,

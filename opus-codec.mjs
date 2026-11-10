@@ -2,7 +2,8 @@
 // Two pinned libopus builds: 1.1.5, the release Steam's voice packets match
 // (tests/REFERENCE_2026.md), and 1.6.1 from libopus-wasm for a video's audio
 // track and as roundTrip's default. Source's engine codecs run their own
-// libraries: CELT 0.11 (the game's build, pitch filter in) and Speex 1.2.1.
+// libraries: CELT 0.11 (the game's build, pitch filter in) and Speex 1.0.2
+// (the game's vaudio_speex module, on 11025 Hz sound).
 const RUNTIMES = {
   '1.6.1': () => import('./vendor/libopus/index.mjs'),
   '1.1.5': () => import('./vendor/libopus-1.1/index.mjs')
@@ -10,7 +11,7 @@ const RUNTIMES = {
 const loaded = new Map();
 let celtModule = null, speexModule = null;
 const loadCelt = () => (celtModule ??= import('./vendor/celt-0.11/index.mjs'));
-const loadSpeex = () => (speexModule ??= import('./vendor/speex/index.mjs'));
+const loadSpeex = () => (speexModule ??= import('./vendor/speex-1.0.2/index.mjs'));
 function runtime(version) {
   if (!(version in RUNTIMES)) throw new RangeError(`Unknown libopus runtime "${version}"`);
   if (!loaded.has(version)) loaded.set(version, RUNTIMES[version]());
@@ -264,21 +265,94 @@ export async function createCeltStream(sampleRate, options = {}) {
   };
 }
 
-// Source's vaudio_speex: Speex 1.2.1 narrowband at 8 kHz, one 160-sample
-// (20 ms) frame per packet at constant bitrate. options.quality (0-10), or
-// else the quality whose bitrate is nearest options.bitrate; quality 4, the
-// 8 kbps mode, by default.
-async function openSpeex(sampleRate, options) {
-  const speex = await loadSpeex();
-  if (sampleRate !== speex.sampleRate) throw new RangeError(`Speex narrowband runs at ${speex.sampleRate} Hz, not ${sampleRate}`);
-  const quality = options.quality ?? (options.bitrate != null ? await speex.qualityForBitrate(options.bitrate) : 4);
-  return speex.createCodec(quality);
+// Source's vaudio_speex as the game's module runs it (docs/reports/
+// W3-09-steam-voice.md, section 5; vendor/speex-1.0.2, W3-12a): Speex 1.0.2
+// narrowband at quality 4 (the engine's 3), one 160-sample frame in 20 bytes,
+// constant bit rate, enhancement on, complexity the library's default (2).
+// The module does not resample: the codec, which believes it runs at 8000 Hz,
+// is fed the engine's 11025 Hz sound, so a frame lasts 14.51 ms, 20 bytes a
+// frame is 11.025 kbit/s and the band reaches 5.5 kHz. snd_bits picks nothing
+// (the module has one table row for the engine's argument).
+export const SPEEX_RATE = 11025;
+// The encode and decode pair's delay, trimmed as roundTrip trims libopus's:
+// 80 samples (7.26 ms at 11025 Hz), the encoder's 240-sample window less the
+// frame. 1.0.2 has no look-ahead request; measured in W3-12a and pinned by
+// tests/speex102.verify.mjs.
+const SPEEX_DELAY = 80;
+
+// Where the float sound becomes 16 bits for this codec: here, at the call to
+// the module's encode, for every caller, and nowhere earlier. x * 32768
+// rounded to nearest with ties to even, then clamped to -32768..32767 (the
+// game's capture is 16-bit). On the way out the module's own conversion
+// stands: the decoder's floats truncated toward zero to 16 bits with no clamp,
+// so a value past full scale wraps to the other end; those samples go on as
+// q / 32768.
+export function speexInput(frame) {
+  const out = new Int16Array(frame.length);
+  for (let i = 0; i < frame.length; i++) {
+    const v = frame[i] * 32768, r = Math.round(v);
+    const even = r - v === 0.5 && (r & 1) ? r - 1 : r;
+    out[i] = Math.max(-32768, Math.min(32767, even));
+  }
+  return out;
 }
 
-// The same gate, loss and delay handling as roundTrip. Coded frames are
-// logged as FRAME.speex, and counted in modes.speex.
+// How many decoded samples wrapped: the float is past full scale and its
+// 16-bit sample is on the other side of zero.
+export function countWrapped(floats, samples) {
+  let n = 0;
+  for (let i = 0; i < floats.length; i++) {
+    if ((floats[i] >= 32768 && samples[i] < 0) || (floats[i] <= -32769 && samples[i] >= 0)) n++;
+  }
+  return n;
+}
+
+// The codec and its frame wrapper, as the module holds them. reset() is a new
+// talk spurt: the module's ResetState (request 26 on the encoder and the
+// decoder), never a new codec. In 1.0.2 that reset is partial on the decoder
+// (W3-12a, "For part b"), so a new codec would give other sound for the first
+// frames of a spurt. The wrapper has no reset; what it kept was already sent,
+// padded, so each spurt gets a new one on the same codec. A lost frame plays
+// as zeros: the module has no concealment, and what the engine plays for a
+// lost Speex packet was not read (decided 2026-11-10); the decoder is not
+// called for it. `wrapped` counts the decoded samples that wrapped to the
+// other side of zero.
+async function openSpeex(sampleRate) {
+  if (sampleRate !== SPEEX_RATE) throw new RangeError(`vaudio_speex runs on ${SPEEX_RATE} Hz sound, not ${sampleRate}`);
+  const speex = await loadSpeex();
+  const codec = await speex.createCodec();
+  let wrapped = 0;
+  const counted = {
+    encode: (samples) => codec.encode(samples),
+    decode(bytes) {
+      const floats = codec.decodeFloats(bytes), samples = speex.toInt16(floats);
+      wrapped += countWrapped(floats, samples);
+      return samples;
+    }
+  };
+  let framer = speex.createFramer(counted);
+  return {
+    frameSize: speex.frameSize, packetBytes: speex.packetBytes, version: speex.version, lookahead: SPEEX_DELAY,
+    quality: 4, bitrate: Math.round(speex.packetBytes * 8 * SPEEX_RATE / speex.frameSize),
+    // Requests 17 (complexity) and 1 (enhancement), read back from the codec.
+    complexity: codec.encoderCtl(17), enhancement: codec.decoderCtl(1) === 1,
+    get wrapped() { return wrapped; },
+    reset() { codec.reset(); framer = speex.createFramer(counted); },
+    encode(frame) {
+      const packet = framer.compress(speexInput(frame));
+      if (packet.length !== speex.packetBytes) throw new Error(`Expected one ${speex.packetBytes}-byte Speex frame, not ${packet.length} bytes`);
+      return packet;
+    },
+    decode(packet) { return Float32Array.from(framer.decompress(packet), q => q / 32768); },
+    lost() { return new Float32Array(speex.frameSize); },
+    free() { codec.free(); }
+  };
+}
+
+// The same gate, loss and delay handling as roundTrip, on 11025 Hz sound.
+// Coded frames are logged as FRAME.speex, and counted in modes.speex.
 export async function speexRoundTrip(samples, sampleRate, options = {}) {
-  const codec = await openSpeex(sampleRate, options);
+  const codec = await openSpeex(sampleRate);
   try {
     const { frameSize, lookahead } = codec;
     const frames = Math.ceil((samples.length + lookahead) / frameSize);
@@ -295,7 +369,7 @@ export async function speexRoundTrip(samples, sampleRate, options = {}) {
     let encodedBytes = 0, lostFrames = 0, underrunFrames = 0, gatedFrames = 0, spurts = 0, coded = 0, open = false;
     for (let f = 0; f < frames; f++) {
       if (plan && !plan[f]) { gatedFrames++; open = false; continue; }
-      if (!open) { if (spurts > 0) codec.restart(); spurts++; open = true; }
+      if (!open) { if (spurts > 0) codec.reset(); spurts++; open = true; }
       input.fill(0);
       const start = f * frameSize;
       if (start < samples.length) input.set(samples.subarray(start, Math.min(samples.length, start + frameSize)));
@@ -309,7 +383,7 @@ export async function speexRoundTrip(samples, sampleRate, options = {}) {
       if (miss === 1) { lostFrames++; frameLog[f] = FRAME.lost; }
       else if (miss === 2) { underrunFrames++; frameLog[f] = FRAME.late; }
       if (miss !== 2) {
-        const decoded = miss === 1 ? codec.conceal() : codec.decode(packet);
+        const decoded = miss === 1 ? codec.lost() : codec.decode(packet);
         const destStart = start - lookahead;
         const begin = Math.max(0, -destStart), end = Math.min(frameSize, samples.length - destStart);
         if (end > begin) output.set(decoded.subarray(begin, end), destStart + begin);
@@ -320,31 +394,39 @@ export async function speexRoundTrip(samples, sampleRate, options = {}) {
       }
     }
     options.onProgress?.(1);
-    return { samples: output, info: { backend: 'speex', version: codec.version, runtime: 'speex-1.2.1', sampleRate,
-      bitrate: codec.bitrate, quality: codec.quality, application: 'speex', signal: 'auto', complexity: codec.complexity,
-      vbr: false, dtx: false, enhancement: codec.enhancement, frameSamples: frameSize, frameMs: 1000 * frameSize / sampleRate,
-      packetBytes: Math.ceil(codec.bitrate * frameSize / sampleRate / 8),
+    return { samples: output, info: { ...speexInfo(codec, sampleRate),
       lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts,
       gate: gate ? Number(options.gate.thresholdDb) : null,
       prerollFrames: gate ? gate.preroll : 0, holdFrames: gate ? gate.hold : 0,
-      encodedBytes, modes: { silk: 0, hybrid: 0, celt: 0, speex: coded }, plc: 'speex', frameLog, frameBytes } };
+      encodedBytes, modes: { silk: 0, hybrid: 0, celt: 0, speex: coded }, plc: 'zeros', wrappedSamples: codec.wrapped, frameLog, frameBytes } };
   } finally {
     codec.free();
   }
 }
 
+// The codec's settings as speexRoundTrip reports them (codecResultInfo in
+// audio.js gives the same for TF2Audio.createRender).
+function speexInfo(voice, sampleRate) {
+  return { backend: 'speex', version: voice.version, runtime: 'speex-1.0.2', sampleRate,
+    bitrate: voice.bitrate, quality: voice.quality, application: 'speex', signal: 'auto', complexity: voice.complexity,
+    vbr: false, dtx: false, enhancement: voice.enhancement, frameSamples: voice.frameSize, frameMs: 1000 * voice.frameSize / sampleRate,
+    packetBytes: voice.packetBytes };
+}
+
 // One Speex frame at a time with speexRoundTrip's settings, for the live
 // monitor and TF2Audio.createRender; the same interface as
-// createVoiceStream, with the settings speexRoundTrip reports.
-export async function createSpeexStream(sampleRate, options = {}) {
-  const codec = await openSpeex(sampleRate, options);
+// createVoiceStream. restart() is the codec's reset (above), not a new codec;
+// conceal() is a lost frame, zeros, with the decoder not called.
+export async function createSpeexStream(sampleRate) {
+  const codec = await openSpeex(sampleRate);
   return {
     frameSize: codec.frameSize, version: codec.version, lookahead: codec.lookahead, quality: codec.quality, bitrate: codec.bitrate,
-    complexity: codec.complexity, enhancement: codec.enhancement,
-    async restart() { codec.restart(); },
+    complexity: codec.complexity, enhancement: codec.enhancement, packetBytes: codec.packetBytes,
+    get wrapped() { return codec.wrapped; },
+    async restart() { codec.reset(); },
     encode(frame) { const packet = codec.encode(frame); return { bytes: packet.byteLength, mode: 'speex', dtx: false, packet }; },
     decode(packet) { return codec.decode(packet); },
-    conceal() { return codec.conceal(); },
+    conceal() { return codec.lost(); },
     free() { codec.free(); }
   };
 }

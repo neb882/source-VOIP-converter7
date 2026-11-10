@@ -311,19 +311,19 @@ async function main() {
   console.log('\n[5] Real codec modes per profile');
   {
     const src = musicLike(1, SR, 3);
-    const expect = { steam: ['hybrid', 32000], steam_48: ['hybrid', 64000], celt_22: ['celt', 22050], celt_44: ['celt', 22050], speex: ['speex', 8000] };
+    const expect = { steam: ['hybrid', 32000], steam_48: ['hybrid', 64000], celt_22: ['celt', 22050], celt_44: ['celt', 22050], speex: ['speex', 11025] };
     for (const [codec, [mode, bitrate]] of Object.entries(expect)) {
       const r = await TF2Audio.process(mkBuffer(src, SR), { codec });
       const m = r.codecInfo.modes;
       const total = Object.values(m).reduce((sum, n) => sum + n, 0);
       // The engine codecs run their own libraries in fixed-size packets: CELT
-      // 0.11, and Speex 1.2.1, whose frames have a mode of their own. The
+      // 0.11, and Speex 1.0.2, whose frames have a mode of their own. The
       // Steam profiles run the libopus release Steam's packets match.
       const engine = codec.startsWith('celt') ? 'celt' : codec === 'speex' ? 'speex' : 'libopus';
-      const name = { celt: 'CELT 0.11', speex: 'Speex 1.2.1', libopus: `libopus runs in ${mode} mode` }[engine];
+      const name = { celt: 'CELT 0.11', speex: 'Speex 1.0.2', libopus: `libopus runs in ${mode} mode` }[engine];
       check(`${codec}: ${name} at ${bitrate / 1000} kbps`,
         r.codecInfo.backend === engine && r.codecInfo.bitrate === bitrate && m[mode] / total > 0.8, JSON.stringify(m));
-      const release = { celt: 'CELT 0.11 (celt-0.11.0, pitch filter in)', speex: 'Speex 1.2.1', libopus: 'libopus 1.1.5' }[engine];
+      const release = { celt: 'CELT 0.11 (celt-0.11.0, pitch filter in)', speex: 'Speex 1.0.2', libopus: 'libopus 1.1.5' }[engine];
       check(`${codec}: encodes and decodes with ${release}`, r.codecInfo.version === release, r.codecInfo.version);
       // The game's module never sets the complexity, so the library's
       // default, 5, applies (W3-03); vaudio_celt_high's mode is the 44100 Hz
@@ -340,10 +340,10 @@ async function main() {
     }
     const wide = whiteNoise(1, SR, 0.15, 7);
     const sp = await TF2Audio.process(mkBuffer(wide, SR), { codec: 'speex', agc: false, volume: 1 });
-    // Narrowband codec: nothing between its 4 kHz edge and the mixer's
-    // linear-interpolation images, which start near 11025 - 4000 Hz.
-    const gap = bandDb(sp.samples, SR, 4500, 6000);
-    check('speex: Speex narrowband leaves nothing between its 4 kHz edge and the mixer\'s images', gap < -50, `${gap.toFixed(1)} dB rel`);
+    // The narrowband codec on 11025 Hz sound, not resampled to 8000 Hz: its
+    // band reaches 5.5 kHz (at 8000 Hz this band was empty, under -50 dB).
+    const top = bandDb(sp.samples, SR, 4500, 5000);
+    check('speex: Speex on 11.025 kHz sound keeps the band from 4.5 to 5 kHz', top > -15, `${top.toFixed(1)} dB rel`);
     const st = await TF2Audio.process(mkBuffer(wide, SR), { codec: 'steam', agc: false, volume: 1 });
     const stHi = bandRms(st.samples, SR, 'highpass', 4000) / rms(st.samples);
     check('steam keeps its 4-12 kHz band', db(stHi) > -8, `${db(stHi).toFixed(1)} dB rel`);
