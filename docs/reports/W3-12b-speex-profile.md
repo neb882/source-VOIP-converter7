@@ -232,3 +232,49 @@ renamed one new. CI on the code commit (`33e2766`) failed on exactly those golde
   42783280707 on `fb65ea8` and 42783537936 on `e7c7219` passed. The head's run is in the hand-back.
 - The diff and commit messages were scanned for recordings, personal details, machine paths and model names: none,
   the trailers aside.
+
+## The review's fix round
+
+The review (`tf-reviewer`) found no correctness defect and seven low findings. All are closed.
+
+1. **Packet lengths on the page.** The chain strip's Network step gave every packet as net_split's 20 ms steps. It now
+   computes them as frames per packet x the profile's frame length: 14.5 ms (29 ms at net_split 40) for Speex, 23.2
+   and 46.4 ms for CELT, 20 ms for Opus. The `net_split` help says a step of 20 is one codec frame and gives each
+   codec's frame length. The `net_fakeloss` help says a lost frame plays as zeros under vaudio_speex. CELT had had
+   the same fault since W3-06.
+2. **Stale words.**
+   - `app/visualizer.js`: the Speex legend says it reaches 5.5 kHz on 11.025 kHz sound. The lost-frame legend says
+     the decoder conceals the gap, or zeros play under vaudio_speex.
+   - `README.md`'s codec lane line gives each codec's frame length and "lost (concealed, or zeros under Speex)".
+   - The comments in `tests/speex102.verify.mjs` and `tests/speex102/build.mjs` no longer name removed files.
+   - `tests/REFERENCE_2026.md`'s Model row is left to the orchestrator.
+3. **The net graph** (`app/netgraph.js`, one line) gives vaudio_speex's packet rate as the engine sends packets: the
+   lesser of the frame rate and one per 15 ms tick. That is 67 a second where its frames run at 69. Bytes a second
+   are unchanged.
+4. **Test gaps.**
+   - The loud-source `createRender` check now runs at `snd_bits` 4. It holds `createRender`'s whole codecInfo to
+     `process()`'s, so a bitrate scaled by `snd_bits` fails it (the review's mutation ME).
+   - The wrap count is an exported function, `countWrapped`, used by the codec. A check runs it on made-up decoder
+     floats through the module's `toInt16`: 32767.9, 32768, 32768.5, -32768.5, -32769, -32769.5, 1000 and -1000 give
+     4. Moving either edge by one fails it (mutation MA and its mirror).
+5. **A Speex source below the codec's rate** is back among the golden cases, as `speex, source at 8 kHz`, a new case
+   on the new profile, recorded in its own commit (`4e1c526`). `createRender` equals `process()` on it. No other hash
+   moved: 48 cases, 47 as before.
+6. **The kept 1.2.1 hash**'s comment says how to reproduce it: `vendor/speex` from main at `b492111`,
+   `createCodec(4)`, part a's speech-like signal in 160-sample frames, each 16-bit sample / 32768 as a float.
+7. **Loss under Speex** in `tests/LEGACY_CODECS.md`: a lost frame is a gap of zeros. Because the module never decodes
+   without bytes (read), the decoder's state is a frame stale afterwards, and the sound is rougher for about half a
+   second. The review's figures were reproduced here with its script: after a single lost frame, 4.1 dB against the
+   source over the next 8 frames (18.1 dB clean), and 8.2 dB over frames 8 to 40 (17.3 dB clean). What the game's
+   listener hears after a loss under this codec was not measured: no recording of it can exist.
+
+| Break (fix round) | What failed |
+| --- | --- |
+| N1 the chain strip back to 20 ms steps | browser: "the chain strip gives a speex packet as net_split's whole 14.51 ms frames" `[Network20 ms packets … / Network40 ms packets …]` |
+| N1b the same for the CELT profiles only | browser: "the chain strip gives a CELT packet as one frame of the profile: 23.2 and 46.4 ms" `[Network20 ms packets … / Network20 ms packets …]` |
+| N2 net_graph without the Speex packet rate | browser: "net_graph gives the engine's speex packet rate, one per 15 ms tick" `[69 1.35]` |
+| N3 (ME) `codecResultInfo`'s Speex bitrate scaled by `snd_bits` | speex102: "createRender at snd_bits 4 gives that render too …" `[codecInfo differs: bitrate]` |
+| N4 (MA) the wrap count at `> 32768` | speex102: "the count takes a float of 32768 or more, or -32769 or less …" `[3 of … (4 expected)]` |
+| N5 the wrap count at `< -32769` | the same `[3 of … (4 expected)]` |
+
+Runs after the fix round are in the hand-back.
