@@ -205,7 +205,10 @@ Where the order or the reports could be read more than one way. Where the report
 - The synthetic "negative width and depth in templates" is in `lines.json`'s `synthetic` section with the model's
   built `p`; `reference.out`'s `built:` line is checked against it.
 - `lines.py` is yours to extend: it imports `dspmodel` and `reference` without changing them, and writes no
-  `__pycache__`.
+  `__pycache__`. The order's amendment after W3-18 (on `main` since this branch started; it leaves part a
+  unchanged) adds the two measured cases `set_c_room` and `set_d_street`: their measures can go into `lines.py`
+  beside `reference.CASES` to get the model's built parameters and integers the same way, and their hashes and
+  tail lengths are the order's (item 5 of part b).
 
 ## For part c's builder
 
