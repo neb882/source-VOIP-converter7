@@ -127,8 +127,8 @@ There is nothing private to run.
   `codecInfo` says 11025, 14.51 ms, 20 bytes, Speex 1.0.2; **the band** (a codec at 8 kbit/s does not hold a pure
   tone, so the test is on noise): seeded white noise at -20 dBFS, the gain off, the render's level in the band
   4.3 to 4.9 kHz is within 8 dB of its level from 0.7 to 2.7 kHz (the codec sees that band at 3.1 to 3.6 kHz,
-  inside its own), where main's profile is at least 15 dB down there (give both figures in the report), and
-  5.6 to 6.5 kHz is at least 30 dB down; **nothing is shifted**: a train of pulses 200 a second (one sample of
+  inside its own), where main's profile is at least 15 dB down there (give both figures in the report; measure on the
+  11025 Hz voice signal or on a render at 11025 Hz, so that the mixer's images are not in the band); **nothing is shifted**: a train of pulses 200 a second (one sample of
   0.5 every 55.125 samples at 11025 Hz, rounded) comes out with its strongest autocorrelation lag between 4.9
   and 5.1 ms; a loud source gives wrapped samples in the render; `createRender` equals
   `process()`.

@@ -10,6 +10,13 @@ offline render (W3-11). W3-02c now starts after W3-11 and W3-13 and takes its pa
 decoded packets go through W3-13's resampler. **W3-02a is not changed in any way.** The reasons and the order
 of work are in `docs/reports/W3-11-plan.md`.
 
+*Revision 3a, 2026-11-10, after the plan's review (`docs/reports/W3-11-plan.md`, "The review", findings 17 and
+22 to 25):* the game's timeline is for the `steam` profile only (`steam_48` is not the game's path and keeps
+the source's); the sender takes `gate: false` (every chunk counts as active) so that the gate switch does not
+change the receiver's path; the three counting rules behind the statistics table are stated; W3-02c's spec 2
+and W3-02g's resampling sentence are rewritten in place; what may run beside what is corrected. W3-02a is
+still unchanged.
+
 *Revision 2, 2026-11-10, after the plan's review by a builder (the findings and what was done about each are in
 `docs/reports/W3-02-plan.md`, "The review").* Seven orders, each leaving main working:
 
@@ -17,16 +24,18 @@ of work are in `docs/reports/W3-11-plan.md`.
 | --- | --- | --- | --- |
 | **W3-02a** | the channel as a pure module, and the log replay | now (new files only) | 1 day |
 | **W3-02b** | the sender (`steam-sender.js`) and the timeline stage; `retiming.mjs --engine` | W3-02a | 1 day |
-| **W3-02c** | the render and the stream run it behind an option | W2-02, W3-05, W3-06, W3-02b, W3-11, W3-13 | 1 day |
+| **W3-02c** | the render and the stream run it behind an option | W2-02, W3-05, W3-06, W3-02b, W3-13, W3-11a, W3-11b | 1 day |
 | **W3-02d** | the page: controls, the default, the words | W3-02c | 1 day |
 | **W3-02e** | the page: the codec lane's marks and the real-take check | W3-02d | half a day |
 | **W3-02f** | the flat rule retired | W3-02d | 2 hours |
 | **W3-02g** | a demo's own packets | W3-02c, W3-06, W3-02f | half a day |
 
-W3-02a and W3-02b touch no file another order touches (one line of `package.json` aside), so they run beside
-anything. W3-02c, W3-02f, W3-02g, W3-05, W3-06, W3-11, W3-12b and W3-10 all change `audio.js` and run one at a
-time (the order is in `docs/reports/W3-11-plan.md`). W3-02d and W3-02e change the page and run one after the
-other; either may run beside W3-02g or another `audio.js` order, except that W3-02f waits for W3-02d to merge.
+W3-02a and W3-02b touch no file another order touches (the `test` line of `package.json` aside, which W3-13
+and W3-12a also touch: a trivial merge), so they run beside anything. W3-02c, W3-02f, W3-02g, W3-05, W3-06,
+W3-11a, W3-11b, W3-12b and W3-10 all change `audio.js` and run one at a time (the order is in
+`docs/reports/W3-11-plan.md`). **W3-02d runs alone**: it shares page files with W3-11b before it and
+`app/source.js` with W3-02g after it. W3-02e may run beside W3-02f or W3-02g (no file in common). W3-02f waits
+for W3-02d to merge. W3-10 runs beside nothing (it touches `app/`, `batch.js`, `sw.js` and the tests).
 
 **Agents:** `tf-builder`, then `tf-reviewer`; W3-02c's diff also gets a second reader on the stronger model (it
 changes how a render is computed). Each may push its branch to run CI. Worktrees are given in the briefs.
@@ -54,7 +63,9 @@ being the queue in bytes (two per sample). A free channel prints nothing. Lines 
 
 ## The model (all orders)
 
-Everything below is for the Steam profiles (`steam`, `steam_48`: voice rate 44100 Hz, the mixer's rate). The engine
+Everything below is for the Steam profiles (`steam`, `steam_48`: voice rate 44100 Hz, the mixer's rate).
+*(Revision 3a: the channel is as written for any 44100 Hz voice; the sender, and so a render on the game's
+timeline, is for `steam` only. `steam_48` is an experimental 48 kHz profile, not the game's path.)* The engine
 codecs keep the source's timeline until a queue log under `vaudio_celt` exists (their sender is the engine's own
 recorder, and their ring is 1 s or 2 s).
 
@@ -215,6 +226,14 @@ encode(pcm, final):
     if final: the message carries the end marker; the codec is reset; the next spurt numbers from 0
 ```
 
+A frame whose chunk is empty does nothing at all, whatever the state (in Steam an empty read in the hanging
+state after the hold would send the end marker alone; it happens in under three frames in a thousand and is
+left out). **With the gate off** (`gate: false`) every chunk that is not empty counts as active: the sound is
+one spurt from the first chunk (with its 2400 zeros in front), and at the end of the source `finish()` pads
+what is kept to a frame and sends it with the end marker, with no hold and no silence record. So the gate
+switch changes which chunks are sent and nothing after them: the messages, the decoder and the receiver are
+the same path either way.
+
 The state starts SILENT with `past` empty. A spurt's frames therefore sit on a grid of their own: frame `f` of a
 spurt is samples `start + 480 f` to `start + 480 f + 479`, where `start` is the onset chunk's first sample less
 the pre-roll it was given (2400, or fewer straight after a spurt, or 0 from ENDED; a `start` before sample 0
@@ -250,13 +269,27 @@ from sample 24000 to 215999 and 0 elsewhere, beside the logs:
 
 | What | The model | Set G and the demo |
 | --- | --- | --- |
-| Chunks of 750, 1500, 2250 samples (first 259 chunks of each clock) | 0.228, 0.755, 0.017 (and 0.001 empty) | 0.235, 0.745, 0.02 |
-| Frames in a message after the opening: 1, 2, 3, 4, 5 | 0.080, 0.148, 0.684, 0.076, 0.011 | 0.10, 0.14, 0.65, 0.11 |
+| Chunks of 750, 1500, 2250 samples (rule 1) | 0.228, 0.755, 0.017 (and 0.001 empty) | 0.235, 0.745, 0.02 |
+| Frames in a message after the opening: 1, 2, 3, 4, 5 (rule 2) | 0.080, 0.148, 0.684, 0.076, 0.011 | 0.10, 0.14, 0.65, 0.11 |
 | Game ticks between messages: 2, 3, 4, 5, 6 | 0.021, 0.359, 0.500, 0.111, 0.008 | 3, 4, 5 in 0.41, 0.49, 0.10; none under 3 |
 | Opening of 8, 6, 9 frames (this signal's onset sits on the grid) | 0.943, 0.037, 0.020 | 8 in 17 of 20 and 17 of 23 |
-| The final chunk is the 7th, 8th after the last active one | 0.058, 0.943 | 9 and 9 of 18 |
+| The final chunk is the 7th, 8th after the last active one (rule 3) | 0.058, 0.943 | 9 and 9 of 18 |
 | Silence record of 750, 1500, 2250 samples | 0.233, 0.750, 0.018 | 750 in 8 of 47, 1500 in 39 |
 | Messages a second | 17.88 | 17.8, 18.0 |
+
+**How the table counts** (the review found the first, second and fifth rows reproduce only under these rules):
+
+1. Chunks: take 260 values of each clock; count the chunks of frames 1 to 259, leaving out frame 0's (which
+   runs from sample 0). Counting frame 0's as well gives 0.229, 0.752, 0.017 and 0.003 empty.
+2. Frames in a message: sound messages after a spurt's first, **not counting the one that carries the end
+   marker** (its last frame is padded). Counting it gives 4 frames at 0.081.
+3. The final chunk: counted in the clock's frames from the frame that read the last active chunk to the frame
+   that read the final one, **a frame that gained no samples included**. Counting only chunks that are not
+   empty gives 0.0625 and 0.935, and 0.0025 on the 6th.
+
+The other rows: ticks between one message and the next, the silence record included; the opening is each
+run's first message; messages a second is all messages but the last two over the ticks from the first to the
+last sound message.
 
 **Where the model is known to be off.** A steady 55.85 ms clock puts the 7th chunk at 391 ms, under the hold, so
 the model ends a spurt on the 8th chunk nearly always; the demo has the 7th as often as the 8th. The model's
@@ -404,8 +437,9 @@ service-worker file loads `steam-sender.js` yet (W3-11 does that).
    `root.TF2SteamSender` elsewhere; no imports). It exports `STEAM_SENDER`, `createClock` and `createSender`. It
    is "The sender's packets" above and nothing else.
 2. **`createClock({ seed })`** returns `{ next() }`, each call giving the next `n[i]`. **`createSender({ seed,
-   clock })`**: `clock` is optional and replaces the seeded one (an object with `next()`; the tests pass fixed
-   lists). `push(samples)` takes an `Int16Array` of 24 kHz sound (any length, any number of calls) and returns the
+   clock, gate, meanMin })`**: `clock` is optional and replaces the seeded one (an object with `next()`; the
+   tests pass fixed lists); `gate: false` is the gate off, as above (the default is on); `meanMin` replaces
+   327.67 (the page's threshold control, W3-11b; the peak rule does not move). `push(samples)` takes an `Int16Array` of 24 kHz sound (any length, any number of calls) and returns the
    messages that became known, in order; `finish()` returns the rest (frames go on over zeros until the state is
    SILENT). A message is `{ tick, spurt, first, last, start, end: true or false }` (`first`, `last`: frame
    numbers through the whole render; `start`: the source sample index of frame `first`'s first sample, which may
@@ -458,6 +492,9 @@ service-worker file loads `steam-sender.js` yet (W3-11 does that).
   - **The hold**, with the hand clock: sound that stops at the end of chunk `c` ends on chunk `c + 7` (7 x 62.5
     ms is over 0.4 s), with the last frame padded; with `n[i] = 3 (i + 1)` (every 46.875 ms) on chunk `c + 9`. A
     burst of sound in chunk `c + 5` keeps the spurt going with no end marker.
+  - **The gate off:** on the reference signal with the hand clock every chunk is sent, there is one spurt with
+    `start` -2400, no silence record, and `finish()` returns a last message with the end marker whose last
+    frame is padded; the spurt's frames times 480 cover the source and at most 479 zeros more.
   - **Every sample once:** over seeds 1 to 50 on seeded noise bursts, the frames of a spurt are contiguous from
     `start`, no source sample inside a spurt is in two frames, and `kept` never reaches 480.
 - `node tests/voice-channel.verify.mjs` gains the timeline's checks (messages from the sender on a signal of
@@ -497,20 +534,9 @@ service-worker file loads `steam-sender.js` yet (W3-11 does that).
 
 ## W3-02c: the render and the stream run the channel, behind an option
 
-**Branch:** `claude/w3-02c-timeline-option`, from `main` **after W2-02, W3-05, W3-06, W3-02b, W3-13 and W3-11
-have merged** (W3-05 leaves the gain as an object with `reset()`; W3-11 leaves the Steam render making Steam's
-messages and resampling each as a packet). **Time budget:** 1 day.
-
-**Revision 3: what replaces spec 2's frames.** Since W3-11 the Steam render already has, for every message of
-the sender, its game tick, its decoded frames and their 44.1 kHz samples from W3-13's resampler (one call per
-message, the silence record's zeros included). Under `'game'` those packets, as they are, go to
-`createTimeline.push({ tick, pcm, source })` in the sender's order, and `advance(tick)` is called as the source
-runs on; nothing is cut into 882-sample frames, and spec 2's frame cutting does not apply. The gain object is
-handed over as written. Wherever this order says "the codec's frame" for the re-timed logs (spec 4), a slot's
-code and size are those of the sender's frame that holds `info.source[i]`, or 0. In the checks, "17.85 packets
-a second" reads 17.88 and the range for `d(30) - d(10)` is 340 to 375 as written. The 16 input samples that
-the resampler adds after a speaker's first packet (W3-13) are in both renders, so the shift check is unchanged.
-Everything else in this order stands.
+**Branch:** `claude/w3-02c-timeline-option`, from `main` **after W2-02, W3-05, W3-06, W3-02b, W3-13, W3-11a and
+W3-11b have merged** (W3-05 leaves the gain as an object with `reset()`; W3-11a leaves the `steam` render making
+Steam's messages and resampling each as a packet). **Time budget:** 1 day.
 
 ### Files
 
@@ -525,18 +551,24 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
 
 1. **The option.** `opts.timeline`: `'source'` (the default, and anything else) or `'game'`; `opts.fps` (300) and
    `opts.bufferMs` (100). With `'source'` nothing in this order runs: every render is bit for bit what main gives.
-2. **Where it runs.** With `'game'`, a Steam profile, the codec on and no `opts.received`: after the resampling to
-   the voice rate, the voice signal is cut into the codec's frames (frame `f` is samples `882 f - o` to
-   `882 f - o + 881` with `o = round(lookahead x 44100 / codecRate)`; samples before 0 are zeros) and each is given
-   to `TF2VoiceChannel.createTimeline` with its frame code (`null` samples for a gated frame). Its output replaces
-   the auto-gain's (stage 4); the mixer stage and everything after are unchanged. The timeline's `gain` is
-   W3-05's gain object for the render's settings (every block it sees is decoded); with `agc: false` it is an
-   object that multiplies by `voice_scale` and clips to int16, as stage 4 does now.
-3. **What `'game'` leaves alone or refuses.** With an engine codec (`celt_22`, `celt_44`, `speex`), the codec
-   bypassed, or `opts.received` (until W3-02g), `'game'` is ignored and `codecInfo.channel` is
+2. **Where it runs** *(rewritten in revision 3)*. With `'game'`, the `steam` profile, the codec on and no
+   `opts.received`. Since W3-11a the render has, for every message of the sender in order, its game tick, its
+   decoded 16-bit samples and their 44.1 kHz samples from W3-13's resampler (one call per message, a silence
+   record's zeros included). Under `'game'` each of those packets goes, as it is, to
+   `TF2VoiceChannel.createTimeline`'s `push({ tick, pcm, source })` (`source`: where the source's timeline
+   would have laid `pcm[0]`, -1 for a silence record), and `advance(tick)` is called as the source runs on. The
+   source-timeline laying of W3-11a's point 4 is skipped. The timeline's output replaces the auto-gain's (stage
+   4); the mixer stage and everything after are unchanged. The timeline's `gain` is W3-05's gain object for the
+   render's settings (every sample it sees is decoded); with `agc: false` it is an object that multiplies by
+   `voice_scale` and clips to int16, as stage 4 does now. **With the gate off** the sender still makes messages
+   (every chunk active, one spurt), so `'game'` runs the same way: one channel opened at the start, never
+   appended to, with the queue drifting as in "The 400 ppm".
+3. **What `'game'` leaves alone or refuses.** With an engine codec (`celt_22`, `celt_44`, `speex`), with
+   `steam_48` (it has no sender: it is not the game's path), the codec bypassed, or `opts.received` (until W3-02g), `'game'` is ignored and `codecInfo.channel` is
    `{ timeline: 'source', reason }`. `retime` with `'game'` is a `RangeError` naming both.
 4. **`codecInfo`.** With `'game'`: `codecInfo.channel` is the timeline's `info`; `codecInfo.frameLog` and
-   `frameBytes` become what was played (slot `i` takes the code and size of frame `played[i]`, or 0), so the codec
+   `frameBytes` become what was played (slot `i` takes the code and size of the sender's frame that holds
+   source position `info.source[i]`, or 0), so the codec
    lane and the real-take check keep lining up with the sound, and the sender's own logs move to
    `codecInfo.sent = { frameLog, frameBytes }`. The counters (`frames`, `gatedFrames`, `dtxFrames`, `lostFrames`,
    `spurts`, `encodedBytes`, `modes`) stay the sender's.
@@ -552,7 +584,8 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
 
 - `pnpm test` passes. **The golden hashes of `tests/render-stream.verify.mjs` pass unchanged** (they are renders
   without the option): the proof that the default did not move. The suite gains `'game'` cases with equality as
-  in point 6: the default Steam render of its speech-like source at 300, 100 and 67 fps; `bufferMs` 50 and 200;
+  in point 6: the default `steam` render of its speech-like source at 300, 100 and 67 fps; the same with the gate off at
+  300 fps; `bufferMs` 50 and 200;
   loss 15% with jitter; `agc` off; `voice_scale` 0.5; chunk sizes 7, 960, 12,345 and the whole source; and their
   `process()` hashes are added to the golden list.
 - `tests/verify.js` section 10d, each check failing when its line is broken (say how):
@@ -562,7 +595,7 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
     is an integer `d(t)` with `G[n + i] === S[n + i + d(t)]` for `i = 0..199`, where `n = 44100 t` or, if no `d`
     fits there (a packet's edge fell in the window: the three-tap output stage smears one sample each side of
     it), `n = 44100 t + 300`. And `d(30) - d(10)` is the number of packets added between them: between 340 and
-    375 (one dropped sample each, 17.85 packets a second).
+    375 (one dropped sample each, 17.88 packets a second).
   - **An early start.** Spurts of 2 s with silences of 300 and 900 ms, 300 fps: `codecInfo.channel.spurts[1]` is
     not `opened` and is 195 to 275 ms early, `spurts[2]` is `opened`; in `codecInfo.frameLog` the second spurt's
     codes begin that many frames earlier than in `codecInfo.sent.frameLog` (within one frame).
@@ -571,7 +604,8 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
   - **The gain is reset where the engine resets it:** `channel.gainResets === channel.opens`.
   - The same seed gives the same samples; another seed moves at least one drop; `lossPct` 20 gives the same loss
     pattern (`codecInfo.sent.frameLog`) with and without `'game'`.
-  - The ignored cases of point 3, and the `RangeError`.
+  - The ignored cases of point 3 (`steam_48` among them: its `'game'` render equals its `'source'` render
+    sample for sample), and the `RangeError`.
 - The browser suite passes (the new script loads on the page and in both workers; a render still works offline:
   the service worker's list).
 - CI passes on the pushed branch.
@@ -690,10 +724,6 @@ rule) is then void: say so in the report so the orchestrator notes it in PROGRES
 **Branch:** `claude/w3-02g-demo-packets`, from `main` **after W3-02c, W3-06 (both change `demo.js`) and
 W3-02f**. **Time budget:** half a day.
 
-*Revision 3:* each demo message's decoded samples go through W3-13's resampler as one packet, as in the
-game, in place of "resampled to the voice rate as the whole signal is"; the silence record is that many zeros
-through the same resampler. The rest stands.
-
 A demo has the real packets and their ticks, so nothing is made up. **Files:** `demo.js` (`decode` also returns
 `packets`), `app/source.js` (passes them in `received`), `voice-channel.js` (`createTimeline` takes packets in
 place of a sender), `audio.js` (the `received` path under `'game'`), `tests/demo.verify.mjs`, `tests/verify.js`,
@@ -705,8 +735,9 @@ samples it holds (`from`, `to` in the decoded signal, at the codec's rate; equal
 silence record's samples at the stream's rate (0 if none; the record is not in the decoded signal). Under
 `'game'`, `process()` and `createRender` feed the channel these packets in place of the sender model: arrival tick
 `round((tick - first tick) x demo tick length / 0.015)`, messages of one tick in their order (the channel then
-gets more than one packet on a tick, which the engine allows), the samples resampled to the voice rate as the
-whole signal is and cut at `round(from x 44100 / rate)`, the record as `round(silence x 44100 / rate)` zeros.
+gets more than one packet on a tick, which the engine allows), each message's decoded samples (16-bit, by W3-11a's decoder rules) through W3-13's resampler as one packet,
+one resampler per speaker, and the record as that many zeros through the same resampler *(rewritten in
+revision 3; it was a whole-signal resampling cut at packet edges)*.
 `codecInfo.channel.packets` is then `'demo'`. SourceTV writes voice every fourth tick, so arrival is known to
 60 ms; that is the path's limit and is said in the console line (W3-02d's line).
 
