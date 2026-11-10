@@ -54,8 +54,8 @@ built was edited (W3-02a and W3-02b's sections were compared with main's after e
   packets, and requires a difference from main's rule after a gap.
 - W3-11a, files: `VOICE_ENGINE.autoGain.blockSize` and its stale comment go, with the mention beside
   `GAIN_BLOCK` in `audio.js`.
-- W3-11b, point 1: the live chain's gain reads its settings at a reset; it is reset at the chain's start and
-  when one of the three settings changes while live; it is fed decoded samples only. A check for the reset.
+- W3-11b, point 1: the live chain's gain is fed decoded samples only. (The first version also reset it when a
+  setting changed; that was struck after the third read, below.)
 - W3-10, point 1: what reaches the mix stage is whole 16-bit values since W3-05.
 
 **3. The resampler** (from W3-13's report on its branch, and finding 29)
@@ -126,19 +126,47 @@ built was edited (W3-02a and W3-02b's sections were compared with main's after e
    zeros in the message) and keep those zeros away from the gain, on both timelines. If the silent frame is
    really an underrun, under the game's timeline it should be a missing frame and a shallower queue instead.
    A Set C take with the two debug variables on would show it.
-2. **The live chain's gain reset.** The engine resets the gain when a channel is assigned. The live chain has
-   no channel. I wrote: reset at the start and when a setting changes. The other reading is a reset at every
-   spurt that would have opened a channel, which the live chain cannot know without running the channel. The
-   orchestrator may prefer to leave the live chain's gain as W3-05 left it until the channel can run live.
-3. **`source` with or without the codec's delay** (item 1 above): I chose with.
+2. **The live chain's gain reset. Decided 2026-11-10:** the live chain's gain stays as W3-05 left it, with no
+   reset when a setting changes, until the channel runs live. A unity block and a ramp each time a slider
+   moves would pump. W3-11b says so.
+3. **`source` with or without the codec's delay. Settled:** with. The third read ran the merged modules both
+   ways: with the delay the offsets are W3-02b's shifted by exactly 6.5 ms, which is the codec's 156 samples;
+   without it every offset would read that much late.
 4. **W3-06 is still in review.** If its review changes where the 16 bits are made or `modeRate`'s name, the
    sentences in W3-12b's point 2 and W3-10's point 1 that cite it follow.
-5. **The resampler's speed** in the item and in W3-13's report differ (item 3 above).
+5. **The resampler's speed. Decided:** the report's figure, 4.8 to 5.4 million output samples a second for
+   `fma3`; W3-11a now gives it so.
 6. **The gain's hold on the source's timeline.** The item cites the second reader's finding 3 (the hold lands
    one step past the ramp's end). I did not find that finding's text in `docs/reports/W3-05-receiver-gain.md`
    on main; I built W3-11a's point 8 from the item's wording and from the hold rule as the report gives it
    (`fixed += 128 * step`, where the ramp's last sample used `127 * step`). If the finding said more, it is
    not carried.
+
+## The third read
+
+A builder's model read the maintenance round on main (`527bda6`) as the one who would build it, and ran the
+merged sender, timeline and resampler on layouts P and Q, with three broken senders beside them. Its findings,
+and what was done (branch `claude/w3-plan-maintenance-2`):
+
+| # | Finding | What was done |
+| --- | --- | --- |
+| A | W3-11a's checks use `onResampled`, which no point defined | Defined in point 7: each `packet()` result in order, silence records included |
+| B | The gate-off check's "end message has no frame" holds only for some seeds | The seed is named (`0xC0FFEE`), and the test first asserts with `createSender` that its seed's end message is empty |
+| C | A late frame's output span is approximate (the resampler's lateness and its taps) | Said in point 8, with "do not refine it" |
+| D | The gain check's reason was not the mechanism | Now "the first 128 samples after the burst's onset", with the reason: where the blocks fall, the silence record's samples among them |
+| E | The 500 ms "both outcomes" line never said it fails | It fails if one outcome still does not occur in seeds 1 to 30; the order says it is the only line that catches a hold timed from the chunk's start |
+| F | "38 of 50" is for a level signal over silence | 29 of 50 for this layout's signal (3 of seeds 1 to 10), with why |
+| G | What the codec and the capture filter change | Said: the codec changes no gate decision or count; the capture filter can move a chunk at a burst's edge; the margins left for it. The brackets now hold the third read's figures for this signal |
+| H | The unity-block check's samples may be comfort noise | Noise at -40 dBFS between bursts for that check, and a stop if fewer than 100 are non-zero |
+| I | Part a's 2,106 comes out only from part a's own samples | "At least one wrapped sample, the count in the report"; the exact case added as an option, with its conditions |
+| J | W3-14 must also try no pre-roll | Three cases, with why every recording after a run's first is expected to open from the ENDED state |
+| K | Take the packet structure from the console log; a record can be any length | Step 1 rewritten: frames from each count over 882, the fit kept for the phase and the residual test only |
+| L | The owner's steps were incomplete | The full list of seven steps is in W3-14, with why the processor model matters |
+| M | A 13 s press against the 11.9 s cap | Said in step 2: the second loop's first 1.1 s is the overlap the search uses |
+
+Also from that read: the open list's items 2, 3 and 5 are closed above, and W3-02c's spec 2 no longer says the
+live chain needs the gain's settings at a reset. Item 6 is moot for `steam`, since W3-11a's point 8 removes the
+hold. Items 1 and 4 stand.
 
 ## Not done
 

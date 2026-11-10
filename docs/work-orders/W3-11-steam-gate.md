@@ -136,7 +136,9 @@ Wherever this order says "the render", it means a render with the `steam` profil
      game assigning the speaker a new channel or a reconnect (finding 29; W3-13's report: Set G's 2,372 packet
      counts come out only as one stream). So the first packet of the render flushes, everything after is 16
      input samples late, and no spurt after the first starts a new stream.
-   - **Speed.** With the exact fused step the default kernel makes about 5 million output samples a second
+   - **`opts.onResampled(Int16Array)`**, a test hook beside `opts.onDecoded`: it receives each `packet()`
+     result, in order, the silence records' included.
+   - **Speed.** With the exact fused step the default kernel makes 4.8 to 5.4 million output samples a second
      under Node on the build machine (the others 10 to 13 million): about 15 s more for a 30-minute render
      (W3-13's report). The report gives the `steam` render's time for 60 s of sound before and after this
      order. If the whole render is more than a quarter slower than main's, say where the time goes; do not
@@ -155,8 +157,11 @@ Wherever this order says "the render", it means a render with the `steam` profil
      the game), though they are not laid;
    - **a late frame's samples are not decoded:** they are left out of what the gain is given (frame `j` of
      `F` in a packet of `n` output samples is samples `round(j n / F)` up to `round((j + 1) n / F)`) and are
-     laid as they are. Today a late frame counts as decoded zeros and sends the gain toward its cap; in the
-     game no decoder made them;
+     laid as they are. **That span is approximate, and is meant to be:** after the first packet the
+     resampler's output is 16 input samples (about 29 outputs) late, and its 32 taps spread a frame over 16
+     inputs each side, so a little of the neighbours' sound lies in the span ungained and a little of the
+     zeros outside it. It is a stand-in for a stand-in; do not refine it. Today a late frame counts as decoded
+     zeros and sends the gain toward its cap; in the game no decoder made them;
    - the zeros between spurts are never given to the gain, so nothing is "held": the gain's blocks of 128 run
      over the decoded samples end to end, across packets and across spurts.
 
@@ -208,9 +213,11 @@ Wherever this order says "the render", it means a render with the `steam` profil
   - **A late frame:** a mask with one 2 gives 480 zeros at its place in `onDecoded`'s samples and no
     concealment.
   - **Once per message:** `codecInfo.resampler.calls` equals the sender's messages that hold samples (sound
-    messages with at least one frame, and silence records); with the gate off on a source of exactly 96,000
-    samples (2400 + 96,000 is a whole number of frames, so the end message has no frame) the count is one less
-    than the messages.
+    messages with at least one frame, and silence records); with the gate off, a source of exactly 96,000
+    samples and **the seed `0xC0FFEE`** (the clock's last frame then lands on sample 96,000, 2400 + 96,000 is
+    a whole number of frames, and the end message has no frame) the count is one less than the messages. On
+    another seed the end message may hold frames (seeds 1, 7, 8 and 9 give it 2): the test asserts first, with
+    `createSender`, that its seed's end message is empty.
   - **One resampler, never reset:** on a source with three spurts, the resampler's outputs (through
     `onResampled`) equal one `createResampler()` fed the same `onDecoded` arrays in order; with a `reset()`
     put at each end marker the check fails.
@@ -218,8 +225,11 @@ Wherever this order says "the render", it means a render with the `steam` profil
     noise at -50 dBFS between): the render's stage-4 output (through a hook, `opts.onGain`, the laid samples
     after the gain) equals a fresh `TF2Audio.createGain` given every `onResampled` array in order, the silence
     record's included, each divided by 32768, and laid as point 8 lays them. It differs from main's rule
-    (`receiverAutoGain` with W3-05's `decoded` function on the same laid signal) in at least one sample of the
-    second burst's first block. With one late frame in the mask, the gain's state after that message equals
+    (`receiverAutoGain` with W3-05's `decoded` function on the same laid signal) in at least one of the first
+    128 samples after the second burst's onset. (Why: not the cap, which both rules reach in the first spurt's
+    tail and again in the second's pre-roll, but where the blocks of 128 fall: here they run over the decoded
+    samples end to end, the silence record's 2,756 or 2,757 among them, and in main's rule on the source's
+    grid.) With one late frame in the mask, the gain's state after that message equals
     its state with the frame's samples left out.
   - **`createRender` equals `process()`** on every `steam` case of `tests/render-stream.verify.mjs`, at chunk
     sizes 7, 960, 12,345 and the whole source: samples, WAV bytes, `codecInfo` deep-equal.
@@ -294,14 +304,13 @@ not touch: `steam-sender.js`,
    Low-latency mode keeps no pre-roll as now: say in the report how (the sender's `past` kept empty is the
    plain way; if that needs an option in `steam-sender.js`, stop and ask). The live chain keeps the float
    decode and its own 24 to 44.1 kHz step (the per-packet resampler and the 16-bit step are for renders; say
-   so in the comment). **Its gain reads the three settings at a reset**, as the engine does (W3-05's second
-   read: `voice_scale`, `voice_avggain` and `voice_maxgain` are read when a channel is assigned and at no other
-   time, and the first 128 samples after a reset pass at unity whatever `voice_scale` is). The live chain has
-   no channel, so: its gain is reset when the chain starts and whenever one of the three settings is changed
-   while it runs (a new gain, or `reset(settings)` if W3-02c has added it), and not otherwise. That is the
-   nearest the live chain has to a channel being assigned; say so in the comment and in the report. The gain
-   is given decoded samples only: frames the gate did not send are not fed to it (in place of W3-05's hold of
-   a block), as in W3-11a's point 8. `steam_48` and the engine codecs keep the frame queue.
+   so in the comment). **Its gain stays as W3-05 left it** (decided 2026-11-10): reset once, when the chain
+   starts, and reading a changed setting as it does today. The engine reads the three settings only when a
+   channel is assigned, but the live chain has no channel, and a reset at every change would give a block at
+   unity and then a ramp each time a slider moves: the level would pump while the user drags. The engine's
+   rule comes to the live chain when the channel runs live, in a later order. Say in the comment that this is
+   the app's own. The gain is given decoded samples only: frames the gate did not send are not fed to it (in
+   place of W3-05's hold of a block), as in W3-11a's point 8. `steam_48` and the engine codecs keep the frame queue.
 2. **The threshold control** (`#vad_threshold`, `voice_vad_threshold`). **An untouched control must give
    Steam's gate exactly.** So:
    - The control's meaning depends on the profile, and its help and title say so: for `steam`, "the mean of
@@ -338,8 +347,7 @@ not touch: `steam-sender.js`,
 
 - `tests/verify.js`: the live chain's checks, each failing when broken (say how): fed the same 24 kHz sound in
   blocks of 128, 480 and 4,096 samples, the live chain's sent frames are the frames `createSender` gives for
-  the **rounded** samples at the sender's input and the same seed; a change of `voice_scale` while live
-  resets the gain (the next 128 output samples are at unity) and a change of nothing does not; a quiet tail is cut after the hold; low-latency mode sends no pre-roll; `steam_48`'s
+  the **rounded** samples at the sender's input and the same seed; a change of `voice_scale` while live does not reset the gain (`state().pos` runs on); a quiet tail is cut after the hold; low-latency mode sends no pre-roll; `steam_48`'s
   live output is bit for bit main's.
 - The browser suite, each new check failing when broken: a fresh page shows -40 and a render's
   `codecInfo.sender.meanMin` is exactly 327.67; switching to a CELT profile shows -39.5 and back shows -40;
