@@ -521,9 +521,20 @@ def shape_of(sky, W, L, H, open_sides=0):
 
 SHAPE_BASE = {0: 102, 1: 106, 2: 110, 3: 114, 4: 118, 5: 122, 6: 126, 7: 130, 8: 130, 9: 118, 10: 126}
 
+def is_shaft(sky, L, H):
+    """Indoors, a space more than three times as high as it is long (doubles, strictly): the engine's vertical shaft."""
+    return (not sky) and H > 3.0 * L
+
 def build_auto(presets, sky, W, L, H, refl, open_sides=0, diffusion=0.0):
     shape = shape_of(sky, W, L, H, open_sides)
-    c = classes(shape, W, L, H, refl, diffusion)
+    # The vertical shaft (W3-17b second read, finding 1). The engine exchanges height and length in the record
+    # itself (0x180032059 to 0x180032083), names the shape and works out the classes from that record (the class
+    # routine 0x180032320 is called from inside each shape branch: 0x1800320db, 0x18003212c, 0x18003215d,
+    # 0x180032180), and only then exchanges them back (0x18003219f to 0x1800321b1). So in a shaft the length
+    # class is the length scale applied to the height, the height class the height scale applied to the length,
+    # and the size class follows the length class. The measures that replace a negative value are read after
+    # the exchange back: they stay the true width, length and height (below, W, L and H as given).
+    c = classes(shape, W, H, L, refl, diffusion) if is_shaft(sky, L, H) else classes(shape, W, L, H, refl, diffusion)
     base = SHAPE_BASE[shape] + (2 if c["diffusion"] > 1 else 0)
     A, B = presets[base], presets[base + 1]
     out = (B if c["size"] > 1 else A).copy()
@@ -562,6 +573,21 @@ def build_auto(presets, sky, W, L, H, refl, open_sides=0, diffusion=0.0):
         meas(1, n, 8, c["length"], w2); meas(1, n, 9, c["length"], l2); meas(1, n, 10, c["length"], l2)
         lerp(1, n, 5, c["length"], a=B, b=A); lerp(1, n, 6, c["length"], a=B, b=A)
         for ip in range(5): lerp(3, n, ip, c["size"])
+        # The other types, each through the same blend: linear, A to B, class / 5, singles step by step, the
+        # first and the second processor of the type (W3-17b second read, section 1 and findings 2 and 3).
+        # MDY values 0 to 12 on the length class (0x180032e30); AMP 0 to 7 on the size class (0x180032e70);
+        # PTC 0 to 2 (0x180032ef0), CRS 0 to 3 (0x180032f30), ENV 0 to 8 (0x180032f70), EFO 0 to 3
+        # (0x180032fb0) and LFO 0 to 3 (0x180032ff0) on the size class. Type numbers are the engine's
+        # (CRS 4, PTC 5, ENV 6, LFO 7, EFO 8, MDY 9, AMP 11). The model cannot instance PTC, CRS, ENV, EFO or
+        # LFO (PROC has none of them); their blends are here so that the built values are the engine's. No
+        # template of the automatic room's pairs holds any of these seven types, so no built room changes.
+        for ip in range(13): lerp(9, n, ip, c["length"])
+        for ip in range(8): lerp(11, n, ip, c["size"])
+        for ip in range(3): lerp(5, n, ip, c["size"])
+        for ip in range(4): lerp(4, n, ip, c["size"])
+        for ip in range(9): lerp(6, n, ip, c["size"])
+        for ip in range(4): lerp(8, n, ip, c["size"])
+        for ip in range(4): lerp(7, n, ip, c["size"])
     return out, shape, c, base
 
 # ---------------------------------------------------------------- the voice's shares
