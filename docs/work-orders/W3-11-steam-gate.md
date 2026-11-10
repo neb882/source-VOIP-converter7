@@ -3,7 +3,9 @@
 *Rewritten 2026-11-10 after the plan's review (findings 7 to 18 and its note on size;
 `docs/reports/W3-11-plan.md`, "The review"): split in two; for the `steam` profile only; the 16-bit decode is
 the library's own; the gate off is a sender setting; the checks that a correct build would have failed are
-replaced.*
+replaced. Revised again the same day after the second read (its findings 5 to 10): the Opus rebuild's steps
+are spelled out; the tool for the owner's file-input recording and its private check are gone from this order
+(that question is `docs/work-orders/W3-14-steam-file-input.md`, an investigation; nothing here waits for it).*
 
 | Part | What | Starts after | Budget |
 | --- | --- | --- | --- |
@@ -45,8 +47,16 @@ Wherever this order says "the render", it means a render with the `steam` profil
    not the float decoder followed by a clip: it runs the library's soft clipper over the decoded frame (with
    memory kept in the decoder), then clamps and rounds each sample to the nearest integer, ties to even. The
    pinned module exports only the float decoder. So, as W3-06 does for CELT:
-   - `tests/libopus11/build.mjs`: add `opus_decode` to its list of exports; nothing else changes (the source,
-     its commit, the flags). Rebuild; `vendor/libopus-1.1/index.mjs` gains `decodeInt16(packet, { frameSize })`
+   - **First reproduce what is recorded.** Run `tests/libopus11/build.mjs` **with its export list as it is**
+     and get the module whose SHA-256 `tests/vendor-opus.mjs` records (`b7a03edb...`, built with Ubuntu clang
+     18.1.3, which the build machine has). The script clones from `github.com`, which the build machine cannot
+     reach: give it a checkout of `https://gitlab.xiph.org/xiph/opus.git` at the script's pinned commit (the
+     script takes the checkout's path as its first argument and refuses a checkout whose commit is not the
+     pinned one). **If the recorded hash does not come out,
+     stop**: nothing about the new build could then be trusted. (Comparing bytes after the change proves
+     nothing: a new export renumbers the module's functions.)
+   - **Then** add `opus_decode` to the list of exports; nothing else changes (the source, its commit, the
+     flags). Rebuild; `vendor/libopus-1.1/index.mjs` gains `decodeInt16(packet, { frameSize })`
      and `decodePacketLossInt16(frameSize)` returning an `Int16Array`; `tests/vendor-opus.mjs` and the folder's
      README take the new hash.
    - **The float path must not move.** Before rebuilding, record on main the SHA-256 of the module's packets
@@ -54,13 +64,13 @@ Wherever this order says "the render", it means a render with the `steam` profil
      full scale) and of `decodePacketLossFloat` after every tenth packet; the same hashes must come out of the
      rebuilt module. `tests/opus.verify.mjs`'s check against the native reference build must still pass, and
      the `steam_48` golden hashes (which run this module's float path) must not move.
-   - **The 16-bit path is checked against a native build** of the same release (how the folder's README says
-     the reference packets were made): on a signal that overshoots full scale, `opus_decode`'s output natively
+   - **The 16-bit path is checked against a native build** of the same checkout, by a new one-off script,
+     `tests/libopus11/native.mjs` (not in CI; in the manner of `tests/speex/native.mjs`): gcc, the source list
+     of `build.mjs`, `-DOPUS_BUILD -DVAR_ARRAYS -DHAVE_LRINTF -ffp-contract=off`. On a signal that overshoots full scale, `opus_decode`'s output natively
      and in the module, sample for sample; its hash is recorded in `tests/opus.verify.mjs`. On that signal the
      16-bit output must differ from `clamp-and-round(decodeFloat)` in at least 100 samples (the soft clipper
      did something); on a quiet signal the two must be equal.
-   - **Only if the rebuild cannot be reproduced** (the module's bytes change for the old exports' code, or the
-     float hashes move): stop and ask. The fall-back the orchestrator may then order is a port of
+   - **If the first step's hash does not come out, or the float hashes move:** stop and ask. The fall-back the orchestrator may then order is a port of
      `opus_pcm_soft_clip` (about 60 lines, BSD) with its memory per decoder, run on `decodeFloat`'s output.
 3. **The profile.** `CODEC_PROFILES.steam.senderGate` becomes `{ rule: 'steam', thresholdDb: -39.5, prerollMs:
    120, holdMs: 440 }`. `rule` is what the render uses. The three numbers stay, with a comment saying what they
@@ -126,7 +136,9 @@ Wherever this order says "the render", it means a render with the `steam` profil
     mean is about 0.5%, under 1%, and no sample reaches 15%: nothing is sent. (b) a 200 Hz square wave of height 344
     (1.05% of full scale) for 3 s: -39.6 dBFS RMS, under the old threshold, yet its mean is over 1%: it is
     sent.
-  - **Finding 5's cases:** a 1 kHz sine with a peak of -36 dBFS is sent; with a peak of -40 dBFS it is not;
+  - **Finding 5's cases:** a 1 kHz sine with a peak of -35.8 dBFS is sent (at -36 the lowest chunk's mean
+    is 327.91 against 327.67 after the capture filter: it passes, by 0.07%, and any change to the filter would
+    break the test for no reason); with a peak of -40 dBFS it is not;
     pink noise at -42 dBFS RMS is not.
   - **The peak rule:** 1 ms of samples at 0.2 full scale in silence is sent (a single sample would not survive
     a resampler; at 24 kHz it is 24 samples).
@@ -149,13 +161,15 @@ Wherever this order says "the render", it means a render with the `steam` profil
   - **`createRender` equals `process()`** on every `steam` case of `tests/render-stream.verify.mjs`, at chunk
     sizes 7, 960, 12,345 and the whole source: samples, WAV bytes, `codecInfo` deep-equal.
   - The same seed gives the same samples; another seed moves at least one spurt's `start` or one message's
-    tick; `opts.swrKernel: 'c'` changes at least one sample and at most 1 in 500.
+    tick; on a loud source (peaks above -6 dBFS)
+    `opts.swrKernel: 'c'` changes at least one sample and at most 1 in 500 **of the resampler's output**,
+    counted through a hook beside `onDecoded` (`opts.onResampled`, each message's `Int16Array`), not in the
+    render, where the gain and the output stage spread one changed sample over several. On a quiet source the
+    kernels can agree everywhere, so no difference is asked for there.
   - Complexity 9 and 10 give identical packets on the suite's signals.
 - **Golden hashes:** `steam_48`, the CELT cases, the Speex cases and every case with the codec bypassed do not
   move (shown first). Then every `steam` case with the codec on, gate on or off, is re-recorded in one commit of
   its own that says why.
-- `node tests/steam-exact.mjs --synthetic` (the private tool below, on a recording it makes itself with the
-  app's chain from a seeded clip at an arbitrary start): 0 differing samples, and the start found.
 - The browser suite passes (the scripts load on the page and in both workers; offline; a render).
 - CI passes on the pushed branch.
 - The report gives, for the app's demo speech at seeds 1, 2 and 3: spurts, messages, the shares of 1, 2, 3 and
@@ -175,26 +189,9 @@ Wherever this order says "the render", it means a render with the `steam` profil
 - **Set D's demo** (a scratch script of the orchestrator's): the demo's decoded sound as a 24 kHz file through
   the render: the model's spurts start within one chunk (62.5 ms) of the demo's in at least 17 of 20 and end
   within two chunks in at least 16.
-- **The file-input recording, if it exists** (Steam's `mic_inputfile` with a known 24 kHz clip; the game's
-  `voice_recordtofile 1` at `voice_maxgain 1`). Two commands:
-  1. `node tests/swresample/from-recording.mjs <recording.wav> --out <scratch>/decoded24k.raw` (W3-13): the
-     kernel, and the 24 kHz 16-bit samples Steam's decoder produced.
-  2. `node tests/steam-exact.mjs --clip <the 24 kHz clip.wav> --decoded <scratch>/decoded24k.raw`. The tool
-     (the builder writes it) splits the decoded samples into spurts at runs of zeros of 750 samples or more;
-     for each spurt finds where the clip, looped, lies under it (correlation, then every start within 480
-     samples of the peak); encodes the clip from that start in 480-sample frames with a fresh `steam` encoder
-     and decodes with the 16-bit decoder; and prints per spurt the start it chose, the samples that differ and
-     the largest difference, twice: with the 16-bit decoder, and with clamp-and-round of the float decoder.
-     It prints nothing else of the recording.
-     **A match** is 0 differing samples in every spurt after the first frame of each. That proves at once that
-     the app's encoder gives Steam's packets and that the decoder's 16-bit step is right; and if the two
-     decoders' columns differ anywhere, which of them Steam runs. Fewer than 1 sample in 1,000 differing, by 1:
-     the packets are Steam's and the last bit is the compiler's; record it in finding 16. More: the encoder's
-     input or the release differs; the tool then prints the level of the difference in dB per spurt, and the
-     orchestrator opens an order for the stronger model. A spurt's first 100 ms is pre-roll: with a file it is
-     the clip's earlier samples or zeros, and the tool tries both.
-  If the recording does not exist, nothing here is run, and the README and finding 28 keep "not checked
-  against Steam sample for sample".
+- Whether the app's encoder gives Steam's packets and whether the 16-bit step is Steam's are not checked here:
+  that is W3-14, when the owner's file-input recording exists. Until then the README and finding 28 keep "not
+  checked against Steam sample for sample".
 
 ### Files
 
@@ -205,7 +202,8 @@ gate stay for the other callers), `constants.js` (the `steam` profile and the he
 `tests/vendor-opus.mjs`, `index.html` (the script tags), `audio-worker.js`, `live-worker.js`, `sw.js`,
 `app/render.js` (the one line of point 5), `tests/verify.js`, `tests/render-stream.verify.mjs`,
 `tests/opus.verify.mjs`, `tests/browser.verify.js` (only what the new scripts need),
-`tests/predictions/PREDICTIONS.md`. May add: `tests/steam-exact.mjs`. May not touch: `steam-sender.js`,
+`tests/predictions/PREDICTIONS.md`. May add: `tests/libopus11/native.mjs` (and a small C file beside it). May
+not touch: `steam-sender.js`,
 `voice-channel.js`, `vendor/swresample/`, the other `vendor/` folders, `demo.js`, `reference.js`,
 `app/realtake.js`, `tests/speex*.verify.mjs`, `tests/accuracy.mjs`, `tests/REFERENCE_2026.md`,
 `tests/predictions/predictions.json`, `docs/PROGRESS.json`.
@@ -222,7 +220,9 @@ gate stay for the other callers), `constants.js` (the `steam` profile and the he
 ### What to build
 
 1. **The live chain** (`createLiveChain`, `steam` profile) uses `createSender`, fed as the microphone's blocks
-   arrive, in place of its frame queue; its reported latency becomes the pre-roll (100 ms) plus one chunk.
+   arrive, in place of its frame queue. The sender takes 16-bit samples: the live chain rounds the capture as
+   W3-11a's point 4 does (`q = round-half-even(x x 32768)`, clamped) and encodes `q / 32768`. Its reported
+   latency becomes the pre-roll (100 ms) plus one chunk.
    Low-latency mode keeps no pre-roll as now: say in the report how (the sender's `past` kept empty is the
    plain way; if that needs an option in `steam-sender.js`, stop and ask). The live chain keeps the float
    decode and its own 24 to 44.1 kHz step (the per-packet resampler and the 16-bit step are for renders; say
@@ -243,7 +243,10 @@ gate stay for the other callers), `constants.js` (the `steam` profile and the he
      it), `README.md` (the gate paragraph near line 58 and the settings table), `tests/browser.verify.js`
      (about line 1137 expects `-39.5`). Not changed: `audio.js`'s `DEFAULT_SENDER_GATE`, `app/realtake.js`,
      `reference.js`, `tests/retiming.mjs`, `tests/speex.verify.mjs`, `tests/LEGACY_CODECS.md`,
-     `tests/predictions/` (they are the frame model, which the other profiles and the take tools keep).
+     `tests/predictions/` (they are the frame model, which the other profiles and the take tools keep). One thing follows and is said in
+     the control's help for `steam`: `app/realtake.js` hands a typed threshold to the real-take check as a
+     20 ms RMS level, so with `steam` and a typed number the check's own gate sits about 1 dB from the render's
+     (a sine's mean of |x| is 0.9 dB under its RMS). At the default nothing is typed and nothing is off.
 3. **The words.** The chain strip's Gate cell and the console's lines for `steam`: "chunks · 100 ms kept ·
    0.4 s hold" in place of the frame counts. `steam_48`'s label and README row gain "not the game's path: the
    20 ms frame gate and the app's own resampler". README's gate paragraph, settings table and "Files and
@@ -255,7 +258,7 @@ gate stay for the other callers), `constants.js` (the `steam` profile and the he
 
 - `tests/verify.js`: the live chain's checks, each failing when broken (say how): fed the same 24 kHz sound in
   blocks of 128, 480 and 4,096 samples, the live chain's sent frames are the frames `createSender` gives for
-  that sound and seed; a quiet tail is cut after the hold; low-latency mode sends no pre-roll; `steam_48`'s
+  the **rounded** samples at the sender's input and the same seed; a quiet tail is cut after the hold; low-latency mode sends no pre-roll; `steam_48`'s
   live output is bit for bit main's.
 - The browser suite, each new check failing when broken: a fresh page shows -40 and a render's
   `codecInfo.sender.meanMin` is exactly 327.67; switching to a CELT profile shows -39.5 and back shows -40;
