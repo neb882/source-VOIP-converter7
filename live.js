@@ -6,10 +6,17 @@
  * follows the settings panel while running, and the output can go to any
  * output device (a virtual cable makes it a live TF2 voice for other apps).
  *
- * Push-to-talk sends only while V or the Talk button is held (the gate still
- * applies inside). Low latency drops the gate's 120 ms pre-roll. Record keeps
- * the microphone and the voice and loads them into the app as a dry/wet
- * pair (mountLiveTake).
+ * For `steam` the chain is the render's own (W3-11b): Steam's sender and
+ * decoder, holding back the sender's longest chunk and its 100 ms pre-roll.
+ * Push-to-talk on `steam` is the app's stand-in for the key: the microphone
+ * is silenced while the key is up and the gate ends the phrase by its own
+ * hold (Steam's own key rules are not built). With push-to-talk off the key
+ * counts as held. Low latency on `steam` holds back a chunk and a frame
+ * instead, losing each phrase's pre-roll; the figure it saves comes from the
+ * chain. On the other profiles push-to-talk sends only while the key is held
+ * (the gate still applies inside) and low latency drops the frame gate's
+ * 120 ms pre-roll. Record keeps the microphone and the voice and loads them
+ * into the app as a dry/wet pair (mountLiveTake).
  * Needs the app/ page scripts (state, els, renderOptions, logLine, mountLiveTake).
  */
 (function () {
@@ -30,6 +37,41 @@
   // The render settings plus the live-only low-latency switch.
   const liveOptions = () => ({ ...renderOptions(), lowLatency: !!(ui.lowLatency && ui.lowLatency.checked) });
   const pttOn = () => !!(ui.ptt && ui.ptt.checked);
+
+  // The live panel's texts follow the profile (W3-11b): `steam` runs the
+  // render's own chain; the others the 20 ms frame gate.
+  const texts = {
+    steam: {
+      latency: 'Microphone to speaker: what the voice chain holds back (Steam\'s longest capture chunk and its 100 ms pre-roll, the codec\'s lookahead, the filters\' waits), the playback queue and the audio device\'s buffers',
+      lowLatency: (ms) => `Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but each phrase's pre-roll is not played. ${ms != null ? `Saves ${ms.toFixed(0)} ms.` : 'Saves the figure shown once the monitor runs.'} Not how TF2 sounds.`,
+      lowLabel: (ms) => `Low latency (no pre-roll${ms != null ? `, saves ${ms.toFixed(0)} ms` : ''})`,
+      ptt: 'Send only while V (TF2\'s +voicerecord key) or the Talk button is held. This is the app\'s stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by its own hold. Steam\'s own key rules (it goes on sending for half a second after a release) are not built yet.'
+    },
+    frame: {
+      latency: 'Microphone to speaker, including the voice gate\'s 120 ms pre-roll and the audio device\'s buffers',
+      lowLatency: () => 'Skip the voice gate\'s 120 ms pre-roll, so the gate opens on the loud frame itself. Not how TF2 sounds: onsets lose their first 120 ms.',
+      lowLabel: () => 'Low latency (no pre-roll)',
+      ptt: 'Send only while V (TF2\'s +voicerecord key) or the Talk button is held, as with push-to-talk in the game. The voice gate still applies while you hold it.'
+    }
+  };
+  const steamCodec = () => typeof isSteamRule === 'function' && typeof els !== 'undefined' && isSteamRule(els.codec.value);
+  function updateTexts() {
+    const t = steamCodec() ? texts.steam : texts.frame;
+    const saving = live && live.codec === 'steam' ? live.lowLatencySavingMs : null;
+    const latency = ui.latency && ui.latency.closest('.live-stat');
+    if (latency) latency.title = t.latency;
+    const low = ui.lowLatency && ui.lowLatency.closest('label');
+    if (low) {
+      low.title = t.lowLatency(saving);
+      low.lastChild.textContent = ` ${t.lowLabel(saving)}`;
+    }
+    const ptt = ui.ptt && ui.ptt.closest('label');
+    if (ptt) ptt.title = t.ptt;
+    const net = ui.loss && ui.loss.closest('.live-stat');
+    if (net) net.title = steamCodec() ? 'Frames concealed (lost frames the decoder filled in when the next one arrived) and late (silence), by the network settings'
+      : 'Frames lost (concealed) and late (silence) by the network settings';
+  }
+  document.addEventListener('tf2:settings', updateTexts);
 
   function updateTalk() {
     const on = !pttOn() || keyHeld || buttonHeld;
@@ -196,7 +238,13 @@
   function onWorker(message) {
     if (!live) return;
     if (message.type === 'error') { stopLive(`The live chain failed: ${message.message}`); return; }
-    if (message.type === 'ready') { live.chainLatencyMs = message.latencyMs; return; }
+    if (message.type === 'ready') {
+      live.chainLatencyMs = message.latencyMs;
+      live.codec = message.codec;
+      live.lowLatencySavingMs = message.lowLatencySavingMs;
+      updateTexts();
+      return;
+    }
     if (message.type !== 'stats') return;
     const s = message.stats, w = live.worklet;
     const now = performance.now(), seconds = (now - live.lastTime) / 1000;
@@ -207,11 +255,16 @@
     ui.tx.className = `live-tx${sending ? ' live-on' : ''}`;
     ui.mode.textContent = !sending ? '—' : { silk: 'SILK', hybrid: 'Hybrid', celt: 'CELT', speex: 'Speex', dtx: 'DTX (comfort noise)' }[s.lastMode] || '—';
     ui.rate.textContent = `${kbps.toFixed(1)} kbps`;
-    ui.loss.textContent = `${s.lost} lost · ${s.late} late`;
+    // Steam's decoder conceals a gap when the next frame arrives: `steam`
+    // counts the frames it concealed (frames lost at a spurt's end are never
+    // played, nor counted).
+    ui.loss.textContent = `${s.lost} ${s.codec === 'steam' ? 'concealed' : 'lost'} · ${s.late} late`;
     if (w) {
       // Mic to speaker: half a 20 ms capture block on average, the chain's own
-      // delay (gate pre-roll, capture EQ, Opus lookahead), the jitter buffer
-      // and the audio device's buffers.
+      // delay (for `steam` what it holds back: the sender's longest chunk and
+      // its pre-roll, the lookahead, the filters' and resamplers' waits; for
+      // the others the gate's pre-roll, capture EQ and lookahead), the jitter
+      // buffer and the audio device's buffers.
       const device = ((live.ctx.baseLatency || 0) + (live.ctx.outputLatency || 0)) * 1000;
       const ms = 10 + (live.chainLatencyMs || s.latencyMs || 0) + w.queued / live.ctx.sampleRate * 1000 + device;
       ui.latency.textContent = `${Math.max(0, ms).toFixed(0)} ms${w.underruns ? ` · ${w.underruns} dropout${w.underruns === 1 ? '' : 's'}` : ''}`;
@@ -266,6 +319,7 @@
   }
   window.addEventListener('pagehide', () => stopLive());
   updateTalk();
+  updateTexts();
   window.TF2Live = { start: startLive, stop: stopLive, record: toggleRecording, get running() { return !!live; },
     get stats() { return live && live.stats; }, get recording() { return !!(live && live.recording); },
     talk(on) { buttonHeld = !!on; updateTalk(); } };

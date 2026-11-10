@@ -1141,7 +1141,8 @@
    *   gate:         Steam sender voice gate; null = profile default     [null]
    *   gateThresholdDb: gate opening level, frame RMS in dBFS [profile/-39.5];
    *                 for `steam` (senderGate.rule 'steam') the mean of |x|
-   *                 over a capture chunk in dBFS, null for Steam's own (-40)
+   *                 over a capture chunk in dBFS [Steam's own, -40]; null,
+   *                 undefined and '' are the profile's own (gateThresholdDb())
    *   steamUptime:  `steam` only: seconds the sender's Steam had been running,
    *                 0 to 4,000,000; its float clock sets the hold's real
    *                 length (W3-16). null for the sender's own   [777600]
@@ -1407,7 +1408,9 @@
   /* between blocks, for the live monitor. Where process() can look     */
   /* ahead, the live chain waits instead: the zero-phase FIRs become    */
   /* linear-phase (half their length late), and the voice gate holds    */
-  /* frames back for its pre-roll (120 ms), as the sender must. Rooms   */
+  /* frames back for its pre-roll (120 ms), as the sender must. The     */
+  /* `steam` profile with the codec on runs the render's own stages     */
+  /* (steamLiveChain, W3-11b) and holds back the sender's reach. Rooms  */
   /* (dsp_room) are not applied.                                        */
   /* ------------------------------------------------------------------ */
 

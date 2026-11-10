@@ -127,6 +127,16 @@ const MAX_DEMO_BYTES = 512 * 1024 * 1024;     // a demo is read whole; about 170
 const MAX_AUDIO_SECONDS = 10 * 60;
 const MAX_RECORDING_SECONDS = 5 * 60;
 
+// The threshold control's default for a profile (W3-11b): for `steam`,
+// Steam's own gate, the mean of |x| over a capture chunk at 1% of full scale
+// (-40 dBFS); for the others, the 20 ms frame model's RMS level (-39.5).
+function gateDefaultDb(codecKey) {
+  const profile = CODEC_PROFILES[codecKey] || CODEC_PROFILES.steam;
+  if (profile.senderGate && profile.senderGate.rule === 'steam') return -40;
+  return profile.senderGate ? profile.senderGate.thresholdDb : -39.5;
+}
+const isSteamRule = (codecKey) => (CODEC_PROFILES[codecKey] || CODEC_PROFILES.steam).senderGate?.rule === 'steam';
+
 /* ------------------------------------------------------------------ */
 /* Game-event simulator (unchanged in behavior, reorganised slightly) */
 /* ------------------------------------------------------------------ */

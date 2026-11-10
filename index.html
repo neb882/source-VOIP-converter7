@@ -44,16 +44,16 @@
           <span id="live-tx" class="live-tx">○ off</span>
           <span class="live-stat" title="Codec mode of the frames being sent">mode <b id="live-mode">—</b></span>
           <span class="live-stat" title="Payload bitrate of the frames being sent">rate <b id="live-rate">—</b></span>
-          <span class="live-stat" title="Frames lost (concealed) and late (silence) by the network settings">net <b id="live-loss">—</b></span>
-          <span class="live-stat" title="Microphone to speaker, including the voice gate's 120 ms pre-roll and the audio device's buffers">latency <b id="live-latency">—</b></span>
+          <span class="live-stat" title="Frames concealed (lost frames the decoder filled in when the next one arrived) and late (silence), by the network settings">net <b id="live-loss">—</b></span>
+          <span class="live-stat" title="Microphone to speaker: what the voice chain holds back (Steam's longest capture chunk and its 100 ms pre-roll, the codec's lookahead, the filters' waits), the playback queue and the audio device's buffers">latency <b id="live-latency">—</b></span>
           <span class="live-meter" title="Input peak"><span class="live-meter-label">in</span><span class="live-meter-bar"><span id="live-in"></span></span></span>
           <span class="live-meter" title="Output peak"><span class="live-meter-label">out</span><span class="live-meter-bar"><span id="live-out"></span></span></span>
         </div>
         <div class="live-controls">
           <button id="live-record" type="button" disabled title="Record the live session: the microphone and the TF2 voice, loaded into the app as a dry/wet pair (A/B, views, meter, download)">⏺ Record</button>
-          <label title="Send only while V (TF2's +voicerecord key) or the Talk button is held, as with push-to-talk in the game. The voice gate still applies while you hold it."><input id="live-ptt" type="checkbox"> Push-to-talk (hold <kbd>V</kbd>)</label>
+          <label title="Send only while V (TF2's +voicerecord key) or the Talk button is held. This is the app's stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by its own hold. Steam's own key rules (it goes on sending for half a second after a release) are not built yet."><input id="live-ptt" type="checkbox"> Push-to-talk (hold <kbd>V</kbd>)</label>
           <button id="live-talk" type="button" hidden title="Hold to talk">🎙 Hold to talk</button>
-          <label title="Skip the voice gate's 120 ms pre-roll, so the gate opens on the loud frame itself. Not how TF2 sounds: onsets lose their first 120 ms."><input id="live-lowlat" type="checkbox"> Low latency (no pre-roll)</label>
+          <label title="Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but each phrase's pre-roll is not played. Saves the figure shown once the monitor runs. Not how TF2 sounds."><input id="live-lowlat" type="checkbox"> Low latency (no pre-roll)</label>
         </div>
         <p id="live-note" class="live-note"></p>
       </div>
@@ -79,7 +79,7 @@
           <label for="codec">Codec <code class="cvar">sv_voicecodec</code></label>
           <select id="codec">
             <option value="steam" selected>Steam voice (Opus 24 kHz VBR, 32 kbps)</option>
-            <option value="steam_48">Fullband Opus (48 kHz / 64 kbps, experimental)</option>
+            <option value="steam_48">Fullband Opus (48 kHz / 64 kbps, experimental, not the game's path)</option>
             <option value="celt_22">vaudio_celt (CELT 0.11, 22 kHz, 22 kbps)</option>
             <option value="celt_44">vaudio_celt_high (CELT 0.11, 44 kHz mode, 22 kbps)</option>
             <option value="speex">vaudio_speex (Speex 1.0.2 on 11.025 kHz sound · 20-byte frames of 14.51 ms · 11.025 kbit/s)</option>
@@ -139,8 +139,8 @@
             </select>
           </div>
           <div class="control">
-            <label for="vad_threshold">Gate opens above dBFS <code class="cvar">voice_vad_threshold</code></label>
-            <input id="vad_threshold" type="number" value="-39.5" min="-70" max="-10" step="0.5">
+            <label for="vad_threshold" title="Gate opening level: the mean of |x| over a capture chunk, in dBFS; Steam's own is -40 (1% of full scale); a sine opens at -39.1 dBFS RMS. Chunks · 100 ms kept · 0.4 s hold. A typed level reaches the real-take check as a 20 ms RMS level, about 1 dB from this gate">Gate opens above dBFS <code class="cvar">voice_vad_threshold</code></label>
+            <input id="vad_threshold" type="number" value="-40" min="-70" max="-10" step="0.5">
           </div>
           <div class="control">
             <label for="steam_uptime" title="Steam stops sending 0.4 s after the last chunk loud enough to pass, timed on a clock that gets coarser the longer Steam has run: 0.40 s on a fresh start, anywhere from 0.38 to 0.50 s after two weeks.">Sender's Steam has been running</label>

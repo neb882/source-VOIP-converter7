@@ -55,7 +55,7 @@ FLAC and MP3 are made from the WAV when a file is saved. MP3 is lossy on top of 
 1. **Sender:** capture and filtering.
    - Stereo input is captured from its **left channel** (measured through a stereo virtual cable); a mix is optional.
    - Optional mic gain is applied, then int16 capture clipping. The audio is resampled to the codec rate, with optional high-/low-pass filters (off by default).
-   - **Steam's voice gate** decides which 20 ms frames are sent. A frame above −39.5 dBFS RMS is sent together with the 120 ms before it (pre-roll) and the 440 ms after it (hold). Longer pauses become silence instead of boosted noise, and each talk spurt starts a fresh encoder and decoder. On the Steam profile the hold is Steam's own 0.4 s, timed on a clock that gets coarser the longer Steam has run, so **Sender's Steam has been running** sets it: 0.40 s since today, 0.38 to 0.44 s at about a week (the default), up to 0.75 s at about a month.
+   - **Steam's voice gate.** On the Steam profile the app runs Steam's own sender, as read from its client. Steam reads its microphone in **chunks** of 31.25 to 93.75 ms and sends a chunk whose mean level reaches 1% of full scale (−40 dBFS; a sine opens at −39.1 dBFS RMS) or that holds a sample at 15%. The 100 ms before the first such chunk go with it (pre-roll), and sending goes on until 0.4 s after the last. That hold is timed on a clock that gets coarser the longer Steam has run, so **Sender's Steam has been running** sets it: 0.40 s since today, 0.38 to 0.44 s at about a week (the default), up to 0.75 s at about a month. Longer pauses become silence instead of boosted noise, and each talk spurt starts a fresh encoder and decoder. The other profiles use the app's 20 ms frame gate: a frame above −39.5 dBFS RMS is sent together with the 120 ms before it and the 440 ms after it.
 2. **Codec and network:** Steam's capture resampler rolls off the band above 11.1 kHz. libopus 1.1.5 then encodes the sent frames as Steam does: 32 kbps VBR, complexity 10, with DTX. When Opus's voice detector calls a frame inactive, as it does in held pauses and on steady tones, the encoder sends a 1-byte DTX packet and the decoder plays comfort noise. `net_split` groups whole frames into packets. Both network effects were measured in TF2:
    - **Loss** (`net_fakeloss`, the share of voice frames lost) comes in bursts averaging 2.2 frames, and the decoder's own concealment fills them.
    - **Jitter** (`net_fakejitter`) makes isolated frames arrive too late. At 50 ms that's 3% of frames; nine in ten are concealed and one plays as silence.
@@ -74,7 +74,7 @@ The quick presets reset every control. The live chain strip under the controls s
 | Profile | Codec | Receiver | Status |
 | --- | --- | --- | --- |
 | Modern / `steam` | libopus 1.1.5: Opus 24 kHz, 32 kbps VBR with DTX, VOIP, voice hint (SILK/CELT hybrid) | auto-gain at 44.1 kHz | **Measured** against 2026 TF2 recordings and Steam's own packets |
-| `steam_48` | libopus 1.1.5: Opus 48 kHz, 64 kbps VBR with DTX | auto-gain at 44.1 kHz | Experimental |
+| `steam_48` | libopus 1.1.5: Opus 48 kHz, 64 kbps VBR with DTX | auto-gain at 44.1 kHz | Experimental; not the game's path: the 20 ms frame gate and the app's own resampler |
 | `celt_22` (vaudio_celt) | **CELT 0.11** with its pitch filter, 22050 Hz, 512-sample frames (23.2 ms), 64-byte packets (22.05 kbps), complexity 5: read from the game's module, packet size and rate confirmed by a take | auto-gain at 22.05 kHz, linear-interpolation mixer | Codec gives the game's decoded samples but for 1 of 292,352, one step off; receiver modeled |
 | `celt_44` (vaudio_celt_high) | **CELT 0.11** with its pitch filter, the 44100 Hz mode with 1024-sample frames and 128-byte packets, run on 22050 Hz sound: 46.4 ms frames, 22.05 kbps, nothing above about 10 kHz. Complexity 5. Read from the game's module, packet size and rate confirmed by a take | auto-gain at 22.05 kHz, linear-interpolation mixer | Codec gives the game's decoded samples but for 75 of 292,864, each one step off; receiver modeled |
 | `speex` (vaudio_speex) | **Speex 1.0.2** narrowband, as the game's module runs it: quality 4 (the engine's 3), 20 bytes a frame at constant bit rate, enhancement on, complexity 2. The module does not resample, so the 8 kHz codec is fed 11025 Hz sound: 160-sample frames of 14.51 ms, 11.025 kbit/s, a band to 5.5 kHz. Decoded samples wrap past full scale. A lost frame plays as zeros. `snd_bits` does not change it | auto-gain at 11.025 kHz, linear-interpolation mixer | Codec and settings read from the module; not recorded |
@@ -93,17 +93,17 @@ The status line and console report the modes the encoder actually chose (SILK / 
 - libopus 1.1.5, frame by frame, with the loss and jitter model
 - the receiver auto-gain and the output
 
-The Node tests check each streaming stage against its offline counterpart sample for sample, and the whole chain against a render (r 0.99, within 0.1 dB, lined up to the sample once the chain's stated delay is removed).
+On the Steam profile the live chain is a render's own, fed as the microphone's blocks arrive: Steam's sender, timed on the samples it is given rather than on the wall clock, the 16-bit decoder, Steam's resampler and the receiver. The Node tests show that it hands the mixer exactly what a render of the same sound does, sample for sample. With push-to-talk off the key counts as held, as if `+voicerecord` were held throughout; what TF2's open-microphone mode (`voice_vox`) does was not read. On the other profiles the Node tests check each streaming stage against its offline counterpart sample for sample, and the whole chain against a render.
 
-**Latency.** About 230 ms from microphone to speaker. The largest part is authentic: Steam's gate sends the 120 ms before a word, so it has to hold that much back. The rest is the capture filter, Opus lookahead, a 40 ms jitter buffer and the audio device.
+**Latency.** About 0.3 s from microphone to speaker on the Steam profile. The largest part is authentic: Steam's sender sends the 100 ms before a phrase, and a chunk is sent only once it has been read, so the chain holds back about 0.2 s (the panel shows the figure). The rest is the capture filter, Opus lookahead, a 40 ms jitter buffer and the audio device. The other profiles hold back the frame gate's 120 ms pre-roll, about 230 ms in all.
 
 **While it runs:**
 - **Settings:** changes apply as you make them, presets included.
 - **Status:** the panel shows whether the gate is sending, the Opus mode, the bitrate, lost and late frames, input and output levels, and the latency.
 - **Output device:** choose a virtual audio cable here to use the TF2 voice in other apps, such as Discord or OBS. Chrome and Edge can pick output devices; other browsers play on the default output.
-- **Push-to-talk:** sends only while **V** (TF2's `+voicerecord` key) or the Talk button is held. Audio from before the key goes down is never sent, and the gate still applies while you hold it.
-- **Low latency:** skips the gate's 120 ms pre-roll, so the gate opens on the loud frame itself. That saves 120 ms but cuts the start of each word, which TF2 does not.
-- **Record:** captures the session and loads it into the app as a dry/wet pair: your microphone as the source and the voice as the render, lined up to the sample. A/B, the views, the meter and every download work on it, and **Process Audio** re-renders the microphone with other settings.
+- **Push-to-talk:** sends only while **V** (TF2's `+voicerecord` key) or the Talk button is held, and the gate still applies while you hold it. On the Steam profile this is the app's stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by its own hold, so sound captured while the key is up is never sent. Steam's own key rules (it goes on sending for half a second after a release) are not built yet.
+- **Low latency:** on the Steam profile, holds back Steam's longest chunk and a frame instead of the chunk and the pre-roll. That saves about 80 ms (the panel gives the figure) but drops each phrase's 100 ms pre-roll, which TF2 does not. On the other profiles it skips the gate's 120 ms pre-roll, so the gate opens on the loud frame itself: that saves 120 ms but cuts the start of each word.
+- **Record:** captures the session and loads it into the app as a dry/wet pair: your microphone as the source and the voice as the render, lined up to the sample. A/B, the views, the meter and every download work on it, and **Process Audio** re-renders the microphone with other settings. The voice ends short of the microphone by what the chain holds back when it stops (about 0.2 s on the Steam profile), which is never played.
 
 Rooms (`dsp_room`) are not applied live. Use headphones: speakers feed the output back into the microphone.
 
@@ -132,6 +132,7 @@ What that does **not** establish:
 - Steam's exact libopus build and capture resampler. The release is 1.1.x (1.1.2–1.1.5 give identical packets). The resampler is modeled by its measured roll-off, and pure tones at 11.5–12 kHz still differ.
 - The absolute playback level. That depends on game and OS volume; the rendered file uses `volume 0.5`, where the recordings used 0.15.
 - Real internet loss. The network model comes from simulated loss and jitter in TF2 (`net_fakeloss`, `net_fakejitter` on a listen server).
+- When Steam reads its microphone. The sender's gate, pre-roll and hold are Steam's own, but the read times that cut the capture into chunks, and so the packets' clock, are a seeded model fitted to Steam's packets.
 
 Room presets use parameters from [Valve's preset data mirrored by Facepunch](https://github.com/Facepunch/garrysmod/blob/master/garrysmod/scripts/dsp_presets.txt). The processors are this app's implementations, and the reference recording was dry, so rooms remain an effect. The same decoded PCM, settings and pinned runtime always produce the same output.
 
@@ -141,7 +142,7 @@ Advanced controls are grouped in signal order. Every control has a console name.
 
 | Group | Controls |
 | --- | --- |
-| **Sender** | `voice_capture_channel`, mic gain, filters, `voice_vad` and `voice_vad_threshold` |
+| **Sender** | `voice_capture_channel`, mic gain, filters, `voice_vad` and `voice_vad_threshold` (on `steam` the mean level of a capture chunk, −40 dBFS by default; on the other profiles a 20 ms frame's RMS, −39.5), and on `steam` how long the sender's Steam has been running |
 | **Codec & network** | codec on/off, `snd_bits` bitrate scale, `net_split`, `net_fakeloss`, `net_fakejitter` |
 | **Receiver** | `voice_agc`, `voice_retime`, `voice_avggain`, `voice_maxgain`, `voice_scale` |
 | **Listener room & output** | `dsp_room`, custom room, `volume` |
