@@ -12,36 +12,46 @@ was read.
 
 ## The order of work
 
-Everything not yet built. "Audio" marks the orders that change `audio.js`: they run one at a time, in this order.
+*Brought up to date 2026-11-10, late (`docs/reports/W3-plan-maintenance.md`).* "Audio" marks the orders that
+change `audio.js`: they run one at a time, in this order.
 
-| # | Order | What | Starts after | Audio | Golden hashes | Budget |
+| # | Order | What | State, or what it starts after | Audio | Golden hashes | Budget |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | W2-02 | the render stream (with the fixer) | merges first | yes | records them | |
-| 1 | W3-02a | the channel, the log replay (in review) | | no | | 1 day |
-| 1 | W3-12a | Speex 1.0.2 built and checked | now | no | | 1 day |
-| 2 | W3-13 | the decoder's resampler, a module | now (a builder free) | no | | 1 day |
-| 2 | W3-02b | `steam-sender.js` and the timeline stage | W3-02a | no | | 1 day |
-| 3 | W3-05 | the gain as the engine's rule | W2-02 | yes | every case with the gain on | half a day |
-| 4 | W3-06 | the CELT settings and rebuild | W3-05 | yes | the two CELT cases | 1 day |
-| 5 | W3-12b | the `speex` profile on the new module | W3-06, W3-12a | yes | the `speex` cases | half a day |
-| R | (the orchestrator) | findings 28 to 31 written into `tests/REFERENCE_2026.md` from the text below | **before W3-12b, W3-13 or W3-11a merges** | | | |
-| 6 | W3-11a | the `steam` render sends and decodes as Steam does | W3-12b, W3-02b, W3-13 | yes | every `steam` case with the codec on | 2 days |
-| 7 | W3-11b | the live chain, the threshold control, the words | W3-11a | yes | moves none | 1 day |
-| 8 | W3-02c | the game's timeline behind an option | W3-11b | yes | adds cases; moves none | 1 day |
-| 9 | W3-02d | the page: controls, the default | W3-02c | no | | 1 day |
-| 10 | W3-02f | the flat rule retired | W3-02d | yes | moves none | 2 hours |
-| 10 | W3-02e | the page: lane marks, the real-take words | W3-02d | no | | half a day |
-| 11 | W3-02g | a demo's own packets | W3-02f | yes | adds cases | half a day |
-| 12 | W3-10 | the output stage | W3-02g and W3-02e | yes | re-records all, once | 1 day |
-| beside | W3-14 | the Steam path against the owner's file-input recording: an investigation on the stronger model, run by the orchestrator | when the recording exists, and W3-13's module and W3-11a's Opus rebuild exist (or scratch builds of them); nothing waits for it | no | may change W3-13's default kernel, and then the `steam` cases once | 4 hours |
+| | W2-02, W3-02a, W3-02b, W3-12a, W3-05 | the render stream; the channel; the sender and the timeline stage; Speex 1.0.2 built; the gain as the engine's rule | **merged** | | | |
+| | row R | findings 22 to 31 in `tests/REFERENCE_2026.md` | **done** (through W3-09 and W3-05) | | | |
+| | W3-13 | the decoder's resampler, a module | **built and reviewed; its merge waits for the owner's word on the licence** | no | | |
+| 1 | W3-06 | the CELT settings and rebuild | **built, in review** | yes | the two CELT cases | |
+| 2 | W3-12b | the `speex` profile on the new module | W3-06 merged | yes | the `speex` cases | half a day |
+| 3 | W3-11a | the `steam` render sends and decodes as Steam does | W3-12b merged. **Built on a branch that has merged W3-13's branch in; merged to main only after W3-13 is** | yes | every `steam` case with the codec on | 2 days |
+| 4 | W3-11b | the live chain, the threshold control, the words | W3-11a merged | yes | moves none | 1 day |
+| 5 | W3-02c | the game's timeline behind an option | W3-11b merged | yes | adds cases; moves none | 1 day |
+| 6 | W3-02d | the page: controls, the default | W3-02c | no | | 1 day |
+| 7 | W3-02f | the flat rule retired | W3-02d | yes | moves none | 2 hours |
+| 7 | W3-02e | the page: lane marks, the real-take words | W3-02d | no | | half a day |
+| 8 | W3-02g | a demo's own packets | W3-02f | yes | adds cases | half a day |
+| 9 | W3-10 | the output stage | W3-02g and W3-02e | yes | re-records all, once | 1 day |
+| beside | W3-14 | the Steam path against the owner's file-input recording: an investigation on the stronger model, run by the orchestrator | when the recording exists; it needs W3-13's module (its branch will do) and W3-11a's Opus rebuild (or a scratch build); nothing waits for it | no | may change W3-13's default kernel, and then the `steam` cases once | 4 hours |
 
-**Side by side** (two builders at most). The four module orders (W3-02a, W3-12a, W3-13, W3-02b) touch no app
-file and share only the `test` line of `package.json` (a trivial merge): any two of them at once. From W2-02's
-merge one builder walks the audio column. **W3-02d runs alone:** it shares page files with W3-11b before it and
-`app/source.js` with W3-02g after it. W3-02e runs beside W3-02f or W3-02g. **W3-10 runs beside nothing:** it
-touches `app/`, `batch.js`, `sw.js` and the tests. **One real conflict among the module orders:** W3-13 and
-W3-12b both edit README's "Files and licensing" paragraph and table. W3-12b's README edit is made after W3-13
-has merged; if W3-13 is still in review then, W3-12b merges first and W3-13 merges main in and keeps both.
+**While W3-13's merge waits.** Nothing before row 3 needs it: W3-06's review and merge, then W3-12b, go ahead.
+**W3-11a can be built too**, on a branch from main that merges `origin/claude/w3-13-steam-resampler` in (a
+merge, not a rebase): it calls the module only through `createResampler().packet()`. It cannot be merged before
+W3-13, since its branch carries W3-13's commits. What the wait risks: if the owner asks for the resampler to be
+shipped another way, W3-11a's code stands and its `steam` golden hashes are re-recorded if the samples change
+(a WebAssembly build of the library would run the `c` kernel). W3-11b and W3-02c follow W3-11a's merge, so
+they wait with it; they could be stacked on its branch the same way, but two unmerged orders deep is where a
+review finding in the first costs the most, so I would not. W3-14 can be run from W3-13's branch as soon as
+the recording exists.
+
+**Side by side** (two builders at most). No module order is left: every order still to build touches
+`audio.js` or the page. So one builder walks rows 1 to 5 and the second has work only where the files do not
+meet: W3-02e beside W3-02f or W3-02g. **W3-02d runs alone** (it shares page files with W3-11b before it and
+`app/source.js` with W3-02g after it). **W3-10 runs beside nothing.** W3-12b and W3-13 both edit README's
+"Files and licensing": W3-12b merges first, and W3-13 merges main in and keeps both. The second builder's
+best use meanwhile is W3-11a on W3-13's branch while the first does W3-12b, **if** W3-12b's files and W3-11a's
+are kept apart: they share `audio.js` (different functions), `constants.js` (different profiles), `sw.js`,
+`index.html` and `tests/render-stream.verify.mjs`, so W3-11a merges main in after W3-12b lands and re-records
+its hashes then. That is one merge with real conflicts in the hash list; it is worth it only if the owner's
+answer is expected within the day.
 
 **The golden hashes** move five times before W3-10 (the gain; CELT; Speex; `steam`; then all). Each order
 re-records only the cases its change reaches, in a commit of its own, after showing the others did not move:
