@@ -20,6 +20,7 @@
  *     its STREAMINFO, PCM and others by the entry's rate field)
  *   WebM and Matroska are not read (video.js does not parse them): such a
  *   file is decoded at the device rate, as before.
+ * TF2FileRate.ascRate(audioSpecificConfig) -> the same for an AAC config.
  * TF2FileRate.decode(arrayBuffer, { deviceContext, again }) ->
  *   { buffer, info, native, why }: decoded at the file's rate when it can be
  *   read, is accepted by OfflineAudioContext and the decode there succeeds;
@@ -312,7 +313,7 @@
     return { buffer, info, native: false, why };
   }
 
-  const TF2FileRate = { read, decode, readAsc };
+  const TF2FileRate = { read, decode, readAsc, ascRate: (bytes) => ascRate(bytes, 'AAC') };
   if (typeof window !== 'undefined') window.TF2FileRate = TF2FileRate;
   if (typeof module !== 'undefined' && module.exports) module.exports = TF2FileRate;
 })();
