@@ -4,44 +4,62 @@
   "stands": {
     "live": "https://neb882.github.io/source-VOIP-converter7/ serves main (GitHub Pages from the branch root).",
     "model": "The Steam profile, the voice gate and the receiver are measured (tests/REFERENCE_2026.md, findings 1-21). vaudio_celt runs the real CELT 0.11 at settings three public decoders agree on. The speex profile runs the real Speex 1.2.1 at assumed settings (quality 4, 8 kbps). vaudio_celt_high, the Speex settings and the rooms are unconfirmed.",
-    "last_merged": "W1-01 (2026-11-09): the speex profile runs real Speex 1.2.1, with its own frame code, in the render and the live chain (docs/reports/W1-01-speex.md). Before it, W1-04: the browser suite's live-recording check no longer fails by chance.",
-    "ci": "The tests workflow runs on every push and can be started by hand. Until 2026-11-09 one browser check (the live recording's lag) failed by chance about once in thirty runs; W1-04 removed the cause, so a red run is a real failure. A branch made before W1-04 still has the old check until it merges main."
+    "last_merged": "W2-01 (2026-11-10): the meter can measure a render a piece at a time, equal to the whole-file meter and in constant memory (docs/reports/W2-01-stream-meter.md); nothing on the page calls it yet (W2-03 would). Before it, W1-01: the speex profile runs real Speex 1.2.1.",
+    "ci": "The tests workflow runs on every push and can be started by hand. Until 2026-11-09 one browser check (the live recording's lag) failed by chance about once in thirty runs; W1-04 removed the cause, so a red run is a real failure. A branch made before W1-04 still has the old check until it merges main.",
+    "takes": "Since 2026-11-09 the owner's takes are in a private repository a session can attach (the owner knows its name; it is not named here). It holds Sets A to F as FLAC, the Set D demo, the source speech and clip, and the three test signals as played; the checksums of the Set D and F files match tests/REFERENCE_2026.md. The two songs played for Set A are there too. Not found: take1_default.flac (only the voice_maxgain 10 take of that pair; the tests accept either). The six prediction takes are not recorded yet. tests/accuracy.mjs and tests/retiming.mjs can run wherever that repository is cloned: pass its folder with --takes, and copy its signals folder into tests/testsignal/ (ignored by git).",
+    "baseline": "2026-11-09, main at 61fcb92: tests/accuracy.mjs on the 16 takes of Sets B to F gives every figure of the 'Every take' table in tests/REFERENCE_2026.md to the last digit shown, so the review fixes, the demo reader and Speex moved nothing in the measured model. The Set D demo answered W1-02's open question: Steam's sequence numbers restart at 0 after each end marker (REFERENCE finding 11). Set A and tests/retiming.mjs reproduce the document too. Read block by block (2026-11-09, a scratch copy that kept each half-second block): on the owner's speech 231 of 246 blocks are within 0.5 dB and 239 agree to 0.18 dB rms; the 7 others are the quiet half-seconds where a talk spurt ends (take -48 to -52 dBFS, the game's ambience in the recording against the model's silence) or where the receiver moved a spurt. On the test signal 170 of 177 agree to 0.20 dB rms and the 7 others are the known cases of findings 13 and 14. So the accuracy table's 0.96 and 1.45 dB are those few blocks, not a general error. What is left on the modern preset for speech is when phrases start: the game started 9 of this take's spurts 100 to 340 ms early or late, which the render models only as an option (voice_retime, findings 19 and 21).",
+    "priority": "The owner cares most about the modern preset (the Steam profile at defaults), which they have A/B tested against the game. Work on it comes before the legacy codecs and the rooms.",
+    "console": "The game's 'find voice' output (2026-11-09, kept in the private repository) gives the receiver's defaults: voice_buffer_ms 100, voice_fadeouttime 0.1, voice_overdrive 2, voice_overdrivefadetime 0.4, voice_steal 2, voice_avggain 0.5, voice_maxgain 10, voice_scale 1. Its help for sv_voicecodec calls vaudio_celt '22kHz, 22kbps' and vaudio_celt_high '44kHz, 44kbps', which the celt_44 profile (256-sample frames, 120-byte packets) does not match: W3-03 checks it. The debug variables exist in this build: voice_recordtofile (writes voice_micdata.wav and voice_decompressed.wav), voice_inputfromfile (reads voice_input.wav; sv_allow_voice_from_file defaults to 1), voice_writevoices, voice_showincoming, voice_showchannels, voice_profile."
   },
   "in_flight": [
     {
-      "order": "W2-01-stream-meter",
-      "branch": "claude/w2-01-stream-meter",
-      "stage": "review (built; CI green on 489b4e2)",
-      "report": "docs/reports/W2-01-stream-meter.md"
+      "order": "W2-02-render-stream",
+      "branch": "claude/w2-02-render-stream",
+      "stage": "building",
+      "report": "docs/reports/W2-02-render-stream.md"
+    },
+    {
+      "order": "W3-01-phrase-timing",
+      "branch": "claude/w3-01-phrase-timing",
+      "stage": "investigating (the stronger model; no app code)",
+      "report": "docs/reports/W3-01-phrase-timing.md"
+    },
+    {
+      "order": "W3-03-engine-binary",
+      "branch": "claude/w3-03-engine-binary",
+      "stage": "investigating (the stronger model; no app code)",
+      "report": "docs/reports/W3-03-engine-binary.md"
+    },
+    {
+      "order": "W3-04-native-rate-decode",
+      "branch": "claude/w3-04-native-rate-decode",
+      "stage": "building",
+      "report": "docs/reports/W3-04-native-rate-decode.md"
     }
   ],
   "next": [
+    "The owner's priority (2026-11-10): when phrases start, on the modern preset. W3-01 investigates whether voice_retime should run the receiver's queue model; a build order follows if the evidence supports it. The long-render queue is held after the two orders now running (W2-01, W2-02): W2-03 to W2-06 start only when the owner says so.",
     "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (in flight; meter.js only); W2-02 render-stream (next; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
+    "With the takes reachable: a baseline run of tests/accuracy.mjs and tests/retiming.mjs on main (in progress on 2026-11-09), then the model questions it raises, each as an order for the stronger model (docs/PIPELINE.md, 'Which model does what'). The predictions dry run can be repeated too.",
     "After W2-03 has been live for a while: an order that makes process() a thin wrapper over the stream, so there is one render path, proved by the golden hashes W2-02 records.",
     "Score the six registered predictions when their takes exist (tests/predictions/PREDICTIONS.md).",
-    "Repeat the predictions scorer's dry run after the 2026-11-09 change to reference.js; it needs a real take for its game sound.",
-    "Where the stronger model would pay most is the measured model itself (what a take shows, which constant the evidence supports), and that is blocked: the owner's takes are not on any machine a session can reach (waiting_on_the_owner)."
+    "Repeat the predictions scorer's dry run after the 2026-11-09 change to reference.js; it needs a real take for its game sound."
   ],
   "waiting_on_the_owner": [
     {
-      "question": "Do TF2's debug commands give a digital tap? In a local game with voice_loopback 1: voice_recordtofile 1 (writes voice_micrecord.wav and voice_decompressed.wav), voice_inputfromfile 1 (reads voice_input.wav in place of the microphone; may need sv_allow_voice_from_file 1), and voice_writevoices 1 with a 'voice' folder in tf/.",
+      "question": "A run of the debug commands in a local game with voice_loopback 1: voice_recordtofile 1 (the help says it writes voice_micdata.wav and voice_decompressed.wav), voice_inputfromfile 1 with a voice_input.wav, and voice_showincoming 1 with voice_showchannels 1 and a console log. The exact run comes from W3-01 and W3-03.",
       "why": "Every open question waits on a hand-made loopback recording. A file written by the game would have no recorder clock, no game sound and no level guesswork. The sources for these commands are old and mostly about other Source games, and they may not work with Steam's voice codec: it is a five-minute test."
-    },
-    {
-      "question": "Where may the takes live so that sessions and CI can use them? Options: a private repository attached to sessions (keeps them private); publishing only the takes of the synthetic test signal.",
-      "why": "tests/accuracy.mjs cannot run where the takes are not, so no session can check a model change against real data and the predictions dry run could not be repeated."
     }
   ],
   "open_questions": [
-    "Do Steam's voice sequence numbers start again at each talk spurt? Public decoders restart their frame count at each end marker, and demo.js relies on that to tell a spurt after a lost marker from a run that continues (W1-02). The owner can check on a real demo: tests/demovoice/extract.mjs writes each packet's number.",
     "Which Speex quality and release did Source's vaudio_speex use? The profile assumes quality 4 of Speex 1.2.1; a packet from a demo of that era would settle the quality by its size (20 bytes a frame at quality 3 or 4)."
   ],
   "ideas_not_started": [
     "Steam's own decoder as a reference: the public Steamworks call DecompressVoice on a demo's packets would settle the exact libopus build and the comfort noise bit for bit, if the demo payload is the format it takes. Untested.",
     "Old public SourceTV demos as packet evidence for the Speex and CELT years, read with demo.js, if they kept their voice.",
     "Page scripts as ES modules instead of classic scripts sharing globals (no build step is needed for either). Migrate gradually.",
-    "Decode sources at the file's own sample rate instead of the audio device's, so the same file renders the same on every machine.",
-    "The Node suites load audio.js and constants.js in a vm context, which makes Math-heavy code about 12 times slower than the page runs it (found by W2-01's builder). Loading them another way could cut pnpm test's minute, if the results stay bit for bit the same."
+    "The Node suites load audio.js and constants.js in a vm context, which makes Math-heavy code about 12 times slower than the page runs it (found by W2-01's builder). Loading them another way could cut pnpm test's minute, if the results stay bit for bit the same.",
+    "tests/accuracy.mjs could report its level figure without the half-second blocks that hold a talk spurt's end or a moved spurt, next to the figure it gives now: on speech that is 0.18 dB against 0.96, and the second number reads as a model error it is not."
   ],
   "deferred": [
     {
@@ -83,7 +101,8 @@
     "Pinned codecs, seeded renders, registered predictions, the source timeline by default, no uploads, a failing test with every fix."
   ],
   "dead_ends": [
-    "Loading the game's own codec libraries through their interface: the interface header (ivoicecodec.h) is not in Valve's public SDK (checked 2026-11-09)."
+    "Loading the game's own codec libraries through their interface: the interface header (ivoicecodec.h) is not in Valve's public SDK (checked 2026-11-09).",
+    "Valve's public SDK (ValveSoftware/source-sdk-2013, checked 2026-11-10 for the phrase-timing work): it has the game code and the Steam voice API headers, but none of the engine's voice receiver, its queue or its console variables."
   ],
   "process_notes": [
     "2026-11-09: adopted docs/PIPELINE.md, adapted from the owner's song-charting project.",
@@ -105,13 +124,23 @@
     },
     {
       "date": "2026-11-09",
-      "what": "Long sources are still decoded by the browser's decodeAudioData, at the audio device's rate.",
-      "why": "Decoding another way gives different samples from the same file. It stays an idea (ideas_not_started) until the owner wants it."
+      "what": "Work is split by model (docs/PIPELINE.md, 'Which model does what'): builders and reviewers on the builders' model, where a written check says whether the work is right; plans, the skeptic, the reading of evidence and the last read of each diff on the stronger model the orchestrating session runs on. The orchestrator works at high effort.",
+      "why": "The owner asked that the stronger model be used to the full. Its vendor's published comparison puts the two models a few points apart on agentic coding and far apart on long unattended work, scientific computing and research, at twice the price per token. W1-03's plan was written on the builders' model and reviewed on the stronger one; from now on it is the other way round."
     },
     {
       "date": "2026-11-09",
-      "what": "Work is split by model (docs/PIPELINE.md, 'Which model does what'): builders and reviewers on the builders' model, where a written check says whether the work is right; plans, the skeptic, the reading of evidence and the last read of each diff on the stronger model the orchestrating session runs on. The orchestrator works at high effort.",
-      "why": "The owner asked that the stronger model be used to the full. Its vendor's published comparison puts the two models a few points apart on agentic coding and far apart on long unattended work, scientific computing and research, at twice the price per token. W1-03's plan was written on the builders' model and reviewed on the stronger one; from now on it is the other way round."
+      "what": "The owner expects to switch the orchestrating session back to the builders' model for cost. The pipeline is written so the split survives the switch: the stronger model's roles become agents started on it.",
+      "why": "The owner said so. Before the switch, the session uses the stronger model on what only it should settle: reading the baseline against the takes and writing the model questions as orders."
+    },
+    {
+      "date": "2026-11-10",
+      "what": "The owner's standard is an exact recreation by any means. The orchestrator will not use leaked engine source; the owner supplied their own install's engine and codec files and the game's 'find voice' output, and reading those is allowed (CLAUDE.md, hard rules).",
+      "why": "The receiver's queue and the legacy codecs' settings are in those files, and the public SDK has neither."
+    },
+    {
+      "date": "2026-11-10",
+      "what": "The owner left the choice of further improvements to the orchestrator. In order: (1) a sample-exact check of the codec stage with the game's own debug commands, once W3-03 says what they read and write; (2) phrase timing (W3-01, W3-03), and re-timing on by default for the modern preset if the engine's rule is found; (3) sources decoded at the file's own rate (W3-04, started); (4) the unverified parts (rooms, vaudio_celt_high, the Speex settings) verified from the game files or moved under a label; (5) the second PC's peaks 2.5 dB above the model's clamp (Listener B) explained; (6) a look at the page for a simpler first screen.",
+      "why": "Exactness on the modern preset is the owner's standard; each item either proves it more strictly or removes a place where the page claims more than is shown."
     }
   ]
 }
