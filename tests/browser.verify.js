@@ -829,21 +829,32 @@ async function verifyLiveMonitor(page) {
     tx: document.getElementById('live-tx').textContent, pressed: document.getElementById('live-toggle').getAttribute('aria-pressed') }));
   check(live.pressed === 'true' && live.stats.sent > 0 && live.stats.modes.hybrid > 0,
     'the live monitor runs the microphone through the Steam chain in real time', `${live.stats.sent} of ${live.stats.frames} frames sent, ${live.tx}`);
+  // W3-11b: on steam the chain holds back the sender's longest chunk and its
+  // pre-roll (stats.latencyMs, about 207 ms); the page adds its own delays.
   const ms = Number(/^(\d+) ms/.exec(live.latency)?.[1]);
-  check(ms >= 130 && ms < 600, 'the live monitor reports its latency, gate pre-roll included', live.latency);
+  check(ms >= live.stats.latencyMs && ms < live.stats.latencyMs + 400 && live.stats.latencyMs > 190,
+    'the live monitor reports its latency: between the chain\'s own figure (what it holds back) and that plus 400 ms', `${live.latency}; the chain ${live.stats.latencyMs.toFixed(1)} ms`);
 
-  // Low latency drops the 120 ms pre-roll from the chain.
+  // Low latency holds back a chunk and a frame instead of the chunk and the
+  // pre-roll; the page shows the figure it saves, taken from the chain.
+  const fullMs = live.stats.latencyMs;
   await page.locator('#live-lowlat').check();
-  await page.waitForFunction(() => TF2Live.stats && TF2Live.stats.latencyMs < 20, null, { timeout: 15000 });
-  const lowMs = await page.evaluate(() => TF2Live.stats.latencyMs);
+  await page.waitForFunction((full) => TF2Live.stats && TF2Live.stats.latencyMs < full - 50, fullMs, { timeout: 15000 });
+  const low = await page.evaluate(() => ({ ms: TF2Live.stats.latencyMs, label: document.getElementById('live-lowlat').closest('label').textContent,
+    title: document.getElementById('live-lowlat').closest('label').title }));
   await page.locator('#live-lowlat').uncheck();
-  await page.waitForFunction(() => TF2Live.stats && TF2Live.stats.latencyMs > 120, null, { timeout: 15000 });
-  check(lowMs < 20, 'low-latency mode drops the gate pre-roll from the live chain', `${lowMs.toFixed(1)} ms chain delay`);
+  await page.waitForFunction((full) => TF2Live.stats && TF2Live.stats.latencyMs === full, fullMs, { timeout: 15000 });
+  const shown = Number(/saves (\d+) ms/.exec(low.label)?.[1]);
+  check(Math.round(fullMs - low.ms) === shown && /Saves \d+ ms/.test(low.title) && shown > 60 && shown < 100,
+    'low-latency mode lowers the chain\'s latencyMs by the figure the page shows', `${(fullMs - low.ms).toFixed(2)} ms; the page: "${low.label.trim()}"`);
 
-  // Push-to-talk: nothing is sent until the key or the button is held.
+  // Push-to-talk: nothing is sent once the key is up. On steam the key up is
+  // the app's stand-in (zeros in place of the microphone): the spurt in hand
+  // ends by the gate's own hold, so the count waits 1.5 s first (the hold, a
+  // chunk, the reach and the page's own delays come to about 0.9 s).
   await page.locator('#live-ptt').check();
   await page.waitForFunction(() => TF2Live.stats && TF2Live.stats.talking === false, null, { timeout: 15000 });
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(1500);
   const idle0 = await page.evaluate(() => TF2Live.stats.sent);
   await page.waitForTimeout(800);
   const idle1 = await page.evaluate(() => ({ sent: TF2Live.stats.sent, tx: document.getElementById('live-tx').textContent,
@@ -905,25 +916,21 @@ async function verifyLiveMonitor(page) {
   // about +-0.35 on both sides of zero.
   check(take.high < .5 && take.low < -.1, 'the fake microphone plays the noise probe, not Chromium\'s beep',
     `samples from ${take.low.toFixed(2)} to ${take.high.toFixed(2)}`);
-  // W3-11a: the steam render runs Steam's resampler, which after its first
-  // packet is 16 inputs late (finding 29), while the live chain keeps the
-  // app's resampler until W3-11b (which rewrites this check when the live
-  // chain takes the sender). Each spurt's lateness is 29.4 voice samples less
-  // the fraction of a sample by which the resampler's output grid falls short
-  // at the spurt's first packet, plus the rounding of where that packet is
-  // laid: 27.9 to 29.9 samples at 44.1 kHz, 28.9 (0.655 ms) on average
-  // (measured spurt by spurt in Node against that prediction, within 0.15
-  // samples). The take is at the page's device rate (44.1 kHz here and on CI;
-  // 29.4 samples there are 32 at 48 kHz), so the window scales with it: the
-  // peak within 1.5 samples (at 44.1 kHz) of -28.9. 60 takes simulated in Node
-  // peaked at -28 to -30 at 44.1 kHz and -31 to -32 at 48 kHz. Their r is
-  // lower than on one path (the gate's frames, the 16-bit capture, the
-  // encoder's resets, the decode and the resampler all differ): 0.786 to 0.90
-  // over those 60 at 44.1 kHz, so r > 0.7 here.
+  // W3-11b: the live chain runs the render's own stages, so both paths are
+  // late by the same 16 inputs of Steam's resampler and the lag is near 0.
+  // What is left is the rounding of the anchors and where the resampler's
+  // stream stood (the take starts in mid-session, so its sender's clock and
+  // its resampler started elsewhere), and the gate's edges, which that clock
+  // moves. Sixty takes simulated in Node (the probe looped from a seeded
+  // point, a seeded run before the 3 s recording, lined up as live-worker.js
+  // lines them up) at 44.1 kHz peaked at -1, 0 or 1 with r 0.811 to 0.900
+  // (tenth percentile 0.844); see the order's report. This is a smoke test:
+  // a float decode, a missing rounding, a kept FIR delay or a missing uptime
+  // would all pass it; tests/verify.js [10b] is the proof.
   const k = take.rate / 44100;
-  check(Math.abs(take.lag + 28.9 * k) <= 1.5 * k && take.r > 0.7,
-    'steam: an offline render of the recorded microphone lags the live take by Steam\'s resampler\'s 16 inputs (0.655 ms on average)',
-    `peak at ${take.lag} samples at ${take.rate} Hz (${(-1000 * take.lag / take.rate).toFixed(3)} ms), r ${take.r.toFixed(3)}`);
+  check(Math.abs(take.lag) <= 2 * k && take.r > 0.8,
+    'steam: an offline render of the recorded microphone lines up with the live take (both late by Steam\'s resampler\'s 16 inputs)',
+    `peak at ${take.lag} samples at ${take.rate} Hz, r ${take.r.toFixed(3)}`);
   // steam_48 runs the frame path in the render and in the live chain alike.
   const take48 = await recordTake('steam_48');
   check(Math.abs(take48.lag) <= 1 && take48.r > 0.8, 'steam_48: the recorded voice lines up with an offline render of the recorded microphone, within a sample',
@@ -1202,6 +1209,8 @@ async function main() {
     check(pageErrors.length === 0, 'malformed share URL does not crash', pageErrors.join('; '));
     check(await page.locator('#codec').inputValue() === 'steam', 'invalid codec retains real Opus default');
     check(await page.locator('#gain').inputValue() === '1.0', 'invalid number retains safe default');
+    check(await page.locator('#vad_threshold').inputValue() === '-40' && await page.evaluate(() => !('gateThresholdDb' in renderOptions()) || renderOptions().gateThresholdDb === undefined),
+      'a fresh page shows the steam gate\'s own threshold, -40, and sends none');
     await page.evaluate(() => {
       localStorage.setItem('tf2ve_history', JSON.stringify({ broken: true }));
       localStorage.setItem('tf2ve_presets', JSON.stringify(['broken']));
@@ -1237,9 +1246,9 @@ async function main() {
       && await page.locator('#maxgain').inputValue() === '10' && await page.locator('#avggain').inputValue() === '0.5'
       && await page.locator('#volume').inputValue() === '0.5',
       'preset resets quality, receiver auto-gain and output overrides');
-    check(await page.locator('#vad').inputValue() === 'auto' && await page.locator('#vad_threshold').inputValue() === '-39.5'
+    check(await page.locator('#vad').inputValue() === 'auto' && await page.locator('#vad_threshold').inputValue() === '-40'
       && await page.locator('#capture_channel').inputValue() === 'left',
-      'preset restores the measured voice gate and left-channel capture');
+      'preset restores the measured voice gate (Steam\'s own, -40) and left-channel capture');
     await page.locator('#console-details summary').click();
     await page.locator('#console-input').fill('echo <img src=x onerror="window.__consoleXss=1">');
     await page.locator('#console-input').press('Enter');
@@ -1404,6 +1413,69 @@ async function main() {
       'the page and the live monitor\'s worker load steam-sender.js and vendor/swresample/swresample.js', `${loaded.live}; in the worker's scope: ${scope}`);
     check(loaded.footer.includes('libswresample') && loaded.footer.includes('LGPL') && loaded.footer.includes('translated to JavaScript, modified') && loaded.link && loaded.licence,
       'the footer credits FFmpeg\'s libswresample (LGPL, translated to JavaScript, modified) beside LAME, with a link to its licence', loaded.footer);
+    // W3-11b: the threshold control's default is the profile's own (-40 for
+    // steam, Steam's own gate; -39.5 for the others), sent as no number at a
+    // default, so a render's key does not change; its texts follow the profile.
+    {
+      const threshold = () => page.evaluate(() => ({ value: document.getElementById('vad_threshold').value,
+        sent: renderOptions().gateThresholdDb === undefined ? 'absent' : renderOptions().gateThresholdDb,
+        key: JSON.stringify(renderOptions()), help: document.querySelector('label[for="vad_threshold"]').title,
+        gate: [...document.querySelectorAll('#signal-chain li')].map((li) => li.textContent).find((t) => t.startsWith('Capture')) || '' }));
+      await page.locator('#codec').selectOption('steam');
+      const steam = await threshold();
+      await page.locator('#codec').selectOption('celt_22');
+      const celt = await threshold();
+      await page.locator('#codec').selectOption('steam');
+      const back = await threshold();
+      check(steam.value === '-40' && steam.sent === 'absent' && celt.value === '-39.5' && celt.sent === 'absent' && back.value === '-40' && back.sent === 'absent',
+        'the threshold shows the profile\'s own default (-40 on steam, -39.5 on a CELT profile, -40 again), and renderOptions() carries no gateThresholdDb at it',
+        `${steam.value} / ${celt.value} / ${back.value}; sent ${steam.sent}, ${celt.sent}, ${back.sent}`);
+      check(/mean of \|x\| over a capture chunk/.test(steam.help) && /Steam's own is -40/.test(steam.help) && /20 ms frame RMS/.test(celt.help)
+        && steam.gate.includes('chunks · 100 ms kept · 0.4 s hold') && !celt.gate.includes('chunks') && celt.gate.includes('gate > -39.5 dBFS'),
+        'its help and the chain strip\'s gate follow the profile: chunks · 100 ms kept · 0.4 s hold on steam, the frame RMS on CELT', `${steam.gate} | ${celt.gate}`);
+      await page.locator('#vad_threshold').fill('-46');
+      await page.locator('#vad_threshold').dispatchEvent('change');
+      const typed = await page.evaluate(async () => {
+        const data = new Float32Array(24000);
+        for (let i = 0; i < data.length; i++) data[i] = 0.01 * Math.sin(2 * Math.PI * 440 * i / 24000);
+        const src = { sampleRate: 24000, length: data.length, numberOfChannels: 1, getChannelData: () => data };
+        const opts = renderOptions();
+        return { sent: opts.gateThresholdDb, meanMin: (await TF2Audio.process(src, opts)).codecInfo.sender.meanMin };
+      });
+      await page.locator('#vad_threshold').fill('-40');
+      await page.locator('#vad_threshold').dispatchEvent('change');
+      const reset = await threshold();
+      check(typed.sent === -46 && typed.meanMin === 32767 * 10 ** (-46 / 20) && reset.sent === 'absent' && reset.key === back.key,
+        'typing -46 renders with meanMin 32767 x 10^(-46/20); put back to -40, the render\'s key is what it was before the control was touched',
+        `meanMin ${typed.meanMin}`);
+      const restored = await page.evaluate(() => {
+        applyConfig({ codec: 'steam', vadthr: '-39.5' });
+        const saved = document.getElementById('vad_threshold').value;
+        execCommand('voice_vad_threshold -30');
+        execCommand('exec preset_modern');
+        const modern = document.getElementById('vad_threshold').value;
+        execCommand('exec preset_legacy');
+        const legacy = document.getElementById('vad_threshold').value;
+        execCommand('exec preset_modern');
+        return { saved, modern, legacy, after: document.getElementById('vad_threshold').value };
+      });
+      check(restored.saved === '-40' && restored.modern === '-40' && restored.legacy === '-39.5' && restored.after === '-40',
+        'a saved -39.5 under steam restores as -40; a preset (the reset) restores the profile\'s own default', JSON.stringify(restored));
+      const labels = await page.evaluate(() => ({ option: document.querySelector('#codec option[value="steam_48"]').textContent, name: CODEC_PROFILES.steam_48.displayName }));
+      check(/not the game's path/.test(labels.option) && labels.option === labels.name, 'steam_48 is named as not the game\'s path', labels.option);
+      const liveTexts = async (codec) => {
+        await page.locator('#codec').selectOption(codec);
+        return page.evaluate(() => ({ latency: document.getElementById('live-latency').closest('.live-stat').title,
+          low: document.getElementById('live-lowlat').closest('label').title, ptt: document.getElementById('live-ptt').closest('label').title }));
+      };
+      const ls = await liveTexts('steam'), lc = await liveTexts('celt_22');
+      await page.locator('#codec').selectOption('steam');
+      check(/longest capture chunk and its 100 ms pre-roll/.test(ls.latency) && /each phrase's pre-roll is not played/.test(ls.low)
+        && /app's stand-in for the key/.test(ls.ptt) && /not built yet/.test(ls.ptt) && !/120 ms/.test(ls.latency + ls.low)
+        && /120 ms pre-roll/.test(lc.latency) && /120 ms pre-roll/.test(lc.low) && /The voice gate still applies/.test(lc.ptt) && !/stand-in/.test(lc.ptt),
+        'the live panel\'s latency, low-latency and push-to-talk texts follow the profile (steam: the chunk and pre-roll, the app\'s stand-in for the key)',
+        `${ls.ptt.slice(0, 60)}... | ${lc.ptt.slice(0, 60)}...`);
+    }
     await verifyAverageAndRealTake(page);
     await verifyLiveMonitor(page);
     await verifyVideo(page);

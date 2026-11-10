@@ -856,7 +856,10 @@ async function liveSteamSection() {
     const n = live.laid.length, log = ren.info.frameLog.subarray(0, live.codes.length);
     return { n, diff: firstDiff(live.laid, ren.laid, n), codes: sameInts(live.codes, log), log,
       packets: live.resampled.length > 0 && live.resampled.every((y, k) => ren.resampled[k] && sameInts(y, ren.resampled[k].y)),
-      counted: live.stats.frames === live.codes.length && live.stats.sent === live.codes.filter((c) => c !== 0).length
+      // A slot is final once its centre, (480 i + 240 - lookahead) x 147/80,
+      // is before what was given out: exactly those are counted.
+      counted: live.codes.length === Math.ceil(((n * S.rate / VR) + ren.info.lookahead - S.frame / 2) / S.frame)
+        && live.stats.frames === live.codes.length && live.stats.sent === live.codes.filter((c) => c !== 0).length
         && live.stats.lost === count(log, 5) && live.stats.late === count(log, 6) };
   };
   const seed = 7;
