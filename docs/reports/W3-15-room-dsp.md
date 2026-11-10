@@ -1,18 +1,20 @@
 # W3-15: the room DSP, as the engine does it
 
 An investigation, 2026-11-10. No app code changed. Nothing of the game's files is in this repository: the report
-describes behaviour in its own words and gives constants with the place they were read.
+describes behaviour in its own words and gives constants and numbers with the place they were read. The game's
+script files arrived while the read was under way; what they say is in sections 3 to 5.
 
 ## Summary
 
 | Question | Answer | Confidence |
 | --- | --- | --- |
 | 1. Where the room DSP sits | On the mixer's "room" buffer, at 44100 Hz, in 32-bit integers, **in mono** (left and right are averaged, the result is written to both), before the sum with the direct sound, before the clip and before `volume`. The delay lines live on between blocks, so the tail runs on after the voice stops. `dsp_volume` (1.0) scales the share sent to the room. `dsp_enhance_stereo` is 0 by default and its stage is skipped. | Read: high |
-| 1b. The voice's share | W3-07's 229/256 direct and 26/256 room hold **only for the mix variables' start-up values**. Putting a preset on the room slot overwrites `dsp_mix_min`, `dsp_mix_max`, `dsp_db_min` and `dsp_db_mixdrop` with four numbers from that preset's own header. A voice sits 12 units from the listener, so its share is close to the preset's "mix min" (halved if 60 dB is at or under the preset's "dB min"). A preset whose "mix min" is 0 gives the voice no reverb at all. | Read: high. The numbers: in the preset file, not here |
+| 1b. The voice's share | Set by the active preset's own header: putting a preset on the room slot overwrites `dsp_mix_min`, `dsp_mix_max`, `dsp_db_min` and `dsp_db_mixdrop` with four of its header numbers. W3-07's 229/256 direct and 26/256 room is right for the numbered presets 0 to 29. The automatic room's presets differ: **a voice indoors sends 38 to 80 of 256 to the reverb and keeps 175 to 217 direct; in a street or alley 23 or 24 and 231 or 232; in a courtyard or open space 5 and 250.** | Read: high (code and file) |
 | 2. The processors | Integer arithmetic, one sample at a time, 4096 = 1.0, shifts that round down. A preset is up to five processors; `LINEAR` is a plain series chain. The delay, allpass, comb, low-pass, diffusor, reverb, amplifier and modulating delay are read to the formula (section 2). No gain stage at a preset's end. | Read: high for those; five other processor types not read |
-| 3. The presets | All of them come from the text file `scripts/dsp_presets.txt`, parsed at start. **No preset is compiled into `engine.dll`.** The file is not on this machine, so the app's table could not be checked. Section 3 lists every field of the file each processor reads. | Read: high |
-| 4. The automatic room | A TF2 map's soundscape sets `dsp_room` to its "dsp" number (public SDK). With `dsp_room 1` the engine measures the space around the player four times a second at most, names its shape (room, duct, hall, tunnel, street, alley, courtyard, four kinds of open space), and **builds a preset by interpolating between two presets of the file** (numbers 102 to 133 by default), in fifths. It keeps up to 40 such presets (numbers 60 to 99) and cross-fades over 200 ms. Presets 0 to 29, the app's whole table, are used only when a soundscape asks for one by number. | Read: high for the structure; the measuring itself in outline |
-| 5. The app | The mix is the largest error (0.45 wet against 26/256 at most, and a different law). Then: which preset a place really has; the reverb's delay times, per-comb feedback and gain; a sine modulation where the engine jumps at random and cross-fades; an extra 900 Hz low-pass under water that the engine does not have. Section 5 ranks them. | as above |
+| 3. The presets | All of them come from the text file `scripts/dsp_presets.txt`, parsed at start. **No preset is compiled into `engine.dll`.** The owner's file holds 136 presets, 0 to 135, all `LINEAR`. **The app's table of presets 0 to 29 matches the file value for value.** What it lacks: each preset's header, the delay's kind, and every preset from 30 up, the automatic room's among them. | Read: high |
+| 4. The automatic room | A TF2 map's soundscape sets `dsp_room` to its "dsp" number (public SDK). **Two soundscapes in three ask for 1, and every soundscape of 2Fort, Dustbowl, Badlands, Well, Granary, Gravel Pit, Upward, Hightower and Gold Rush does.** With `dsp_room 1` the engine measures the space around the player four times a second at most, names its shape (room, duct, hall, tunnel, street, alley, courtyard, four kinds of open space), and **builds a preset by interpolating between two presets of the file** (numbers 102 to 133), in fifths. It keeps up to 40 such presets (numbers 60 to 99) and cross-fades over 200 ms. Presets 0 to 29, the app's whole table, are used only on the few maps whose soundscapes name one. | Read: high for the structure; the measuring itself in outline |
+| 5. The app | It has no automatic room, which is what a TF2 listener nearly always has. Its mix (0.45 wet, cross-faded) is not the engine's law and is 6 to 13 dB too wet. Then: the reverb's delay times, per-comb feedback and gain; a sine modulation where the engine jumps at random and cross-fades; an extra 900 Hz low-pass under water that the engine does not have. Section 5 ranks them. | as above |
+| (asked later) The sound mixer | A voice falls in the groups `Quiet`, `PlayerVoice` and `All`. Under the default mixer only `All` has a value, 0.72, and that multiplies the voice's volume before the pan law. With headphones (the default) the two sides still sum past the cap of 255, so nothing changes. With `snd_surround_speakers 2` the voice is at 182.6/256, not W3-07's 253.5/256. | Read: code and file; the name match inferred |
 | 6. A check in the game | Without cheats: type `dsp_room`, `dsp_automatic` and the four mix variables to see the active preset's number and header. With `developer 1` and `adsp_debug 1` the engine prints each automatic room it builds. `dsp_mix_min 1`, `dsp_mix_max 1`, `dsp_db_mixdrop 1` (none cheat-protected) make a voice fully wet, which gives the reverb's response in one take. | Read |
 
 ## How it was read
@@ -30,6 +32,9 @@ describes behaviour in its own words and gives constants with the place they wer
   soundscape code the SDK shows: it holds the soundscape keys `dsp`, `dsp_player`, `dsp_volume`, the "unknown
   command" message and the file names `scripts/soundscapes_manifest.txt` and `scripts/soundscapes_%s.txt`. It does
   not name `dsp_room` or `room_type`: it goes through the engine's interface. Read as data, never executed.
+- The owner's script files, from the game's own archive, each checked against the archive index's CRC-32:
+  `scripts/dsp_presets.txt` (46,419 bytes), `scripts/soundmixers.txt` and the 40 `scripts/soundscapes*.txt`. Read
+  as data. Numbers and facts are taken from them; the files are not copied here.
 - No leaked source was consulted or looked for. The Valve Developer Wiki could not be read from here (it answers
   an automated client with a browser check), so field names below are mine, with meanings taken from the code.
 - A small model of the arithmetic, written from this reading, was run on a few example presets (section 2, end).
@@ -120,15 +125,25 @@ mix = d * (min + (max - min) * 12/1440)       d = mixdrop if 60 <= dB min, else 
                                               (min, max, dB min, mixdrop: the preset's)
 ```
 
-| Preset header (min, max, dB min, mixdrop) | mix | Room share | Direct share |
-| --- | --- | --- | --- |
-| 0.2, 0.8, 80, 0.5 (the start-up values; W3-07's case) | 0.1025 | 26/256 (-19.9 dB) | 229/256 (-0.97 dB) |
-| 0.2, 0.8, 50, 0.5 (a dB min under 60) | 0.205 | 52/256 | 203/256 |
-| 0, anything up to 0.9, 80, 0.5 | under 0.004 | 0 | 255/256 |
-| 0, 0, any | 0 | 0 | 256/256 |
+| Preset header (min, max, dB min, mixdrop) | Presets with it | mix | Room share | Direct share |
+| --- | --- | --- | --- | --- |
+| 0.2, 0.7, 80, 0.5 | 0 to 29 and most others | 0.102 | 26/256 | 229/256 (-0.97 dB) |
+| 0.3, 0.8, 80, 0.5 | 102; 110 to 113 (hall) | 0.152 | 38 | 217 (-1.4 dB) |
+| 0.32, 0.8, 80, 0.5 | 103, 105 (room) | 0.162 | 41 | 214 (-1.6 dB) |
+| 0.63, 0.8, 80, 0.5 | 104 (room) | 0.316 | 80 | 175 (-3.3 dB) |
+| 0.4, 0.9, 80, 0.5 | 106 to 109 (duct) | 0.202 | 51 | 204 (-2.0 dB) |
+| 0.4, 0.9, 80, 0.7 | 114 to 117 (tunnel) | 0.283 | 72 | 183 (-2.9 dB) |
+| 0.3, 0.8, 75, 0.3 | 118 to 121 (street) | 0.091 | 23 | 232 (-0.9 dB) |
+| 0.32, 0.8, 60, 0.3 | 122 to 125 (alley) | 0.097 | 24 | 231 (-0.9 dB) |
+| 0.21, 0.8, 95, 0.1 | 126 to 129 (courtyard) | 0.021 | 5 | 250 (-0.2 dB) |
+| 0.22, 0.6, 95, 0.1 and 0.2, 0.7, 95, 0.1 | 130 to 133 (open space) | 0.022, 0.020 | 5 | 250 (-0.2 dB) |
 
-Inferred: what a voice gets in a real room is decided by the first number of that room's preset header. This is
-the one number most worth reading in the preset file. A voice channel lasts one run of speech (W3-07), so the
+The headers are the file's (read). The engine's own start-up values of the four variables (0.2, 0.8, 80, 0.5) give
+26 and 229 too. The reverb's output comes on top of the direct share, so the voice's total level in a room is not
+simply lower; section 3 gives the reverb's level for each.
+
+Inferred: what a voice gets in a real room is decided mostly by the first and last numbers of that room's preset
+header. A voice channel lasts one run of speech (W3-07), so the
 limits are fixed anew at each spurt's start. The level in dB is worked back from the channel's distance factor
 (`snd_refdb` 60, `snd_refdist` 36) and truncated, so a voice may count as 59 rather than 60: it matters only for
 a preset whose "dB min" is exactly 59.
