@@ -21,16 +21,16 @@
   },
   "in_flight": [
     {
-      "order": "W3-12a-speex-102",
-      "state": "building",
-      "branch": "claude/w3-12a-speex-102",
-      "note": "Speex 1.0.2 from the public source as a reproducible module with its native comparison; new files only."
-    },
-    {
       "order": "W3-05-receiver-gain",
       "state": "building",
       "branch": "claude/w3-05-receiver-gain",
       "note": "The engine's gain rule in process() and the stream; re-records the hashes of cases with the gain on. Private acceptance by the orchestrator: tests/gain-exact.mjs --takes, 0 of 291,840 samples."
+    },
+    {
+      "order": "W3-02b-voice-timeline",
+      "state": "building",
+      "branch": "claude/w3-02b-voice-timeline",
+      "note": "steam-sender.js (Steam's chunk rule, seeded clock) and createTimeline in voice-channel.js; new files and one module only. The orchestrator runs the private checks (retiming.mjs --engine)."
     }
   ],
   "next": [
@@ -148,6 +148,7 @@
     "W2-02 render-stream: merged 2026-11-10 (pull request 8, main 43fd35f, cache v20). TF2Audio.createRender gives process()'s render a chunk at a time; 47 cases, 145 checks; review 20,656 differential runs with no mismatch.",
     "W3-02a voice-channel: merged 2026-11-10 (pull request 9, main 1ee4968). voice-channel.js is the game's receiver queue as a module, with the log tool and replay; 101 checks; private runs: 0 mismatching ticks of 9,808 on the owner's six log sections and the reference fixture event for event; nothing loads it yet.",
     "The plan after W3-09: merged 2026-11-10 (docs). Orders W3-02 revision 3, W3-11 a and b, W3-12 a and b, W3-13, W3-14; docs/reports/W3-11-plan.md has the order of work.",
-    "Row R: tests/REFERENCE_2026.md brought up to date 2026-11-10 (findings 22 to 31, corrections to 2, 4, 5, 8, 10, 11, 12, 14, 15, 16, 18, 19, 21, the Model table in four columns). Left for code orders: comments in constants.js that still say complexity 10 and Steam's capture resampler (W3-11a); tests/accuracy.takes.json still renders Listener B at volume 0.077 (to be re-measured at 0.11 with voice_scale 0.77 when W3-05 has merged)."
+    "Row R: tests/REFERENCE_2026.md brought up to date 2026-11-10 (findings 22 to 31, corrections to 2, 4, 5, 8, 10, 11, 12, 14, 15, 16, 18, 19, 21, the Model table in four columns). Left for code orders: comments in constants.js that still say complexity 10 and Steam's capture resampler (W3-11a); tests/accuracy.takes.json still renders Listener B at volume 0.077 (to be re-measured at 0.11 with voice_scale 0.77 when W3-05 has merged).",
+    "W3-12a speex-102: merged 2026-11-10 (pull request 10, main 25dc00e). vendor/speex-1.0.2 matches a native build of the pinned public source bit for bit (packets, floats, 16-bit, with and without a reset); 30 checks; Speex 1.0 and 1.0.2 give identical output at the game's settings; the decoder's reset is partial and part b must reset with request 26, not make a new codec. Nothing loads it yet."
   ]
 }
