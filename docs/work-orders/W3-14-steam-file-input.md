@@ -132,3 +132,32 @@ separates the encoder from the decoder cleanly.
 What was run, the phase and its residual, the spurts found, the start chosen for each, the table of differing
 samples per kernel and per decoder, the largest difference, how many samples were left out as clipped, which
 row of the table above it is, and the proposed text for the reference. Say what was not done.
+
+## Added 2026-11-10: how `mic_inputfile` behaves (a second read of the Steam client, the same day)
+
+The owner's first try showed that setting the variable prints only its echo. Read then, from the same file as
+W3-09 (addresses in the scratch notes; none of this is measured yet):
+
+- **The file is loaded on the first read of microphone data** after the variable's text differs from the path
+  last loaded: in practice the first Steam frame after the voice key goes down. The line is then
+  `loaded voice input file <path>, <N> samples (<S> seconds)`, with N the file's bytes less 44, halved. Nothing
+  looks at the header's fields: any file is read as 16-bit mono at 24000 Hz. There is no change callback.
+- **A new path takes effect at the next read** (the next key press, or at once inside the 0.5 s after a release):
+  the new file is loaded and starts from its first sample. The same text typed again does not reload.
+- **The position carries on between key presses** and does not advance while the key is up (reads go on through
+  the 0.5 s after a release). The clip loops without a seam, printing `voice input file <path> looped`.
+- **The first chunk of a press is a burst:** the chunk's length is the time since the last file read times
+  24000, truncated, and capped at 6000 samples less what was carried. After a pause, or just after a load, that
+  is the cap: a quarter of a second of the file in one chunk. Later chunks follow Steam's frame times, with no
+  750-sample grid. The time is kept as a 32-bit float, so chunk lengths jitter by its resolution.
+- **Nothing else differs from the microphone:** the samples are copied one for one into the buffer the device
+  would fill; the gate, the hold, the encoder and the 0.5 s after a release are the same code.
+- **A path that does not load is not retried** and may flood the console with `looped` lines or stop Steam: the
+  path must be exact.
+- **A working capture device is still needed:** without one the reader is never called.
+
+For the comparison this means: the recording's first spurt opens with a first chunk of up to 6000 samples from
+the clip's first sample (if the file was just loaded), so its pre-roll is what the sender's rule gives for an
+onset in the first chunk; a later press starts where the previous press's tail stopped in the clip; and the chunk
+lengths are not the microphone's, so `@voice_spew_activity_check`'s lines from this run describe file input, not
+the capture grid. A microphone run with that variable on is still needed for the sender's drawn clock.
