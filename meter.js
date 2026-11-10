@@ -144,7 +144,8 @@
   //     largest interpolated magnitude, unless another pair beats it on both.
   //     The sample peak counts as such a pair (its level and magnitude are the
   //     peak), so only pairs that rise above the peak so far are kept: a short
-  //     list. finish() takes the largest magnitude among the kept pairs whose
+  //     list for real signals (a built one can make it long; see `keep`).
+  //     finish() takes the largest magnitude among the kept pairs whose
   //     level reaches 0.4 of the final peak, and the sample peak. Each pair
   //     analyze() evaluates is either kept or beaten on both by one that is
   //     (or by the sample peak), which analyze() evaluates too, so the largest
@@ -165,10 +166,16 @@
     // sample past the open segment.
     const edge = (s) => Math.round(s * rate / 10);
     let segment = new Float64Array(1024), segments = 0, end = edge(1);
-    // The last 2 * TAPS samples (sample j at j & MASK) and the kept pairs.
+    // The last 2 * TAPS samples (sample j at j & MASK).
     const MASK = 2 * TAPS - 1, recent = new Float64Array(2 * TAPS);
-    const levels = [], tops = [];
-    let pruned = 0;
+    // The kept pairs: a staircase (`levels` falling, `tops` rising: no pair in
+    // it beaten on both by another or by the sample peak), and the pairs found
+    // since it was last rebuilt. It is rebuilt when those are as many as it
+    // holds, and at least 32, so a pair costs a share of one sort however the
+    // levels and tops arrive (inserting each into a sorted list in place is
+    // quadratic for a signal built to grow the list). `found` and `handled`
+    // count the pairs offered and the pairs the rebuilds went through.
+    let levels = [], tops = [], newLevels = [], newTops = [], found = 0, handled = 0;
 
     // Stores the open segment's energy and starts the next segment; returns
     // the index of the first sample past it.
@@ -200,26 +207,25 @@
       if (top > peak) keep(Math.max(a, b), top);
     }
     function keep(level, top) {
-      for (let k = 0; k < levels.length; k++) if (levels[k] >= level && tops[k] >= top) return;
-      let w = 0;
-      for (let k = 0; k < levels.length; k++) {
-        if (levels[k] <= level && tops[k] <= top) continue;
-        levels[w] = levels[k]; tops[w] = tops[k]; w++;
-      }
-      levels.length = tops.length = w;
-      levels.push(level); tops.push(top);
+      newLevels.push(level); newTops.push(top); found++;
+      if (newLevels.length >= Math.max(32, levels.length)) rebuild();
+    }
+    // All kept pairs by level, highest first (equal levels: highest top
+    // first). A pair stays if its top is above every top before it and above
+    // the sample peak; each one dropped is beaten on both by one before it or
+    // by the peak.
+    function rebuild() {
+      const ls = levels.concat(newLevels), ts = tops.concat(newTops), order = ls.map((_, i) => i);
+      handled += ls.length;
+      order.sort((i, j) => (ls[j] > ls[i] ? 1 : ls[j] < ls[i] ? -1 : ts[j] > ts[i] ? 1 : ts[j] < ts[i] ? -1 : 0));
+      levels = []; tops = []; newLevels = []; newTops = [];
+      let best = peak;
+      for (const i of order) if (ts[i] > best) { best = ts[i]; levels.push(ls[i]); tops.push(ts[i]); }
     }
 
     function push(samples) {
       if (spent) throw new Error('TF2Meter: push() after finish()');
       scan(samples);
-      if (peak > pruned) {
-        // The sample peak now beats these pairs on both.
-        let w = 0;
-        for (let k = 0; k < levels.length; k++) if (tops[k] > peak) { levels[w] = levels[k]; tops[w] = tops[k]; w++; }
-        levels.length = tops.length = w;
-        pruned = peak;
-      }
       weigh(samples, peak * 0.4);
     }
     // The two loops over a piece keep their running values in local variables
@@ -260,13 +266,15 @@
       const threshold = peak * 0.4;
       for (let i = Math.max(0, n - TAPS); i + 1 < n; i++) consider(i, n, threshold);
       while (end <= n) end = closeSegment();
+      rebuild();
       let tp = peak;
       for (let k = 0; k < levels.length; k++) if (levels[k] >= threshold && tops[k] > tp) tp = tops[k];
       // As many segments as analyze() counts (every one of them is closed).
       return report({ sampleRate, rate, n, peak, sum, sumSq, tp, segment, segments: Math.floor(n / (rate / 10)) });
     }
 
-    return { push, finish };
+    // `pairs` is for the tests: how much work the kept pairs have taken.
+    return { push, finish, get pairs() { return { found, handled, kept: levels.length + newLevels.length }; } };
   }
 
   // The stats from what both ways gather: the sample count, the sample peak,
