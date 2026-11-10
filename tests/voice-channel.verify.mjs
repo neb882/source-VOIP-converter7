@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { logToFixture } from './voicequeue/log-to-fixture.mjs';
@@ -246,10 +247,25 @@ function publicChecks() {
   const near = (a, b) => Math.abs(a - b) < 1e-12;
   const f32 = Math.fround;
 
+  console.log('The module');
+  {
+    const src = fs.readFileSync(fileURLToPath(new URL('../voice-channel.js', import.meta.url)), 'utf8');
+    const page = vm.createContext({}), worker = vm.createContext({ self: {} });
+    vm.runInContext(src, page); vm.runInContext(src, worker);
+    check('it loads as a page script and in a worker as TF2VoiceChannel, with no imports',
+      ['VOICE_CHANNEL', 'waitTicks', 'latency', 'createChannel'].every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
+      && Object.keys(V).join() === 'VOICE_CHANNEL,waitTicks,latency,createChannel' && !/\bimport\b|\brequire\(/.test(src));
+    check('its constants are frozen: 22050, 0.015 s, 100 ms, 300 fps, 0.1 s, 512 and 513', Object.isFrozen(VOICE_CHANNEL) && Object.isFrozen(VOICE_CHANNEL.fpsRange)
+      && VOICE_CHANNEL.ring === 22050 && VOICE_CHANNEL.tick === 0.015 && VOICE_CHANNEL.bufferMs === 100 && VOICE_CHANNEL.fps === 300
+      && VOICE_CHANNEL.fadeTime === 0.1 && VOICE_CHANNEL.mixBlock === 512 && VOICE_CHANNEL.firstBlock === 513 && VOICE_CHANNEL.rate === 44100);
+  }
+
   console.log('The wait and the latency');
   check('waitTicks: 7, 10, 30 at 66.67, 100, 300 fps', waitTicks(100, 66.67) === 7 && waitTicks(100, 100) === 10 && waitTicks(100, 300) === 30,
     `${waitTicks(100, 66.67)}, ${waitTicks(100, 100)}, ${waitTicks(100, 300)}`);
   check('waitTicks: 15 at 300 fps with voice_buffer_ms 50', waitTicks(50, 300) === 15);
+  // 0.07 x 100 is 7.000000000000001 in doubles: the formula's - 1e-6 counts it as 7 ticks.
+  check('waitTicks: 7 at 100 fps with voice_buffer_ms 70 (a product a rounding error above a whole number)', waitTicks(70, 100) === 7);
   check('waitTicks: 1 at 5 fps (a frame counts at most 0.1 s)', waitTicks(100, 5) === 1);
   check('waitTicks: voice_buffer_ms is limited to 1..5000 and the rate to 10..1000',
     waitTicks(0, 300) === 1 && waitTicks(10000, 300) === 1500 && waitTicks(100, 5000) === 100 && waitTicks(1000, 5) === 10,
@@ -371,6 +387,17 @@ function publicChecks() {
     let bad2 = -1;
     for (let k = 0; k < 64 && bad2 < 0; k++) if (next.samples[k] !== f32(2 * (99 - k) / 4409) || next.tags[k] !== 8) bad2 = k;
     check('and the next pull reads the new packet', bad2 < 0, bad2 < 0 ? '' : `first wrong at ${bad2}`);
+    // More read than missing: the repeat is the last of what was read, as many as are missing.
+    const ch4 = createChannel({ fps: 300 });
+    ch4.add(Float32Array.from({ length: 401 }, (_, i) => i), 5);
+    for (let k = 0; k < 30; k++) ch4.tick();
+    const four = ch4.pull(512).samples;
+    let bad4 = -1;
+    for (let k = 0; k < 512 && bad4 < 0; k++) {
+      const want = k < 400 ? f32((k + 1) * ((399 - k) / 4409)) : four[k - 112];
+      if (four[k] !== want) bad4 = k;
+    }
+    check('400 queued, pull(512): the 400 faded, then their last 112 once more', bad4 < 0 && four[400] === four[288] && four[511] === four[399], bad4 < 0 ? '' : `first wrong at ${bad4}`);
   }
 
   console.log('The gain is called as the engine calls it');
@@ -402,16 +429,17 @@ function publicChecks() {
     check('without a gain the samples pass unchanged', plain.count === 9 && p[0] === 3);
   }
 
-  console.log('The log tool, event for event, on two logs worked by hand');
+  console.log('The log tool, event for event, on three logs worked by hand');
   {
     const P = (n) => `Voice - ${n} incoming samples added to channel 0`, T = (b) => `Voice - chan 0, ent 1, bufsize: ${b}`;
     // 66.67 fps, a wait of 7 ticks: an open, its wait (the mixer's demand made up: 512 and
     // 1024 in turn), a demand read from the log, a grace, a free nobody printed and a new
     // channel (the made-up demand runs on from one counter), a new session.
-    const h1 = [P(101), T(200), T(200), T(200), T(200), T(200), T(200), T(200), T(100), P(51), T(100), T(40), P(31), T(60), T(60), T(60), T(60),
+    // The grace's queue falls on the third step after it (the mixer took nothing for two).
+    const h1 = [P(101), T(200), T(200), T(200), T(200), T(200), T(200), T(200), T(100), P(51), T(100), T(100), T(100), T(40), P(31), T(60), T(60), T(60), T(60),
       UNRELATED, UNRELATED, P(11), T(20), T(20)];
     const e1 = [1, 101, 3, 200, 2, 512, 3, 200, 2, 1024, 3, 200, 2, 512, 3, 200, 2, 1024, 3, 200, 2, 512, 3, 200, 2, 1024, 3, 200,
-      2, 50, 3, 100, 2, 1024, 1, 51, 3, 100, 2, 30, 3, 40, 2, 1024, 3, -1, 1, 31, 3, 60, 2, 512, 3, 60, 2, 1024, 3, 60, 2, 512, 3, 60,
+      2, 50, 3, 100, 2, 1024, 1, 51, 3, 100, 2, 0, 3, 100, 2, 0, 3, 100, 2, 30, 3, 40, 2, 1024, 3, -1, 1, 31, 3, 60, 2, 512, 3, 60, 2, 1024, 3, 60, 2, 512, 3, 60,
       0, 0, 1, 11, 3, 20, 2, 1024, 3, 20];
     const g1 = logToFixture(h1.join('\n'), { fps: 66.67 });
     check('open, wait, demand, grace, unseen free, session: the events are the order\'s', JSON.stringify(g1.fixture.sections[0].events) === JSON.stringify(e1),
@@ -424,8 +452,16 @@ function publicChecks() {
     const g2 = logToFixture(h2.join('\n'), { fps: 10 });
     check('an overflow hides the demand: 512, 1024 or 0 by what went over', JSON.stringify(g2.fixture.sections[0].events) === JSON.stringify(e2),
       JSON.stringify(g2.fixture.sections[0].events));
-    const both = replayFixture({ sections: [g1.fixture.sections[0], g2.fixture.sections[0]] });
-    check('and both replay cleanly', both.every((r) => r.engine.bad === 0), both.map((r) => `${r.engine.ticks} ticks`).join(', '));
+    // 40 fps, a wait of 4 ticks: a channel opened after an unseen free first falls on the
+    // fourth step after its packet, outside the three the test looks at.
+    const h3 = [P(101), T(200), T(200), T(200), T(200), T(100), P(31), T(60), T(60), T(60), T(60), T(20)];
+    const e3 = [1, 101, 3, 200, 2, 512, 3, 200, 2, 1024, 3, 200, 2, 512, 3, 200, 2, 50, 3, 100,
+      2, 1024, 3, -1, 1, 31, 3, 60, 2, 1024, 3, 60, 2, 512, 3, 60, 2, 1024, 3, 60, 2, 20, 3, 20];
+    const g3 = logToFixture(h3.join('\n'), { fps: 40 });
+    check('the grace and the new channel are told apart by the next three steps, no more', JSON.stringify(g3.fixture.sections[0].events) === JSON.stringify(e3),
+      JSON.stringify(g3.fixture.sections[0].events));
+    const both = replayFixture({ sections: [g1.fixture.sections[0], g2.fixture.sections[0], g3.fixture.sections[0]] });
+    check('and all three replay cleanly', both.every((r) => r.engine.bad === 0), both.map((r) => `${r.engine.ticks} ticks`).join(', '));
   }
 
   console.log('The synthetic console log, the log tool and the replay');

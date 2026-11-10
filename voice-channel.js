@@ -31,7 +31,7 @@
 (function (root) {
   'use strict';
 
-  const VOICE_CHANNEL = {
+  const VOICE_CHANNEL = Object.freeze({
     // Steam voice and the mixer: Voice_Init sets the voice rate to 44100 whatever Steam's
     // optimal rate is, and Steam's decoder returns 44.1 kHz (W3-03 §1, read).
     rate: 44100,
@@ -58,7 +58,9 @@
     // asked for.
     mixBlock: 512,
     firstBlock: 513,
-  };
+  });
+  Object.freeze(VOICE_CHANNEL.bufferMsRange);
+  Object.freeze(VOICE_CHANNEL.fpsRange);
 
   // The burst a restarted spurt opens with: eight 20 ms frames in 17 of 23 openings of the
   // first log and 16 of its 17 restarts (W3-03, "Checked against the owner's console log").
