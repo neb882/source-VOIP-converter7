@@ -173,11 +173,28 @@ pitched.
 - **`tests/LEGACY_CODECS.md` says three public decoders read CS:GO voice with "a plain CELT 0.11 decoder".** They
   must be building with the post-filter in; their build files were not checked.
 
-## Changes for order W3-06
+## Changes for order W3-06, and the codec order after it
 
-The draft's three points on CELT stand (complexity 5; `vaudio_celt_high` is the 44100 Hz, 1024-sample, 128-byte
-mode on 22050 Hz sound, now **confirmed by a recording**, not only read). It needs these added, and its "may not
-touch `vendor/`" lifted for the CELT build:
+W3-06 as revised on main builds the settings and leaves `vendor/` alone, and says the build is an order of its
+own that this report defines. Both follow.
+
+**For W3-06 (nothing in it has to change before it is built):**
+
+- **Complexity 5 stands, and so does the `vaudio_celt_high` mode** (44100 Hz mode, 1024 samples, 128 bytes, on
+  22050 Hz sound), now confirmed sample for sample and not only by packet size. This report names no other
+  complexity. The settings it adds (the reset, the 16-bit rounding) live in `vendor/` and belong to the codec
+  order, so they are not a reason for W3-06 to stop.
+- **Its complexity change cannot be seen in the sound of the bundled build.** Without the pitch filter,
+  complexities 4 to 10 are one encoder (read: the library tests complexity only for 0, above 1, at least 3, at
+  least 4 and, for the filter, at least 5; shown: identical packets at 4, 5 and 10 for both modes on the Set H
+  input). So the `celt_22` golden hash should not move in W3-06, the PREDICTIONS figure for "complexity 10 against
+  5" is exactly 0 dB, and "complexity left at 10" can only be caught through `codecInfo`, not through samples.
+  The difference appears with the codec order: there 5 to 10 are again one encoder, and 4 and below another.
+- **Its texts** can now say what the cause is in place of "W3-08 is finding the cause": the game's build has the
+  pitch pre-filter and post-filter, the bundled one does not; the game's packets with the filter on cannot be
+  decoded by the bundled decoder.
+
+**The codec order (new; it changes a pinned build, so it is an order of its own):**
 
 1. **Pinned source: unchanged** (`mumble-voip/celt-0.11.0` at `e18de7747fb1655e66bf8d291560587036bfe53c`).
    **Build: add `'-DOPUS_BUILD'`** to `cflags` in `tests/celt011/build.mjs`, rebuild, and record the new hashes in
@@ -186,31 +203,28 @@ touch `vendor/`" lifted for the CELT build:
    `version` string should say the post-filter is in.
 2. **Reset after creation:** in `vendor/celt-0.11/index.mjs`, `open()` sends request 8 to the new encoder
    (`x.cc_encoder_set(encoder, 8, 0)`; the request takes no argument and ignores the extra one). `restart()`
-   recreates and so resets, which is the state the engine's reset leaves. The decoder's reset changes nothing after
-   creation.
-3. **Complexity 5** as drafted, for both profiles. Do not set it at all, or set 5: the same.
-4. **16-bit in and out.** The game's encoder is given 16-bit samples and its decoder returns 16-bit samples rounded
-   to nearest, ties to even, clamped. Either export `celt_encode` and `celt_decode` and use them, or keep the float
-   calls, feed them `int16 / 32768`, and round the output as `celt_decode` does (`Math.round` is wrong at ties:
-   it differs from the game at about 25 samples in each 13 s recording). The gain stage after it (W3-05) is defined
-   on those integers.
-5. **Both profiles, as the game runs them:** `celt_22`: mode 22050/512, 64 bytes. `celt_44`: mode rate 44100,
-   frame 1024, 128 bytes, on 22050 Hz sound (the draft's `modeRate`). The codec delay is the mode's overlap: 64 and
-   128 samples.
-6. **`demo.js`:** with the rebuilt decoder a `vaudio_celt` demo decodes; before it, packets with the pitch filter
-   on are rejected. The order's demo test should include a packet made by the rebuilt encoder from a pitched tone,
-   which fails on the old build.
-7. **A public test that fails without the fix:** a 200 Hz harmonic tone at 22050 Hz through `celt_22` must be
-   reproduced clearly better than the old build managed (the pitch filter is worth several dB on such a signal;
-   take the threshold from the two builds), and an encoder with and without request 8 must give different packets
-   for the first sounding frames after a silent start.
-8. **`tests/LEGACY_CODECS.md` and the README:** complexity 5; the post-filter build; the two-sample skip of
-   `voice_inputfromfile` (for anyone repeating Set H); `vaudio_celt_high` confirmed; both profiles' codec stage now
-   "verified against the game to the last bit but 76 samples in 585,216" rather than modelled.
-9. **`tests/predictions/PREDICTIONS.md`:** the note the draft asks for should say that P1 and P2 were rendered
-   with an encoder without the pitch filter, 2.7 dB further from the input than the game's on the Set H signal.
-10. **For `tests/REFERENCE_2026.md`** (the orchestrator's to write): Set H's codec result, with the table in "The
-    answer".
+   recreates and so resets, which is the state the engine's reset leaves (inferred from the source: the reset
+   clears everything creation clears and sets four values). The decoder's reset changes nothing after creation.
+3. **16-bit in and out.** The game's encoder is given 16-bit samples and its decoder returns 16-bit samples rounded
+   to nearest, ties to even, clamped. Either export `celt_encode` and `celt_decode` and use them (checked: they
+   work in the WebAssembly build and give the same match), or keep the float calls, feed them `int16 / 32768`, and
+   round the output as `celt_decode` does (`Math.round` is wrong at ties: it differs from the game at about 25
+   samples in each 13 s recording). The gain stage after it (W3-05) is defined on those integers. Where the app
+   rounds its float input to 16 bits before the encoder is the order's to decide; the game's capture is 16-bit.
+4. **`demo.js`:** with the rebuilt decoder a `vaudio_celt` demo decodes; before it, packets with the pitch filter
+   on are rejected. The demo test should include packets made by the rebuilt encoder from a pitched tone, which
+   the old build fails to decode.
+5. **Public tests that fail without the fix:** a harmonic tone (say 200 Hz with overtones) at 22050 Hz through
+   `celt_22` is reproduced several dB better than the old build managed (take the threshold from the two builds);
+   an encoder with and without request 8 gives different packets for the first sounding frames after a silent
+   start; decoded samples at exact ties round to even. The golden hashes of both CELT cases are re-recorded.
+6. **`tests/LEGACY_CODECS.md` and the README:** the post-filter build; the reset; the two-sample skip of
+   `voice_inputfromfile` (for anyone repeating Set H); both profiles' codec stage "reproduces the game's decoded
+   samples but for 76 of 585,216, each off by one" in place of modelled.
+7. **`tests/predictions/PREDICTIONS.md`:** P1 and P2 were rendered with an encoder without the pitch filter, 2.7 dB
+   further from the input than the game's on the Set H signal; the codec file changed after registration.
+8. **For `tests/REFERENCE_2026.md`** (the orchestrator's to write): Set H's codec result, with the table in "The
+   answer", and the correction to W3-03 (the file's sound is read from offset `0x30`).
 
 ## The private check
 
