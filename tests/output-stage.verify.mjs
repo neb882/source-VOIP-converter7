@@ -354,7 +354,7 @@ console.log('\n[10] The stream: the same samples at any chunking');
   const rnd = lcg(21), sizes = (k0) => (k) => [1, 127, 512, 4096][(k + k0) % 4];
   const randomPlan = (seed) => { const r = lcg(seed); return () => 1 + Math.floor(r() * 3000); };
   const plans = { '1': () => 1, '127': () => 127, '512': () => 512, '4096': () => 4096, 'seeded random': randomPlan(3), 'mixed': sizes(0) };
-  const chunked = (stage, x, plan) => { const out = []; for (let o = 0, k = 0; o < x.length; k++) { const n = plan(k); out.push(stage.push(x.subarray(o, o + n))); o += n; } out.push(stage.flush()); return join(out, x instanceof Float32Array ? Int32Array : Int32Array); };
+  const chunked = (stage, x, plan) => { const out = []; for (let o = 0, k = 0; o < x.length; k++) { const n = plan(k); out.push(stage.push(x.subarray(o, o + n))); o += n; } out.push(stage.flush()); return join(out, Int32Array); };
   const ints = Int32Array.from({ length: 12000 }, () => Math.round((rnd() * 2 - 1) * 32767));
   const whole = chunked(A.createDeviceStage(48000), ints, () => ints.length);
   let ok = true;
@@ -389,11 +389,10 @@ console.log('\n[11] The mixer\'s blocks: positions from the render\'s first samp
     const p = await hooked(x, 48000, { codec, volume: 0.5 });
     let ok = blocksOk(p.blocks, p.mix.length) && p.blocks.at(-1).length < 512 && p.blocks.at(-1).length > 0, which = [];
     for (const [name, plan] of Object.entries(plans)) {
-      if (codec !== 'steam' && name === '1') continue;   // a sample at a time is steam's (the frame path takes as long)
       const s = await streamed(x, 48000, { codec, volume: 0.5 }, plan);
       if (!sameBlocks(s.blocks, p.blocks) || !same(s.samples, p.r.samples)) { ok = false; which.push(name); }
     }
-    check(`${codec}: onMixBlock reports starts 0, 512, 1024, ... and one short last block, the same in process() and in createRender at chunk sizes ${codec === 'steam' ? '1, ' : ''}127, 512, 4096 and seeded random`,
+    check(`${codec}: onMixBlock reports starts 0, 512, 1024, ... and one short last block, the same in process() and in createRender at chunk sizes 1, 127, 512, 4096 and seeded random`,
       ok, `${p.blocks.length} blocks, the last of ${p.blocks.at(-1).length}${which.length ? `; differ at ${which.join(', ')}` : ''}`);
   }
 }
@@ -404,7 +403,7 @@ console.log('\n[12] The output\'s length: the source\'s duration at the device\'
 {
   const g = (a, b) => (b ? g(b, a % b) : a);
   for (const rate of [8000, 22050, 44100, 48000, 96000]) {
-    const n = Math.round(0.4 * rate) + 7, x = talk(0, rate, 4, 0.3).length ? null : null;
+    const n = Math.round(0.4 * rate) + 7;
     const src = Float32Array.from({ length: n }, (_, i) => 0.3 * Math.sin(2 * Math.PI * 300 * i / rate) * (i > n / 4 ? 1 : 0));
     for (const deviceRate of [48000, 44100]) {
       const want = Math.round(n * deviceRate / rate);
