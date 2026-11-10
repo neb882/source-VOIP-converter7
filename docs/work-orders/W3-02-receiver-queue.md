@@ -151,7 +151,7 @@ source has it. Output before sample 0 or past the render's length is dropped.
 has no packets, so the render makes them as Steam does: it reads the sound in chunks, gates each chunk, and sends
 one message per chunk. The rule is read from Steam's client; only the clock that says when Steam's frames fall is
 a model. It lives in a new module, `steam-sender.js` (global `TF2SteamSender`), which W3-02b builds and which the
-offline render shares (W3-11): there is one gate.
+offline render shares (W3-11a): there is one gate.
 
 **Constants** (`STEAM_SENDER`, each with its source in a comment):
 
@@ -429,7 +429,7 @@ budget:** 1 day.
 May add: `steam-sender.js`, `tests/steam-sender.verify.mjs`, `tests/voicequeue/synthetic-results.mjs`. May touch:
 `voice-channel.js` (`createTimeline` only), `tests/voice-channel.verify.mjs`, `tests/retiming.mjs` (a new
 `--engine` flag only), `package.json` (the `test` script). May not touch anything else: no page, worker or
-service-worker file loads `steam-sender.js` yet (W3-11 does that).
+service-worker file loads `steam-sender.js` yet (W3-11a does that).
 
 ### Spec
 
@@ -461,7 +461,7 @@ service-worker file loads `steam-sender.js` yet (W3-11 does that).
    taken out (negative: early), `offsetStartMs` at the first played sample at least 0.2 s into the spurt (its
    first played sample if it is shorter) and `offsetEndMs` at its last; `source[i]` is the source position
    heard at the centre of output slot `i` (20 ms slots), or -1 for silence and padding. The timeline does not
-   call the sender, a codec or a resampler: its caller does, so this order needs neither W3-11 nor W3-13.
+   call the sender, a codec or a resampler: its caller does, so this order needs neither W3-11a nor W3-13.
 4. **`tests/voicequeue/synthetic-results.mjs`** prints a file in the shape `tests/retiming.mjs` reads, as in
    rev 2: one result, `synthetic_speech`, set `S`, of 12 spurts of 2 s separated by silences of 300, 900, 160,
    140, 1200, 360, 440, 200, 600, 120 and 300 ms, whose one segment per spurt has `delayMs = 2000 +
