@@ -18,6 +18,8 @@ parts are unchanged in `n6.1.1` (`ffmpeg-6.1.1.tar.xz`, SHA-256
   It is its own source: there is no build step. Its header keeps the copyright and licence lines of the FFmpeg files
   it comes from, as they stand there, and the notice of the Bessel function's Boost-licensed code.
 - `COPYING.LGPLv2.1`: the GNU Lesser General Public License, version 2.1, as FFmpeg ships it.
+- `tests/swresample/bank.mjs` (outside this folder) computes the bank from `build_filter` and `av_bessel_i0`. It is a
+  translation of that code too, under the same licence, and its header says so.
 
 Like the code it comes from, `swresample.js` is under the GNU LGPL, version 2.1 or later. It is a library of its own:
 the app only calls the small interface below, and the file can be replaced by another build of the same interface.

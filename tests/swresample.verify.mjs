@@ -41,11 +41,13 @@ export const STREAMS = {
 
 // Streams Steam does not send: a first packet too short for the library to
 // mirror the start at once (it waits for 33 inputs) or empty (its flush then
-// adds nothing, so nothing after is late). Hashes from the native library, fma3.
+// adds nothing, so nothing after is late). H reaches exactly 32 inputs and
+// then 33: the mirror waits for the 33rd. Hashes from the native library, fma3.
 export const EDGE_STREAMS = {
   E: { seed: 5, sizes: [0, 480, 1440], counts: [0, 853, 2646], hash: '33e9bc8a3d7ea6a9b886db8c1582b19c1b117258cd550c9effc785d6ae345c61' },
   F: { seed: 6, sizes: [20, 480, 1440], counts: [0, 908, 2646], hash: '2017e939bb945143c1825422b84931f550883a14e35746d3a38f7a3398250c11' },
   G: { seed: 7, sizes: [32, 480, 1440], counts: [59, 882, 2646], hash: 'deb4ead3a5867e8ccc82807b8ddbdb997c8dcbbc4682339ec55b865a6406c652' },
+  H: { seed: 8, sizes: [0, 32, 1, 480], counts: [0, 0, 32, 882], hash: '391e9afe9e68147ebd3aba741dff8afb9793317f6b116afc6dd85769ae4cfab4' },
 };
 
 export const HASHES = {
@@ -66,6 +68,18 @@ export const HASHES = {
     C: 'f2bf8bc05718ee3e86351b7bbb8f214ce190a915ba8c68fffb4b6d255d5ed3fa',
     D: '8fde33cb6e7a7e07f16ab9b3728a1115f22e6bc2718b824254aa8cc7c0366d31' },
 };
+
+// fma32 cases as float bits a, b, c and fmaf(a, b, c): six where rounding the
+// double sum is wrong, then two at the overflow edge (FLT_MAX, and infinity)
+// and two in the subnormal range.
+export const FMA_CASES = [
+  ['3ed5ace8', '41995aa6', '4d69c8c5', '4d69c8c5'], ['3c31d2c3', 'bb3845d8', 'c46296be', 'c46296bf'],
+  ['3c0a54f8', '436ce12a', '4c155895', '4c155895'], ['44e6c5f6', '398dfdff', '4b2a8940', '4b2a8941'],
+  ['36d88ba0', '3c975255', '4038d1cb', '4038d1cb'], ['3b16ed4f', '44591c92', '4c5d8bb1', '4c5d8bb1'],
+  ['65000001', '4d7ffffe', '7f7fffff', '7f7fffff'], ['65800001', '4d7ffffe', '7f7fffff', '7f800000'],
+  ['9a000002', '1a3ffffd', '00400001', '00400000'], ['1a000002', '1a3ffffd', '80400001', '80400000'],
+];
+const f32 = (hex) => new DataView(Uint32Array.of(parseInt(hex, 16)).buffer).getFloat32(0, true);
 
 export function streamPackets(name) {
   const s = STREAMS[name] || EDGE_STREAMS[name];
@@ -154,8 +168,12 @@ async function main() {
   check('the stored bank is the order\'s (SHA-256 of the 4,704 floats as little-endian bytes)',
     stored.length === 4704 && bankSha256(stored) === BANK_SHA256, bankSha256(stored).slice(0, 16));
   const computed = computeBank();
-  check('bank.mjs computes the stored bank under this Node', bankBase64(computed) === SW.BANK_BASE64 &&
-    bankSha256(computed) === BANK_SHA256, `Node ${process.versions.node}`);
+  // The stored bank is the library's own (read from its memory in the review);
+  // bank.mjs meets it under Node 22 by rounding margin, not by identity.
+  const bankOk = bankBase64(computed) === SW.BANK_BASE64 && bankSha256(computed) === BANK_SHA256;
+  check('bank.mjs computes the stored bank under this Node', bankOk, bankOk ? `Node ${process.versions.node}` :
+    `Node ${process.versions.node}: if the check above passes, the stored bank is still the library's; look at ` +
+    'bank.mjs and this Math.sin, which differs from the C library\'s sin in 8 of the 147 arguments');
   check('phase 0 is one 1.0 at tap 15', stored.subarray(0, 32).every((v, i) => (i === 15 ? v === 1 : v === 0)));
 
   // The sixteen reference hashes and the counts.
@@ -197,16 +215,14 @@ async function main() {
     }
   }
 
-  // The fused multiply-add on cases where rounding the double sum would be
-  // wrong (from the C library's fmaf; tests/swresample/native.mjs runs a million).
-  const f32 = (hex) => new DataView(Uint32Array.of(parseInt(hex, 16)).buffer).getFloat32(0, true);
-  const hard = [
-    ['3ed5ace8', '41995aa6', '4d69c8c5', '4d69c8c5'], ['3c31d2c3', 'bb3845d8', 'c46296be', 'c46296bf'],
-    ['3c0a54f8', '436ce12a', '4c155895', '4c155895'], ['44e6c5f6', '398dfdff', '4b2a8940', '4b2a8941'],
-    ['36d88ba0', '3c975255', '4038d1cb', '4038d1cb'], ['3b16ed4f', '44591c92', '4c5d8bb1', '4c5d8bb1'],
-  ].map((c) => c.map(f32));
+  // The fused multiply-add against the C library's fmaf (native.mjs confirms
+  // each case, and runs a million more).
+  const fmaCases = FMA_CASES.map((c) => c.map(f32));
+  const hard = fmaCases.slice(0, 6), edges = fmaCases.slice(6);
   check('fma32 rounds once, where the double sum lies halfway between two floats',
     hard.every(([a, b, c, r]) => SW.fma32(a, b, c) === r && Math.fround(a * b + c) !== r), `${hard.length} cases`);
+  check('fma32 at the overflow edge and in the subnormal range',
+    edges.every(([a, b, c, r]) => Object.is(SW.fma32(a, b, c), r)), edges.map(([a, b, c]) => SW.fma32(a, b, c)).join(' '));
 
   // Where the sound lands.
   const click = (at) => {

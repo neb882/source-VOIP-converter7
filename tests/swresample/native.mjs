@@ -18,7 +18,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EDGE_STREAMS, HASHES, STREAMS, mulberry32, randomStreams, streamPackets } from '../swresample.verify.mjs';
+import { EDGE_STREAMS, FMA_CASES, HASHES, STREAMS, mulberry32, randomStreams, streamPackets } from '../swresample.verify.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -49,6 +49,15 @@ try {
     }
     console.log(`fma32: ${f.length / 4 - wrong} of ${f.length / 4} equal fmaf (${hard} where rounding the double sum would not)`);
     if (wrong) failed++;
+  }
+  // The suite's recorded fma32 cases: each result is fmaf's.
+  {
+    const bits = Uint32Array.from(FMA_CASES.flatMap((c) => c.slice(0, 3).map((h) => parseInt(h, 16))));
+    const raw = execFileSync(exe, ['--fmaf'], { input: Buffer.from(bits.buffer) });
+    const got = new Uint32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
+    const bad = FMA_CASES.filter((c, i) => got[i] !== parseInt(c[3], 16));
+    console.log(`the suite's ${FMA_CASES.length} fma32 cases: ${FMA_CASES.length - bad.length} are fmaf's results`);
+    if (bad.length) { failed++; for (const c of bad) console.log(`  ${c.join(' ')}: fmaf differs`); }
   }
 
   // Every stream the comparison runs: the four references, the 50 random

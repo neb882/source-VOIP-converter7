@@ -422,8 +422,16 @@ DEALINGS IN THE SOFTWARE.
   // round(a * b + c) to a float with one rounding, as vfmadd231ps does, for
   // floats a, b, c. a * b is exact in a double (24 + 24 bits). The double sum
   // s can be off the true sum; that matters only when s lies exactly halfway
-  // between two floats (25 significant bits, found by Veltkamp's split), and
-  // then the error of the sum (two-sum) says which neighbour is nearer.
+  // between two floats, and then the error of the sum (two-sum) says which
+  // neighbour is nearer.
+  // - A halfway point has at most 25 significant bits; Veltkamp's split (by
+  //   2^28 + 1) tells, cheaply, the sums that have more and so are not halfway.
+  // - Of the rest, s is halfway when o = 2s - r, as far past s as r is short of
+  //   it, is itself a float: o is then the other neighbour. 2s - r is exact in
+  //   a double, for normal and subnormal floats alike.
+  // - Past the largest float r is infinite; the halfway point there is
+  //   2^128 - 2^103, between FLT_MAX and 2^128.
+  const FLT_MAX = 3.4028234663852886e38, OVER_HALF = 3.4028235677973366e38;
   function fma(a, b, c) {
     const p = a * b;
     const s = p + c;
@@ -433,8 +441,20 @@ DEALINGS IN THE SOFTWARE.
     if (t - (t - s) !== s) return r;
     const v = s - p;
     const e = (p - (s - v)) + (c - v);
-    if (e === 0) return r;
-    const o = 2 * s - r; // the other neighbour, exact
+    if (e === 0) return r; // s is the exact sum
+    return fmaSide(s, r, e);
+  }
+  // s has at most 25 bits and is not the exact sum: if it is halfway, the
+  // neighbour on the error's side.
+  function fmaSide(s, r, e) {
+    let o;
+    if (r === Infinity || r === -Infinity) {
+      if (s !== OVER_HALF && s !== -OVER_HALF) return r;
+      o = r > 0 ? FLT_MAX : -FLT_MAX;
+    } else {
+      o = 2 * s - r;
+      if (fround(o) !== o) return r;
+    }
     return (e > 0) === (o > r) ? o : r;
   }
 

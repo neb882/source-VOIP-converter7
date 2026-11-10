@@ -22,6 +22,16 @@
 // page must not depend on the browser's Math.sin. This script prints that
 // base64 and the SHA-256 of the 4,704 floats as 18,816 little-endian bytes.
 //
+// What it proves, and what it does not. The stored bytes are the library's
+// own bank: the W3-13 review read the filter bank out of a live context of
+// libswresample 4.12.100 and found it equal byte for byte (signs of zero
+// included). This script reproduces it under Node 22 only because the
+// differences between Math.sin and the C library's sin round away: in doubles
+// they differ in the last bit for 8 of the 147 arguments, so 204 coefficients
+// differ before the rounding to float, and none after. If the suite's check of
+// this script fails under another Node, the stored bank is still right; this
+// script, and the Math.sin it runs on, is what to look at.
+//
 //   node tests/swresample/bank.mjs
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';

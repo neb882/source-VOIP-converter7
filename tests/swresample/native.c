@@ -8,6 +8,8 @@
  *   native --fma             a million float triples a, b, c built so that the
  *                            double sum a*b + c lands halfway between two floats,
  *                            and the C library's fmaf(a, b, c): four floats each
+ *   native --fmaf            reads float triples a, b, c on stdin and writes
+ *                            fmaf(a, b, c) for each
  *
  * Input on stdin, little-endian int32 records:
  *   n >= 0   a packet of n 16-bit samples follows (24000 Hz, mono)
@@ -72,7 +74,7 @@ static void fma_cases(void) {
 static int read_i32(int32_t *v) { return fread(v, 4, 1, stdin) == 1; }
 
 int main(int argc, char **argv) {
-  if (argc != 2) { fprintf(stderr, "usage: native <fma3|avx|sse|c|--info|--fma>\n"); return 2; }
+  if (argc != 2) { fprintf(stderr, "usage: native <fma3|avx|sse|c|--info|--fma|--fmaf>\n"); return 2; }
   if (!strcmp(argv[1], "--info")) {
     unsigned v = swresample_version();
     int f = av_get_cpu_flags();
@@ -82,6 +84,11 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (!strcmp(argv[1], "--fma")) { fma_cases(); return 0; }
+  if (!strcmp(argv[1], "--fmaf")) {
+    float t[3];
+    while (fread(t, 4, 3, stdin) == 3) { float r = fmaf(t[0], t[1], t[2]); fwrite(&r, 4, 1, stdout); }
+    return 0;
+  }
   int flags;
   if (!strcmp(argv[1], "fma3")) flags = FMA3_FLAGS;
   else if (!strcmp(argv[1], "avx")) flags = AVX_FLAGS;
