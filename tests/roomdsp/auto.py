@@ -17,7 +17,9 @@ What it writes:
              more (the shaft, open sides, the second reading of `open`): shape, classes, pair, copy, header, parameters
   templates  templates edited in a copy of the table, for rules no template of the table runs (a value written
              negative in one template only, or in both; both positive; the measures' clamps; a third processor of
-             a type): the edits, the measures and the same fields
+             a type; values the table's pairs hold equal, such as the modulation and the diffusor's size; values
+             copied and never blended; a filter): the edits, the measures, the same fields and the built integers
+             (none for the filter, which the app does not build)
   sweep      240 seeded random measures over every shape: the same fields
 
 Parameters are written as the shortest decimal that reads back to the same single (as reference.py prints a
@@ -129,7 +131,7 @@ def templates():
         ('a courtyard: the delay -1 in B only (A 50 ms), large', [[126, 0, 1, 50]], (1, 500, 1100, 4800, 0.4, 0)),
         ('a courtyard: delays and taps positive in both, blended squared by the length class',
          [[126, 0, 1, 50], [127, 0, 1, 300], [126, 0, 8, 20], [127, 0, 8, 40], [126, 0, 9, 30], [127, 0, 9, 60],
-          [126, 0, 10, 40], [127, 0, 10, 80], [126, 0, 6, 200], [127, 0, 6, 900]], (1, 500, 700, 4800, 0.4, 0)),
+          [126, 0, 10, 40], [127, 0, 10, 80], [126, 0, 6, 200], [127, 0, 6, 900], [127, 0, 3, 0.6]], (1, 500, 700, 4800, 0.4, 0)),
         ('a courtyard: the measures past 500 ms (the clamp)', [], (1, 3000, 3600, 4800, 0.4, 0)),
         ('open space: three delays in each template (only the first two are blended)',
          [[130, [[1, z(1, 300, 0.2, 1, 0, 3000)], [1, z(0, 180, 0.15, 1, 0, 3000)], [1, z(0, 100, 0.1, 1, 0, 2000)], [2, z(340, 220, 6, 0.8, 1, 1500, 0, 10, 2)]]],
@@ -139,6 +141,16 @@ def templates():
          [[102, [[2, z(80, 30, 2, 0.78, 1.1, 6000, 1)], [2, z(20, 10, 2, 0.5, 1, 5000, 1)]]],
           [103, [[10, z(1, 3, 0.15)], [2, z(240, 50, 10, 0.97, 2.4, 1800, 1)], [2, z(60, 30, 4, 0.9, 2, 1000, 1)]]]],
          (0, 500, 700, 220, 0.6, 0)),
+        ('open space: the reverbs\' modulation differing (fmod 10 and 30, rate 2 and 4)', [[131, 3, 7, 30], [131, 3, 8, 4]],
+         (1, 300, 1300, 4800, 0.4, 4)),
+        ('a tunnel: the diffusors\' size and gain differing', [[114, 0, 0, 0.5], [115, 0, 0, 1.0], [114, 0, 3, 0.5], [115, 0, 3, 1.5]],
+         (0, 200, 1000, 150, 0.3, 0)),
+        ('a small room: the filter flag and the tap factor differing in B (copied from A, never blended)',
+         [[103, 1, 6, 0], [103, 1, 15, 0.2]], (0, 200, 260, 120, 0.4, 0)),
+        ('a room: a filter in each template (FLT on the size class; the app builds no FLT, so no integers)',
+         [[102, [[3, z(0, 1000, 0, 0, 1)], [2, z(80, 30, 2, 0.78, 1.1, 6000, 1)]]],
+          [103, [[10, z(1, 3, 0.15)], [3, z(1, 3000, 500, 1, 2)], [2, z(240, 50, 10, 0.97, 2.4, 1800, 1)]]]],
+         (0, 500, 700, 220, 0.4, 0)),
     ]
 
 def sweep(n=240):
@@ -182,7 +194,7 @@ def main(table_path, out_path):
     tpl = []
     for label, edits, m in templates():
         b, rec = built(edited(P, edits), m)
-        rec['d'] = LN.describe(M.Instance(b, R.randint_from(2)))
+        rec['d'] = None if any(t == 3 for t, _ in b.procs) else LN.describe(M.Instance(b, R.randint_from(2)))
         tpl.append(collections.OrderedDict([('label', label), ('edits', edits)] + list(rec.items())))
     t = R.template_case(P)                        # the first edit set is reference.py's own template case
     assert [[k, [s32(v) for v in p]] for k, p in t.procs] == tpl[0]['p']
