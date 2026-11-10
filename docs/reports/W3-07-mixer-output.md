@@ -279,7 +279,7 @@ component as a share of the ceiling; the sidebands are at +-344.5 Hz, the 128-sa
 `voice_avggain` of 1 on PC B does not fit: neither gives sidebands that come and go with level.
 
 So the two things REFERENCE reports about B follow. The peaks stand above "the clamp for 0.077" because the
-ceiling is at 0.11: the largest sample is 3.1 dB above it (REFERENCE's 2.5 dB is of a lower percentile). And
+ceiling is at 0.11: the largest sample is 3.1 dB above it (REFERENCE gives 2.5 dB; how it took its peak was not checked). And
 almost no samples sit there (4,246 of 7.4 million, 0.06%, at the ceiling itself, against 4% in A) because with this
 scale a loud tone's plateau is at 0.72 of the ceiling, unclipped, and only peaks of noise-like sound and the game's
 own sounds on top of the voice reach the clip.
