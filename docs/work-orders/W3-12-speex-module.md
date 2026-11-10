@@ -3,12 +3,17 @@
 **Depends on:** W3-09's report (`docs/reports/W3-09-steam-voice.md`, section 5, which is written to be built
 from, and section 6). Two parts. **W3-12a** (the build and its checks) adds new files only: it can start now and
 run beside any order. **W3-12b** (the profile) changes `constants.js`, `opus-codec.mjs` and `audio.js`: after
-W2-02, W3-05 and W3-06 have merged and when no other `audio.js` order is open. **Kind:** code. `tf-builder`
+W2-02, W3-05 and W3-06 have merged and when no other `audio.js` order is open. It does not wait for W3-13:
+its README edit goes in first, and W3-13 merges main in and keeps both. **Kind:** code. `tf-builder`
 (effort high), then `tf-reviewer`. **Branches:** `claude/w3-12a-speex-102`, `claude/w3-12b-speex-profile`, from
 `main`. **Worktrees:** given in the brief. **Time budget:** 1 day for a, half a day for b.
 
 *Revised 2026-11-10 after the plan's review (findings 19 to 21; `docs/reports/W3-11-plan.md`, "The review").*
 W3-06 no longer touches the Speex profile (decided 2026-11-10): this order is the only one that does.
+
+*Part a is built and merged (`docs/reports/W3-12a-speex-102.md`). Part b was brought up to date with what it
+learnt on 2026-11-10 (`docs/reports/W3-plan-maintenance.md`, item 4): the delay, the reset, the release
+wording, the 1.2.1 comparison, where the 16 bits are made, and two stale comments about `celt_44`.*
 
 ## Why
 
@@ -100,16 +105,35 @@ There is nothing private to run.
    on 11 kHz sound, 11 kbps)". Its comment: read from the game's module (W3-09, section 5); no recording can
    exist. Status: "codec and settings read from the module; not recorded".
 2. **`opus-codec.mjs`**: `speexRoundTrip` and `createSpeexStream` run `vendor/speex-1.0.2` at the codec's rate
-   of 11025, 16-bit in and out with the wrap, `frameMs` 14.51. Loss: the module has no concealment, and what
-   the engine plays for a lost packet under this codec was not read: keep zeros for a lost frame and say so in
-   the comment and the report (the 1.2.1 module's concealment goes with it). The delay trimmed is the 1.0.2
-   pair's (measure it as W1-01 did; 1.0.2 has no look-ahead request).
+   of 11025, 16-bit in and out with the wrap, `frameMs` 14.51.
+   - **Where the float sound becomes 16 bits.** The module's `encode` takes an `Int16Array`. The two functions
+     round at that call, for every caller and nowhere earlier: `max(-32768, min(32767, round-half-even(x x
+     32768)))` (the game's capture is 16-bit; W3-06 does the same inside the CELT module's `encode`). The
+     decoded `Int16Array` goes on as `q / 32768`.
+   - **The delay trimmed is 80 samples** (7.26 ms at 11025 Hz: the encoder's 240-sample window less the frame;
+     measured in part a, and pinned by its suite; 1.0.2 has no look-ahead request).
+   - **A new talk spurt is the codec's `reset()`** (request 26 on the encoder and the decoder, as the game
+     does), **never a new codec.** In 1.0.2 that reset is partial on the decoder (the first frame after it still
+     interpolates from the last frame before it, and the enhancement's comb filter keeps its memory; part a's
+     report lists what survives), so a new decoder gives other sound for 2 or 3 frames. The old module's
+     `restart()` made a new codec: do not carry that over. The framer has no reset: at a new spurt make a new
+     `createFramer(codec)` on the same codec (what it kept from the last spurt was already sent, padded, by the
+     final call).
+   - **Loss:** the module has no concealment, and what the engine plays for a lost packet under this codec was
+     not read: zeros for a lost frame (decided 2026-11-10), said in the comment, on the page and in the report.
+     The decoder is not called for a lost frame. The 1.2.1 module's concealment goes with it.
 3. **`snd_bits`** no longer picks a quality (the module has one table row for the engine's argument): the
    profile ignores it, and the page says so where it says it for CELT.
 4. **`audio.js`**: only the places that call the two functions, and `codecResultInfo`.
 5. **`vendor/speex/`** (1.2.1) is removed with its build folder `tests/speex/` and its hash, once nothing loads
-   it (`tests/speex.verify.mjs` is replaced by `tests/speex102.verify.mjs`; keep the 1.2.1 comparison of part a
-   by building 1.2.1 natively inside `native.mjs`, or drop that check and say so). `sw.js`: `ASSETS`, `CACHE`.
+   it; `tests/speex.verify.mjs` goes, and what it checked of the profile (the gate switch reaching the round
+   trip, the frame log) moves into `tests/speex102.verify.mjs` or `tests/verify.js`. **`tests/speex102.verify.mjs`
+   imports `vendor/speex/index.mjs`** for two checks ("the packets differ from those of the Speex 1.2.1 module"
+   and "1.2.1's decoder reads the 1.0.2 packets"). Before removing the folder, record the SHA-256 of the 1.2.1
+   module's packets for that speech-like signal as a constant in the test; the first check then says the
+   1.0.2 packets' hash is not that one. The second check goes (it needs a 1.2.1 decoder); say so in the
+   report. Add both files of `vendor/speex-1.0.2/` (the module is about 178 kB) to `sw.js`'s `ASSETS` and raise
+   `CACHE`.
 6. **What the page and the documents say.** The codec menu and the chain strip: "Speex 1.0.2 on 11.025 kHz
    sound · 20-byte frames of 14.51 ms · 11.025 kbit/s". README's profile row and `tests/LEGACY_CODECS.md`'s
    `vaudio_speex` row and section, rewritten: narrowband Speex 1.0.2 (2003), the engine's quality 3 is Speex's
@@ -117,7 +141,12 @@ There is nothing private to run.
    resample, so the 8 kHz codec is fed 11025 Hz sound: a frame is 14.51 ms, the real rate is 11.025 kbit/s, the
    band reaches 5.5 kHz and the pitch range is 77 to 649 Hz**; decoded samples wrap past full scale; about one
    packet in thirty holds two frames; read from the owner's module, not recorded, because a current TF2 falls
-   back to `vaudio_celt` (W3-09, section 6); and that 1.0.1 cannot be excluded. The "assumed settings" wording
+   back to `vaudio_celt` (W3-09, section 6); that the module's reading cannot tell 1.0.1 from 1.0.2, and that
+   **it does not matter for the sound**: native builds of Speex 1.0 and 1.0.2 gave identical packets and
+   decoded frames at these settings on 13 signals (part a and its review), their differences being in paths
+   this mode never takes; that 1.0.2 has no input high-pass (1.2.1 had one each side), so low frequencies keep
+   their phase; and that loud speech wraps often (2,106 samples of the tests' speech-like signal, 6,956 of a
+   full-scale square wave), which is heard as crackle on peaks. The "assumed settings" wording
    and "Next to the stand-in" figures go; the report gives the new figures (band edge, level, a spectrum
    difference against the old profile).
 
@@ -132,7 +161,11 @@ There is nothing private to run.
   figures are the planner's estimate and were not tried: **if the check fails on a build that passes
   everything else, report both figures and stop**, do not tune the band or the bound); **nothing is shifted**: a train of pulses 200 a second (one sample of
   0.5 every 55.125 samples at 11025 Hz, rounded) comes out with its strongest autocorrelation lag between 4.9
-  and 5.1 ms; a loud source gives wrapped samples in the render; `createRender` equals
+  and 5.1 ms; a loud source gives wrapped samples in the render (the suite's speech-like signal at the level part a
+  used wraps 2,106 samples at the decoder: the render's count at the decoder's output, through a hook, is
+  that); **the reset**: with the gate on and two bursts, the second spurt's decoded frames equal a decode that
+  called `reset()` between them and differ, in at least one of its first three frames, from a decode with a
+  new codec; the delay: a voice-band source comes out aligned within one sample at 11025 Hz; `createRender` equals
   `process()`.
 - **Golden hashes:** the `speex` cases only, re-recorded in a commit of their own; every other hash unchanged.
 - The browser suite (labels, a render, the live chain with the profile, offline).
@@ -147,13 +180,16 @@ There is nothing private to run.
 before the last push). Nothing else. **b:** may touch `constants.js`, `opus-codec.mjs`, `audio.js` (as said),
 `index.html`, `app/console.js`, `app/render.js` (the codec's name in the render's summary, about line 282:
 "Speex 1.0.2"), `live.js` and `live-worker.js` (only where they name the codec or its frame), `sw.js`,
-`README.md` (the profile row; the "Files and licensing" table and its notice line, **which W3-13 also edits:
-part b's README edit is made after W3-13 has merged, or, if W3-13 is still in review when part b is otherwise
-done, part b merges first and W3-13 merges main in and keeps both changes; the orchestrator says which in the
-brief**; the notice line names
+`README.md` (the profile row; the "Files and licensing" table and its notice line, **which W3-13 also edits: W3-13's merge waits for the
+owner, so part b merges first and W3-13 then merges main in and keeps both changes**; the notice line names
 `vendor/speex/COPYING.speex`; the build commands near line 327, which name `tests/speex/build.mjs` and
 `native.mjs`; the Tests list), `tests/LEGACY_CODECS.md`, `tests/verify.js`, `tests/reference.verify.mjs` (its
-Speex case passes `frameSeconds: .02`: it becomes `160 / 11025`, and the check's title says 14.5 ms frames),
+Speex case passes `frameSeconds: .02`: it becomes `160 / 11025`, and the check's title says 14.5 ms frames;
+and, left by W3-06 for a later order, its text that gives `vaudio_celt_high` 5.8 ms frames: it is 46.4 ms),
+`tests/gain.verify.mjs` (a comment only: its key-up gap check says `celt_44` with the codec bypassed runs at
+44.1 kHz with 256-sample frames and "no resampler ringing"; since W3-06 it runs at 22.05 kHz through the
+linear mixer; rewrite the comment to what the check now shows and change no expectation; if W3-06's review
+has already fixed either, leave it),
 `tests/render-stream.verify.mjs`, `tests/browser.verify.js`, `tests/vendor-opus.mjs`, `package.json`,
 `tests/predictions/PREDICTIONS.md` (a dated note if a hashed file changes); may remove `vendor/speex/`,
 `tests/speex/`, `tests/speex.verify.mjs`. Before the last push, `grep -rn "1\.2\.1\|vendor/speex/" --include=*.js

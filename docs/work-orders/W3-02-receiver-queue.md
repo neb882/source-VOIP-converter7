@@ -17,6 +17,11 @@ change the receiver's path; the three counting rules behind the statistics table
 and W3-02g's resampling sentence are rewritten in place; what may run beside what is corrected. W3-02a is
 still unchanged.
 
+*Maintenance, 2026-11-10 (`docs/reports/W3-plan-maintenance.md`): W3-02a and W3-02b are built and merged, and
+their sections are left as built from. W3-02c to W3-02g were brought up to date with what the builds of W3-02b,
+W3-05 and W3-13 learnt: the sender's messages as built, the measured ranges for section 10d, the gain's
+settings read at a reset, and a resampler that lives as long as the speaker's decoder.*
+
 *Revision 2, 2026-11-10, after the plan's review by a builder (the findings and what was done about each are in
 `docs/reports/W3-02-plan.md`, "The review").* Seven orders, each leaving main working:
 
@@ -536,11 +541,13 @@ service-worker file loads `steam-sender.js` yet (W3-11a does that).
 
 **Branch:** `claude/w3-02c-timeline-option`, from `main` **after W2-02, W3-05, W3-06, W3-02b, W3-13, W3-11a and
 W3-11b have merged** (W3-05 leaves the gain as an object with `reset()`; W3-11a leaves the `steam` render making
-Steam's messages and resampling each as a packet). **Time budget:** 1 day.
+Steam's messages and resampling each as a packet). W3-13's merge waits for the owner's word on its licence, and
+so do W3-11a's and this order's. **Time budget:** 1 day.
 
 ### Files
 
-May touch: `audio.js` (`process()` and `createRender`: one new stage and the option), `index.html`, `sw.js` (the
+May touch: `audio.js` (`process()` and `createRender`: one new stage and the option; `createGain`'s `reset`
+taking the settings), `tests/gain.verify.mjs` (a check for that argument only), `index.html`, `sw.js` (the
 new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (`importScripts`),
 `tests/verify.js` (how it loads the scripts; a new section 10d), `tests/render-stream.verify.mjs`,
 `tests/predictions/PREDICTIONS.md` (the hashed-file note). May not touch: `voice-channel.js`, `constants.js`,
@@ -551,18 +558,47 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
 
 1. **The option.** `opts.timeline`: `'source'` (the default, and anything else) or `'game'`; `opts.fps` (300) and
    `opts.bufferMs` (100). With `'source'` nothing in this order runs: every render is bit for bit what main gives.
-2. **Where it runs** *(rewritten in revision 3)*. With `'game'`, the `steam` profile, the codec on and no
-   `opts.received`. Since W3-11a the render has, for every message of the sender in order, its game tick, its
-   decoded 16-bit samples and their 44.1 kHz samples from W3-13's resampler (one call per message, a silence
-   record's zeros included). Under `'game'` each of those packets goes, as it is, to
-   `TF2VoiceChannel.createTimeline`'s `push({ tick, pcm, source })` (`source`: where the source's timeline
-   would have laid `pcm[0]`, -1 for a silence record), and `advance(tick)` is called as the source runs on. The
-   source-timeline laying of W3-11a's point 8 is skipped. The timeline's output replaces the auto-gain's (stage
-   4); the mixer stage and everything after are unchanged. The timeline's `gain` is W3-05's gain object for the
-   render's settings (every sample it sees is decoded); with `agc: false` it is an object that multiplies by
-   `voice_scale` and clips to int16, as stage 4 does now. **With the gate off** the sender still makes messages
-   (every chunk active, one spurt), so `'game'` runs the same way: one channel opened at the start, never
-   appended to, with the queue drifting as in "The 400 ppm".
+2. **Where it runs** *(rewritten in revision 3; brought up to date 2026-11-10)*. With `'game'`, the `steam`
+   profile, the codec on and no `opts.received`. Since W3-11a the render has, for every message of the sender
+   in order, its game tick, its decoded 16-bit samples and their 44.1 kHz samples from W3-13's resampler (one
+   call per message, a silence record's zeros included). Under `'game'` each of those packets goes, as it is,
+   to `TF2VoiceChannel.createTimeline`'s `push({ tick, pcm, source })`, and `advance(tick)` is called as the
+   source runs on. The source-timeline laying of W3-11a's point 8 is skipped.
+   - **`pcm`** is the resampler's `Int16Array` divided by 32768, so every value the gain sees is a 16-bit
+     value, as in the game. The whole of it, uncut.
+   - **`source`** is where the source's timeline would have laid `pcm[0]`: for a spurt's first sound message
+     `round((start - lookahead) x 44100 / 24000)` (W3-11a's point 8; `start` is the sender's and can be as low
+     as -2400, so this can be well below 0); for each later message of the spurt, the one before plus that
+     message's `pcm.length`; for a silence record (a message `{ tick, silence }`, with no `spurt`) exactly
+     **-1**. The timeline takes -1 alone as a record and any other number as a position; no position rounds to
+     -1 (W3-02b's report, reading 8).
+   - **An end message with no frames** (the gate off, when the source ends on a frame's edge) has no samples:
+     it is pushed with an empty `pcm` and is not given to the resampler.
+   - **The resampler is not the channel's.** One resampler serves the whole render: Steam keeps it as long as
+     the speaker's decoder, and neither a channel being assigned again nor an Opus decoder reset resets it
+     (finding 29; measured on Set G). So a spurt that opens a new channel still comes through the same
+     resampler stream, 16 input samples late since the render's first packet.
+   - **The gain.** The engine reads `voice_scale`, `voice_avggain` and `voice_maxgain` when it resets the gain,
+     which is when a channel is assigned, and at no other time (W3-05's second read; finding 26). The object
+     handed to the timeline is `{ process, reset }` over `TF2Audio.createGain`, whose `reset()` takes the three
+     settings as they stand at that moment: either `createGain`'s `reset(settings)` gains that argument (this
+     order may add it; with none it keeps what it has, so W3-05's checks do not move), or the wrapper makes a
+     new gain at each `reset()`. In a file render the settings do not change, so the two give the same samples;
+     the form is what the live chain needs (W3-11b). Two things follow from the reset and are checked: **the
+     first 128 samples a new channel is given pass at unity whatever `voice_scale` is**, and an appended spurt
+     gets no reset. A queue underrun never reaches the gain (the padding is made after it). With `agc: false`
+     the object multiplies by `voice_scale`, rounds and clips to 16 bits, as stage 4 does now.
+   - **A late frame** (loss mask 2) stands in a message as 480 zeros that no decoder made (W3-11a's point 6).
+     They must not reach the gain as decoded zeros (a decoded block of zeros sends the gain to its cap). The
+     wrapper is told, before each `push`, which of the packet's samples are a late frame's (frame `j` of `F`
+     in a packet of `n` samples is samples `round(j n / F)` up to `round((j + 1) n / F)`), passes those through
+     unchanged and does not count them into the gain's blocks. A silence record's zeros are decoded zeros and
+     do go through the gain. What a late frame is in the game once the channel is real was not read: see
+     `docs/reports/W3-plan-maintenance.md`, "Open".
+   - The timeline's output replaces the auto-gain's (stage 4); the mixer stage and everything after are
+     unchanged. **With the gate off** the sender still makes messages (every chunk active, one spurt), so
+     `'game'` runs the same way: one channel opened at the start, never appended to, with the queue drifting
+     as in "The 400 ppm".
 3. **What `'game'` leaves alone or refuses.** With an engine codec (`celt_22`, `celt_44`, `speex`), with
    `steam_48` (it has no sender: it is not the game's path), the codec bypassed, or `opts.received` (until W3-02g), `'game'` is ignored and `codecInfo.channel` is
    `{ timeline: 'source', reason }`. `retime` with `'game'` is a `RangeError` naming both.
@@ -596,12 +632,53 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
     fits there (a packet's edge fell in the window: the three-tap output stage smears one sample each side of
     it), `n = 44100 t + 300`. And `d(30) - d(10)` is the number of packets added between them: between 340 and
     375 (one dropped sample each, 17.88 packets a second).
-  - **An early start.** Spurts of 2 s with silences of 300 and 900 ms, 300 fps: `codecInfo.channel.spurts[1]` is
-    not `opened` and is 195 to 275 ms early, `spurts[2]` is `opened`; in `codecInfo.frameLog` the second spurt's
-    codes begin that many frames earlier than in `codecInfo.sent.frameLog` (within one frame).
-  - **Overflow at a restart:** at 300 fps `spurts[0].droppedMs` is between 30 and 150 and `channel.drops` is not
-    empty; at 67 fps it is 0 and the list is empty.
-  - **The gain is reset where the engine resets it:** `channel.gainResets === channel.opens`.
+  - **The wiring is the module's** (the timeline's own behaviour is pinned in `tests/voice-channel.verify.mjs`
+    by W3-02b, with exact counts over 50 fixed seeds; this section proves the render hands it the right
+    things). A test hook, `opts.onMessage`, receives each `{ tick, pcm, source }` as it is pushed. For layouts
+    P and Q below at 300 and 67 fps, seeds 1 to 5: a fresh `createTimeline` with the same settings, fed the
+    hook's messages and the same `advance` calls, gives an `info` deep-equal to `codecInfo.channel`. And the
+    messages are what the order says: every `source` of a record is -1; a spurt's first `source` is
+    `round((start - lookahead) x 44100 / 24000)`; within a spurt each `source` is the one before plus that
+    `pcm.length`; every `pcm` value times 32768 is an integer; the ticks never fall.
+  - **The layouts.** Sources at 24 kHz: bursts of 2 s of a 1 kHz square wave of height 1000 of 32768 (so, as
+    in W3-02b's own tests, a chunk is active when about a third of it is burst: the mean rule alone decides),
+    noise at -50 dBFS between (under the gate; it makes the pre-roll sound, not zeros). **P:** silences of 300, 500 and 1200 ms. **Q:**
+    silences of 900, 600 and 1200 ms. Seeds 1 to 10. The figures in brackets are what W3-02b's build measured
+    on the same layouts with the module alone, seeds 1 to 50 (its report, "The timeline's checks"); a codec and
+    a filter stand between here, so the ranges are those, a little wider, and no exact count is asked.
+    - **A 300 ms pause never makes a spurt** (it is inside the 0.4 s hold): in P, every seed,
+      `codecInfo.channel.spurts[0].end` is past the second burst's end and `codecInfo.sender.spurts[0]` holds
+      both bursts.
+    - **A 500 ms pause makes its own spurt in some seeds and not in others** (38 of 50 with the module; in the
+      rest the chunk after the final one is already active, the sender re-opens with no silence record and the
+      timeline keeps one spurt). In P, per seed, exactly one of two holds: the timeline has 3 spurts, the
+      second not `opened`, with `offsetStartMs` between -20 and +60 [+8.0 to +24.1]; or it has 2 spurts and
+      the sender sent no silence record between the second and third bursts. Both must occur among seeds 1
+      to 10; if one does not, extend to seeds 1 to 30 and say so.
+    - **An early start, after 900 ms.** In Q at 300 fps, in at least 8 of the 10 seeds, `spurts[1]` is not
+      `opened` and its `offsetStartMs` is between -330 and -190 [appended in 49 of 50, -318.1 to -198.4];
+      at 67 fps it is `opened` in every seed and within 80 ms of the source [-15.3 to +54.4]. Where it is
+      appended, in `codecInfo.frameLog` that spurt's codes begin `round(-offsetStartMs / 20)` slots earlier
+      than in `codecInfo.sent.frameLog`, within one slot.
+    - **Overflow at a restart.** At 300 fps: in P `spurts[0].droppedMs` is between 60 and 210 [82.1 to 186.1]
+      and the spurt after the 1200 ms pause is `opened` with `droppedMs` between 60 and 190 [79.6 to 167.8];
+      in Q `spurts[0].droppedMs` is between 45 and 150 [65 to 128]; `channel.drops` is not empty. At 67 fps
+      every `droppedMs` is 0 and the list is empty.
+    - What a wrong build does here, from W3-02b's breaks: a hold of 0.39 s or less changes which seeds split
+      at 500 ms (the module's suite pins 38 of 50; here a hold under 0.3 s splits the 300 ms pause); a channel
+      that is never appended to makes `spurts[1]` of Q `opened` at 300 fps; a wait a tick off moves
+      `droppedMs` at 300 fps out of range or makes it non-zero at 67; the ring's oldest sound not dropped
+      empties `drops`.
+  - **The gain is reset where the engine resets it:** `channel.gainResets === channel.opens`. With
+    `voice_scale` 0 at 67 fps on layout Q (nothing is dropped there), the render is zero everywhere but in a
+    run of at most 132 samples at the start of each `opened` spurt (the first 128 samples a new channel is
+    given, at unity, less the two the channel and the first pull take, plus the output stage's smear), at
+    least 100 of them non-zero; an appended spurt adds none. With the settings read at construction instead
+    and changed before a second open (through the wrapper, in a unit check of it), the second open still uses
+    the old ones: that check fails.
+  - **A late frame is not decoded silence:** a hand-made mask with one late frame in a long burst, `agc` on:
+    the gain's state after that packet (`state()` through the wrapper) equals its state with the frame's
+    samples left out, and differs from its state with them fed as zeros.
   - The same seed gives the same samples; another seed moves at least one drop; `lossPct` 20 gives the same loss
     pattern (`codecInfo.sent.frameLog`) with and without `'game'`.
   - The ignored cases of point 3 (`steam_48` among them: its `'game'` render equals its `'source'` render
@@ -736,7 +813,11 @@ silence record's samples at the stream's rate (0 if none; the record is not in t
 `'game'`, `process()` and `createRender` feed the channel these packets in place of the sender model: arrival tick
 `round((tick - first tick) x demo tick length / 0.015)`, messages of one tick in their order (the channel then
 gets more than one packet on a tick, which the engine allows), each message's decoded samples (16-bit, by W3-11a's decoder rules) through W3-13's resampler as one packet,
-one resampler per speaker, and the record as that many zeros through the same resampler *(rewritten in
+and the record as that many zeros through the same resampler. **One resampler per speaker for the whole demo:**
+it is made at the speaker's first message and never reset after, not at an end marker, not when the speaker's
+channel is assigned again and not across a gap in the demo (finding 29: on Set G Steam kept it across
+reconnects; the 16-sample flush happens once). The timeline's `source` is as in W3-02c's spec 2 (the decoded
+position at 44.1 kHz; -1 for a record), and the gain object is W3-02c's *(rewritten in
 revision 3; it was a whole-signal resampling cut at packet edges)*.
 `codecInfo.channel.packets` is then `'demo'`. SourceTV writes voice every fourth tick, so arrival is known to
 60 ms; that is the path's limit and is said in the console line (W3-02d's line).

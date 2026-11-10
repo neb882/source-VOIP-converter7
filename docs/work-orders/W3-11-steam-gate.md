@@ -15,7 +15,15 @@ are spelled out; the tool for the owner's file-input recording and its private c
 Both before W3-02c. **Kind:** code. `tf-builder` (effort xhigh for a, high for b), then `tf-reviewer`; a's diff
 also gets a second reader on the stronger model (it changes how a render is computed). **Branches:**
 `claude/w3-11a-steam-render`, `claude/w3-11b-steam-live-page`, from `main`. **Worktrees:** given in the brief.
-**Before W3-11a merges** the orchestrator writes findings 28 and 29 into `tests/REFERENCE_2026.md` (CLAUDE.md: a
+*Maintenance, 2026-11-10 (`docs/reports/W3-plan-maintenance.md`): brought up to date with what the builds of
+W3-02b, W3-05 and W3-13 learnt (the sender's messages as built, the gain fed only decoded samples and its
+settings read at a reset, a resampler that lives as long as the speaker's decoder, the footer's credit).
+**W3-13 is built and reviewed but its merge waits for the owner's word on its licence. W3-11a may be built
+meanwhile on a branch that has merged `origin/claude/w3-13-steam-resampler` in; it is merged to main only after
+W3-13 is.** It uses nothing of the module but `createResampler().packet()`, so if the owner's answer changes how
+the resampler is shipped, this order's code stands and only its golden hashes may move.*
+
+**Before W3-11a merges** the orchestrator writes findings 28 and 29 into `tests/REFERENCE_2026.md` (done; CLAUDE.md: a
 measured constant changes with its evidence).
 
 ## Why
@@ -40,7 +48,11 @@ Wherever this order says "the render", it means a render with the `steam` profil
 
 ### What to build
 
-1. **Loading.** `steam-sender.js` and `vendor/swresample/swresample.js` are loaded wherever `audio.js` runs:
+1. **Loading, and the credit.** This is the order that first loads the resampler on the page, so the page's
+   footer, where it credits LAME, gains FFmpeg's libswresample in the same way (LGPL; a link to
+   `vendor/swresample/COPYING.LGPLv2.1`; "translated to JavaScript, modified"): the licence asks that a work
+   which shows notices while it runs shows the library's too. `steam-sender.js` and
+   `vendor/swresample/swresample.js` are loaded wherever `audio.js` runs:
    `index.html`, `audio-worker.js`, `live-worker.js`, `sw.js` (`ASSETS`; raise `CACHE`), and the tests' loaders
    (`tests/verify.js`, `tests/render-stream.verify.mjs`, and any other suite that builds the sandbox).
 2. **The pinned Opus module gains the 16-bit decoder.** In libopus's float build the 16-bit `opus_decode` is
@@ -92,6 +104,15 @@ Wherever this order says "the render", it means a render with the `steam` profil
    |x| in dBFS, `meanMin = 32767 x 10^(dB / 20)` (Steam's own is -40); the peak rule does not move. Until
    W3-11b the page still sends -39.5 from its control: so in this part `app/render.js` (about line 138) sends
    `null` for the `steam` profile when the control holds -39.5, with a comment that W3-11b replaces the line.
+   **The sender as built** (W3-02b's report, "For W3-11a's builder"): `push(Int16Array)` on the rounded
+   24 kHz sound, then `finish()`. A sound message is `{ tick, spurt, first, last, start, end, pcm }`: **`pcm`
+   is what to encode**, 480 samples a frame, an end message's last frame already padded; frame numbers run
+   through the whole render; `start` can be as low as -2400 (the frames there are zeros). **An end message
+   may hold no frame at all** (`last = first - 1`, an empty `pcm`: the gate off, when the source ends on a
+   frame's edge): nothing is encoded or decoded for it, it is not given to the resampler, and the encoder and
+   decoder are reset after it as after any end. A silence record is `{ tick, silence }` in 24 kHz samples,
+   with no `spurt`. "No number at the default" means passing no `meanMin`; one at or below 0, or not finite,
+   is refused. A clock given by hand must step by 1 to 6.
 6. **The network.** The loss mask is drawn as now, per frame in the sender's frame order through the render,
    in groups of `framesPerPacket` (`net_split`) by frame number, from the render's seed. What it means under
    Steam's decoder:
@@ -104,16 +125,45 @@ Wherever this order says "the render", it means a render with the `steam` profil
      stand in its place; it is not a gap and nothing is concealed for it. This is the measured stand-in, not a
      reading; say so in the comment.
    - a DTX frame is decoded like any other; each spurt starts with a fresh encoder and a fresh decoder.
-7. **16 bits, then the resampler, once per message.** Each message's decoded samples (an `Int16Array`, its
-   concealment included; a silence record as that many zeros) go through one
-   `TF2Swresample.createResampler({ kernel })` per render as one `packet()` call (`opts.swrKernel`, for tests
-   only, default the module's `DEFAULT_KERNEL`; the page does not offer it).
+7. **16 bits, then the resampler, once per message.** Each message's decoded samples (an `Int16Array`, all
+   its frames together, its concealment included; a silence record as `new Int16Array(n)`) go through the
+   render's resampler as one `packet()` call. Messages are not split or joined: the counts depend on the cut.
+   A message with no samples makes no call.
+   - **One resampler for the whole render**, made with `TF2Swresample.createResampler()` and no kernel, so the
+     module's `DEFAULT_KERNEL` stays the one switch (`opts.swrKernel`, for tests only, passes one; the page
+     does not offer it). In Steam the resampler lives as long as the speaker's decoder object: **an end marker
+     or a sequence number that falls resets the Opus decoder only, never the resampler**, and neither does the
+     game assigning the speaker a new channel or a reconnect (finding 29; W3-13's report: Set G's 2,372 packet
+     counts come out only as one stream). So the first packet of the render flushes, everything after is 16
+     input samples late, and no spurt after the first starts a new stream.
+   - **Speed.** With the exact fused step the default kernel makes about 5 million output samples a second
+     under Node on the build machine (the others 10 to 13 million): about 15 s more for a 30-minute render
+     (W3-13's report). The report gives the `steam` render's time for 60 s of sound before and after this
+     order. If the whole render is more than a quarter slower than main's, say where the time goes; do not
+     change the module.
 8. **The source's timeline** (the default). Each spurt's first packet is laid at
    `round((start - lookahead) x 147 / 80)` (`start` from the sender, `lookahead` the codec's delay trimmed
    now), each later packet of the spurt directly after the one before, and what is between spurts is zeros.
    A silence record's output is not laid. Where a spurt's padded end overlaps the next spurt's start (an onset
    in the chunk after a final one), the later packet wins. Samples before 0 or past the render's length are
-   dropped. The gain's `decoded` function (W3-05) is true where a packet was laid.
+   dropped.
+   **The gain on the source's timeline is fed the decoded samples and nothing else**, as the engine's is:
+   - the packets go through one gain (`TF2Audio.createGain`, reset once, at the render's start: there is no
+     channel on this timeline to assign) in the sender's order, each as its `Int16Array` divided by 32768, so
+     every value is a 16-bit value; what comes back is laid where the packet is laid;
+   - **a silence record's samples are decoded zeros:** they go through the gain (and send it to its cap, as in
+     the game), though they are not laid;
+   - **a late frame's samples are not decoded:** they are left out of what the gain is given (frame `j` of
+     `F` in a packet of `n` output samples is samples `round(j n / F)` up to `round((j + 1) n / F)`) and are
+     laid as they are. Today a late frame counts as decoded zeros and sends the gain toward its cap; in the
+     game no decoder made them;
+   - the zeros between spurts are never given to the gain, so nothing is "held": the gain's blocks of 128 run
+     over the decoded samples end to end, across packets and across spurts.
+
+   This replaces, for `steam`, W3-05's `decoded` function and its hold of a block whose first sample was not
+   decoded, which froze the gain one step past where the ramp had reached and cut the blocks on the source's
+   grid, not on the decoded samples'. The other profiles keep W3-05's path bit for bit. A sample laid before 0
+   or past the end, or overwritten by a later packet, has still been through the gain.
 9. **`codecInfo`.** `frameLog` and `frameBytes` stay 20 ms slots on the source's time, **by what was laid**:
    slot `i` takes the code and size of the frame whose laid samples cover the slot's centre (a concealed frame:
    lost; a late one: late), or 0. New: `codecInfo.sender = { rule: 'steam', gate: true or false, meanMin,
@@ -148,7 +198,7 @@ Wherever this order says "the render", it means a render with the `steam` profil
     `spurts[0].start + 480 x spurts[0].frames - E` is between 9,000 and 13,500 samples (375 to 562 ms: the
     review measured 393 to 545 over random placements).
   - **The gate off:** one spurt, `start` -2400, `codecInfo.sender.gate` false, `codecInfo.resampler.calls`
-    equal to `codecInfo.sender.messages`.
+    equal to the sender's messages that hold samples (see "Once per message").
   - **16 bits:** a source that drives the decoder past full scale: the samples handed to the resampler (through
     a test hook, `opts.onDecoded`, that receives each message's `Int16Array`) equal the module's
     `decodeInt16` frame for frame, and differ from clamp-and-round of `decodeFloat` in at least one sample.
@@ -157,7 +207,20 @@ Wherever this order says "the render", it means a render with the `steam` profil
     after the gap is 100 ms earlier than with 10 lost; with 5 lost, 5 slots and nothing moves.
   - **A late frame:** a mask with one 2 gives 480 zeros at its place in `onDecoded`'s samples and no
     concealment.
-  - **Once per message:** `codecInfo.resampler.calls` equals the sender's messages (sound and silence records).
+  - **Once per message:** `codecInfo.resampler.calls` equals the sender's messages that hold samples (sound
+    messages with at least one frame, and silence records); with the gate off on a source of exactly 96,000
+    samples (2400 + 96,000 is a whole number of frames, so the end message has no frame) the count is one less
+    than the messages.
+  - **One resampler, never reset:** on a source with three spurts, the resampler's outputs (through
+    `onResampled`) equal one `createResampler()` fed the same `onDecoded` arrays in order; with a `reset()`
+    put at each end marker the check fails.
+  - **The gain sees decoded samples only** (`agc` on, `volume` 1, a 24 kHz source of two bursts 2 s apart with
+    noise at -50 dBFS between): the render's stage-4 output (through a hook, `opts.onGain`, the laid samples
+    after the gain) equals a fresh `TF2Audio.createGain` given every `onResampled` array in order, the silence
+    record's included, each divided by 32768, and laid as point 8 lays them. It differs from main's rule
+    (`receiverAutoGain` with W3-05's `decoded` function on the same laid signal) in at least one sample of the
+    second burst's first block. With one late frame in the mask, the gain's state after that message equals
+    its state with the frame's samples left out.
   - **`createRender` equals `process()`** on every `steam` case of `tests/render-stream.verify.mjs`, at chunk
     sizes 7, 960, 12,345 and the whole source: samples, WAV bytes, `codecInfo` deep-equal.
   - The same seed gives the same samples; another seed moves at least one spurt's `start` or one message's
@@ -188,7 +251,9 @@ Wherever this order says "the render", it means a render with the `steam` profil
   further from the take's than before, holds the merge.
 - **Set D's demo** (a scratch script of the orchestrator's): the demo's decoded sound as a 24 kHz file through
   the render: the model's spurts start within one chunk (62.5 ms) of the demo's in at least 17 of 20 and end
-  within two chunks in at least 16.
+  within two chunks in at least 16. (If the script drives `createSender` with a clock made from the demo's own
+  chunk lengths: `n` is twice the running count of 750-sample steps, and a step of more than 6 is refused, so a
+  longer read after a hitch is split into steps of at most 6.)
 - Whether the app's encoder gives Steam's packets and whether the 16-bit step is Steam's are not checked here:
   that is W3-14, when the owner's file-input recording exists. Until then the README and finding 28 keep "not
   checked against Steam sample for sample".
@@ -197,9 +262,12 @@ Wherever this order says "the render", it means a render with the `steam` profil
 
 May touch: `audio.js` (`process()` and `createRender`: the `steam` path; not `createLiveChain`),
 `opus-codec.mjs` (a `steam` round trip and stream that take the sender's messages; `gatePlan` and the frame
-gate stay for the other callers), `constants.js` (the `steam` profile and the header comment),
+gate stay for the other callers), `constants.js` (the `steam` profile and the header comment; and
+`VOICE_ENGINE.autoGain.blockSize`, which nothing has read since W3-05: remove it with its stale comment, and
+the mention of it beside `GAIN_BLOCK` in `audio.js`; `tests/verify.js` builds its own object and is not
+affected),
 `tests/libopus11/build.mjs`, `vendor/libopus-1.1/` (the module, `index.mjs`, its README),
-`tests/vendor-opus.mjs`, `index.html` (the script tags), `audio-worker.js`, `live-worker.js`, `sw.js`,
+`tests/vendor-opus.mjs`, `index.html` (the script tags and the footer's credit), `audio-worker.js`, `live-worker.js`, `sw.js`,
 `app/render.js` (the one line of point 5), `tests/verify.js`, `tests/render-stream.verify.mjs`,
 `tests/opus.verify.mjs`, `tests/browser.verify.js` (only what the new scripts need),
 `tests/predictions/PREDICTIONS.md`. May add: `tests/libopus11/native.mjs` (and a small C file beside it). May
@@ -226,7 +294,14 @@ not touch: `steam-sender.js`,
    Low-latency mode keeps no pre-roll as now: say in the report how (the sender's `past` kept empty is the
    plain way; if that needs an option in `steam-sender.js`, stop and ask). The live chain keeps the float
    decode and its own 24 to 44.1 kHz step (the per-packet resampler and the 16-bit step are for renders; say
-   so in the comment). `steam_48` and the engine codecs keep the frame queue.
+   so in the comment). **Its gain reads the three settings at a reset**, as the engine does (W3-05's second
+   read: `voice_scale`, `voice_avggain` and `voice_maxgain` are read when a channel is assigned and at no other
+   time, and the first 128 samples after a reset pass at unity whatever `voice_scale` is). The live chain has
+   no channel, so: its gain is reset when the chain starts and whenever one of the three settings is changed
+   while it runs (a new gain, or `reset(settings)` if W3-02c has added it), and not otherwise. That is the
+   nearest the live chain has to a channel being assigned; say so in the comment and in the report. The gain
+   is given decoded samples only: frames the gate did not send are not fed to it (in place of W3-05's hold of
+   a block), as in W3-11a's point 8. `steam_48` and the engine codecs keep the frame queue.
 2. **The threshold control** (`#vad_threshold`, `voice_vad_threshold`). **An untouched control must give
    Steam's gate exactly.** So:
    - The control's meaning depends on the profile, and its help and title say so: for `steam`, "the mean of
@@ -237,6 +312,11 @@ not touch: `steam-sender.js`,
    - `app/render.js` sends `gateThresholdDb: null` when the control holds the profile's default, and the number
      otherwise (this replaces W3-11a's line). So Steam's 327.67 is never recomputed from a typed -40.
    - A saved setting of -39.5 with the `steam` profile reads as the default (-40).
+   - **One step of difference at a typed threshold is accepted.** The sender compares the mean in doubles;
+     Steam forms a 32-bit float percentage and compares that. At Steam's own number no chunk the sender can
+     see differs (W3-02b's review tried every sum within 50 of the threshold); at a typed one a chunk exactly
+     on the line can open here and not in Steam. `steam-sender.js` is not changed for it; the help text need
+     not say it.
    - Every place that carries the old default, to change or to check: `index.html` (the input's `value`,
      about line 143), `app/render.js` (about line 138), `app/console.js` (the help at about line 303, the read
      at 476, the reset command at 541), `app/core.js` (the saved-settings fields and the presets, if they name
@@ -258,7 +338,8 @@ not touch: `steam-sender.js`,
 
 - `tests/verify.js`: the live chain's checks, each failing when broken (say how): fed the same 24 kHz sound in
   blocks of 128, 480 and 4,096 samples, the live chain's sent frames are the frames `createSender` gives for
-  the **rounded** samples at the sender's input and the same seed; a quiet tail is cut after the hold; low-latency mode sends no pre-roll; `steam_48`'s
+  the **rounded** samples at the sender's input and the same seed; a change of `voice_scale` while live
+  resets the gain (the next 128 output samples are at unity) and a change of nothing does not; a quiet tail is cut after the hold; low-latency mode sends no pre-roll; `steam_48`'s
   live output is bit for bit main's.
 - The browser suite, each new check failing when broken: a fresh page shows -40 and a render's
   `codecInfo.sender.meanMin` is exactly 327.67; switching to a CELT profile shows -39.5 and back shows -40;
