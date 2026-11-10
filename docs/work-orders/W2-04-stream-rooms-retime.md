@@ -1,5 +1,18 @@
 # W2-04: rooms and talk-spurt re-timing in the streaming render
 
+> **Superseded, 2026-11-10 (`docs/reports/W3-plan-maintenance-2.md`). Do not build this order as written.**
+> - **Its room half (spec 1) is replaced by W3-17c** (`docs/work-orders/W3-17-room-effects.md`, part c): the
+>   old processors it streams (`runDspChain`, DFR, RVA, DLY, AMP, MDY, the 4 s tail and its trim) are removed
+>   there, and the engine's room path streams by construction: `createRender` stops refusing a room in that
+>   part, with the tail ended by the module's own rule.
+> - **Its re-timing half (spec 2) is void once W3-02f has merged**: that order retires the flat rule this
+>   would stream, and the game's timeline (W3-02c) streams from the start. Until then `createRender` goes on
+>   refusing `retime`.
+> - What is left of it is W2-03's message about settings a long source cannot take: with W3-17c only
+>   `voice_retime` still gives it, and W3-02f removes that case.
+>
+> The text below is kept as the record of what was planned.
+
 **Branch:** `claude/w2-04-stream-rooms-retime`, from `main` **after W2-02 has merged**. **Worktree:** given in the
 brief. **Agent:** `tf-builder`, then `tf-reviewer`. May push its branch to run CI. **Time budget:** 1 day. May run
 beside W2-03 (no shared files).
