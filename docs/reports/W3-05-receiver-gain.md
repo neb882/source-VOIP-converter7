@@ -5,8 +5,9 @@ Branch `claude/w3-05-receiver-gain`, from `main` at `c8a11ec` (W2-02 merged), wi
 every suite was kept, `tests/speex102.verify.mjs` included).
 
 **Status: done.** The orchestrator's private acceptance passed on `9bef10c`: Set H through
-`tests/gain-exact.mjs` gives 0 of 291,840 samples different before the last 512, and 511 of 512 in the last.
-`pnpm test`, the browser suite and CI pass.
+`tests/gain-exact.mjs` gives 0 of 291,840 samples different before the last 512, and 511 of 512 in the last. Two
+changes followed: one rounding per float operation (answer 2), then a 32-bit product that wraps (the second read,
+below). `pnpm test`, the browser suite and CI pass on the final head.
 
 ## The orchestrator's answers (after the first hand-back)
 
@@ -20,8 +21,9 @@ every suite was kept, `tests/speex102.verify.mjs` included).
    orchestrator gave that as shorthand. The rule now rounds every operation, as compiled single-precision code does.
    In the denominator that is the product `(peak - mean) x avggain`, then the sum with `mean`. In the step it is the
    difference, the quotient by 127 and the product by 128. The division `32767 / den`, the `min` with the cap and
-   each `x scale` were already single operations, each rounded. This is inferred from how single-precision code
-   compiles. Set H cannot tell: at `voice_avggain 0.5` the product is exact in 32 bits, so the two readings agree.
+   each `x scale` were already single operations, each rounded. This was first inferred from how single-precision
+   code compiles; the second read of the gain function (below) has since confirmed it. Set H cannot tell: at
+   `voice_avggain 0.5` the product is exact in 32 bits, so the two readings agree.
    `audio.js` and the transcription (`tests/gain-exact.mjs`) both changed.
    - **No golden hash moved.** Every case is at an `avggain` whose product is exact (0.5, or 0.25): render-stream
      passes, 145 checks, on the recorded hashes.
@@ -42,13 +44,82 @@ every suite was kept, `tests/speex102.verify.mjs` included).
      `current` case and the 0.3 case.
    - **Joining the step's roundings into one** changes nothing and is not caught. Multiplying by 128 is exact in 32
      bits, so `f32(f32(q) x 128)` and `f32(q x 128)` are the same number.
-3. **The 32-bit product (reading 4) cannot overflow inside the app's limits.** The gain is at most
-   `voice_maxgain 100 x voice_scale 4 x 128 = 51,200`, and 51,200 x 32,768 = 1.68 x 10^9, under 2^31. A comment where
-   the product is formed says so. Nothing else was built for it.
+3. **The 32-bit product (reading 4): corrected after a second read; it can overflow, and it wraps.** The first
+   answer bounded the gain at `voice_maxgain 100 x voice_scale 4 x 128 = 51,200`, but `current = next x scale` and
+   `next` already carries one scale. So at a block start `g` reaches maxgain x scale² x 128 = 204,800 at the app's
+   limits, and 204,800 x 32,768 passes 2^31. See "The second read" below.
 4. **`sw.js`: authorised.** `CACHE` is now `v21` (`5e59419`), after merging `origin/main`.
 5. **`VOICE_ENGINE.autoGain.blockSize`** (in `constants.js`, not this order's file) is no longer read. W3-11a's builder
    will remove it.
 6. **The REFERENCE note and the PREDICTIONS figure are the orchestrator's;** the placeholder stays.
+
+## The second read of the gain function (2026-11-10)
+
+The orchestrator read the engine's gain function again on the points that were still open. What was read:
+
+- **The product wraps.** `x` is the 16-bit sample sign-extended to 32 bits (`0x18005a392`). `g` is recomputed every
+  sample: a 32-bit signed multiply of the position by `step`, then a 32-bit add of `fixed` (`0x18005a38b`,
+  `0x18005a397`). The product is a 32-bit signed multiply that keeps the low 32 bits (`0x18005a39a`): nothing widens
+  and nothing saturates. Then comes an arithmetic right shift by 7 (`0x18005a3a2`), then a clamp to -32768..32767 by
+  compares (`0x18005a3a5` to `0x18005a3ac`).
+- **Every float operation is scalar single precision,** one at a time, with no fused multiply-add and no double
+  anywhere, in this order: `current`; `fixed` by a truncating convert of `current x 128`; the mean by a 32-bit signed
+  integer division; `peak - mean` as an integer subtraction before the conversion; the multiply by `avggain`, then a
+  separate add of the mean; 32767 divided by that, with no test for zero, so a zero blend gives +infinity; the cap;
+  times `scale`; the step as subtract, divide by 127, multiply by 128, truncating convert. That is the order this
+  branch already had, so the per-operation rounding is now read, not inferred.
+- **The cap** is a single-precision minimum that keeps the quotient only if it is strictly less than maxgain, and
+  gives maxgain otherwise, a NaN included.
+- **`|x|` of -32768 is 32768** (a 32-bit negate), and the sum and peak are taken from the input sample, before the
+  gain is applied.
+- **The reset** writes `current = next = 1.0`, `fixed` 128, and `step`, the position, the sum and the peak 0. It also
+  stores the three settings, which are read only at a reset. So the first block is at unity whatever `voice_scale`
+  is.
+- **Still inferred:** round-to-nearest as the thread's rounding mode. No voice code changes it, and the
+  291,840-sample match supports it.
+
+What changed on this branch for it (`gainRule` and the transcription in `tests/gain-exact.mjs`):
+
+- `g = (fixed + Math.imul(pos, step)) | 0` and `y = Math.imul(g, x) >> 7`, then the clamp. The earlier code took the
+  floor of the exact product, which clamps a wrapped product to full scale instead.
+- The cap is written as read, `t = t < maxGain ? t : maxGain`, and `t = f32(32767 / den)` has no test for zero.
+  Neither change can alter an output: the options never give a NaN quotient (`finiteOr` keeps every setting finite,
+  and the blend is never negative), and `32767 / 0` was already +infinity. So no check can separate the two forms,
+  and the old cap form put back (W5) fails nothing.
+- `|x|` and the input-side sum and peak were already as read. They now have a check each.
+- The comments in the code that said "inferred" now say "read".
+
+**No golden hash moved.** At the defaults and at the page's own limits (`voice_scale` up to 2) nothing wraps. The
+render-stream suite passes (145 checks) on the recorded hashes, and `gain-exact --synthetic` still gives 0 and 1.
+
+**The new checks** (`tests/gain.verify.mjs`, section 2, now 60 checks):
+
+| Check | Pinned |
+| --- | --- |
+| two blocks of zeros at `voice_maxgain 100`, `voice_scale 4` (`fixed` 204,800 at block 2), then a sample of 12000 | -32768 |
+| the same, then a sample of 20972 | 768 |
+| a block of -32768, then two of 1000 | block 2 starts at 992 (`fixed` 127); with `|x|` capped at 32767 it would be 1000 |
+| blocks of 16384, 8000 and 1000 | block 2 runs from 1992 to 3976. Its end depends on block 1's target, which comes from the 8000s, not from the output ramping toward 16,000 |
+
+**The breaks:**
+
+| Break | What failed |
+| --- | --- |
+| W1 the floor of the exact product (the code before this change) | both wrap checks |
+| W2 a 32-bit product that saturates | both wrap checks |
+| W3 `|x|` of -32768 taken as 32767 | the -32768 check (1000); 14 transcription checks |
+| W4 the sum and peak of the clamped output, after the gain | the input check (1992..1992); 28 transcription checks, and others |
+| W5 the cap as `t > maxGain` (the earlier form) | nothing: unreachable, as said above |
+
+Under both W1 and W2:
+
+```
+  FAIL  the product wraps at 32 bits: after two quiet blocks at maxgain 100, scale 4, a sample of 12000 comes out as -32768   [32767]
+  FAIL  the product wraps at 32 bits: after two quiet blocks at maxgain 100, scale 4, a sample of 20972 comes out as 768   [32767]
+58 gain checks passed, 2 failed
+```
+
+`gain-exact --synthetic` passes under W1, as it should: it runs at `voice_maxgain 10`, `voice_scale 1`.
 
 ## Commits
 
@@ -63,7 +134,8 @@ every suite was kept, `tests/speex102.verify.mjs` included).
 - `559f72f` a merge of `origin/main` (W3-12a).
 - `1d63731` one 32-bit rounding per float operation, with its check; the `tests/opus.verify.mjs` change.
 - `5e59419` `sw.js`: `CACHE` `v21`.
-- This section of the report.
+- `95e7a98` the report, with the answers.
+- The wrapping product, its checks, and the second read in this report (the head).
 
 ## Files changed
 
@@ -168,7 +240,7 @@ settings are exact in 32 bits. A search found four short cases where one roundin
 are now section 1b. Second, nothing caught B12: every block that was not decoded in the tests started and ended on
 block edges. Third, nothing checked the live chain's `decoded`.
 
-## `tests/gain.verify.mjs` (in `pnpm test`, 56 checks, about 5 s)
+## `tests/gain.verify.mjs` (in `pnpm test`, 60 checks, about 5 s)
 
 1. The transcription (`engineGain`, kept in `tests/gain-exact.mjs` and imported) against `receiverAutoGain`,
    `streamAutoGain` in pieces of 1, 7, 128 and 1,000 (flushed), and `createGain().process` in packets of 882 and
@@ -229,9 +301,8 @@ Unlike Set H, the synthetic signal can see the divisor: with 128, 210 of its sam
 3. **The settings are 32-bit floats.** `voice_scale`, `voice_avggain` and `voice_maxgain` are cvars, so the helper
    rounds them with `Math.fround` before use. That changes nothing at the values the page offers that are exact in 32
    bits. At `voice_scale 0.7` it does (B6g).
-4. **`>> 7` is `Math.floor(product / 128)` in `audio.js`.** That is exact for any product, so it is the arithmetic
-   shift wherever the product fits in 32 bits, and inside the app's limits it always does (answer 3 above). The test's
-   transcription uses `>> 7` literally.
+4. **`>> 7`** (changed after the second read): the product is formed as a 32-bit integer that wraps, and shifted
+   with `>> 7`, in `audio.js` and in the transcription alike.
 5. **One rounding per float operation** (changed on the orchestrator's answer 2; it was the box's single rounding of
    the denominator).
 6. **The gate's silences check needed a quieter tail than the order's words suggest.** "The second burst's first
@@ -275,9 +346,9 @@ Unlike Set H, the synthetic signal can see the divisor: with 128, 210 of its sam
 
 ## Commands run
 
-On the final head, after the second merge of `origin/main` and the rounding change:
+On the final head, after the second merge of `origin/main`, the rounding change and the wrapping product:
 
-- `pnpm test` (under the heavy lock): every suite passes. The counts: `tests/verify.js` 211, `gain.verify` 56,
+- `pnpm test` (under the heavy lock): every suite passes. The counts: `tests/verify.js` 211, `gain.verify` 60,
   `gain-exact --synthetic` ok, opus 119, speex 63, speex 1.0.2 30, reference 41, formats 66, filerate 53, meter 50,
   video 45, demo 31, render-stream 145 (on the recorded hashes), voice channel 101.
 - Browser suite (`CHROMIUM_EXECUTABLE=... node tests/browser.verify.js`, under the lock): 215 passed.
