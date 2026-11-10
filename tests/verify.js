@@ -266,6 +266,15 @@ async function steamSection() {
       && r.codecInfo.prerollFrames === 0 && r.codecInfo.holdFrames === 0 && r.codecInfo.spurts === want.length,
       `${want.length} spurts from ${want.map((s) => s.start).join(', ')}`);
   }
+  // A typed threshold is the mean a chunk must reach: 32767 x 10^(dB/20).
+  {
+    const x = talk(10, 3), seed = 7, meanMin = 32767 * 10 ** (-30 / 20);
+    const r = await render(x, { seed, gateThresholdDb: -30 }), want = senderOf(x, { seed, meanMin }).info.spurts;
+    const asRms = senderOf(x, { seed, meanMin: meanMin * Math.SQRT2 }).info.spurts;
+    check('a typed threshold is the mean a chunk must reach: -30 dB gives meanMin 32767 x 10^(-30/20) and createSender\'s spurts with it',
+      r.codecInfo.sender.meanMin === meanMin && r.codecInfo.gate === -30 && JSON.stringify(r.codecInfo.sender.spurts) === JSON.stringify(want)
+      && JSON.stringify(want) !== JSON.stringify(asRms), `${want.length} spurts from ${want.map((s) => s.start).join(', ')}`);
+  }
   // The mean of |x| over a chunk, not a 20 ms frame's RMS.
   {
     const a = new Float32Array(3 * R);
@@ -473,6 +482,33 @@ async function steamSection() {
     const left = relay(hl, settings, 'out'), fed = relay(hl, settings, 'in');
     check('a late frame\'s samples are not decoded: the gain after its packet is the gain with them left out, not with them fed',
       frame > 0 && same(Array.from(left.out), Array.from(hl.gained)) && !same(Array.from(fed.out), Array.from(hl.gained)), `frame ${frame}`);
+  }
+  // Laying (point 8) and the slots (point 9). On this source two spurts meet
+  // (the gate closes and opens again, its pre-roll over the last one's end),
+  // and some anchors round up. The gain off: what is laid is what reaches onGain.
+  {
+    const x = talk(12, 11), h = hooked(), r = await render(x, { seed: 1, agc: false, voiceScale: 1 }, h), L = r.codecInfo.lookahead;
+    const want = new Float32Array(h.gained.length);
+    let spurt = null, cursor = 0, twice = 0, up = 0;
+    for (const { y, msg } of h.resampled) {
+      if (msg.silence !== undefined) continue;
+      if (msg.spurt !== spurt) {
+        spurt = msg.spurt;
+        const a = (msg.start - L) * VR / R, anchor = Math.round(a);
+        if (anchor > a) up++;
+        twice += Math.max(0, cursor - anchor);
+        cursor = anchor;
+      }
+      for (let i = 0; i < y.length; i++) if (cursor + i >= 0 && cursor + i < want.length) want[cursor + i] = y[i] / 32768;
+      cursor += y.length;
+    }
+    check('laying: a spurt\'s first packet at round((start - lookahead) x 147/80), each later one after it, the later packet winning where two spurts meet',
+      same(Array.from(want), Array.from(h.gained)) && twice > 0 && up > 0, `${r.codecInfo.spurts} spurts; ${twice} samples laid twice; ${up} anchors rounded up`);
+    const n = r.codecInfo.frameLog.length, spurts = r.codecInfo.sender.spurts;
+    const covered = (p) => Array.from({ length: n }, (_, i) => (spurts.some((s) => 480 * i + p >= s.start && 480 * i + p < s.start + 480 * s.frames) ? 1 : 0));
+    check('slots: a 20 ms slot of the source holds a frame where a spurt\'s laid frames cover its centre, not its start',
+      n === Math.ceil((x.length + L) / 480) && same(Array.from(r.codecInfo.frameLog, (c) => (c ? 1 : 0)), covered(240)) && !same(covered(240), covered(0)),
+      `${n} slots, ${covered(240).reduce((t, v) => t + v, 0)} holding a frame`);
   }
   // The seed, the resampler's kernel, the complexity.
   {
