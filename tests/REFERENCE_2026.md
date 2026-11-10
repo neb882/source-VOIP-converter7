@@ -562,7 +562,7 @@ The engine's code confirms findings 3 and 4 constant by constant (read, W3-03): 
 - the gain is reset to 1.0 whenever a channel is assigned, and not when a spurt is appended.
 
 **Set H** checks it exactly (reproduced). `voice_recordtofile` taps the voice after the gain, so the recording with `voice_maxgain 1` is the decoder's output and the one with 10 is the gain's. The rule above, applied to the first, gives the second sample for sample over its first 291,840 samples (570 packets; the last packet differs between the two key presses). The orchestrator ran the check too (`docs/PROGRESS.json`, `gain_exact`).
-- **The integer mean and the zero-block rule are both needed.** Without the first a few thousand samples differ, and without the second a few hundred: 2,798 and 234 in the plan's run (W3-05's order), 3,309 and 745 in the orchestrator's. The two runs' counts were not reconciled.
+- **The integer mean and the zero-block rule are both needed.** Without the first 2,798 of the 291,840 samples differ, and without the second 234 (re-run 2026-11-10; counted over the whole file with its last packet, which differs between the two key presses in 511 samples, the same runs give 3,309 and 745).
 - **The divisor** 127 or 128 makes no difference on that signal, so the 127 rests on the reading alone.
 - **The app's present rule** differs on 3,032 of those samples. Order W3-05 makes the app's gain the engine's.
 - **Set H ran `vaudio_celt`.** The same function serves Steam voice at 44.1 kHz (read), where no sample-exact check exists yet.
