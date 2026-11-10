@@ -1,8 +1,8 @@
 # W3-05 report: the receiver's gain, as the engine computes it
 
-Branch `claude/w3-05-receiver-gain`, from `main` at `c8a11ec` (W2-02 merged), with `origin/main` merged in twice
-(`d01e830`: W3-02a, the plans, the reference; `559f72f`: W3-12a. Each time the one conflict was the `test` line, and
-every suite was kept, `tests/speex102.verify.mjs` included).
+Branch `claude/w3-05-receiver-gain`, from `main` at `c8a11ec` (W2-02 merged), with `origin/main` merged in three times
+(`d01e830`: W3-02a, the plans, the reference; `559f72f`: W3-12a; `4cf0292`: W3-02b. Each time the one conflict was
+the `test` line, and every suite was kept, `tests/speex102.verify.mjs` and `tests/steam-sender.verify.mjs` included).
 
 **Status: done.** The orchestrator's private acceptance passed on `9bef10c`: Set H through
 `tests/gain-exact.mjs` gives 0 of 291,840 samples different before the last 512, and 511 of 512 in the last. Two
@@ -121,6 +121,54 @@ Under both W1 and W2:
 
 `gain-exact --synthetic` passes under W1, as it should: it runs at `voice_maxgain 10`, `voice_scale 1`.
 
+## The review's findings (on `95e7a98`), and what was done
+
+The reviewer wrote an implementation of its own from the order, before reading this one. It agreed with this
+branch on 10,000 seeded cases (about 108 million samples) and reproduced all 47 golden hashes. Finding 1 was the
+overflow, fixed as read above.
+
+**Finding 2: the live chain's 64 sent flags were too few for long calls.** One call to the live chain's `process`
+codes all its frames before any of their samples reach the gain. So a call of more than about 63 frames (over 1.28 s
+for Steam, 0.37 s for `celt_44`) read its evicted frames as decoded, and a gated block of zeros sent the gain to the
+cap. The page sends 20 ms blocks and cannot reach this, but the function is public. Now the flags grow as needed and
+are dropped only once the gain has passed the block their samples begin in. A new check, after the reviewer's, feeds
+12 s of a noise floor with four tone bursts in 20 ms blocks and in 3 s blocks, on `steam` and on `celt_44` with the
+gate. The two must give the same samples: 0 of 569,232 and 0 of 570,079 differ. Under the old ring of 64, and under
+a ring of 8:
+
+```
+  FAIL  live chain, steam with the gate: 3 s blocks give the samples of 20 ms blocks   [275 of 569232 differ]
+  FAIL  live chain, celt_44 with the gate: 3 s blocks give the samples of 20 ms blocks   [253 of 570079 differ]
+65 gain checks passed, 2 failed
+```
+
+**Finding 4: mutants that survived every check.** Each now has a check, and each check fails under its mutant:
+
+| Mutant | The new check | Under the mutant |
+| --- | --- | --- |
+| M01 the hold reads the block's sample 1, not 0 | a block of zeros whose first sample alone was not decoded is held (block 2 flat at 20) | `first sample alone not decoded: 19..99` |
+| M21 `maxGain` not rounded to 32 bits | `voice_maxgain` 42.9, `voice_scale` 0.67, two blocks of zeros, then 1000s: sample 256 is 19257 (found by a search) | `[19250]` |
+| M22 the mapping rounds the codec sample | `TF2Audio.decodedFromFrames` (now exposed for tests) against the frame log's spans at every voice-rate sample: Steam's rates in the gate check, and 8 to 11.025 kHz on a made-up log with a lookahead of 37 | 4 of 198,450 differ; 145 differ |
+| M24 the lookahead off by one | the same two checks | 8 of 198,450; 218 |
+| M27 `createRender`'s `decoded()` built with lookahead 0 | `createRender` in 0.1 s pushes against `process()`, bit for bit, on the gate check's source | `FAIL  createRender, in 0.1 s pushes, gives process()'s samples bit for bit on this source` |
+
+On M27: the reviewer found no output that showed it, because on a quiet tail the hold and the cap converge. On
+the gate check's source the floor is loud under a raised threshold, so the tail's target is under the cap. There, the
+blocks just past a spurt's last frame show the lookahead: with none, they count as sent, run as decoded zeros and
+send the gain to the cap where `process()` holds it. 3 samples differ. The mapping checks also show the lookahead to
+be exact on the codec-rate signal. Every gated frame's span `[f x size - lookahead, (f + 1) x size - lookahead)` is
+exact zeros, and the first sample of each sent frame after a gated one is not zero (lookahead 156 at 24 kHz).
+
+`tests/gain.verify.mjs` now has 67 checks.
+
+**Finding 3, known and left: with `retime` on, `decoded()` can misjudge blocks at a moved spurt's edge.**
+`retimeSpurts` moves the audio by a rounded shift in samples but the frame log by whole frames. So the log and the
+audio can be misaligned by up to half a frame at a moved spurt's edge. The reviewer counted 2,387 codec samples, over
+12 seeds and 16 moves, that lie inside spans the log calls gated and are not zero. In one seed, two moves shifted the
+audio by 1,210 and 3,515 codec samples and the log by 1,440 and 3,360: 3 to 4 voice-rate blocks per edge. This affects
+`process()` only (`createRender` refuses `retime`), and only with `retime` on (the page's default is off). `retime` is
+retired by W3-02f, so it is not fixed here.
+
 ## Commits
 
 - `0fb0963` The rule in `audio.js`, and the two moved expectations in `tests/verify.js`.
@@ -135,7 +183,11 @@ Under both W1 and W2:
 - `1d63731` one 32-bit rounding per float operation, with its check; the `tests/opus.verify.mjs` change.
 - `5e59419` `sw.js`: `CACHE` `v21`.
 - `95e7a98` the report, with the answers.
-- The wrapping product, its checks, and the second read in this report (the head).
+- `41e0c4d` the wrapping product and its checks; `7146c1b` the second read in this report.
+- `88942fc` the live chain's flags kept until consumed; the checks for the review's surviving mutants.
+- `4cf0292` a merge of `origin/main` (W3-02b; the `test` line kept every suite, `tests/steam-sender.verify.mjs`
+  included).
+- This section of the report (the head).
 
 ## Files changed
 
@@ -240,7 +292,7 @@ settings are exact in 32 bits. A search found four short cases where one roundin
 are now section 1b. Second, nothing caught B12: every block that was not decoded in the tests started and ended on
 block edges. Third, nothing checked the live chain's `decoded`.
 
-## `tests/gain.verify.mjs` (in `pnpm test`, 60 checks, about 5 s)
+## `tests/gain.verify.mjs` (in `pnpm test`, 67 checks, about 7 s)
 
 1. The transcription (`engineGain`, kept in `tests/gain-exact.mjs` and imported) against `receiverAutoGain`,
    `streamAutoGain` in pieces of 1, 7, 128 and 1,000 (flushed), and `createGain().process` in packets of 882 and
@@ -346,11 +398,12 @@ Unlike Set H, the synthetic signal can see the divisor: with 128, 210 of its sam
 
 ## Commands run
 
-On the final head, after the second merge of `origin/main`, the rounding change and the wrapping product:
+On the final head, after the third merge of `origin/main` and the review's changes:
 
-- `pnpm test` (under the heavy lock): every suite passes. The counts: `tests/verify.js` 211, `gain.verify` 60,
+- `pnpm test` (under the heavy lock): every suite passes. The counts: `tests/verify.js` 211, `gain.verify` 67,
   `gain-exact --synthetic` ok, opus 119, speex 63, speex 1.0.2 30, reference 41, formats 66, filerate 53, meter 50,
-  video 45, demo 31, render-stream 145 (on the recorded hashes), voice channel 101.
+  video 45, demo 31, render-stream 145 (on the recorded hashes: no golden hash moved in the last three rounds), voice
+  channel 127, steam sender 58.
 - Browser suite (`CHROMIUM_EXECUTABLE=... node tests/browser.verify.js`, under the lock): 215 passed.
 - CI on the pushed head: see the hand-back.
 
