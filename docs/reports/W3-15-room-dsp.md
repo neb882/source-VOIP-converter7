@@ -116,7 +116,8 @@ numbers from that preset's header into the four variables: `dsp_mix_min`, `dsp_m
 the first preset is set. So for a voice, 12 units away with `dsp_dist_max` 1440:
 
 ```
-mix = d * (min + (max - min) * 12/1440)      d = mixdrop if 60 <= dB min, else 1      (min, max, dB min, mixdrop: the preset's)
+mix = d * (min + (max - min) * 12/1440)       d = mixdrop if 60 <= dB min, else 1
+                                              (min, max, dB min, mixdrop: the preset's)
 ```
 
 | Preset header (min, max, dB min, mixdrop) | mix | Room share | Direct share |
@@ -128,7 +129,9 @@ mix = d * (min + (max - min) * 12/1440)      d = mixdrop if 60 <= dB min, else 1
 
 Inferred: what a voice gets in a real room is decided by the first number of that room's preset header. This is
 the one number most worth reading in the preset file. A voice channel lasts one run of speech (W3-07), so the
-limits are fixed anew at each spurt's start.
+limits are fixed anew at each spurt's start. The level in dB is worked back from the channel's distance factor
+(`snd_refdb` 60, `snd_refdist` 36) and truncated, so a voice may count as 59 rather than 60: it matters only for
+a preset whose "dB min" is exactly 59.
 
 ## 2. The processors' arithmetic
 
@@ -467,7 +470,7 @@ numbers and no delay kind, so it was not transcribed whole.
 None of the `dsp_` variables below is cheat-protected except `dsp_off` (read from each variable's flags at its
 registration): `dsp_room`, `room_type`, `dsp_automatic`, `dsp_water`, `dsp_player`, `dsp_spatial`, `dsp_volume`,
 `dsp_mix_min`, `dsp_mix_max`, `dsp_db_min`, `dsp_db_mixdrop`, `dsp_enhance_stereo`, `adsp_debug` and the eleven
-`adsp_..._min` are free. `dsp_off`, `snd_showstart` and `dsp_dist_max` need `sv_cheats 1`.
+`adsp_..._min` are free. `dsp_off`, `snd_showstart`, `dsp_dist_min` and `dsp_dist_max` need `sv_cheats 1`.
 
 1. **Read the room where the takes were made (two minutes, no cheats, any server).** Stand there and type, one at
    a time: `dsp_room`, `dsp_automatic`, `dsp_mix_min`, `dsp_mix_max`, `dsp_db_min`, `dsp_db_mixdrop`, `dsp_volume`,
@@ -480,8 +483,9 @@ registration): `dsp_room`, `room_type`, `dsp_automatic`, `dsp_water`, `dsp_playe
    reflectivity, or `DSP PRESET` with the number of a preset it re-uses. With `adsp_debug 2` it also prints the
    shape's name (`TUNNEL Detected` and so on).
 3. **Read a voice's share directly (local server, `sv_cheats 1`).** `developer 1`, `snd_showstart 2`. Each sound
-   that starts prints its name and a second line beginning `dspmix`. Predicted for a voice spurt: the value of
-   section 1's formula for the header read in check 1 (0.10 with the start-up values).
+   that starts prints its name and a second line beginning `dspmix`. A voice spurt is started through the same
+   function (read: `0x18005b960` calls it), so it should print too. Predicted: the value of section 1's formula
+   for the header read in check 1 (0.10 with the start-up values).
 4. **The reverb's response in one take.** Local server, `sv_cheats 1`, voice loopback as in the earlier takes, the
    test signal fed as W3-14 describes, the playback device set to 44100 Hz so that XAudio2 does not resample.
    - Stand still (the soundscape sets `dsp_room` again only when it changes). Type `dsp_room 6`, then check that
