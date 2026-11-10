@@ -18,7 +18,7 @@
     {
       "order": "W2-02-render-stream",
       "branch": "claude/w2-02-render-stream",
-      "stage": "building",
+      "stage": "review (built; CI green on 4005191); the reviewer runs a differential fuzz against process()",
       "report": "docs/reports/W2-02-render-stream.md"
     },
     {
@@ -103,7 +103,8 @@
     "2026-11-09: the fake microphone file's path must not contain a percent sign (Chromium reads it as an option suffix, as in %noloop); os.tmpdir() never has one on CI or here.",
     "2026-11-09: corrected an earlier note that said the session has no usage meter. The session tool reports a running cost for the session; whether agents' usage is counted in it is not known. Ask before a large wave.",
     "2026-11-09: the times in docs/reports/W1-03-long-renders-plan.md read slow. The planner loaded the code in a Node vm context, where every Math call crosses the sandbox: the meter's 60 minutes took 87 s that way and 6.9 s loaded with require (W2-01's builder). The render's times (about 6x faster than real time) were taken the same way and have not been re-measured; its memory figures are unaffected, and the new limits rest on memory. W2-02's builder re-measures the render's time outside a vm context.",
-    "2026-11-10: the page was looked at in screenshots (desktop and phone, before and after a render). The first screen is already simple: three numbered steps, the advanced controls, the take comparison, the batch and the console all folded away. No redesign is needed. Two small things for whoever next touches the page: the presets other than Modern carry no sign that their rooms and codecs are unverified (fold into the labelling item), and on a phone the title and five badges fill the first screen before step 1. The same screenshots showed a 48 kHz file reported as 44,100 Hz on a 44.1 kHz device, which is what W3-04 fixes."
+    "2026-11-10: the page was looked at in screenshots (desktop and phone, before and after a render). The first screen is already simple: three numbered steps, the advanced controls, the take comparison, the batch and the console all folded away. No redesign is needed. Two small things for whoever next touches the page: the presets other than Modern carry no sign that their rooms and codecs are unverified (fold into the labelling item), and on a phone the title and five badges fill the first screen before step 1. The same screenshots showed a 48 kHz file reported as 44,100 Hz on a 44.1 kHz device, which is what W3-04 fixes.",
+    "2026-11-10: W2-02's builder measured the render outside a vm context: about 30 times faster than real time for both the stream and process() (the plan's 6 times was the vm context). A 60-minute streamed render peaked at source and output plus 110 MB."
   ],
   "decisions": [
     {
