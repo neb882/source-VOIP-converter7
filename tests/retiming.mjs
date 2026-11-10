@@ -11,7 +11,7 @@
  *
  *   node tests/retiming.mjs --accuracy results.json [--demo voicetest.dem] [--jitter 0.03]
  *   node tests/retiming.mjs --accuracy results.json --generative [--takes <folder>] [--seeds 4000] [--shift ms]
- *   node tests/retiming.mjs --accuracy results.json --generative --engine [--fps 300] [--seeds 200] ...
+ *   node tests/retiming.mjs --accuracy results.json --generative --engine [--fps 300] [--seeds 200] [--uptime s] ...
  *
  * results.json is `pnpm accuracy --takes <folder> --json results.json`.
  * With the Set D SourceTV demo, the Set D takes are checked transition by
@@ -33,8 +33,9 @@
  * gate model's pre-roll and hold taken off) and 0 elsewhere; it goes through
  * Steam's sender (steam-sender.js) and the receiver's channel on the game's
  * clock (voice-channel.js, createTimeline) at --fps (300), seeds 1 to
- * --seeds (200 for this model when not given). A spurt's start and end are
- * the timeline's offsets at 0.2 s into it and at its last sample.
+ * --seeds (200 for this model when not given), the sender's Steam having run
+ * --uptime seconds (left out: the sender's default, 777600). A spurt's start
+ * and end are the timeline's offsets at 0.2 s into it and at its last sample.
  */
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -156,11 +157,12 @@ if (process.argv.includes('--generative')) {
   // --engine: the sender and the game's timeline, run on each take's gate-model spurts.
   const engine = process.argv.includes('--engine');
   const engineSeeds = Number(arg('--seeds', 200)), engineFps = Number(arg('--fps', 300));
+  const engineUptime = arg('--uptime') === null ? undefined : Number(arg('--uptime'));
   const E = engine ? await import('./voicequeue/synthetic-results.mjs') : null;
   const engineRun = (r, rows, seed) => {
     const loud = r.gateSpurts.map(g => [g.start + GEN.modelPreroll, g.end - GEN.modelHold]).filter(([a, b]) => b > a);
     const seconds = Math.max(...r.gateSpurts.map(g => g.end)) + 1;
-    const offs = E.offsetsOf(E.engineRun({ loud, seconds, fps: engineFps, seed }).info, r.gateSpurts.map(g => [g.start, g.end]));
+    const offs = E.offsetsOf(E.engineRun({ loud, seconds, fps: engineFps, seed, uptime: engineUptime }).info, r.gateSpurts.map(g => [g.start, g.end]));
     return rows.map(x => { const o = offs[x.k], start = o.start !== null ? o.start : 0; return { start: start / 1000, end: (o.end !== null ? o.end : start) / 1000 }; });
   };
 
@@ -229,7 +231,7 @@ if (process.argv.includes('--generative')) {
 
   console.log(`\nGenerative queue model, parameters fixed: L0 ${GEN.L0 * 1000} ms (also the most the queue holds), silence record ${GEN.silence * 1000} ms, Steam's hold ${GEN.hold.map(x => x * 1000).join('-')} ms and pre-roll ${GEN.preroll.map(x => x * 1000).join('-')} ms (uniform)`);
   if (shift) console.log(`EXPLORATION, not the fixed model: every arrival gap lengthened by ${shift * 1000} ms`);
-  if (engine) console.log(`Engine (section 2): Steam's sender and the receiver's channel on the game's clock at ${engineFps} fps, seeds 1 to ${engineSeeds}; the loud part of each gate-model spurt is its start + ${GEN.modelPreroll * 1000} ms to its end - ${GEN.modelHold * 1000} ms`);
+  if (engine) console.log(`Engine (section 2): Steam's sender (its Steam up ${engineUptime === undefined ? 'the default 777600' : engineUptime} s) and the receiver's channel on the game's clock at ${engineFps} fps, seeds 1 to ${engineSeeds}; the loud part of each gate-model spurt is its start + ${GEN.modelPreroll * 1000} ms to its end - ${GEN.modelHold * 1000} ms`);
   console.log(`Held out: ${[...HELD_OUT].join(', ')}. ${seeds} seeds per take and model.`);
   console.log('\n1. One step ahead (each transition from the take\'s own delay before it; log-likelihood of early/late/kept, floor 0.02; size: mean error in ms of the predicted change where the take moved)');
   console.log('   take                        n   queue    rule   none | size error, ms: queue  rule  (moved)');

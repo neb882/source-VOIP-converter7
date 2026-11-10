@@ -25,12 +25,13 @@ const SLOT = OUT * 0.02, MID = SLOT / 2, INTO = 0.2;
 
 // loud: [[from, to)] in seconds, each 1000 in a signal of `seconds` at 24 kHz, 0 elsewhere.
 // Returns the timeline's info (44.1 kHz positions), the sender's messages and what was pushed
-// to the timeline ({ tick, samples, source } for each message).
-export function engineRun({ loud, seconds, fps, bufferMs, seed }) {
+// to the timeline ({ tick, samples, source } for each message). uptime: the sender's, in
+// seconds (left out: the sender's default).
+export function engineRun({ loud, seconds, fps, bufferMs, seed, uptime }) {
   const n = Math.round(seconds * RATE);
   const signal = new Int16Array(n);
   for (const [a, b] of loud) signal.fill(1000, Math.max(0, Math.round(a * RATE)), Math.min(n, Math.round(b * RATE)));
-  const sender = createSender({ seed });
+  const sender = createSender(uptime === undefined ? { seed } : { seed, uptime });
   const messages = [...sender.push(signal), ...sender.finish()];
   const timeline = createTimeline({ fps, bufferMs, length: Math.round(n * OUT / RATE) });
   const pushed = [];
