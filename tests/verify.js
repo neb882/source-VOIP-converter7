@@ -515,6 +515,20 @@ async function main() {
     const tinyResult = await TF2Audio.process(mkBuffer(tiny, 22050), { codec: 'speex' });
     check('very short buffers render safely', tinyResult.samples.length > 0 && !hasBadValues(tinyResult.samples));
 
+    // An empty source through a room is the room's silent tail, whatever the
+    // mixer: resampleLinear of nothing is nothing (it once gave one NaN sample,
+    // which the room carried past the output's cut).
+    check('linear mixer: an empty input gives an empty output', TF2Audio.resampleLinear(new Float32Array(0), 22050, 44100).length === 0);
+    const emptyRooms = [];
+    for (const codec of ['steam', 'steam_48', 'celt_22', 'celt_44', 'speex']) {
+      try {
+        const r = await TF2Audio.process(mkBuffer(new Float32Array(0), SR), { codec, dspRoom: 6 });
+        emptyRooms.push(r.samples.length > 0 && r.samples.every(v => v === 0) ? r.samples.length : `${codec}: not silent`);
+      } catch (error) { emptyRooms.push(`${codec}: ${error.message}`); }
+    }
+    check('an empty source through a room renders the same silent tail with every profile',
+      emptyRooms.every(n => n === emptyRooms[0] && typeof n === 'number'), emptyRooms.join(', '));
+
     const hot = await TF2Audio.process(mkBuffer(tone(440, 0.5, SR, 0.9), SR), { ...clean, micGain: 4 });
     check('mic gain above unity clips the int16 capture', peakAbs(hot.samples) < 1.02 && clipFraction(hot.samples, 0.9) > 0.2);
 

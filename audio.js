@@ -197,9 +197,10 @@
   }
 
   // Source's software mixer converts voice to the mix rate by linear
-  // interpolation; used for the low-rate legacy profiles.
+  // interpolation; used for the low-rate legacy profiles. Nothing in gives
+  // nothing out, as resampleSinc.
   function resampleLinear(input, inRate, outRate) {
-    if (inRate === outRate) return Float32Array.from(input);
+    if (!input.length || inRate === outRate) return Float32Array.from(input);
     const ratio = inRate / outRate;
     const outLen = Math.max(1, Math.round(input.length / ratio));
     const out = new Float32Array(outLen);
@@ -1295,7 +1296,7 @@
     const g = gcd(inRate, outRate);
     return Math.max(1, Math.round(n * (outRate / g) / (inRate / g)));
   }
-  const linearLength = (n, inRate, outRate) => (inRate === outRate ? n : Math.max(1, Math.round(n / (inRate / outRate))));
+  const linearLength = (n, inRate, outRate) => (!n || inRate === outRate ? n : Math.max(1, Math.round(n / (inRate / outRate))));
 
   // Passes at most `length` samples in all.
   function cutAt(length) {
@@ -1327,7 +1328,8 @@
   }
 
   // resampleLinear of an inLength-sample signal, ending as it ends: the last
-  // outputs lean on the last input, not on zeros past it.
+  // outputs lean on the last input, not on zeros past it. An empty signal
+  // gives none (outLength 0).
   function linearStage(inRate, outRate, inLength) {
     if (inRate === outRate) return passStage;
     const ratio = inRate / outRate, last = inLength - 1, outLength = linearLength(inLength, inRate, outRate);
