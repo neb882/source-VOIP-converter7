@@ -158,7 +158,8 @@ Where the order or the reports could be read more than one way. Where the report
     module gives the same integers and outputs. Values past a table's length pass as they are (the model's rule).
 13. **A delay's filter kind** (its value 4). A width over 0 makes the first section the high-pass at the cutoff
     (R2 b); else a filter kind of 1 (`HP`) is a high-pass and any other a low-pass, as the model has it (so `BP`
-    with no width is a low-pass). No preset reaches either; the high-pass is computed with `Math.tan` and marked "not pinned".
+    with no width is a low-pass). No preset reaches either; the high-pass is computed with `Math.tan` and marked
+    "not pinned".
 14. **`fpar` is truncated** (the model's `tr(p[6])`): a value of 0.5 means no filter in the loop.
 15. **Lines that are not whole numbers** (a delay of negative length, or a feedback that is not a number, which a
     reverb whose first line has length 0 could give) are refused by name; Python would stop there too.
@@ -260,9 +261,11 @@ Where the order or the reports could be read more than one way. Where the report
   between its bounds; in 10 s, as many draws as one every `period + 1` samples gives.
 - **The seeded streams** (2): `seededDraw` is `reference.py`'s `randint_from`; the path's two streams are the
   render's seed XOR `0x524F4F4D` and `0x57415452` (Decision 7).
-- **The reference hashes** (11): every line of `reference.out` (85), with its shares; the template case's built
-  reverb as `reference.out` prints it.
-- **The tails** (4): all 239 lengths of `tails.out`, through `createRoomPath` and `tailLeft()`.
+- **The reference hashes** (12): every line of `reference.out` (85), with its shares; the template case's built
+  reverb as `reference.out` prints it; a path under water built by hand from two instances (direct plus the room,
+  then the water instance that has run 44,100 zeros first).
+- **The tails** (5): all 239 lengths of `tails.out`, through `createRoomPath` and `tailLeft()`; a hand case resting
+  at -100 that ends 22,050 samples after the voice (the rule is a band, not a level).
 - **Chunking** (1): five paths, each with a fade (a room change, the water fading in, a room under water), in
   pieces of 1, 127, 512, 4096 and seeded random sizes against the whole run: the same samples, the same tail, the
   output as long as the voice and its tail.
@@ -272,9 +275,9 @@ Where the order or the reports could be read more than one way. Where the report
   mid-block taken at the next block; a change asked during a fade taken at the first block after it; a fade to
   none ending on the input bit for bit; 40, 104 and 137 changing nothing (a request dropped by an unknown number);
   a path made with 137 having no room; a slot made with a preset settled; the fade's draw order.
-- **Shares and entry** (12): the model's shares for every header of the table and seven more; the order's share
-  list, 256/0 and the start-up values; `shares()` of a path: 0/256 with no room and while a room is asked, the
-  running spurt's limits kept after a take, the next spurt's from the preset, the shares kept through a fade to
+- **Shares and entry** (13): the path's two fade times (4,411 and 8,821 samples); the model's shares for every
+  header of the table and seven more; the order's share list, 256/0 and the start-up values; `shares()` of a
+  path: 0/256 with no room and while a room is asked, the running spurt's limits kept after a take, the next spurt's from the preset, the shares kept through a fade to
   none and 0/256 after it, at once for a path made with a room, and the four values changed at the take, not at
   the request; `entry`'s nine fixed points; `lines.json`'s 28 and 2 differing samples; every 16-bit sample at 20
   shares against the reference's `entry`; `entry(s, 256) = trunc(s x 255 / 256)` for all 65,536.
