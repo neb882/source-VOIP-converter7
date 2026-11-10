@@ -20,7 +20,7 @@ the resampler turned out to be an open-source library whose output counts match 
 | The hold | **0.4 s of wall-clock time** after the last active chunk was read. The first chunk read later than that is encoded as the last one (its last frame padded with zeros) and carries the end marker. The next chunk is not sent as sound: only its length goes out, as the **silence record** (1500 or 750 samples). | Read: high. The demo: the end comes 380 to 460 ms of sound after the last active chunk. |
 | Key up | The engine's `StopVoiceRecording` does not stop anything at once: Steam keeps capturing, gating and handing out voice for **0.5 s** more. If the gate has not closed by then, the spurt is left open with no end marker, and the next key press sends the end marker by itself: the **empty packet**. | Read: high. Matches W3-03's three empty packets (each followed by a silence record). |
 | 2. The batches | One chunk is one packet. The encoder cuts 480-sample frames from the chunk plus what was left over from the last one and keeps the remainder (under 20 ms). So 62.5 ms gives 3 frames, now and then 4; 31.25 ms gives 1 or 2. Every packet starts with a sample-rate record. | Read: high. All 20 spurts of the demo and 2,326 packets of Set G fit chunks of whole multiples of 750 samples. |
-| 3. The encoder | libopus **1.1.4** (the version string is in the public Linux build). `opus_encoder_init(24000, 1, VOIP)`, then three settings only: bit rate **32000**, signal **voice**, DTX **on**. Everything else is the library's default: **complexity 9**, VBR on, **constrained** VBR, no FEC, 20 ms frames. No high-pass, gain control or noise suppression of Steam's own runs before it (`voice_preprocess` is 0). The capture is opened through DirectSound at 24 kHz mono 16-bit, so the resampling from the device's rate is Windows's, not Steam's. | Read: high. Version: read in the Linux build, inferred for Windows. |
+| 3. The encoder | libopus **1.1.4** (the version string is in the public Linux build). `opus_encoder_init(24000, 1, VOIP)`, then three settings only: bit rate **32000**, signal **voice**, DTX **on**. Everything else is the library's default: complexity 9 (the same packets as the app's 10), VBR on, **constrained** VBR, no FEC, 20 ms frames. No high-pass, gain control or noise suppression of Steam's own runs before it (`voice_preprocess` is 0). The capture is opened through DirectSound at 24 kHz mono 16-bit, so the resampling from the device's rate is Windows's, not Steam's. | Read: high. Version: read in the Linux build, inferred for Windows. |
 | 4. The decoder | Per frame: an end marker resets the decoder; a sequence number ahead of the expected one conceals up to **10** lost frames; one behind resets without concealing. A silence record becomes that many zero samples. Then 24 kHz to the game's 44.1 kHz with **FFmpeg's libswresample (8.1.2) at its default settings** (32 taps, 147 phases, Kaiser window), called once per packet. No gain or filter is applied to decoded sound (`voice_autogain` is 0). | Read: high. The open-source library, called the same way, gives the logs' sample counts exactly (7056, 2646, 882, and 2756 or 2757 for a silence record). |
 | 5. Speex | The owner's `vaudio_speex` module: narrowband mode, the engine's quality 3 mapped to Speex quality **4** (20 bytes per 160-sample frame), constant bit rate, enhancement on. **No resampling:** the 11025 Hz samples go into the 8 kHz codec as they are, so a frame is 14.5 ms and the band reaches 5.5 kHz. The library inside is the old floating-point **Speex 1.0.x**, not 1.2. | Read: high. The release: inferred from the mode structure's layout. |
 
@@ -63,6 +63,8 @@ Steam path with no virtual cable: `mic_inputfile` (Steam reads a 24 kHz mono WAV
 | Zhenyang Li, "Reversing Steam Voice Codec", 2021 (`zhenyangli.me/posts/reversing-steam-voice-codec/`) | Read from the 32-bit Windows client: 8-byte SteamID, typed records, CRC32 at the end; type 11 is the sample rate (24000), types 5 and 6 are Opus ("OPUS" and "OPUS PLC"), 1 to 4 legacy or SILK, 0 a sample count; the Opus class sets a field to 32000; a built-in test expects 24000 Hz mono. | A careful public write-up of the same kind of reading as this one | Agrees with finding 11 and with `demo.js`. Extended here: the 32000 is the bit rate; type 0 is the silence record; type 6 differs from 5 only in carrying sequence numbers. |
 | `steam-audio-codec`, a Rust crate by demos.tf (`docs.rs/steam-audio-codec`) | A decoder for these packets: record types 0, 6 and 11; inside type 6, a 16-bit length, `0xFFFF` resets the decoder and the expected sequence number, a sequence number behind the expected one resets, one ahead conceals the gap. | Open source, written against real TF2 demos | Agrees with `demo.js`. Two differences from Steam's own decoder, read here: Steam conceals at most 10 frames, and a silence record is played as zeros (the crate only counts it). |
 | `CS2VoiceData` (a Go example) | Every Counter-Strike 2 demo it met was 24000 Hz mono. | Open source, small | Agrees. |
+| Xiph's Speex repository (`gitlab.xiph.org/xiph/speex`, tags `Speex-1.0` to `Speex-1.2.1`) | The narrowband mode's structure and the control requests of each release. | The codec's own source | Dates the library inside `vaudio_speex` (section 5): 1.0 to 1.0.3, where the app's profile runs 1.2.1. |
+| FFmpeg's libswresample (the distribution's 6.1.1, run here; Valve ships 8.1.2) | The resampler's defaults and what its flush does. | The library itself | Gives the logs' decoded sample counts exactly (section 4). |
 | The game's own `find voice` output (already in the project) | The receiver's variables. | The game itself | Nothing new for Steam's side. |
 
 Not found in public writing: the gate's rule, the pre-roll, the hold, the batches, the encoder's settings beyond
@@ -277,9 +279,15 @@ Read from the class `VoiceEncoder_OPUS` (its virtual table is at `0x13919b510`):
 - The same library also holds a SILK encoder (`voice_silk_bitrate`, default 30000) for the friends' chat of older
   clients. Not used for the packets we see.
 
-**Against the app** (`opus-codec.mjs`): it passes complexity 10 where Steam leaves 9. Whether 9 and 10 give
-different packets in libopus 1.1 at 24 kHz was not tested here; it is one run of the existing comparison. The app
-leaves the VBR constraint at the library's default, which is what Steam does.
+**Against the app** (`opus-codec.mjs`): it passes complexity 10 where Steam leaves 9. **It makes no difference:**
+the project's own libopus 1.1.5 build, with Steam's other settings, gives byte-identical packets at complexity 8, 9,
+10 and the default on the three test signals and a synthetic one (19,428 frames, every one equal). The app leaves
+the VBR constraint at the library's default, which is what Steam does.
+
+One difference in the entry points (read): Steam encodes from and decodes to **16-bit samples** (`opus_encode` and
+`opus_decode`; the buffers advance by 960 bytes per 480 samples), where the app uses the float calls. On the way in
+that is the same thing. On the way out the library rounds each sample to 16 bits and clips at full scale **before**
+the resampler and the engine's gain.
 
 ## 4. The decoder
 
@@ -413,7 +421,8 @@ To the findings (`tests/REFERENCE_2026.md`):
   capture's step. "A pause shorter than 560 ms keeps the spurt going" should read: a pause shorter than the hold.
   "Each new talk spurt starts a fresh encoder and decoder": confirmed, as a reset of each.
 - **14 and 16:** the capture roll-off is Windows's resampler (DirectSound capture opened at 24 kHz), so it belongs
-  to the sender's machine. The libopus release is 1.1.4. The encoder's complexity is 9, not 10.
+  to the sender's machine. The libopus release is 1.1.4. The encoder's complexity is the default, 9, not 10 (the
+  packets are the same either way).
 - **2 and 14:** the receiver's 24 to 44.1 kHz resampler is libswresample's default filter; its roll-off and its
   images above 12 kHz are in section 4.
 - **8:** concealment is capped at 10 frames per gap (read; the takes could not show it).
@@ -435,7 +444,6 @@ To the receiver plan's sender model (`docs/reports/W3-02-plan.md`):
 | Unknown | Cheapest way |
 | --- | --- |
 | Whether the app's libopus 1.1.5 at complexity 9 gives Steam's packets bit for bit | The `mic_inputfile` run below with SourceTV on: the input is then known to the sample |
-| Whether complexity 9 and 10 differ at all in 1.1.x at 24 kHz | Re-run finding 16's comparison at 9 (no take needed) |
 | The 31.25 ms capture step and the 55.85 ms frame: the owner's PC, or every PC? | `@voice_spew_activity_check 1` on both PCs: each line prints the chunk's length |
 | Windows's capture resampler exactly | `mic_outputfile`: Steam writes what it captured at 24 kHz; play the test signal through the cable once |
 | The first-packet flush of the resampler (40 samples, once per speaker) in a recording | `voice_recordtofile 1` with `voice_maxgain 1` on the first key press after the game starts, with a known input |
@@ -482,7 +490,7 @@ in. All of this is **read**.
 | Constant bit rate, no VAD, no DTX | The only requests the module ever makes are quality (4), sampling rate (24), enhancement (0, decoder) and reset (26). VBR, VAD, DTX and complexity are never touched: the library's defaults (off, off, off, complexity 2). | Confirmed |
 | Enhancement on | `speex_decoder_ctl(decoder, 0, &1)` at `0x10012119`: the perceptual enhancement is switched on. | Confirmed |
 | The receiver at 11025 Hz | The engine's business (W3-03: 11025 Hz for capture, gain and playback). **The module does not resample.** `EncodeFrame` (`0x10011f10`) turns 160 16-bit samples into floats and encodes them; `DecodeFrame` (`0x10011ea0`) decodes 160 floats and stores them as 16-bit. So the codec is handed 11025 Hz sound and told it is 8000 Hz. | **Corrects the picture:** nothing is converted to 8 kHz |
-| Speex 1.2.1 | The mode structure has the old layout: a buffer size (640) after the LPC order, then pitch range 17 to 144, gamma 0.9 and 0.6, lag factor 0.01, LPC floor 1.0001 and a **pre-emphasis field (0.0)**, a default sub-mode of 5, and the quality map 1, 8, 2, 3, 3, 4, 4, ... The samples are floats throughout. That is the **Speex 1.0.x** floating-point library, not 1.2. No version string is in the file. | **Corrects** (inferred from the layout, high confidence for "1.0.x", not for which 1.0.x) |
+| Speex 1.2.1 | The mode structure (read at the address the mode object points to) is 160, 40, 10, **640**, 17, 144, 0.9, 0.6, 0.01, 1.0001, **0.0**, the sub-modes, 5, and the quality map 1, 8, 2, 3, 3, 4, 4, ...: a buffer size after the LPC order and a pre-emphasis field at the end. Xiph's public repository has exactly that initialiser in releases 1.0 to 1.0.5 and in 1.1; by 1.1.12 the buffer size and pre-emphasis are gone and the constants differ, and 1.2.1 is different again. The encoder's control function handles requests 3 to 35 and 100 to 102 and not 36, 37 or 39; the public sources add 36 and 37 in 1.1 and 39 in 1.0.4. So the library is **Speex 1.0 to 1.0.3** (2003), floating point. No version string is in the file. | **Corrects** (the layout and the request list are read; the release is inferred from them, high confidence) |
 
 What follows:
 
@@ -497,12 +505,13 @@ What follows:
   thirty holds two. `Decompress` decodes each 20 bytes to 160 samples.
 - **Samples in and out:** to float with no scaling; back by truncation toward zero with **no clamp** (`cvttss2si`
   then a 16-bit store at `0x10011ee0`), so a decoded sample beyond full scale wraps round. Speex 1.0's decoder does
-  not clip its float output.
+  not clip its float output (its public source copies the frame out as it is).
 - **Reset** (`0x10012170`): request 26 on both sides.
 - **Against 1.2.1:** the bit-stream is the same (version 4), so the packets decode either way. What differs is the
-  encoder's search and, more audibly, the decoder: 1.0's enhancement is the older formant post-filter, and 1.2
-  added a high-pass on the decoder's output that 1.0 does not have. Speex 1.0.x is open source; its tags are in
-  Xiph's repository (`gitlab.xiph.org/xiph/speex`, reachable from this machine).
+  encoder's search and, more audibly, the decoder: 1.0's enhancement is the older post-filter, and 1.2 has a
+  high-pass on the decoder's output that 1.0 does not have (from memory of the two sources; not compared in sound
+  here). Speex 1.0.3 is open source; its tag is in Xiph's repository (`gitlab.xiph.org/xiph/speex`, tags
+  `Speex-1.0` to `Speex-1.0.3`, reachable from this machine), so the profile could run the real thing.
 - **Is this the module of TF2's Speex years?** It is a 2026 build from the engine's own source folder for the
   module, so the settings above are the code's; the Speex library inside could in principle have been changed
   since, but its old layout says it was not. Which game it came from is not known.
