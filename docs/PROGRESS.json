@@ -25,6 +25,12 @@
       "state": "ready; merge held for the owner",
       "branch": "claude/w3-13-steam-resampler",
       "note": "Built, reviewed and fixed (head 31d6fbe, CI green, 43 checks). The port equals the native library sample for sample under each of the four kernels: the builder on 84 streams, the reviewer's own driver on 259.9 million output samples per kernel, an hour-long stream among them; the stored bank is the library's own in-memory bank bit for bit; the hand-written fused multiply-add equals the C library's on 50 million cases and, since the fix round, at the overflow edge and for subnormals. The default kernel runs about 6 to 8 million output samples a second in Node. The orchestrator's private run on the final head: all 2,372 non-empty packets of Set G give the logged counts with the four sections of the one log as one stream (finding 29 has it). The MERGE waits only for the owner's yes to a modified LGPL file (its notices, licence text and dated notice of change are in place)."
+    },
+    {
+      "order": "W3-12b-speex-profile",
+      "state": "building",
+      "branch": "claude/w3-12b-speex-profile",
+      "note": "The speex profile becomes the game's module: vendor/speex-1.0.2 on 11025 Hz sound with no resampling, the wrap, reset by request 26; the old 1.2.1 module goes. It has audio.js. Nothing private to run. It merges before W3-13."
     }
   ],
   "next": [
