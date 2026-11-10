@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 const root = process.env.TF2_DIR ? pathToFileURL(path.resolve(process.env.TF2_DIR) + '/') : new URL('..', import.meta.url);
 const engineCode = ['constants.js', 'audio.js'].map(f => fs.readFileSync(new URL(f, root), 'utf8')).join('\n');
@@ -54,11 +55,12 @@ engine.CODEC_PROFILES.test_decoder_eq = { ...engine.CODEC_PROFILES.steam, displa
   decoderEq: { taps: 63, freqs: [0, 3000, 7000, 12000], gainsDb: [0, -1, -6, -12] } };
 engine.LISTENER_POSITIONS.test_lowpass = { label: 'test only: a low-pass, no room', dsp: 0, extraLpf: 1500 };
 
-let passed = 0;
+// A failed check is reported and the suite goes on, so a broken stage
+// shows every case it breaks; the run fails at the end.
+let passed = 0, failed = 0;
 function check(name, ok, detail = '') {
-  assert.ok(ok, `${name}${detail ? `   [${detail}]` : ''}`);
-  passed++;
-  console.log(`  ok    ${name}${detail ? `   [${detail}]` : ''}`);
+  if (ok) passed++; else failed++;
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${name}${detail ? `   [${detail}]` : ''}`);
 }
 
 /* ---------------- signals ---------------- */
@@ -173,6 +175,7 @@ for (const [name, rate, opts, plan] of [
   ['celt_22, source at 22.05 kHz', 22050, { codec: 'celt_22' }, 'uneven'],
   ['speex, source at 8 kHz', 8000, { codec: 'speex' }, 'uneven'],
   ['steam, volume 1, voice_maxgain 3', 48000, { volume: 1, maxGain: 3 }, 'uneven'],
+  ['steam, volume 0.3 (a volume whose product rounds)', 48000, { volume: 0.3 }, 'uneven'],
   ['steam, auto-gain off, voice_scale 3', 48000, { agc: false, voiceScale: 3 }, 'uneven'],
   ['steam, dsp_room 1 (no effect)', 48000, { listenerPos: null, dspRoom: 1 }, 'uneven'],
   ['steam, custom room at mix 0 (no effect)', 48000, { listenerPos: null, dspRoom: 99, customEnv: { duration: 1, decay: 2, mix: 0 } }, 'uneven'],
@@ -185,6 +188,9 @@ add('celt_22, one sample at 22.05 kHz', 22050, () => Float32Array.of(0.25), { co
 add('speex, 100 samples at 96 kHz', 96000, () => voice(0, 96000, 8, 100), { codec: 'speex' }, ['7']);
 
 // SHA-256 of process()'s WAV, then of its codecInfo (canonical JSON, below).
+// All but one were recorded in commit 7e1862c, before createRender existed;
+// 'steam, volume 0.3' was added later, its hashes made by commit 7e1862c's
+// audio.js (TF2_DIR pointed at that commit's sources).
 const GOLDEN = {
   "steam": ["4a41e3b322eb0173de2f6c0644867c0caf87796c9754de0a6d57a505056cb378", "67cfe1bbede8e10591d27f9c6228b896dc4b20ddc143f5f12ad91ac1af1ae8bb"],
   "steam_48": ["431b36660c395e2a116860ca3b24dfba373bac4fb4a8d6a2b44cc3bd1d4ea403", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
@@ -217,6 +223,7 @@ const GOLDEN = {
   "celt_22, source at 22.05 kHz": ["7a2e35533fd4f5444fb4cecfc3ada3fc03e1ebdcb874a32660b8d023469551b9", "edac031357eb92528b2320cc09bd7c1873b70cefc81d3376900da5669ff09be6"],
   "speex, source at 8 kHz": ["d495d641f50df36c78df479c83708bbf14ddd9010d4ec0263fc6a6d069bbe868", "3a087f939ab49d04d39ce7b5f0888b4963e6bffa3e4d15d0d406929355f19179"],
   "steam, volume 1, voice_maxgain 3": ["504e0ae610a190f2d696493a34822c42bde1d92e4428b2b449e176ba3df864d5", "f30befe79e342d9e341aaf0aa7b57be72fd5d8b1bcacb98c645b2d7f7c8f90fd"],
+  "steam, volume 0.3 (a volume whose product rounds)": ["f38969876b4a89e0726a64f7ede0a23b84ea39018e38df566a904445ee9709a0", "f30befe79e342d9e341aaf0aa7b57be72fd5d8b1bcacb98c645b2d7f7c8f90fd"],
   "steam, auto-gain off, voice_scale 3": ["81dc0d3e91c5736afece6846a0cbc0536c5cedeca6ef5e95a12a39829eef2dc0", "7b3a3ef57fe145669138f8c115b35bc2f0eb747e0cdd9fa40d8c88137890a7e4"],
   "steam, dsp_room 1 (no effect)": ["67d59a219e3b3c721e89f35e5e70858777c4557a7d835ec02851f31e8112eb0c", "f30befe79e342d9e341aaf0aa7b57be72fd5d8b1bcacb98c645b2d7f7c8f90fd"],
   "steam, custom room at mix 0 (no effect)": ["67d59a219e3b3c721e89f35e5e70858777c4557a7d835ec02851f31e8112eb0c", "f30befe79e342d9e341aaf0aa7b57be72fd5d8b1bcacb98c645b2d7f7c8f90fd"],
@@ -302,4 +309,133 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
   }
 }
 
-console.log(`\n${passed} render-stream checks passed`);
+/* ---------------- 2. the stream equals process() ---------------- */
+
+// Streams `samples` through createRender in the chunks `plan` gives, into
+// one preallocated array, as a caller with a long source would.
+async function streamed(rate, samples, opts, plan, onPush = null) {
+  const render = await A.createRender({ sampleRate: rate, length: samples.length, numberOfChannels: 1 }, opts);
+  const out = new Float32Array(render.outputLength);
+  let filled = 0, pushes = 0;
+  const put = (y) => {
+    assert.ok(y instanceof Float32Array && filled + y.length <= out.length, 'the stream gives Float32Arrays and no more than outputLength samples');
+    out.set(y, filled);
+    filled += y.length;
+  };
+  for (let o = 0, k = 0; o < samples.length; k++) {
+    const size = Math.min(PLANS[plan](k, rate, samples.length), samples.length - o);
+    put(await render.push(samples.subarray(o, o + size)));
+    o += size;
+    pushes++;
+    onPush?.(o);
+  }
+  const end = await render.finish();
+  put(end.samples);
+  return { render, out, filled, pushes, end };
+}
+
+// How a streamed render differs from process()'s, or null when it does not.
+async function difference(whole, got) {
+  if (got.filled !== whole.samples.length || got.out.length !== whole.samples.length) return `${got.filled} samples, not ${whole.samples.length}`;
+  if (got.render.sampleRate !== whole.sampleRate) return `rate ${got.render.sampleRate}, not ${whole.sampleRate}`;
+  // Bit for bit, which is stricter than ===: -0 and +0 count as different.
+  const a = new Uint32Array(got.out.buffer, got.out.byteOffset, got.out.length);
+  const b = new Uint32Array(whole.samples.buffer, whole.samples.byteOffset, whole.samples.length);
+  let unequal = 0, signs = 0, first = -1;
+  for (let i = 0; i < b.length; i++) {
+    if (a[i] === b[i]) continue;
+    if (first < 0) first = i;
+    if (got.out[i] === whole.samples[i]) signs++; else unequal++;
+  }
+  if (first >= 0) return `${unequal} samples differ and ${signs} more are zeros of the other sign; the first at ${first} (${Object.is(got.out[first], -0) ? '-0' : got.out[first]} for ${Object.is(whole.samples[first], -0) ? '-0' : whole.samples[first]})`;
+  if (Buffer.compare(Buffer.from(await wavBytes(A.encodeWav(got.out, got.render.sampleRate))), Buffer.from(await wavBytes(whole.blob)))) return 'the WAV bytes differ';
+  if (!isDeepStrictEqual(got.end.codecInfo, whole.codecInfo)) {
+    const keys = [...new Set([...Object.keys(got.end.codecInfo), ...Object.keys(whole.codecInfo)])];
+    return `codecInfo differs: ${keys.filter(k => !isDeepStrictEqual(got.end.codecInfo[k], whole.codecInfo[k])).join(', ')}`;
+  }
+  if (got.end.realOpus !== whole.realOpus) return 'realOpus differs';
+  return null;
+}
+console.log('\n[2] createRender, fed in chunks, gives process()\'s samples (bit for bit), WAV and codecInfo');
+for (const c of CASES) {
+  const whole = renders.get(c.name), samples = sources.get(c.name);
+  for (const plan of c.plans) {
+    const t0 = performance.now();
+    let got, diff;
+    try { got = await streamed(c.rate, samples, c.opts, plan); diff = await difference(whole, got); }
+    catch (error) { diff = `threw ${error.message}`; }
+    const seconds = (performance.now() - t0) / 1000;
+    check(`${c.name}, chunks: ${plan}`, diff === null, diff || `${got.filled} samples in ${got.pushes} pushes, ${seconds.toFixed(1)} s`);
+  }
+}
+
+// Settings process() ignores here are ignored by the stream as well.
+for (const [name, extra] of [['demo voice as received', { retime: true }], ['steam, codec bypassed', { retime: true }]]) {
+  const c = CASES.find(x => x.name === name), opts = { ...c.opts, ...extra };
+  const whole = await A.process(buffer(sources.get(name), c.rate), opts);
+  let diff;
+  try { diff = await difference(whole, await streamed(c.rate, sources.get(name), opts, 'uneven')); }
+  catch (error) { diff = `threw ${error.message}`; }
+  check(`${name}, with ${Object.keys(extra).join(', ')} (which process() ignores there): streamed, and the recorded render`,
+    diff === null && sha256(await wavBytes(whole.blob)) === GOLDEN[name][0], diff || '');
+}
+
+console.log('\n[3] What createRender reports, refuses and leaves alone');
+{
+  const c = CASES.find(x => x.name === 'steam, 1,000,003 samples (a prime) at 48 kHz'), samples = sources.get(c.name);
+  const before = sha256(Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength));
+  const shares = [];
+  const got = await streamed(c.rate, samples, { ...c.opts, onProgress: (f) => shares.push(f) }, 'uneven');
+  check('onProgress gets the share of the source pushed, ending at 1', shares.length === got.pushes + 1 && shares[shares.length - 1] === 1
+    && shares.every((f, i) => i === 0 || f >= shares[i - 1]) && Math.abs(shares[shares.length - 2] - 1) < 1e-12, `${shares.length} reports`);
+  check('the pushed chunks are left as they were', sha256(Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength)) === before);
+  check('outputLength and sampleRate are process()\'s', got.render.outputLength === renders.get(c.name).samples.length
+    && got.render.sampleRate === renders.get(c.name).sampleRate);
+}
+const mono = (rate, length) => ({ sampleRate: rate, length, numberOfChannels: 1 });
+async function refusal(make) {
+  try { await make(); return null; } catch (error) { return error; }
+}
+for (const [opts, named] of [
+  [{ listenerPos: 'tunnel' }, 'listenerPos'], [{ listenerPos: 'water' }, 'listenerPos'], [{ listenerPos: null, dspRoom: 6 }, 'dspRoom'],
+  [{ listenerPos: null, dspRoom: 99, customEnv: { duration: 1, decay: 2, mix: 0.3 } }, 'dspRoom'], [{ retime: true }, 'retime']
+]) {
+  const error = await refusal(() => A.createRender(mono(48000, 4800), { ...PAGE, ...opts }));
+  check(`createRender refuses ${JSON.stringify(opts)} by name`, error instanceof RangeError && error.message.includes(named), error?.message);
+}
+{
+  const error = await refusal(() => A.createRender({ sampleRate: 48000, length: 10, numberOfChannels: 2 }, PAGE));
+  check('createRender refuses a source that is not mono', error instanceof TypeError, error?.message);
+  const r = await A.createRender(mono(48000, 1000), PAGE);
+  const tooMany = await refusal(() => r.push(new Float32Array(1001)));
+  check('a push past the source\'s length is refused', tooMany instanceof RangeError, tooMany?.message);
+  const r2 = await A.createRender(mono(48000, 1000), PAGE);
+  await r2.push(new Float32Array(500));
+  const early = await refusal(() => r2.finish());
+  check('finish() before the whole source is pushed is refused', early instanceof RangeError, early?.message);
+  const r3 = await A.createRender(mono(48000, 1000), PAGE);
+  const first = r3.push(new Float32Array(400)), overlap = await refusal(() => r3.push(new Float32Array(400)));
+  await first;
+  check('a push before the previous one resolved is refused', overlap instanceof Error && /before the previous call/.test(overlap.message), overlap?.message);
+  await r3.push(new Float32Array(600));
+  await r3.finish();
+  const late = await refusal(() => r3.push(new Float32Array(0)));
+  check('a push after finish() is refused', late instanceof Error && /finished/.test(late.message), late?.message);
+  const r4 = await A.createRender(mono(48000, 1000), PAGE);
+  await r4.push(new Float32Array(300));
+  const bad = new Float32Array(300); bad[7] = NaN;
+  const nan = await refusal(() => r4.push(bad));
+  check('a non-finite sample is refused with its index in the source', nan instanceof TypeError && nan.message.includes('307'), nan?.message);
+  const r5 = await A.createRender(mono(48000, 1000), PAGE);
+  r5.free();
+  const freed = await refusal(() => r5.push(new Float32Array(10)));
+  check('free() ends a render', freed instanceof Error && /freed/.test(freed.message), freed?.message);
+  const r6 = await A.createRender(mono(48000, 48000), PAGE), running = r6.push(voice(1, 48000, 9));
+  r6.free();
+  const ran = await refusal(() => running), after = await refusal(() => r6.finish());
+  check('free() during a push lets that push finish, then ends the render', ran === null && after instanceof Error && /freed/.test(after.message),
+    after?.message);
+}
+
+console.log(`\n${passed} render-stream checks passed, ${failed} failed`);
+process.exitCode = failed ? 1 : 0;

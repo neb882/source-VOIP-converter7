@@ -329,11 +329,13 @@ export async function speexRoundTrip(samples, sampleRate, options = {}) {
 }
 
 // One Speex frame at a time with speexRoundTrip's settings, for the live
-// monitor; the same interface as createVoiceStream.
+// monitor and TF2Audio.createRender; the same interface as
+// createVoiceStream, with the settings speexRoundTrip reports.
 export async function createSpeexStream(sampleRate, options = {}) {
   const codec = await openSpeex(sampleRate, options);
   return {
     frameSize: codec.frameSize, version: codec.version, lookahead: codec.lookahead, quality: codec.quality, bitrate: codec.bitrate,
+    complexity: codec.complexity, enhancement: codec.enhancement,
     async restart() { codec.restart(); },
     encode(frame) { const packet = codec.encode(frame); return { bytes: packet.byteLength, mode: 'speex', dtx: false, packet }; },
     decode(packet) { return codec.decode(packet); },
