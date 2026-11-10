@@ -310,7 +310,7 @@ const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file
 // The model files a prediction depends on, so a later run can tell whether
 // the model has changed since.
 const MODEL_FILES = ['audio.js', 'constants.js', 'opus-codec.mjs', 'reference.js', 'vendor/libopus-1.1/libopus-1.1.5.wasm.mjs',
-  'vendor/celt-0.11/celt-0.11.wasm.mjs', 'vendor/libopus/generated/libopus.generated.mjs'];
+  'vendor/celt-0.11/celt-0.11.wasm.mjs', 'vendor/libopus/generated/libopus.generated.mjs', 'steam-sender.js', 'vendor/swresample/swresample.js'];
 
 async function writePredictions() {
   const plan = JSON.parse(fs.readFileSync(path.join(PREDICTIONS, 'plan.json'), 'utf8'));
