@@ -344,9 +344,10 @@ function publicChecks() {
     const src = fs.readFileSync(fileURLToPath(new URL('../voice-channel.js', import.meta.url)), 'utf8');
     const page = vm.createContext({}), worker = vm.createContext({ self: {} });
     vm.runInContext(src, page); vm.runInContext(src, worker);
+    // W3-02a exported four names; W3-02b adds createTimeline.
     check('it loads as a page script and in a worker as TF2VoiceChannel, with no imports',
-      ['VOICE_CHANNEL', 'waitTicks', 'latency', 'createChannel'].every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
-      && Object.keys(V).join() === 'VOICE_CHANNEL,waitTicks,latency,createChannel' && !/\bimport\b|\brequire\(/.test(src));
+      ['VOICE_CHANNEL', 'waitTicks', 'latency', 'createChannel', 'createTimeline'].every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
+      && Object.keys(V).join() === 'VOICE_CHANNEL,waitTicks,latency,createChannel,createTimeline' && !/\bimport\b|\brequire\(/.test(src));
     check('its constants are frozen: 22050, 0.015 s, 100 ms, 300 fps, 0.1 s, 512 and 513', Object.isFrozen(VOICE_CHANNEL) && Object.isFrozen(VOICE_CHANNEL.fpsRange)
       && VOICE_CHANNEL.ring === 22050 && VOICE_CHANNEL.tick === 0.015 && VOICE_CHANNEL.bufferMs === 100 && VOICE_CHANNEL.fps === 300
       && VOICE_CHANNEL.fadeTime === 0.1 && VOICE_CHANNEL.mixBlock === 512 && VOICE_CHANNEL.firstBlock === 513 && VOICE_CHANNEL.rate === 44100);
