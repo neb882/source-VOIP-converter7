@@ -700,3 +700,5 @@ mixer and holds no reverb.
 - **The amplifier and under water** (section 2; section 5, row 8; section 6, check 6): replaced by
   `docs/reports/W3-17-amp-mdy-second-read.md`. The water preset's amplifier does not swing. Its gain is full for
   100 ms, glides once to 1640/4096 over 80 ms and stays there.
+- **The automatic room's largest share is 72/256, not 80**: the 80 belongs to a "diffuse" template pair, and the
+  engine never measures diffusion in this build, so that pair is never chosen (second read, difference 4).

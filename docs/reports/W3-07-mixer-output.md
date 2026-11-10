@@ -397,7 +397,8 @@ outside the engine (XAudio2 2.7, measured, not read):
 
 - **The voice's room share is not always 26/256.** Putting a preset on the room slot overwrites the four mix
   variables from the preset's header. Presets 0 to 29 give 26/256 to the room and 229/256 direct; the automatic
-  room gives 5 to 80 of 256 by shape (`docs/reports/W3-15-room-dsp.md`, section 1).
+  room gives 5 to 72 of 256 by shape (`docs/reports/W3-15-room-dsp.md`, section 1; the 80 of its table belongs to a
+  template pair the engine never chooses, per the second read).
 - **`dsp_enhance_stereo` is 0 at start**, so that stage is skipped.
 - **The two-speaker level is 182.6/256, not 253.5/256**: the default sound mixer gives the voice's group 0.72.
   The headphone level, 255/256, stands.

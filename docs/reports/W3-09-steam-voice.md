@@ -663,3 +663,13 @@ to load voice codec 'vaudio_speex'` line once, at the map load; the `incoming sa
 22050 Hz; Speex would say 160); if nothing is printed at all, voice is off, and opening Options, Voice once (the
 microphone test) should bring it back as CELT. In the 32-bit game with the module in place, the same run shows
 whether that line appears and with which three numbers.
+
+## Corrections (2026-11-10, from W3-14 and the W3-16 read)
+
+- **The printed peak is a percentage of 32768**, not a fraction of full scale (the `max` figure of the
+  `@voice_spew_activity_check` line). Checked on 789 lines of the file-input run.
+- **The hold is not plain wall-clock time.** It is `now > noted + 0.4` in 32-bit floats on a clock that counts
+  from Steam's start, so the float's step matters from about a day and a half of running on, not only "after
+  days": `docs/reports/W3-16-steam-hold-read.md`.
+- **The clock is not the 15.625 ms timer's multiples.** Steam's reads fall 48 to 64 ms apart, nearly uniform
+  (`docs/reports/W3-14-steam-file-input.md`, section 3).
