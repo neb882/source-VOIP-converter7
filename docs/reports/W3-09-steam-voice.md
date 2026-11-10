@@ -53,6 +53,10 @@ Steam path with no virtual cable: `mic_inputfile` (Steam reads a 24 kHz mono WAV
 - The public Linux libraries are not stripped of their section names but hold only about 500 symbols, none of the
   voice code's: they gave the libopus string and nothing easier to follow than the Windows build's assertions.
 - Every statement is marked **read**, **shown** (by the owner's logs or demo) or **inferred**.
+- Scratch scripts, not committed: `grid.py` and `grid2.py` (the Set G logs' packet sizes against chunk lengths),
+  `demo_sections.cjs` and `demo_gate.mjs` (the Set D demo's records, and the gate rule on its decoded chunks, with
+  the repository's own `demo.js` and libopus build), `t.c` (libswresample driven as Steam drives it), `cx.mjs`
+  (complexity 8, 9, 10). Only numbers derived from the private logs and demo are quoted.
 
 ## Part 1: what is already public
 
@@ -426,6 +430,19 @@ To the findings (`tests/REFERENCE_2026.md`):
 - **2 and 14:** the receiver's 24 to 44.1 kHz resampler is libswresample's default filter; its roll-off and its
   images above 12 kHz are in section 4.
 - **8:** concealment is capped at 10 frames per gap (read; the takes could not show it).
+
+To the app:
+
+- **The Steam profile's 24 to 44.1 kHz step** (`audio.js`, `resampleSinc` from the codec's rate to the voice rate)
+  stands in for libswresample's default filter, called once per packet. For a sample-exact receiver the real
+  library, or a port of its 16-bit path, has to run with the three calls of section 4; short of that, its response
+  above 10.5 kHz and its images to 13.5 kHz are what to match.
+- **`CODEC_PROFILES.speex`** (`constants.js`) has the codec at 8000 Hz with a resampler on each side. The module
+  does not resample: the codec should be handed the 11025 Hz sound directly (section 5). The library is Speex 1.0
+  to 1.0.3, where the profile runs 1.2.1; quality 4, 20 bytes, constant bit rate and enhancement are right.
+- **The gate** in the app works on 20 ms frames with a 6-frame pre-roll and a 22-frame hold; Steam's is the chunk
+  rule of section 1.
+- Opus: decode to 16-bit as Steam does (rounded and clipped) before the resampler.
 
 To the receiver plan's sender model (`docs/reports/W3-02-plan.md`):
 
