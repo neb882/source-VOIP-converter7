@@ -557,7 +557,7 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
    record's zeros included). Under `'game'` each of those packets goes, as it is, to
    `TF2VoiceChannel.createTimeline`'s `push({ tick, pcm, source })` (`source`: where the source's timeline
    would have laid `pcm[0]`, -1 for a silence record), and `advance(tick)` is called as the source runs on. The
-   source-timeline laying of W3-11a's point 4 is skipped. The timeline's output replaces the auto-gain's (stage
+   source-timeline laying of W3-11a's point 8 is skipped. The timeline's output replaces the auto-gain's (stage
    4); the mixer stage and everything after are unchanged. The timeline's `gain` is W3-05's gain object for the
    render's settings (every sample it sees is decoded); with `agc: false` it is an object that multiplies by
    `voice_scale` and clips to int16, as stage 4 does now. **With the gate off** the sender still makes messages
