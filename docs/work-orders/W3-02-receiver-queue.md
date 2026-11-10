@@ -643,29 +643,42 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
   - **The layouts.** Sources at 24 kHz: bursts of 2 s of a 1 kHz square wave of height 1000 of 32768 (so, as
     in W3-02b's own tests, a chunk is active when about a third of it is burst: the mean rule alone decides),
     noise at -50 dBFS between (under the gate; it makes the pre-roll sound, not zeros). **P:** silences of 300, 500 and 1200 ms. **Q:**
-    silences of 900, 600 and 1200 ms. Seeds 1 to 10. The figures in brackets are what W3-02b's build measured
-    on the same layouts with the module alone, seeds 1 to 50 (its report, "The timeline's checks"); a codec and
-    a filter stand between here, so the ranges are those, a little wider, and no exact count is asked.
+    silences of 900, 600 and 1200 ms. Seeds 1 to 10. The figures in brackets are what the plan's third read
+    measured on these layouts and this signal with the merged modules alone (the sender, the timeline, the
+    resampler's counts, the codec's delay of 156 samples in `source`), seeds 1 to 50 unless said. **What
+    stands between that run and this section:** not the codec (the sender runs before it, so it changes no
+    gate decision and no count, and the resampler's counts are exact) but the 24 kHz capture filter in front
+    of the sender. It can move a chunk at a burst's edge, so it may flip single seeds in the 500 ms case and
+    shift an offset by up to one chunk. The ranges leave 5 to 30 ms for that; the tightest is the 900 ms
+    case's upper end (-191.9 against -190), which the "8 of 10" absorbs. No exact count is asked.
     - **A 300 ms pause never makes a spurt** (it is inside the 0.4 s hold): in P, every seed,
       `codecInfo.channel.spurts[0].end` is past the second burst's end and `codecInfo.sender.spurts[0]` holds
       both bursts.
-    - **A 500 ms pause makes its own spurt in some seeds and not in others** (38 of 50 with the module; in the
-      rest the chunk after the final one is already active, the sender re-opens with no silence record and the
-      timeline keeps one spurt). In P, per seed, exactly one of two holds: the timeline has 3 spurts, the
-      second not `opened`, with `offsetStartMs` between -20 and +60 [+8.0 to +24.1]; or it has 2 spurts and
-      the sender sent no silence record between the second and third bursts. Both must occur among seeds 1
-      to 10; if one does not, extend to seeds 1 to 30 and say so.
+    - **A 500 ms pause makes its own spurt in some seeds and not in others** [on this signal in 29 of 50, and
+      in 3 of seeds 1 to 10; W3-02b's 38 of 50 is for a level signal over silence: the noise between bursts
+      here lowers what a partly filled chunk needs]. In the rest the chunk after the final one is already
+      active, the sender re-opens with no silence record and the timeline keeps one spurt. In P, per seed,
+      exactly one of two holds: the timeline has 3 spurts, the second not `opened`, with `offsetStartMs`
+      between -20 and +60 [+14.5 to +21.0 in seeds 1 to 10]; or it has 2 spurts and the sender sent no silence
+      record between the second and third bursts. **Both must occur among seeds 1 to 10; if one does not,
+      extend to seeds 1 to 30; if one still does not occur there, the check fails.** This is the only line
+      of the section that catches a sender whose hold is timed from the chunk's start in place of its read:
+      that sender splits every seed (50 of 50) and passes every range below.
     - **An early start, after 900 ms.** In Q at 300 fps, in at least 8 of the 10 seeds, `spurts[1]` is not
-      `opened` and its `offsetStartMs` is between -330 and -190 [appended in 49 of 50, -318.1 to -198.4];
-      at 67 fps it is `opened` in every seed and within 80 ms of the source [-15.3 to +54.4]. Where it is
+      `opened` and its `offsetStartMs` is between -330 and -190 [appended in 49 of 50, -311.6 to -191.9; in
+      seeds 1 to 10, all ten, -257 to -225]; at 67 fps it is `opened` in every seed and within 80 ms of the
+      source [+22 to +46 in seeds 1 to 10]. Where it is
       appended, in `codecInfo.frameLog` that spurt's codes begin `round(-offsetStartMs / 20)` slots earlier
       than in `codecInfo.sent.frameLog`, within one slot.
-    - **Overflow at a restart.** At 300 fps: in P `spurts[0].droppedMs` is between 60 and 210 [82.1 to 186.1]
+    - **Overflow at a restart.** At 300 fps: in P `spurts[0].droppedMs` is between 60 and 210 [82.1 to 177.7]
       and the spurt after the 1200 ms pause is `opened` with `droppedMs` between 60 and 190 [79.6 to 167.8];
-      in Q `spurts[0].droppedMs` is between 45 and 150 [65 to 128]; `channel.drops` is not empty. At 67 fps
+      in Q `spurts[0].droppedMs` is between 45 and 150 [64.9 to 128.5]; `channel.drops` is not empty. At 67 fps
       every `droppedMs` is 0 and the list is empty.
-    - What a wrong build does here, from W3-02b's breaks: a hold of 0.39 s or less changes which seeds split
-      at 500 ms (the module's suite pins 38 of 50; here a hold under 0.3 s splits the 300 ms pause); a channel
+    - What a wrong build does here, from the third read's three broken senders and W3-02b's breaks: a hold
+      timed from the chunk's start splits the 500 ms pause in every seed (the line above); a frame count not
+      restarted at a spurt fails the 900 ms and the 1200 ms lines; a `start` without the pre-roll fails the
+      500 ms and the 900 ms offsets; a hold of 0.39 s or less changes which seeds split at 500 ms (the
+      module's suite pins its own count; here a hold under 0.3 s splits the 300 ms pause); a channel
       that is never appended to makes `spurts[1]` of Q `opened` at 300 fps; a wait a tick off moves
       `droppedMs` at 300 fps out of range or makes it non-zero at 67; the ring's oldest sound not dropped
       empties `drops`.
@@ -673,7 +686,11 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
     `voice_scale` 0 at 67 fps on layout Q (nothing is dropped there), the render is zero everywhere but in a
     run of at most 132 samples at the start of each `opened` spurt (the first 128 samples a new channel is
     given, at unity, less the two the channel and the first pull take, plus the output stage's smear), at
-    least 100 of them non-zero; an appended spurt adds none. With the settings read at construction instead
+    least 100 of them non-zero; an appended spurt adds none. **For this check the noise between bursts is at
+    -40 dBFS** (still under the gate: its mean is about 260 against 327.67), because those samples are the
+    spurt's pre-roll after Opus with DTX on, which may turn noise at -50 dBFS into a few steps of comfort
+    noise or nearly nothing. If fewer than 100 are non-zero on a build that passes the rest, report the count
+    and stop. With the settings read at construction instead
     and changed before a second open (through the wrapper, in a unit check of it), the second open still uses
     the old ones: that check fails.
   - **A late frame is not decoded silence:** a hand-made mask with one late frame in a long burst, `agc` on:
