@@ -48,8 +48,9 @@ below). The fix round followed. This report is the whole as it now stands; "Fix 
     gives the same.
   - No hash of `reference.out` and no length of `tails.out` moved. None of the 16 cases is a shaft.
 - `tests/room-dsp.verify.mjs` has 210 checks: part a's 127, unchanged, and 83 of part b (63 in the first build and 20
-  in the fix round). The whole suite takes 12.2 s alone on this machine, and part b's sections 2.0 to 2.7 s; the limit
-  is 30 s. `pnpm test` and CI: see the hand-back for the head's runs.
+  in the fix round). It takes 13.0 s inside `pnpm test` on this machine (12.2 s alone; part b's sections 2.0 to
+  2.7 s; the limit is 30 s). `pnpm test` passed in full under the heavy lock on `17a4ac3`, the fix round's last code;
+  later commits change only documents. CI passed on `704cc70`.
 - **Breaks**: 101 mutations, each in a scratch copy of `room-dsp.js`: 15 for the order's seven rows, 59 of the
   builder's own from the first build, and 27 for the fix round. **All are caught but T18**, which no input can show.
   19 of them were also run against the whole suite (15 in the first build, 4 in the fix round): the same checks failed,
