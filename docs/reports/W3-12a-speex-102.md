@@ -3,7 +3,7 @@
 Speex 1.0.2 is built from Xiph's public source to a WebAssembly module in `vendor/speex-1.0.2/`, set up and framed as
 `docs/reports/W3-09-steam-voice.md`, section 5, reads the game's `vaudio_speex` module. It matches a native build of
 the same source bit for bit: packets, decoded floats and 16-bit output, on 516 frames. `tests/speex102.verify.mjs`
-(27 checks, in `pnpm test`) holds the native hashes and checks section 5 point by point. Every check fails when its
+(30 checks, in `pnpm test`) holds the native hashes and checks section 5 point by point. Every check fails when its
 line is broken (table below). Part b (the profile) is not touched.
 
 ## Files
@@ -15,7 +15,7 @@ line is broken (table below). Part b (the profile) is not touched.
 | `tests/speex102/libc.c`, `tests/speex102/include/` | what 1.0.2's `misc.c` and `speex_header.c` need beyond `tests/libopus11/libc.c`: `stderr`, `fprintf`, `printf`, `fputc` (print nothing), `exit` (traps), `strncpy`, glibc's `rand`; `acos` in `math.h` |
 | `tests/speex102/native.c`, `native.mjs` | the native build and the comparison; `native.mjs` also exports the test signals |
 | `tests/speex102.verify.mjs` | the checks |
-| `vendor/speex-1.0.2/` | `speex-1.0.2.wasm.mjs`, `index.mjs`, `README.md` (lists the files compiled), `COPYING.speex` (from the 1.0.2 tree), `COPYRIGHT.musl` |
+| `vendor/speex-1.0.2/` | `speex-1.0.2.wasm.mjs`, `index.mjs`, `README.md` (lists the files compiled), `COPYING.speex` (from the 1.0.2 tree), `NOTICE` (the sources' copyright notices), `COPYRIGHT.musl` |
 | `tests/vendor-opus.mjs` | the module's recorded hash |
 | `package.json` | `node tests/speex102.verify.mjs` in `test`, after the 1.2.1 suite |
 
@@ -120,6 +120,8 @@ gives the native build's 16-bit output".
 | decompress = frame by frame, remainder ignored | B7 skips the first frame | fails; B7b (`Math.ceil`, decodes the remainder) throws `Expected a 20-byte packet` |
 | reset gives a new codec's packets | B8 `reset()` does nothing; C5 encoder not reset | `16 of 138 packets differ` (both) |
 | pair delay 80 samples | B11 | `peak at 81` |
+| speech with reset() before frame 138: native, and decode() 16-bit (2) | A1 no decoder reset; A3 reset makes a new decoder | both checks fail under each; decode() hash `462d4502ac1cf585` and `8cccf898d10652bc` |
+| a codec gives what it gives alone while others are made beside it | J10 the memory views made once, at create | `4 codecs made during the run; wrong at frame 0: Cannot perform %TypedArray%.prototype.set on a detached ArrayBuffer` |
 
 These breaks change nothing, and no check fails on them:
 
@@ -147,15 +149,18 @@ These breaks change nothing, and no check fails on them:
    packets and 0 decoded frames differ. The 1.0 to 1.0.2 differences touch only sub-mode 1 (the forced pitch gain),
    lost frames (`ltp.c`), the bit-buffer terminator, and wideband, none of which this module uses. So the cap at 15
    that rules out 1.0 matters only to the reading, not to the sound.
-3. **Speex 1.0.3 is caught, but only by moderate signals.** Built the same way (`Speex-1.0.3`, `5a3c9c0…`), it
-   changes 248 of 276 speech packets, but 0 of the square wave, noise and silence. Loud signals push the gain index
-   to its cap of 31, and silence to 0, whatever the half. The native speech hash catches it.
+3. **Speex 1.0.3 differs on everything but full-scale and silent sound.** Built the same way (`Speex-1.0.3`,
+   `5a3c9c0…`), it changes 248 of 276 speech packets, but none of the full-scale square wave, the -6 dBFS noise or
+   silence: very loud sound pushes the gain index to its cap of 31, and silence to 0, whatever the half. The review
+   measured more levels: the speech-like signal at gains 0.01 to 1 (247 to 251 of 276 packets differ), noise at -40
+   and -20 dBFS (100 of 100) and a sweep (300 of 300). (My first version of this report said "only moderate
+   signals", which was wrong.) The native speech hash catches it.
 4. **"68.9 frames a second"** is 11025 / 160. At 165 samples per 15 ms tick exactly, the rate would be 68.75 (33 frames
    in 32 ticks). The check feeds 10 s of 11025 Hz sound in 165-sample calls and counts 689 frames.
-5. **The decoder's reset is partial in 1.0.2.** Request 26 clears the decoder's synthesis memory and buffers, but not
-   its old LSPs, last pitch, enhancement memory or `first` flag. After `reset()` the packets equal a new codec's (the
-   order's check), but the decoded output does not: 2 of 138 frames differ, measured. The encoder's reset is
-   complete enough for the packets.
+5. **The decoder's reset is partial in 1.0.2** (see "For part b"). After `reset()` the packets equal a new codec's
+   (the order's check), but the decoded output does not. Counting differing frames cannot check the reset: with no
+   decoder reset at all, the count is the same 2. So the review's fix records the native hashes of a run with a reset
+   (below).
 6. **The conversion beyond 2^31.** `(Math.trunc(x) << 16) >> 16` reduces modulo 2^32 first. An x86 conversion gives
    0x80000000 for |x| ≥ 2^31 (low 16 bits 0). NaN gives 0 both ways. Decoded values never come near 2^31 (the peak
    here is 56 473), so I followed the order.
@@ -167,7 +172,7 @@ These breaks change nothing, and no check fails on them:
    clamp can never move the output more than the wave. With that rule the clamp break fails the check (`0 jumps`),
    and the correct build has 963.
 
-## For part b's builder
+## For part b
 
 - **Delay:** the encode/decode pair delays the sound by **80 samples** (7.26 ms at 11025 Hz). Measured as W1-01 did:
   a voice-band signal (harmonics from the 2nd to 3.4 kHz, so no phase turn from a high-pass), encoded and decoded.
@@ -178,7 +183,32 @@ These breaks change nothing, and no check fails on them:
 - **Module size:** 133 735 bytes of WebAssembly; the `.wasm.mjs` file is about 178 kB. Add both files of
   `vendor/speex-1.0.2/` to `sw.js` when the page loads them.
 - 1.0.2 has **no input high-pass** (1.2.1 has one in the encoder and the decoder), so low frequencies keep their phase.
-- `reset()` is partial on the decoder (item 5). Loud input wraps a lot: the speech-like signal's loud vowel wraps 2106
+- **Reset with request 26, never with a new codec.** The game resets with request 26 on both (section 5). In 1.0.2
+  that reset is partial on the decoder, so a new decoder gives other sound. The check "speech with reset() before
+  frame 138" pins the request-26 result to the native build's hashes.
+- **What survives request 26 in 1.0.2's decoder.** This is the review's reading, which I checked against the public
+  source (`libspeex/nb_celp.c` at tag Speex-1.0.2):
+  - `nb_decoder_ctl`, case `SPEEX_RESET_STATE`, zeroes only `mem_sp[0 .. 2*lpcSize)` (the synthesis and enhancement
+    filter memories; `mem_sp` has `5*lpcSize`), `excBuf` and `inBuf`.
+  - `first` is left at 0. So the first frame after a reset interpolates its LSPs from `old_qlsp`, the last frame
+    before the reset (`nb_decode`: `if (st->first || st->count_lost)` copies `qlsp` into `old_qlsp` only for a new
+    decoder).
+  - `comb_mem` (the enhancement comb filter's memory, used by `comb_filter` in `nb_decode` when enhancement is on;
+    sub-mode 3's comb gain is .45 in `modes.c`) is left as it was.
+  - Also left, with no effect here: `last_pitch`, `last_pitch_gain`, `pitch_gain_buf`, `last_ol_gain`, `count_lost`
+    (used only for lost frames), `voc_m1`, `voc_m2`, `voc_mean`, `voc_offset` (sub-mode 1), `pre_mem` (pre-emphasis
+    is 0.0), `submodeID` (read from each packet), and the settings.
+  - The review's probe: after request 26, also setting `first = 1` and re-initialising `comb_mem` makes the decoder
+    bit-identical to a new one (0 of 138 frames differ); either one alone leaves 3 or 2 frames differing. So these two
+    are the state that changes the sound after a reset.
+  - The encoder's reset (`nb_encoder_ctl`) sets `first` and `bounded_pitch` and clears the LSPs, filter memories and
+    buffers; after it the packets equal a new encoder's.
+- **Speex 1.0 and 1.0.2 are one codec at these settings.** The review ran 13 signals (the four test signals, speech
+  at six levels, noise at -40 and -20 dBFS, a sweep) through native builds of both: identical packets and decoded
+  frames. I found the same on the four test signals. Their source differences are all unreachable here (sub-mode 1's
+  forced pitch gain, a lost-frame path in `ltp.c`, the bit terminator, wideband). So whether the game has 1.0, 1.0.1
+  or 1.0.2 does not matter for the sound; only the module's reading (the cap at 15) tells them apart.
+- Loud input wraps a lot: the speech-like signal's loud vowel wraps 2106
   samples, the square wave 6956.
 - `tests/speex102.verify.mjs` imports `vendor/speex/index.mjs` for the 1.2.1 comparison. If part b removes
   `vendor/speex/`, that check must build 1.2.1 natively in `native.mjs`, or go (the order allows either).
@@ -196,5 +226,43 @@ These breaks change nothing, and no check fails on them:
 - The merge of main had one conflict, the `test` line in `package.json`, shared with W2-02's render-stream suite. Both
   suites are kept. The merge commit's message has git's `# Conflicts` lines after the trailer. It was already pushed,
   so I left it rather than rewrite a pushed branch.
+- The review round's merge of main (`4c0d22e`) had the same conflict, with W3-02a's voice-channel suite: all three
+  are kept, and its message ends with the trailer lines. The first merge (`d6c8ef2`) still has git's `# Conflicts`
+  lines after its trailers: changing it would rewrite a pushed commit, which the pipeline forbids. The review found
+  `git interpret-trailers --parse` still reads both trailers there.
 - I scanned the diff and the commit messages: no recordings, personal details, machine paths or model names, apart
   from the required trailers.
+
+## Review round
+
+The review (rebuilt byte for byte from fresh clones, all 12 native hashes reproduced, ten minutes through one codec
+identical to native) found two test gaps and a licence omission. Fixed:
+
+1. **The decoder's reset had no check.** Deleting the decoder's request 26, or making a new decoder in its place,
+   passed all 27 checks. `native.c` now takes a frame number and calls `sx_reset` before it; `native.mjs` runs the
+   speech-like signal again with a reset before frame 138 (`speechReset`), and both sides agree:
+
+       speechReset: 276 frames; packets c105432d886f024fdd2d7ecbab934f5f5eabc89ff44f91fe9ba8a656b810de66,
+         floats 74f0b71c19f806d24846999ac794bb3a33f540b2774b9552d114e4f6124f4266,
+         16-bit 57172332a339ebdb3f2bf5d70342aa6f1472ce109866f14c0f13aa180f3c1594 (WebAssembly identical)
+
+   These are my native build's values; they equal the review's. The verify holds them and checks them through
+   `wasmStream` and through `codec.decode`. Breaks A1 (no decoder reset) and A3 (a new decoder) each fail both
+   checks (table above).
+2. **A stale view after memory growth had no check.** The module's memory grows about a page per codec made, which
+   detaches older views. New check: a codec made first, used while 112 others are made, and two codecs interleaved
+   frame by frame, each give what a codec gives alone. Break J10 (the views made once, at create) fails it.
+3. **Licence notices.** 1.0.2's `COPYING` has the terms but names no holder. `vendor/speex-1.0.2/NOTICE` quotes, from
+   the compiled files as they stand: Jean-Marc Valin's line (and "& David Rowe" in `cb_search.h`), the numbered
+   terms of the four table files, the Voicetronix origin of `lsp.c` and `lsp.h`, and the Jutta Degener and Carsten
+   Bormann notice of `lpc.c`. The README points to it.
+4. **Report:** the 1.0.3 wording is corrected (item 3), and "For part b" has what survives request 26 and the 1.0
+   result.
+
+Also: `encoderCtl` and `decoderCtl` now throw on a freed codec, as `encode` does (they trapped before). The module's
+bytes did not change, so its hash is the same. 30 checks now.
+
+Runs at the end of the round: `pnpm test` under the heavy lock, exit 0 in 2 min 46 s (`30 Speex 1.0.2 checks
+passed`, `101 voice channel checks passed`, every other suite as before); `pnpm test:vendor` ends `Speex 1.0.2 build
+matches its recorded hash.`; `native.mjs` "The WebAssembly module matches the native build bit for bit." on all five
+runs. CI on the pushed head is in the hand-back.
