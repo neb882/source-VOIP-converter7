@@ -103,7 +103,9 @@ const silent = await A.process(buffer(new Float32Array(rate), rate), base);
 // Opus's own quantization may return very small nonzero PCM for silence.
 check('Silence stays below -100 dBFS RMS without added hiss', energy(silent.samples) / silent.samples.length < 1e-10);
 const muted = await A.process(buffer(x, rate), { ...base, voiceScale: 0 });
-check('Receiver mute is exact silence', energy(muted.samples) === 0);
+// A render starts with a reset gain, at unity for its first 128 voice-rate samples whatever voice_scale is (W3-05).
+const unmutedAt = muted.samples.findLastIndex(v => v !== 0);
+check('Receiver mute is exact silence after the first block', unmutedAt >= 0 && unmutedAt < Math.round(0.01 * muted.sampleRate));
 // x is about -21 dBFS RMS; stay above the Steam voice gate (-39.5 dBFS) so the gain is what is tested.
 const quiet = Float32Array.from(x, v => v * .3);
 const leveled = await A.process(buffer(quiet, rate), base);
