@@ -310,6 +310,7 @@ function watchedEngine() {
   const watch = (make) => async (...args) => {
     const stream = await make(...args);
     return { ...stream,
+      get wrapped() { return stream.wrapped; },
       async restart() { log.restarts++; log.sent.push('restart'); return stream.restart(); },
       encode(frame) { const encoded = stream.encode(frame); log.sent.push(Array.from(encoded.packet).join()); return encoded; },
       decode(packet) { log.decodes++; return stream.decode(packet); },
@@ -495,6 +496,20 @@ console.log('\n[speex profile] Decoded samples wrap: the count at the decoder\'s
   const r = await A.process(buffer(loud, 48000), { codec: 'speex', agc: false, volume: 1 });
   check('a loud source gives wrapped samples in the render (counted at the decoder\'s output)', r.codecInfo.wrappedSamples > 0,
     `${r.codecInfo.wrappedSamples} samples wrapped`);
+  // createRender, pushed in uneven pieces, gives process()'s samples and count.
+  const piecewise = await A.createRender({ sampleRate: 48000, length: loud.length, numberOfChannels: 1 }, { codec: 'speex', agc: false, volume: 1 });
+  const parts = [];
+  for (let o = 0, k = 0; o < loud.length; k++) {
+    const size = 3000 + 777 * (k % 5);
+    parts.push(await piecewise.push(loud.subarray(o, Math.min(loud.length, o + size))));
+    o += size;
+  }
+  const end = await piecewise.finish();
+  parts.push(end.samples);
+  const pieces = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+  parts.reduce((o, p) => { pieces.set(p, o); return o + p.length; }, 0);
+  check('createRender gives that render too, its samples and its count', same(pieces, r.samples) && end.codecInfo.wrappedSamples === r.codecInfo.wrappedSamples,
+    `${end.codecInfo.wrappedSamples} wrapped; ${pieces.length} samples`);
   // Part a's own speech-like signal as the module gets it: its 16-bit samples
   // at 11025 Hz, each / 32768, the microphone gain at 1 and no filter, so that
   // only the new rounding stands before the codec. Through the profile's

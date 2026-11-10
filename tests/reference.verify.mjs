@@ -170,13 +170,19 @@ check('Level tracking rejects unequal lengths', true);
   check(`Real take against a CELT render: its frame log is read on ${(1000 * celtFrame).toFixed(1)} ms frames (${celtTrack.points} windows from ${celtTrack.overlap.t0} to ${celtTrack.overlap.t1} s, ${lastDelay.toFixed(3)} ms)`,
     celtTrack.points > 0 && near(lastDelay, 1000, .1) && celtTrack.overlap.t0 > .3 * seconds - 1.5 && celtTrack.overlap.t1 > seconds - 1);
   // A Speex render logs its frames with their own code (7), and they count as
-  // coded. Its frames are 160 samples of 11025 Hz sound: 14.5 ms.
+  // coded. Its frames are 160 samples of 11025 Hz sound: 14.5 ms, the grid
+  // its log is read on. As for CELT, the first 30% of its frames are marked
+  // unsent, so the windows start after 6 s; read 20 ms at a time, the log
+  // would put the unsent stretch until 8.3 s.
   const speex = await audio.process({ sampleRate: sr, length: src.length, numberOfChannels: 1, getChannelData: () => src }, { codec: 'speex' });
   const speexTake = TF2Reference.warpSegments(speex.samples, sr, [{ a: -1, b: 1, start: 0, end: seconds + 2 }], sr, Math.round((seconds + 2) * sr)).map(v => .316 * v + 1e-4 * random());
-  const speexTrack = TF2Reference.track(speexTake, sr, src, sr, { reference: { samples: speex.samples, rate: sr, frames: speex.codecInfo.frameLog, frameSeconds: 160 / 11025 } });
+  const speexFrame = speex.codecInfo.frameSamples / speex.codecInfo.sampleRate, speexCount = speex.codecInfo.frameLog.length;
+  const speexLog = speex.codecInfo.frameLog.map((c, f) => (f < .3 * seconds / speexFrame ? 0 : c));
+  const speexTrack = TF2Reference.track(speexTake, sr, src, sr, { reference: { samples: speex.samples, rate: sr, frames: speexLog, frameSeconds: 160 / 11025 } });
   const speexDelay = speexTrack.segments[speexTrack.segments.length - 1].delayMs;
-  check(`Real take against a Speex render: its 14.5 ms frames (code 7) count as coded (${speexTrack.points} windows, ${speexDelay.toFixed(3)} ms)`,
-    speex.codecInfo.frameLog.every(c => c === 7) && speexTrack.points > 0 && near(speexDelay, 1000, .1));
+  check(`Real take against a Speex render: its 14.5 ms frames (code 7) count as coded (${speexTrack.points} windows from ${speexTrack.overlap.t0} to ${speexTrack.overlap.t1} s, ${speexDelay.toFixed(3)} ms)`,
+    speex.codecInfo.frameLog.every(c => c === 7) && speexCount === Math.ceil((Math.round(seconds * 11025) + 80) / 160) && speexTrack.points > 0
+    && near(speexDelay, 1000, .1) && speexTrack.overlap.t0 > .3 * seconds - 1.5 && speexTrack.overlap.t0 < .3 * seconds + 1);
 }
 
 // Segment measures for the pre-registered predictions (tests/predictions).
