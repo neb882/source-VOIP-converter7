@@ -116,7 +116,8 @@ file as in Set B. Each tick's `bufsize` line, with the `incoming` lines between 
 
 - **Five channels.** An array at `0x1804eae50`, 5 entries of `0xACC0` bytes (`imul rdi, rax, 0xacc0` at
   `0x1800581f0`; loops end at the array's end). A sixth speaker gets no channel
-  (`ProcessVoiceData: Voice_AssignChannel failed for client %d!`, printed only in developer mode).
+  (`ProcessVoiceData: Voice_AssignChannel failed for client %d!`, printed only when a check passes that looks like
+  the developer setting).
 - **A channel holds:** the speaker's entity (-1 when free, offset 0); a ring buffer (offset 4: count, read position,
   write position, size, then the data); the interpolator's fraction (a double, `+0xAC60`); a "starved" flag
   (`+0xAC6A`); the start countdown (a float, `+0xAC6C`); the legacy codec's decoder (`+0xAC70`); the automatic gain's
@@ -178,7 +179,9 @@ Two facts about this call decide the restart latency:
 - **Its argument is the duration of the current frame, not of a tick** (`movss xmm0, [0x1807571AC]` at
   `0x1801a7306`). That variable is written in one function only (`0x1801a1920`), once per frame before the tick
   loop: the real time since the last frame (or `host_framerate` and `host_timescale` when those are allowed),
-  limited to between 0.001 and 0.1 s, then passed through the client's clock correction.
+  limited to between 0.001 and 0.1 s, then passed through the client's clock correction (which stretches or
+  shrinks it by up to a fifth while the client's clock is more than 10 ms from the server's, and otherwise leaves
+  it alone).
 
 So the countdown loses one frame's duration every 15 ms. At exactly 66.7 fps that is real time. At a higher frame
 rate it runs slow in proportion:
@@ -438,8 +441,11 @@ Read, from `_Host_RunFrame_Client` (`0x1801a71a0`) and the function it calls (`0
   cannot hear the speaker is skipped, except the speaker himself, who gets the message with a length of zero when
   `voice_loopback` is off (the "I am heard" acknowledgement). Nothing is merged or re-timed here.
 
-Not read: when the client's and the server's network channels actually put a queued voice message on the wire
-(the packet rates), which is what sets the arrival jitter.
+- **Neither side sends voice on its own (read):** the client's message and the server's are written into the
+  channel's ordinary unreliable stream (the channel's separate voice stream is not used: the flag for it is zero
+  at both call sites, `0x1801a73c6` and `0x18006587d`). They leave with the channel's next regular packet: the
+  client's next command packet and the listener's next update. So a voice message can wait up to one packet
+  interval on each leg. What those intervals are (the `cl_cmdrate` and `cl_updaterate` logic) was not read.
 
 ## 4. The debug variables
 
@@ -550,7 +556,8 @@ Read from `Voice_Init` and the two rate functions:
    long spurt `bufsize` at a fixed point of the packet cycle falls by 2 bytes per packet.
 4. **The decoder alone:** `voice_recordtofile 1` with `voice_maxgain 1`, one key press under 11 s, gives Steam's
    decoded output at 44.1 kHz with no recorder in the chain. With default gain it gives the gain's output, to
-   compare with the model sample by sample (the first 128 samples at gain 1.0 are the reset).
+   compare with the model sample by sample: the first 128 samples after a restart at gain 1.0, an appended spurt
+   starting at the cap, the ramp's divisor of 127.
 5. **`vaudio_celt_high`:** `sv_voicecodec vaudio_celt_high`, reload the map, and record the test signal. Predicted:
    nothing above 11 kHz, and with `net_fakeloss` gaps in units of 46 ms.
 
@@ -559,7 +566,10 @@ Read from `Voice_Init` and the two rate functions:
 - **Steam's side** (`steamclient`, not among the files): the gate, the pre-roll, the batches `GetVoice` returns, the
   end marker, the silence record, the decoder and its resampler to 44.1 kHz. `steam_api64.dll` is only the door to
   it.
-- **The network channel:** when a queued voice message is put on the wire by the client and by the server.
+- **The network channel's packet timing:** how often each side sends its regular packets, with which the voice
+  rides.
+- **What sets the flag that forces the voice rate to 11025 Hz** (`0x18047E9ED`; it belongs to a larger structure
+  and is not written by address anywhere).
 - **The mixer beyond the voice source:** `volume`, any output filtering, the device layer and its latency, and
   whether the mix rate can be other than 44100 Hz. (If the mixer ever asked the voice source for more than 1024
   samples at once, the source would hand back repeated samples: a units slip in the read limit, harmless at pitch
