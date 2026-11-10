@@ -36,6 +36,11 @@ function updateNetGraph() {
       els.ngIn.textContent = `${pps} ${kps}`;
       els.ngOut.textContent = `${pps} ${kps}`;
       els.ngLoss.textContent = sent ? Math.round(100 * (info.lostFrames + (info.underrunFrames || 0)) / sent) : 0;
+      // On `steam` the decoder conceals a gap when the next frame arrives:
+      // the count is of frames concealed, not of frames lost (those lost at a
+      // spurt's end are never played).
+      els.ngLoss.title = info.sender && info.sender.rule === 'steam'
+        ? '% of frames sent that were concealed or late; frames lost at a spurt\'s end are not played' : '% of frames sent that were lost or late';
     } else {
       els.ngIn.textContent = '0 0.00';
       els.ngOut.textContent = '0 0.00';
