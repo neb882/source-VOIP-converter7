@@ -26,15 +26,21 @@
   "in_flight": [
     {
       "order": "W3-11a-steam-render",
-      "state": "building",
+      "state": "in review",
       "branch": "claude/w3-11a-steam-render",
-      "note": "The steam profile sends and decodes as Steam does, in process() and createRender: Steam's sender, the capture rounded to 16 bits, the library's own 16-bit Opus decode (the pinned module rebuilt with opus_decode exported), the decoder's rules, one resampler per render fed whole messages, the gain fed decoded packets only. Built on a branch that carries W3-13's (main at 595b2f5 plus origin/claude/w3-13-steam-resampler); W3-13 has since merged to main, so nothing holds this order's merge but its own checks. Private runs by the orchestrator afterwards: the accuracy table before (scratch accuracy/results-w305.json, the steam path as it is on main) and after, and Set D's demo through the sender."
+      "note": "Built (head 8853fea, CI green). Private runs by the orchestrator: the accuracy table is acceptable (clean takes within 0.12 dB below 10 kHz, the 11 to 12 kHz band 0.3 dB closer, spurt counts unchanged); the sender's demo check and the re-timing check are unchanged. Second read: the branch's own process(), driven by Steam's chunk lengths from Set J, gives Steam's recording in 524,286 of 524,288 samples, and the gate clip as one session in 524,256 of 524,288 once the decoder's 17-frame cut is applied as read; one should-fix (re-timing on the steam path leaves up to 10 ms of a moved spurt behind; off by default). The reviewer's hand-back is awaited, then the fix round."
+    },
+    {
+      "order": "W3-17a-room-module",
+      "state": "building",
+      "branch": "claude/w3-17a-room-module",
+      "note": "Part a of docs/work-orders/W3-17-room-effects.md (planned, reviewed, revised): the room module as new files only (room-presets.js, room-dsp.js, tests), integer for integer against the reference in tests/roomdsp/. Parts b (the automatic room's build), c (the render uses it; after W3-10) and d (the page) follow."
     }
   ],
   "next": [
     "Order of work (docs/reports/W3-11-plan.md as brought up to date by docs/reports/W3-plan-maintenance.md): audio.js is free. Next in it is W3-11a (Steam's sender, the 16-bit decode and the resampler in the render), being built (W3-13 is merged). Then W3-11b, W3-02c, W3-02d, W3-02f with W3-02e, W3-02g, and W3-10 last. Two builders at most.",
     "From W3-14 and the W3-16 read: W3-16, a small order on steam-sender.js (the hold in 32-bit floats on Steam's clock, with the sender's Steam uptime as a setting; reads uniform 48.0 to 63.7 ms apart; capture steps late by a fitted amount; no late frames; the decoder's 17-frame cut), being planned; checked privately against Set D's demo and Set J; it re-records the steam hashes, so it follows W3-11a's merge. W3-11b takes the key-press rules. A doc edit to W3-09's report: the printed peak is a percentage of 32768, and the float's steps matter at once.",
-    "From W3-15 and its second read: W3-17, the room effects as the engine does them (the split from the preset's header in place of the 0.45 mix, the engine's order and integer arithmetic, the automatic room's presets and build, under water as read; the non-game controls grouped as extras; stale labels fixed), being planned in parts. It touches audio.js, so it queues behind W3-11a and W3-16.",
+    "W3-17 (docs/work-orders/W3-17-room-effects.md): part a is being built; part b after it; parts c and d after W3-10. W2-04's room half is replaced by part c. The owner's recording procedure for rooms is in the order.",
     "Still open: a registered prediction for vaudio_celt_high; the long-render queue W2-03 to W2-06 is HELD by the owner's priority.",
     "W3-10 (docs/work-orders/W3-10-output-stage.md, written, not started): the output stage as the listener gets it, after the receiver's orders, since it re-records every golden hash."
   ],
