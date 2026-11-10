@@ -189,11 +189,39 @@ for (const [name, rate, opts, plan] of [
 add('steam, empty source', 48000, () => new Float32Array(0), {}, ['whole']);
 add('celt_22, one sample at 22.05 kHz', 22050, () => Float32Array.of(0.25), { codec: 'celt_22' }, ['whole']);
 add('speex, 100 samples at 96 kHz', 96000, () => voice(0, 96000, 8, 100), { codec: 'speex' }, ['7']);
+// Added in the review's fix round. Output lengths that are not whole
+// numbers (n x playbackRate / srcRate), so process()'s rounding of the
+// output length and the stream's cut or padding of its end are both seen: at
+// 24 and 37.8 kHz the fraction is under .5; at 32 kHz the last resampler
+// gives one sample less than the output's length (padded), at 37.8 and
+// 11.025 kHz one more (cut).
+for (const [rate, length, plans] of [[24000, 192004, ['uneven', 'whole']], [32000, 256007, ['uneven']], [37800, 302401, ['12345']],
+  [11025, 88203, ['uneven']]]) {
+  add(`steam, ${length} samples at ${rate} Hz (an output length of ${(length * 44100 / rate).toFixed(2)})`, rate,
+    () => voice(0, rate, 10, length), {}, plans);
+}
+// The gate measures the last, partial codec frame over the whole frame size,
+// as gatePlan does: a quarter frame of 0.02 sine at the very end is loud over
+// its own samples (-37 dBFS) but not over the frame (-43 dBFS), so it is gated.
+add('steam, silent but for a quarter frame of sine at the end', 48000, () => {
+  const x = new Float32Array(100 * 960 + 240);
+  for (let i = x.length - 240; i < x.length; i++) x[i] = 0.02 * Math.sin(i * 0.2);
+  return x;
+}, {}, ['whole', 'uneven']);
+// A demo's received voice past full scale (a decoder's float output is not
+// clamped): the capture's int16 clip applies to it as to any source.
+add('demo voice as received, past full scale', 24000, () => {
+  const x = new Float32Array(48000);
+  for (let i = 0; i < 24000; i++) x[i] = 1.2 * Math.sin(i * 0.05);
+  return x;
+}, { received: { frameLog: Array.from({ length: 100 }, (_, f) => (f < 50 ? 2 : 0)), frameBytes: Array(100).fill(60), frameMs: 20, spurts: 1 } },
+  ['uneven']);
 
 // SHA-256 of process()'s WAV, then of its codecInfo (canonical JSON, below).
-// All but one were recorded in commit 7e1862c, before createRender existed;
-// 'steam, volume 0.3' was added later, its hashes made by commit 7e1862c's
-// audio.js (TF2_DIR pointed at that commit's sources).
+// The first 40 were recorded in commit 7e1862c, before createRender existed.
+// 'steam, volume 0.3' and the six cases of the review's fix round were added
+// later, their hashes made by commit 7e1862c's audio.js (TF2_DIR pointed at
+// that commit's sources, which also gave every earlier hash again).
 const GOLDEN = {
   "steam": ["4a41e3b322eb0173de2f6c0644867c0caf87796c9754de0a6d57a505056cb378", "67cfe1bbede8e10591d27f9c6228b896dc4b20ddc143f5f12ad91ac1af1ae8bb"],
   "steam_48": ["431b36660c395e2a116860ca3b24dfba373bac4fb4a8d6a2b44cc3bd1d4ea403", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
@@ -235,7 +263,13 @@ const GOLDEN = {
   "test position with a low-pass": ["a4e77911ec99a86b9d78a8da43b03930e9a59a126a1c43985b27715a1f6feb6a", "f30befe79e342d9e341aaf0aa7b57be72fd5d8b1bcacb98c645b2d7f7c8f90fd"],
   "steam, empty source": ["531cd597b25052b4845ef2f3887dec2183240802a93b6e044960de8ba017caa0", "b32404c22fdf86532c9f8b847bb12e0e34ea69c064d8878fe91dcb037b2c2956"],
   "celt_22, one sample at 22.05 kHz": ["8bdb40f7f19fd74497e62f74abf6fd726353ab0c65d941eb81f714723d322133", "a032a8533eefecb38c033caee92275c8b1b3ff3d80f5c3b9a48fa4ead9f94fb6"],
-  "speex, 100 samples at 96 kHz": ["e6ba94cf55d4c02145702356be2fdb23e2611a566f95160892e31bbcf231406a", "7378c5937d73b07b2caf0066088b2b36f40454a3226768229cd65c6546e6088f"]
+  "speex, 100 samples at 96 kHz": ["e6ba94cf55d4c02145702356be2fdb23e2611a566f95160892e31bbcf231406a", "7378c5937d73b07b2caf0066088b2b36f40454a3226768229cd65c6546e6088f"],
+  "steam, 192004 samples at 24000 Hz (an output length of 352807.35)": ["9b531885afd25d9d190da64ded716b5b68229016c9582cd5760c4e8fda85e8fc", "b27d4df10af9fb2cdba36f99440f710c9d66d44e99d04e6a02b437aa95029c53"],
+  "steam, 256007 samples at 32000 Hz (an output length of 352809.65)": ["7d9463672c92ad0852241f31aacaacaa8bfbea19def395203f8781b2e5cb815f", "d509400ab5141857ca18e176b685c95ca99c4022132771f8835423d112e556af"],
+  "steam, 302401 samples at 37800 Hz (an output length of 352801.17)": ["b7042782eba190c361f848483e30a650d82b7ba899fc76c085611083d839fb34", "5a79bda3615c5bc801adba431b45b69d58894cda2b984ff091886cc46f534c67"],
+  "steam, 88203 samples at 11025 Hz (an output length of 352812.00)": ["11e4027514bbe3128842920395a7ae2dffb2190f2b5c79a2f4d5deae1898583e", "b0ec161479f3554d289cf7c7d5639b590e68520e41ffb62c058b53ad8f6e62e3"],
+  "steam, silent but for a quarter frame of sine at the end": ["0e7551d1a6a29d2465b83e4719334870fb0135c31f2d4e921511bfdde1841712", "9418ecb85fa67a120ba445822242bb01708ab2bb2204f0620b3feec8d7424127"],
+  "demo voice as received, past full scale": ["058fd36f2dc2efd28c55db954d157f3a14079350de20ad296773eee7628d2850", "e6a7ce0f09e5683c1726bbea1d2500d2aaebf930359a22246c73eeb4a1325eb6"]
 };
 
 /* ---------------- helpers ---------------- */
@@ -325,6 +359,28 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
   check('the six-minute case has many spurts', info('steam, six minutes').spurts > 50, `${info('steam, six minutes').spurts}`);
   check('the received case is the demo\'s frames', info('demo voice as received').backend === 'demo'
     && info('demo voice as received').lostFrames === 1 && info('demo voice as received').dtxFrames === 1);
+  // The fix round's cases. resampleSinc's length gives what reaches the
+  // output stage (here the voice-rate signal: the mixer and the output are
+  // at 44.1 kHz), against process()'s rounded output length.
+  const gcd = (a, b) => { while (b) { const t = a % b; a = b; b = t; } return a; };
+  const sincLength = (n, from, to) => (!n || from === to ? n : Math.max(1, Math.round(n * (to / gcd(from, to)) / (from / gcd(from, to)))));
+  const ends = [[24000, 192004], [32000, 256007], [37800, 302401], [11025, 88203]].map(([rate, n]) => {
+    const exact = n * 44100 / rate, last = sincLength(sincLength(n, rate, 24000), 24000, 44100);
+    return { fraction: exact % 1, short: Math.round(exact) - last };
+  });
+  check('the fix round\'s lengths: a fraction under .5 at 24 and 37.8 kHz, the output padded at 32 kHz and cut at 37.8 and 11.025 kHz',
+    ends[0].fraction > 0 && ends[0].fraction < 0.5 && ends[2].fraction > 0 && ends[2].fraction < 0.5
+    && ends[1].short === 1 && ends[2].short === -1 && ends[3].short === -1, JSON.stringify(ends.map(e => [+e.fraction.toFixed(4), e.short])));
+  const tail = sources.get('steam, silent but for a quarter frame of sine at the end'), rmsDb = (from, to) => {
+    let e = 0;
+    for (let i = from; i < to; i++) e += tail[i] * tail[i];
+    return 20 * Math.log10(Math.sqrt(e / (to - from)));
+  };
+  check('the quarter frame at the end is loud over its own samples and not over a frame, so it is gated',
+    rmsDb(tail.length - 240, tail.length) > -39.5 && rmsDb(tail.length - 960, tail.length) < -39.5
+    && info('steam, silent but for a quarter frame of sine at the end').spurts === 0,
+    `${rmsDb(tail.length - 240, tail.length).toFixed(1)} and ${rmsDb(tail.length - 960, tail.length).toFixed(1)} dBFS`);
+  check('the received voice past full scale peaks above 1', sources.get('demo voice as received, past full scale').some(v => Math.abs(v) > 1.1));
 }
 
 // The vm load the other suites use gives the same renders.
