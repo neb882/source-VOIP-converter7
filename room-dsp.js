@@ -3,7 +3,9 @@
  * The arithmetic is the engine's as read from its binary, not an approximation of it:
  *   docs/reports/W3-17-room-dsp-second-read.md (R2; it wins where the first read differs),
  *   docs/reports/W3-17-amp-mdy-second-read.md (AM: the amplifier, the modulating delay and the ramp both use),
- *   docs/reports/W3-15-room-dsp.md (R1: where the room sits, the slots, the shares).
+ *   docs/reports/W3-15-room-dsp.md (R1: where the room sits, the slots, the shares),
+ *   docs/reports/W3-17a-second-read.md (this file against the engine's code: the slot, the block's order, the
+ *   water; it wins over the order where they differ).
  * tests/roomdsp/dspmodel.py is a second implementation by other hands; tests/room-dsp.verify.mjs holds this file
  * to its recorded outputs. Where the reports leave a detail open, this file does what the model does, and says so.
  *
@@ -13,7 +15,7 @@
  *
  * What is built: the processors NULL, DLY (kinds PLAIN 0, ALLPASS 1, LOWPASS 2, FLINEAR 4), DFR, RVA (plain and
  * from three dimensions, random taps), AMP and MDY; a preset as a plain chain; the slot with its cross-fade; the
- * voice's shares and entry; the room path (room slot, then the water slot) with the tail's end. Refused by name
+ * voice's shares and entry; the room path (room slot, then the water instance) with the tail's end. Refused by name
  * when a preset asks for one: FLT and the other processor types, the delay kinds DLINEAR 3, LOWPASS_4TAP 5 and
  * PLAIN_4TAP 6 (so a reverb's tap factor), a one-shot duration and a header's own fade time.
  *
@@ -35,29 +37,20 @@
   const PI_OVER_SR = 7.123792865282977e-05;        // pi / 44100, a double in the binary (R2 c)
   const F_0999 = fround(0.999);
   const F_SAMPLE_S = fround(2.2675736545352265e-05); // 1 / 44100 as the binary's single (R2 a4)
-  const BLOCK = 512;                               // the mixer's block: a slot takes a change only at its start
-  const ROOM_FADE = 0.2;                           // seconds: the room slot's cross-fade (R1 1, R2 d)
-  const WATER_FADE = 0.1;                          // seconds: the water slot's (R1 1's slot table)
+  // The mixer's block: one paint call mixes 512 samples (W3-07). Per block the engine updates the slots (a
+  // change is taken), then mixes the channels (the shares' test), then runs the slots (W3-17a second read, row 1
+  // and F2: 0x1800469ce, 0x180046cd9, 0x1800470d8).
+  const BLOCK = 512;
+  const ROOM_FADE = 0.2;                           // seconds: the room slot's cross-fade (second read, row 10)
   const WATER_PRESET = 14;                         // dsp_water's preset
-  const WATER_PREROLL = 44100;                     // a path made under water starts its water slot this long before
+  const WATER_PREROLL = 44100;                     // a path made under water has run its water instance this long
   const ROOM_SEED_XOR = 0x524F4F4D;                // 'ROOM': the room slot's stream is mulberry32((seed ^ this) >>> 0)
-  const WATER_SEED_XOR = 0x57415452;               // 'WATR': the water slot's
+  const WATER_SEED_XOR = 0x57415452;               // 'WATR': the water instance's
   const MIX_START = [0.2, 0.8, 80, 0.5];           // the engine's start-up dsp_mix_min, _max, dsp_db_min, _mixdrop
   const VOICE_DB = 60;                             // a voice's sound level (R2 f)
   const VOICE_DIST = 12;                           // units: a voice is placed 12 units to the side (R2 f)
   const DIST_MIN = 0, DIST_MAX = 1440;             // dsp_dist_min, dsp_dist_max
   const TAIL_BAND = 32, TAIL_WINDOW = 22050, TAIL_CAP = 882000;   // Decision 8
-
-  // How the slot lines its ramp up with the samples was not read ("The slot's ramp" in the order). Assumed, as a
-  // reverb line does it (R2 a4): the first faded sample uses weight 0, sample k the ramp's k-th value, and the
-  // sample after the call that reports done is the new preset alone (a room fade covers samples 0 to 8820).
-  // The other reading, the ramp stepped before its first use, moves every weight one sample earlier: true here.
-  const RAMP_STEPPED_BEFORE_USE = false;
-
-  // When the room slot's "before" preset is cleared was not read (order part a, item 11; R2 f). Assumed: when the
-  // fade to "none" has ended, so the shares go back to 0 and 256 then. The other reading (never cleared: false
-  // here) keeps the last preset's shares after dsp_room 0, the slot passing its input. The owner's take R1 decides.
-  const SHARES_CLEARED_AFTER_FADE_TO_NONE = true;
 
   const TYPE = { NULL: 0, DLY: 1, RVA: 2, FLT: 3, CRS: 4, PTC: 5, ENV: 6, LFO: 7, EFO: 8, MDY: 9, DFR: 10, AMP: 11 };
   const TYPE_NAME = ['NULL', 'DLY', 'RVA', 'FLT', 'CRS', 'PTC', 'ENV', 'LFO', 'EFO', 'MDY', 'DFR', 'AMP'];
@@ -728,17 +721,32 @@
     return trunc(fround(s * (255 * share / 256)) / 256);
   }
 
-  // ---------------------------------------------------------------- the slot (R2 d)
+  // ---------------------------------------------------------------- the slot (R2 d; the W3-17a second read)
 
   const NO_REQUEST = Symbol('none requested');
 
+  // A preset's value as one string (its header and processors as singles), so that two equal presets compare
+  // equal, as the engine compares numbers (the second read, row 19).
+  function signatureOf(preset) {
+    return JSON.stringify([preset.h.slice(0, 6).map((v) => fround(+v)),
+      preset.p.map(([t, v]) => [t, f32array(v, 16)])]);
+  }
+
   // createSlot({ fade, preset, seed | draw, table, preroll }): one channel; set(preset, number or null);
-  // process(input, output) on 32-bit integers. A change is taken at the start of the next 512-sample block of the
-  // slot's own count, and only when no fade is running; both instances then run on the same input and
-  // out = old + (((new - old) x r) >> 12), r the 12.20 ramp over the fade time. "None" is the input itself.
-  // A slot made with a preset starts with the fade over and the lines silent; `preroll` runs that instance on
-  // so many zeros first (the slot's count does not move). One random stream for the slot; during a fade the old
-  // instance runs, and so draws, first in each sample.
+  // process(input, output) on 32-bit integers. "None" is the input itself. At the start of each 512-sample block
+  // of the slot's own count, in the engine's order (second read, rows 1 to 5, F1, F2):
+  //   1. the update: a waiting request is taken only if the ramp has reported done (0x18003f254 to 0x18003f29c);
+  //      taking it makes the instance now the one before, and starts the ramp;
+  //   2. (the mixer's shares are asked here: they see the update and not yet the slot stage);
+  //   3. the slot stage: once the ramp has reported done, the old instance is dropped and "before" is cleared
+  //      (0x18003fd21 to 0x18003fd3a, 0x180036595).
+  // In a fade, each sample: the new instance, then the old (they draw in that order: row 7); the ramp is stepped,
+  // then used (row 3); out = old + (((new - old) x r) >> 12). The call that reports done repeats the last weight
+  // (4095), and the weight stays there, both instances running, to the end of that block (row 4). For a change
+  // taken at sample 0: sample k has the ramp's (k + 1)-th value, 4095 on 8819 and 8820, and 8821 to 9215 at 4095;
+  // the new preset alone from 9216.
+  // A slot made with a preset starts with the ramp done and the lines silent (row 18); `preroll` runs that
+  // instance on so many zeros first (the slot's count does not move). One random stream for the slot.
   class Slot {
     constructor(opts = {}) {
       this.table = opts.table || null;
@@ -746,29 +754,34 @@
       this.draw = drawFrom(opts, 0);
       this.onTake = typeof opts.onTake === 'function' ? opts.onTake : null;
       this.ramp = new Ramp(this.fadeSeconds, 0, 4096);
+      this.rampDone = true;
       this.count = 0;
-      this.key = null; this.inst = null;          // now
-      this.prevKey = null; this.prevInst = null;  // before (during a fade: the outgoing instance)
+      this.key = null; this.sig = null; this.inst = null;   // now
+      this.prevKey = null; this.prevInst = null;           // before (in a fade: the outgoing instance)
       this.fading = false; this.xf = 0;
       this.request = NO_REQUEST;
+      this.updatedAt = -1; this.blockActive = false;
       // Made with a number the table does not hold, the slot keeps what it had, which at its start is nothing
       // (Decision 11).
       const r = opts.preset === undefined ? null : this.resolve(opts.preset);
       if (r && r.inst) {
-        this.key = r.key; this.inst = r.inst;
+        this.key = r.key; this.sig = r.sig; this.inst = r.inst;
         if (this.onTake) this.onTake(r.key, r.preset);
         for (let i = 0, n = opts.preroll | 0; i < n; i++) this.inst.next(0);
       }
     }
 
-    // { key, preset, inst } for a request; key null and no instance for "none"; null for a number the table
-    // does not hold.
+    // { key, sig, preset, inst } for a request; for "none" no instance, and the table's preset 0 as the preset
+    // whose header is taken (row 9); null for a number the table does not hold.
     resolve(p) {
-      if (p === null || p === undefined || p === 0) return { key: null, preset: null, inst: null };
+      if (p === null || p === undefined || p === 0) {
+        return { key: null, sig: null, preset: presetOf(0, this.table), inst: null };
+      }
       const n = typeof p === 'number' ? p : undefined;
       const preset = resolvePreset(p, this.table);
       if (!preset) return null;
-      return { key: n !== undefined ? n : preset, preset, inst: new Instance(preset, this.draw, labelOf(preset, n)) };
+      return { key: n !== undefined ? n : preset, sig: signatureOf(preset), preset,
+        inst: new Instance(preset, this.draw, labelOf(preset, n)) };
     }
 
     // The latest request wins, as the engine compares its variable with the number last used once per block. A
@@ -780,41 +793,64 @@
       return true;
     }
 
-    take() {
+    // Step 1 of a block, once per block: the update.
+    update() {
+      if (this.updatedAt === this.count) return;
+      this.updatedAt = this.count;
+      if (this.request === NO_REQUEST || !this.rampDone) return;
       const r = this.request;
       this.request = NO_REQUEST;
-      if (r.key === this.key) return;             // the same number as now: no change
+      if (this.sameAsNow(r)) return;              // the same preset as now: no change
       this.prevKey = this.key; this.prevInst = this.inst;
-      this.key = r.key; this.inst = r.inst;
-      this.fading = true; this.xf = 0; this.ramp.reset();
+      this.key = r.key; this.sig = r.sig; this.inst = r.inst;
+      this.fading = true; this.rampDone = false; this.ramp.reset(); this.xf = 0;
       if (this.onTake) this.onTake(r.key, r.preset);
     }
 
-    endFade() {
-      this.fading = false; this.prevInst = null;
-      if (SHARES_CLEARED_AFTER_FADE_TO_NONE) this.prevKey = null;
+    // The engine compares numbers (row 19): two numbers by number (26 and 27 are equal presets, and a change);
+    // a preset given as an object by its value, so an equal copy of the preset now changes nothing.
+    sameAsNow(r) {
+      if (r.key === null || this.key === null) return r.key === this.key;
+      if (typeof r.key === 'number' && typeof this.key === 'number') return r.key === this.key;
+      return r.sig === this.sig;
+    }
+
+    // Before the next sample: if it starts a block, that block's update. (The path calls this before it reads
+    // the four mix values or the shares, which the engine reads after the update.)
+    prepare() {
+      if ((this.count & (BLOCK - 1)) === 0) this.update();
+    }
+
+    // Whether the room slot counts as holding a preset for the block of the next sample (what the mixer tests for
+    // the shares, after the update and before the slot stage): now or before.
+    activeForBlock() {
+      if ((this.count & (BLOCK - 1)) === 0) {
+        this.update();
+        return this.key !== null || this.prevKey !== null;
+      }
+      return this.blockActive;
     }
 
     process(input, output = new Int32Array(input.length)) {
       const n = input.length;
       for (let i = 0; i < n; i++) {
-        if ((this.count & (BLOCK - 1)) === 0 && this.request !== NO_REQUEST && !this.fading) this.take();
+        if ((this.count & (BLOCK - 1)) === 0) {
+          this.update();
+          this.blockActive = this.key !== null || this.prevKey !== null;
+          if (this.fading && this.rampDone) {     // the slot stage after a finished fade
+            this.fading = false; this.prevInst = null; this.prevKey = null;
+          }
+        }
         const x = input[i] | 0;
         let out;
         if (!this.fading) {
           out = this.inst ? this.inst.next(x) : x;
         } else {
-          const a = this.prevInst ? this.prevInst.next(x) : x;
           const b = this.inst ? this.inst.next(x) : x;
-          if (RAMP_STEPPED_BEFORE_USE) {
-            this.xf = this.ramp.next();
-            if (this.ramp.done) { this.endFade(); out = b; }
-            else out = (a + (imul((b - a) | 0, this.xf) >> 12)) | 0;
-          } else {
-            out = (a + (imul((b - a) | 0, this.xf) >> 12)) | 0;
-            this.xf = this.ramp.next();
-            if (this.ramp.done) this.endFade();
-          }
+          const a = this.prevInst ? this.prevInst.next(x) : x;
+          this.xf = this.ramp.next();
+          if (this.ramp.done) this.rampDone = true;
+          out = (a + (imul((b - a) | 0, this.xf) >> 12)) | 0;
         }
         output[i] = out;
         this.count++;
@@ -822,11 +858,11 @@
       return output;
     }
 
-    // Whether the slot holds a preset now, or held one before (what the mixer tests for the shares).
+    // Whether the slot holds a preset now, or held one before.
     active() { return this.key !== null || this.prevKey !== null; }
 
     state() {
-      return { preset: this.key, previous: this.prevKey, fading: this.fading,
+      return { preset: this.key, previous: this.prevKey, fading: this.fading, rampDone: this.rampDone,
         requested: this.request === NO_REQUEST ? undefined : this.request.key, count: this.count };
     }
 
@@ -871,14 +907,21 @@
 
   // ---------------------------------------------------------------- the room path
 
-  // createRoomPath({ seed, room, water, roomDraw, waterDraw, table }): the engine's order after the voice's two
-  // entries. The room slot (0.2 s) on the room buffer, its output added to the direct buffer, then the water
-  // slot (0.1 s, preset 14) on the sum if under water. Returns the sum before the clip.
-  //   room, water: what the path is made with: no fade at its start. Made under water, the water slot is started
-  //     44,100 samples of silence before the first sample (its amplifier then rests on 1640). A room number the
-  //     table does not hold gives no room (Decision 11).
-  //   seed: the render's; the room slot draws from mulberry32((seed ^ 0x524F4F4D) >>> 0), the water slot from
+  // createRoomPath({ seed, room, water, roomDraw, waterDraw, waterPreset, table }): the engine's order after the
+  // voice's two entries. The room slot (0.2 s) on the room buffer, its output added to the direct buffer, then,
+  // under water, the whole sum through the water instance. Returns the sum before the clip.
+  //   room: what the room slot is made with (no fade at the path's start). A number the table does not hold gives
+  //     no room (Decision 11).
+  //   water: under water from the first sample. There is no water fade and no fresh water instance (second read,
+  //     row 11, F4: 0x180047256 to 0x18004729b): the water instance (preset 14, dsp_water's; `waterPreset` in its
+  //     place) is made once with the path and, block by block, either runs on the whole sum or is not run at all,
+  //     its lines, amplifier and draws waiting where they were. Made under water, it has first run 44,100 samples
+  //     of silence (it has been under water before, so its amplifier rests on 1640); made dry, it is fresh, and the
+  //     first dive has the amplifier's 100 ms at full gain (a first dive since the level loaded).
+  //   seed: the render's; the room slot draws from mulberry32((seed ^ 0x524F4F4D) >>> 0), the water instance from
   //     mulberry32((seed ^ 0x57415452) >>> 0). roomDraw, waterDraw: draw functions (lo, hi) in their place.
+  // Note that a path is never "nothing": it always holds the room slot and the water instance. A render with no
+  // room and not under water should make no path at all (Decision 4).
   class RoomPath {
     constructor(opts = {}) {
       const seed = Number(opts.seed || 0) >>> 0;
@@ -888,55 +931,68 @@
       this.room = new Slot({
         fade: ROOM_FADE, table: this.table, preset: opts.room,
         draw: typeof opts.roomDraw === 'function' ? opts.roomDraw : seededDraw((seed ^ ROOM_SEED_XOR) >>> 0),
-        // Setting a preset on the room slot overwrites the four mix values from its header (R2 d), when the
-        // slot takes it.
-        onTake: (key, preset) => { if (preset) this.mix = [preset.h[0], preset.h[1], preset.h[4], preset.h[5]].map((v) => fround(+v)); },
+        // Setting a preset on the room slot overwrites the four mix values from its header when the slot takes
+        // it (R2 d; second read, row 8); "none" is preset 0, whose header is taken too (row 9, F3).
+        onTake: (key, preset) => {
+          if (preset) this.mix = [preset.h[0], preset.h[1], preset.h[4], preset.h[5]].map((v) => fround(+v));
+        },
       });
-      this.water = new Slot({
-        fade: WATER_FADE, table: this.table, preset: opts.water ? WATER_PRESET : null,
-        preroll: opts.water ? WATER_PREROLL : 0,
-        draw: typeof opts.waterDraw === 'function' ? opts.waterDraw : seededDraw((seed ^ WATER_SEED_XOR) >>> 0),
-      });
+      const wp = opts.waterPreset !== undefined ? opts.waterPreset : WATER_PRESET;
+      const waterPreset = resolvePreset(wp, this.table);
+      if (!waterPreset) throw new Error(`TF2Room: the table holds no preset ${wp} for the water`);
+      this.waterInst = new Instance(waterPreset, typeof opts.waterDraw === 'function' ? opts.waterDraw
+        : seededDraw((seed ^ WATER_SEED_XOR) >>> 0), labelOf(waterPreset, typeof wp === 'number' ? wp : undefined));
+      if (opts.water) for (let i = 0; i < WATER_PREROLL; i++) this.waterInst.next(0);
+      this.waterOn = !!opts.water; this.waterAsked = this.waterOn;
+      this.count = 0;
       this.tail = new TailRule();
       this.scratch = new Int32Array(0);
       this.voice = new Uint8Array(0);
     }
 
-    // A preset number, a preset ({h, p}) or null; taken at the room slot's next block, with its 0.2 s fade.
+    // A preset number, a preset ({h, p}) or null; taken at the room slot's next block once its ramp is done,
+    // with its 0.2 s fade.
     setRoom(p) { return this.room.set(p); }
-    // Under water or not; taken at the water slot's next block, with its 0.1 s fade.
-    setWater(on) { return this.water.set(on ? WATER_PRESET : null); }
+    // Under water or not: from the next block's start, at once (no fade).
+    setWater(on) { this.waterAsked = !!on; return true; }
 
-    // A voice channel starts: its two limits are fixed from the four mix values now (R2 f).
+    // A voice channel starts: its two limits are fixed from the four mix values as the block of the next sample
+    // has them (after that block's update, as the engine's mix comes after it: R2 f; second read, F2).
     spurtStart() {
+      this.room.prepare();
       const v = this.mix;
       this.limits = limitsOf(v[0], v[1], v[2], v[3]);
       return this.limits;
     }
 
-    // { room, direct } for the next block: 0 and 256 while the room slot holds no preset now and held none
-    // before (tested per block, at mix time); else from the channel's limits (fixed now if no spurt has started).
+    // { room, direct } for the block of the next sample: 0 and 256 while the room slot holds no preset now and
+    // held none before, as the mixer tests it after the block's update and before its slot stage (F2); else from
+    // the channel's limits (fixed now if no spurt has started).
     shares() {
+      const active = this.room.activeForBlock();
       if (!this.limits) this.spurtStart();
-      if (!this.room.active()) return { room: 0, direct: 256 };
+      if (!active) return { room: 0, direct: 256 };
       return sharesOfLimits(this.limits);
     }
 
     // direct, room: Int32Arrays at 44100 Hz, already entered (and upsampled by the caller). Returns out (made if
-    // not given): direct + room slot(room), then the water slot. out may be either input.
+    // not given): direct + room slot(room), then the water instance on the blocks under water. out may be either
+    // input.
     process(direct, room, out) {
       const n = direct.length;
       if (room.length !== n) throw new Error('TF2Room: the direct and room buffers differ in length');
       if (!out) out = new Int32Array(n);
       if (this.scratch.length < n) { this.scratch = new Int32Array(n); this.voice = new Uint8Array(n); }
       const wet = this.room.process(room, this.scratch.length === n ? this.scratch : this.scratch.subarray(0, n));
-      const voice = this.voice;
+      const voice = this.voice, water = this.waterInst;
       for (let i = 0; i < n; i++) {
         const d = direct[i] | 0, r = room[i] | 0;
         voice[i] = (d !== 0 || r !== 0) ? 1 : 0;
-        out[i] = (d + wet[i]) | 0;
+        if ((this.count & (BLOCK - 1)) === 0) this.waterOn = this.waterAsked;
+        const sum = (d + wet[i]) | 0;
+        out[i] = this.waterOn ? water.next(sum) : sum;
+        this.count++;
       }
-      this.water.process(out, out);
       const tail = this.tail;
       tail.at = -1;
       for (let i = 0; i < n; i++) tail.push(out[i], voice[i] === 1, i);
@@ -953,8 +1009,8 @@
     }
 
     state() {
-      return { room: this.room.state(), water: this.water.state(), mix: this.mix.slice(),
-        limits: this.limits ? { min: this.limits.mn, max: this.limits.mx } : null };
+      return { room: this.room.state(), water: { on: this.waterOn, asked: this.waterAsked }, mix: this.mix.slice(),
+        limits: this.limits ? { min: this.limits.mn, max: this.limits.mx } : null, count: this.count };
     }
   }
 
@@ -962,8 +1018,7 @@
 
   const api = {
     // the readings and the constants
-    RAMP_STEPPED_BEFORE_USE, SHARES_CLEARED_AFTER_FADE_TO_NONE,
-    SR, BLOCK, ROOM_FADE, WATER_FADE, WATER_PRESET, WATER_PREROLL, ROOM_SEED_XOR, WATER_SEED_XOR,
+    SR, BLOCK, ROOM_FADE, WATER_PRESET, WATER_PREROLL, ROOM_SEED_XOR, WATER_SEED_XOR,
     MIX_START: MIX_START.slice(), TAIL_BAND, TAIL_WINDOW, TAIL_CAP, TYPE: Object.assign({}, TYPE),
     RANGES: JSON.parse(JSON.stringify(RANGES)),
     PINNED_LP: Array.from(PINNED_LP, ([c, k]) => [c, k[0], k[1]]),

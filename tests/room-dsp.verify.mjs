@@ -192,13 +192,15 @@ export async function main() {
     vm.createContext(sb);
     vm.runInContext(readFileSync(join(here, '..', 'constants.js'), 'utf8') + '\n;globalThis.__P = DSP_PRESETS;', sb);
     const OLD = sb.__P;
+    // Part d strips DSP_PRESETS to names (order, part d, item 3): then this comparison has nothing to read.
+    const chains = !!OLD && [...Array(30).keys()].every((n) => OLD[n] && Array.isArray(OLD[n].chain));
     const FIELDS = { rva: [[2, 'sizeMax', 0], [2, 'sizeMin', 1], [2, 'ndly', 2], [2, 'fb', 3], [2, 'gain', 4], [2, 'cutoff', 5],
       [2, 'fpar', 6], [2, 'fmod', 7], [2, 'rate', 8]], dfr: [[10, 'size', 0], [10, 'ndly', 1], [10, 'fb', 2]],
     dly: [[1, 'delay', 1], [1, 'fb', 2], [1, 'gain', 3], [1, 'cutoff', 5]],
     amp: [[11, 'gain', 0], [11, 'vthresh', 1], [11, 'distmix', 2], [11, 'modrate', 4], [11, 'moddepth', 5], [11, 'modglide', 6]],
     mdy: [[9, 'delay', 1], [9, 'fb', 2], [9, 'gain', 3], [9, 'modrate', 8], [9, 'moddepth', 9], [9, 'modglide', 10]] };
     const diffs = [];
-    for (let n = 0; n < 30; n++) {
+    for (let n = 0; chains && n < 30; n++) {
       const chain = OLD[n].chain, procs = TABLE[n].p.filter(([t]) => t !== 0);
       if (chain.length !== procs.length) { diffs.push(`${n}: ${chain.length} vs ${procs.length} processors`); continue; }
       chain.forEach((c, i) => {
@@ -208,8 +210,12 @@ export async function main() {
         }
       });
     }
-    check('presets 0 to 29 hold today\'s DSP_PRESETS values, but for preset 23\'s reverb count (1.3 here, 1 there)',
-      same(diffs, ['23.1.ndly: 1 vs 1.3']), diffs.join('; '));
+    if (chains) {
+      check('presets 0 to 29 hold today\'s DSP_PRESETS values, but for preset 23\'s reverb count (1.3 here, 1 there)',
+        same(diffs, ['23.1.ndly: 1 vs 1.3']), diffs.join('; '));
+    } else {
+      console.log('  skip  presets 0 to 29 against DSP_PRESETS: constants.js no longer carries their chains (part d)');
+    }
   }
 
   // -------------------------------------------------------------- the coefficients
@@ -420,6 +426,13 @@ export async function main() {
     // The amplifier's clip at threshold 0 with a mix of 1 clips everything to 0 (AM 2; the reference's synthetic).
     const clip0 = run(R.createInstance(one([11, [1, 0, 1, 0, 0, 0, 0, 0]]), upper), NOISE.slice(0, 4410));
     check('threshold 0 with mix 1: every output is 0', clip0.every((v) => v === 0));
+    // The clip's switch-off (AM 2, step 1, 0x180033260: VTH = trunc(vthresh x 32767) is tested against 4096, so
+    // a threshold of 0.125 or more turns the clip off). At 0.5 with a mix of 1 the input passes (gain 1): 20000
+    // gives 20000. At exactly 0.125, VTH = trunc(4095.875) = 4095 < 4096: the clip is on, 20000 gives 4095.
+    const off = run(R.createInstance(one([11, [1, 0.5, 1, 0, 0, 0, 0, 0]]), upper), [20000, -20000, 32767, -32768]);
+    const at125 = run(R.createInstance(one([11, [1, 0.125, 1, 0, 0, 0, 0, 0]]), upper), [20000, -20000, 4095, 100]);
+    check('the clip is off from a threshold of 0.125 x 32767 >= 4096: at 0.5, 20000 gives 20000; at exactly 0.125 it is on (4095)',
+      same(Array.from(off), [20000, -20000, 32767, -32768]) && same(Array.from(at125), [4095, -4095, 4095, 100]));
   }
 
   // -------------------------------------------------------------- the draws
@@ -582,6 +595,20 @@ export async function main() {
       const t = path.tailLeft();
       check('a tail resting at -100 ends 22,050 samples after the voice (the rule is a band, not a level)',
         out.every((v) => v === -100) && t.ended && t.length === 22050 && t.at === 441 + 22049);
+      // The band's width (32, Decision 8): the same comb holding -400 and -272 by turns rests on -100 and -68 (a
+      // span of 32) and ends 22,050 samples after the voice; holding -400 and -268 it rests on -100 and -67 (33)
+      // and has not ended 60,000 samples later.
+      const band = (b) => {
+        const pb = R.createRoomPath({ room: one([2, [10, 10, 1, 1, 1, 0, 0]]) });
+        const rb = new Int32Array(441 + 60000);
+        for (let i = 0; i < 441; i++) rb[i] = i % 2 ? b : -400;
+        const ob = pb.process(new Int32Array(rb.length), rb);
+        return { t: pb.tailLeft(), set: [...new Set(ob)].sort((p, q) => p - q) };
+      };
+      const b32 = band(-272), b33 = band(-268);
+      check('the band is 32 wide: a tail on -100 and -68 ends 22,050 samples after the voice; one on -100 and -67 has not ended 60,000 later',
+        same(b32.set, [-100, -68]) && b32.t.ended && b32.t.length === 22050 &&
+        same(b33.set, [-100, -67]) && !b33.t.ended && b33.t.length === 60000);
     }
     console.log(`        (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
   }
@@ -645,10 +672,10 @@ export async function main() {
     // A preset whose output is 0 (an amplifier of gain 0) fed 4096 shows the fade's weight on each sample:
     // out = 4096 + (((0 - 4096) x r) >> 12) = 4096 - r.
     const ZERO = one([11, [0]]), GAIN = (g) => one([11, [g]]);
-    const weights = (fade) => {
+    const weights = (fade, n) => {
       const s = R.createSlot({ fade });
       s.set(ZERO);
-      return Array.from(s.process(new Int32Array(Math.round(fade * 44100) + 600).fill(4096)), (v) => 4096 - v);
+      return Array.from(s.process(new Int32Array(n).fill(4096)), (v) => 4096 - v);
     };
     const room = L.ramps['room slot 0.2 s'], water = L.ramps['water slot 0.1 s'];
     check('the model\'s 0.2 s ramp: step 486957; 0, 0, 1, 1, 2, ...; 2048 at the 4,411th call; 4095 at the last; done at the 8,821st',
@@ -669,14 +696,27 @@ export async function main() {
       same(valuesOf(Math.fround(15) * Math.fround(0.001), 0, 4096), L.ramps['preset 16 tap fade'].values));
     check('the model\'s 0.1 s ramp: step 973915; 0, 1, 2, ...; done at the 4,411th call',
       water.step === 973915 && same(water.values.slice(0, 3), [0, 1, 2]) && water.values.length === 4411);
-    // As "The slot's ramp" assumes: sample 0 weight 0, sample k the k-th call's value, new alone after the done call.
-    const lined = (r) => [0, ...r.values.slice(0, -1), ...new Array(600).fill(4096)];
-    const w2 = weights(0.2), w1 = weights(0.1);
-    check('a room fade covers samples 0 to 8820: weight 0 on sample 0, the ramp\'s k-th value on sample k, the new preset alone from 8821',
-      same(w2, lined(room).slice(0, w2.length)), `first difference at ${firstDiff(w2, lined(room))}`);
-    check('a water fade (0.1 s) the same way: samples 0 to 4410', same(w1, lined(water).slice(0, w1.length)),
-      `first difference at ${firstDiff(w1, lined(water))}`);
-    // A change is taken at the next 512-sample block of the slot's own count, and not while a fade runs.
+    // The engine's fade (docs/reports/W3-17a-second-read.md, F1; rows 3 and 4: 0x1800383de to 0x180038472,
+    // 0x1800383b3 to 0x1800383c9, 0x18003fd21 to 0x18003fd3a). For a change taken at block start S, sample S + k
+    // has the ramp's (k + 1)-th value (the ramp is stepped, then used); the call that reports done repeats 4095;
+    // the weight then stays 4095, both instances running, to the end of that block; from the next block the new
+    // preset is alone (4096 here). The ramp's values are the model's (lines.json).
+    const engineWeights = (r, S, total) => {
+      const w = r.values.slice();
+      while ((S + w.length) % 512 !== 0) w.push(4095);
+      while (w.length < total) w.push(4096);
+      return w.slice(0, total);
+    };
+    const w2 = weights(0.2, 10240), w1 = weights(0.1, 5120);
+    check('a room fade taken at 0 (second read, F1): 0, 0, 1, 1, 2 on samples 0 to 4; 4095 on 8819 and on 8820 (the done call); 4095 on 8821 to 9215; the new preset alone from 9216',
+      same(w2, engineWeights(room, 0, w2.length)) && same(w2.slice(0, 5), [0, 0, 1, 1, 2]) &&
+      w2[8819] === 4095 && w2[8820] === 4095 && w2.slice(8821, 9216).every((v) => v === 4095) && w2[9216] === 4096,
+      `first difference at ${firstDiff(w2, engineWeights(room, 0, w2.length))}`);
+    check('a 0.1 s slot (the water\'s and the player\'s time, row 10) the same way: done on 4410, 4095 to 4607, alone from 4608',
+      same(w1, engineWeights(water, 0, w1.length)) && w1[4410] === 4095 && w1.slice(4411, 4608).every((v) => v === 4095) &&
+      w1[4608] === 4096, `first difference at ${firstDiff(w1, engineWeights(water, 0, w1.length))}`);
+    // A change is taken at the next 512-sample block of the slot's own count, and only once the ramp has reported
+    // done (row 1: 0x18003f254 to 0x18003f29c).
     const s = R.createSlot({ fade: 0.2, preset: GAIN(0.5) });
     const x = new Int32Array(30000).fill(4096);
     const o = new Int32Array(30000);
@@ -684,28 +724,25 @@ export async function main() {
     s.set(GAIN(0));                                   // asked on sample 700: taken on 1024
     s.process(x.subarray(700, 2000), o.subarray(700, 2000));
     const waiting = s.state().requested;
-    s.set(GAIN(1));                                   // asked during the fade (1024 to 9844): taken on 10240
+    s.set(GAIN(1));                                   // asked during the fade (done on 9844): taken on 10240
     const during = s.state();
     s.process(x.subarray(2000), o.subarray(2000));
-    const fadeA = Array.from(o.subarray(1024, 1024 + 8821), (v, k) => 2048 - v);
-    const expA = lined(room).slice(0, 8821).map((w) => 2048 - (2048 + ((Math.imul(-2048, w)) >> 12)));
-    check('a change asked mid-block is taken at the next block (sample 1024), not before',
-      o.subarray(0, 1024).every((v) => v === 2048) && same(fadeA, expA) && waiting === undefined);
-    check('a change asked during a fade waits for it to end and for the next block (taken at 10240)',
+    const expA = engineWeights(room, 1024, 9216).map((w) => 2048 + (Math.imul(-2048, w) >> 12));
+    check('a change asked mid-block is taken at the next block (1024), not before; its fade as the engine\'s',
+      o.subarray(0, 1024).every((v) => v === 2048) && same(Array.from(o.subarray(1024, 10240)), expA) && waiting === undefined);
+    check('a change asked during a fade waits for the ramp\'s done and the next block (10240): 0 on 9845 to 10239, then its own fade, alone from 19456',
       during.fading && during.requested !== undefined && o.subarray(9845, 10240).every((v) => v === 0) &&
-      same(Array.from(o.subarray(10240, 10240 + 8821)), lined(room).slice(0, 8821)) &&
-      o.subarray(10240 + 8821).every((v) => v === 4096));
-    // A fade to "none" ends on the input bit for bit.
+      same(Array.from(o.subarray(10240, 30000)), engineWeights(room, 10240, 30000 - 10240)) && o[19455] === 4095 && o[19456] === 4096);
+    // A fade to "none" ends on the input bit for bit, at the block after the done call.
     const sn = R.createSlot({ fade: 0.2, preset: 6, draw: upper });
     const inp = Int32Array.from({ length: 30000 }, (_, i) => NOISE[i % NOISE.length] >> 2);
     const on = new Int32Array(30000);
     sn.process(inp.subarray(0, 5000), on.subarray(0, 5000));
-    sn.set(null);                                     // taken on 5120; the fade ends after sample 5120 + 8820
+    sn.set(null);                                     // taken on 5120; done on 5120 + 8820; mixed to 14335
     sn.process(inp.subarray(5000), on.subarray(5000));
-    check('a fade to none: from sample 13941 on, the output is the input bit for bit (and not during the fade)',
-      same(Array.from(on.subarray(13941)), Array.from(inp.subarray(13941))) &&
-      on.subarray(5120, 13941).some((v, k) => v !== inp[5120 + k]) &&
-      sn.state().preset === null && !sn.active());
+    check('a fade to none taken at 5120: still mixed on 13941 to 14335, the input bit for bit from 14336 (F1)',
+      same(Array.from(on.subarray(14336)), Array.from(inp.subarray(14336))) &&
+      on.subarray(13941, 14336).some((v, k) => v !== inp[13941 + k]) && sn.state().preset === null && !sn.active());
     // Numbers the table does not hold change nothing (Decision 11); the module against itself.
     const refOut = R.createSlot({ preset: 6, draw: upper }).process(inp);
     const badN = [];
@@ -731,21 +768,34 @@ export async function main() {
     check('a slot made with a preset starts with the fade over: the instance alone from sample 0',
       same(Array.from(R.createSlot({ preset: 6, draw: upper }).process(inp.subarray(0, 3000))),
         Array.from(run(R.createInstance(6, upper), Array.from(inp.subarray(0, 3000))))));
-    // During a fade both instances run on the same input and draw from the slot's one stream, the old one first in
-    // each sample (the order, part a, item 9). Expected: two instances stepped by hand, old then new, on one
-    // stream, mixed with the model's 0.2 s weights lined up as above (the module's instances, the order's rule).
+    // During a fade both instances run on the same input and draw from the slot's one stream: the new instance
+    // first, then the old (second read, row 7 and F5: 0x1800383a0, 0x1800383ae). Expected: two instances stepped
+    // by hand in that order on one stream, mixed with the engine's weights (the module's instances, the rule read).
     const sd = R.createSlot({ preset: 17, draw: drawOf(9) });
     sd.set(16);
     const got = sd.process(inp);
     const shared = drawOf(9), A = R.createInstance(17, shared), B = R.createInstance(16, shared);
-    const W = lined(room);
+    const W = engineWeights(room, 0, inp.length);
     const want = Array.from(inp, (x, k) => {
-      if (k > 8820) return B.next(x);
-      const a = A.next(x), b = B.next(x);
+      if (k >= 9216) return B.next(x);
+      const b = B.next(x), a = A.next(x);
       return (a + (Math.imul(b - a, W[k]) >> 12)) | 0;
     });
-    check('during a fade from 17 to 16 (both draw), the old instance draws first in each sample', same(Array.from(got), want),
+    check('during a fade from 17 to 16 (both draw), the new instance runs and draws first in each sample', same(Array.from(got), want),
       `first difference at ${firstDiff(Array.from(got), want)}`);
+    // An equal preset is no change (row 19, "equal to the current number: return"): numbers compare by number,
+    // a preset object by its value. So an equal copy starts no fade, while 26 and 27 (equal presets, two numbers)
+    // do.
+    const copy = () => JSON.parse(JSON.stringify(TABLE[6]));
+    const sc = R.createSlot({ preset: copy(), draw: upper });
+    sc.set(copy()); sc.process(inp.subarray(0, 1024));
+    const sc6 = R.createSlot({ preset: 6, draw: upper });
+    sc6.set(copy()); sc6.process(inp.subarray(0, 1024));
+    const s26 = R.createSlot({ preset: 26, draw: upper });
+    s26.set(27); s26.process(inp.subarray(0, 1024));
+    check('setting an equal copy of the preset held (as an object, or for its number) starts no fade; 26 to 27 does',
+      !sc.state().fading && sc.state().requested === undefined && !sc6.state().fading && sc6.state().preset === 6 &&
+      s26.state().fading && s26.state().preset === 27);
   }
 
   // -------------------------------------------------------------- shares and entry
@@ -765,56 +815,104 @@ export async function main() {
       ORDER.every(([h, r, d]) => same(R.shares(h), { room: r, direct: d })));
     check('the table\'s every header gives a share of the order\'s list',
       Object.values(TABLE).every((p) => ORDER.some(([h, r, d]) => same(R.shares(p), { room: r, direct: d }))));
-    // The path's shares: per block, the slot's preset now and before.
-    const path = R.createRoomPath({ seed: 5 });
-    path.spurtStart();
+    // The path's shares, per block in the engine's order: the update (a take), then the mix (the shares), then
+    // the slot stage (second read, F2; row 6: 0x1800469ce, 0x180046cd9, 0x1800470d8). Values from the order's share
+    // table: the start-up values 26/229, preset 114's header 72/183, preset 0's header 26/229.
     const z = new Int32Array(512);
-    const blocks = (n) => { for (let i = 0; i < n; i++) path.process(z, z.slice()); };
-    const a = path.shares();
-    path.setRoom(114);
-    const b = path.shares();                          // asked, not yet taken
-    blocks(1);                                        // taken at sample 0; the mix values become 114's
-    const c = path.shares();                          // this spurt's limits are the start-up values'
-    path.spurtStart();
-    const d = path.shares();
-    blocks(17);                                       // the fade in (samples 0 to 8820) is over
-    path.setRoom(null);
-    blocks(1);                                        // taken at 9216: the fade to none starts
-    const e = path.shares();
-    blocks(17);                                       // 9216 samples later it has ended
-    const f = path.shares();
-    path.spurtStart();
-    const g = path.shares();
-    check('shares(): 0/256 with no room, and while a room is asked but not yet taken',
-      same(a, { room: 0, direct: 256 }) && same(b, a));
-    check('after setRoom(114) is taken: the running spurt keeps its limits (26/229); the next spurt has 114\'s (72/183)',
-      same(c, { room: 26, direct: 229 }) && same(d, { room: 72, direct: 183 }) && same(path.state().mix.map((v) => +v.toFixed(3)), [0.4, 0.9, 80, 0.7]));
-    check('during a fade to none the shares stay; once it has ended they are 0/256 again',
-      same(e, { room: 72, direct: 183 }) && same(f, { room: 0, direct: 256 }) && same(g, f));
-    // The two slots' fade times (R1 1's slot table): the room's 0.2 s, the water's 0.1 s.
+    const run1 = (path, n) => { const q = new Int32Array(n); path.process(q, q.slice()); };
     {
-      const pf = R.createRoomPath({ seed: 1 });
-      pf.setRoom(6); pf.setWater(true);
-      const zz = new Int32Array(4411);
-      pf.process(zz, zz.slice());
-      const at4411 = pf.state();
-      pf.process(new Int32Array(4410), new Int32Array(4410));
-      const at8821 = pf.state();
-      check('a path\'s water slot fades over 0.1 s (4,411 samples), its room slot over 0.2 s (8,821)',
-        !at4411.water.fading && at4411.room.fading && !at8821.room.fading && at8821.water.preset === 14 && at8821.room.preset === 6);
+      const path = R.createRoomPath({ seed: 5 });
+      path.spurtStart();                              // the start-up values
+      const a = path.shares();
+      run1(path, 100);
+      path.setRoom(114);                              // asked mid-block
+      const b = path.shares();                        // this block was mixed with 0/256
+      run1(path, 412);
+      const c = path.shares();                        // block 512: the update takes 114, then the mix
+      path.spurtStart();
+      const d = path.shares();
+      check('a room asked mid-block: 0/256 for that block; at the next block\'s start the update takes it before the mix, so that block already has the room share (26/229, F2)',
+        same(a, { room: 0, direct: 256 }) && same(b, a) && same(c, { room: 26, direct: 229 }));
+      check('the running spurt keeps its limits after the take (26/229); the next spurt has 114\'s (72/183)',
+        same(d, { room: 72, direct: 183 }) && same(path.state().mix.map((v) => +v.toFixed(3)), [0.4, 0.9, 80, 0.7]));
+    }
+    {
+      // F2's case, a block later: a fade to none taken at 512 (asked after block 0's update). Done on 9332, mixed
+      // to 9727; the old instance and "before" go in the slot stage of block 9728, after that block's mix: the room
+      // share for block 9728 still, 0/256 from block 10240 (for a take at 0: 9216 and 9728, as F2 gives them).
+      const path = R.createRoomPath({ room: 114, seed: 5 });
+      path.spurtStart();                              // block 0's update, then 114's values: 72/183
+      path.setRoom(null);                             // waits for block 512's update
+      const at0 = path.shares();
+      run1(path, 9728);
+      const at9728 = path.shares();
+      run1(path, 512);
+      const at10240 = path.shares();
+      check('a fade to none taken at 512: the room share still for block 9728 (72/183), 0/256 from block 10240 (F2)',
+        same(at0, { room: 72, direct: 183 }) && same(at9728, { room: 72, direct: 183 }) && same(at10240, { room: 0, direct: 256 }));
+    }
+    {
+      // F3 (row 9: 0x180038927, 0x1800389c6): taking "none" sets the four values from preset 0's header (0.2, 0.7,
+      // 80, 0.5), so a spurt that starts during the fade to none has 26/229, not the old room's 72/183.
+      const path = R.createRoomPath({ room: 114, seed: 5 });
+      path.setRoom(null);
+      run1(path, 1024);
+      path.spurtStart();
+      check('taking none overwrites the four values with preset 0\'s header (0.2, 0.7, 80, 0.5): a spurt in the fade to none has 26/229 (F3)',
+        same(path.state().mix, [0.2, 0.7, 80, 0.5].map(Math.fround)) && same(path.shares(), { room: 26, direct: 229 }));
     }
     const made = R.createRoomPath({ room: 126 });
     check('a path made with a room has its shares at once (126: 5/250)', same(made.shares(), { room: 5, direct: 250 }));
-    // The four mix values change when the slot takes a preset (R2 d, "setting a preset on a slot"), not when it is
-    // asked for: a spurt that starts in between keeps the old values (a reading; the report says so).
-    const p6 = R.createRoomPath({ room: 6 });
-    p6.setRoom(114);
-    p6.spurtStart();
-    const asked = p6.shares();
-    p6.process(z, z.slice());
-    p6.spurtStart();
-    check('the four mix values change when the slot takes the preset, not when it is asked (26/229, then 72/183)',
-      same(asked, { room: 26, direct: 229 }) && same(p6.shares(), { room: 72, direct: 183 }));
+    {
+      // The four values change when the slot takes the preset (row 8: 0x1800389a1 to 0x180038a31), at a block's
+      // update, not when it is asked: a spurt that starts mid-block keeps the old values.
+      const p6 = R.createRoomPath({ room: 6 });
+      run1(p6, 100);
+      p6.setRoom(114);
+      p6.spurtStart();
+      const asked = p6.shares();
+      run1(p6, 412);
+      p6.spurtStart();
+      check('the four mix values change when the slot takes the preset, not when it is asked (26/229 mid-block, 72/183 from the next block)',
+        same(asked, { room: 26, direct: 229 }) && same(p6.shares(), { room: 72, direct: 183 }));
+    }
+    // The water (second read, row 11 and F4: 0x180047256 to 0x18004729b): one instance for the path's life, run on
+    // the whole sum or not run at all, block by block, with no fade; frozen while not run. With the amplifier of
+    // preset 14 alone as the water preset (dsp_water's place), fed 4096, the output is the gain on that sample of
+    // the instance's own life: 4096 for its samples 0 to 4412, then the model's glide, 1640 from 7938 on (AM 2).
+    {
+      const r14 = L.ramps['preset 14 amplifier'].values;
+      const gainAt = (k) => (k < 4412 ? 4096 : k - 4412 < r14.length ? r14[k - 4412] : 1640);
+      const path = R.createRoomPath({ waterPreset: one([11, [1, 0, 0, 0, 10, 0.6, 80, 0]]) });
+      const plan = [[1024, false], [4096, true], [1024, false], [6144, true], [1024, false], [3072, true]];
+      const got = [], want = [];
+      let k = 0;                                      // the instance's own sample count
+      for (const [n, wet] of plan) {
+        path.setWater(wet);
+        const o = path.process(new Int32Array(n).fill(4096), new Int32Array(n));
+        got.push(...o);
+        for (let i = 0; i < n; i++) want.push(wet ? gainAt(k++) : 4096);
+      }
+      check('the water switched at block starts with no fade, its instance frozen while dry: full gain only for the first 4,413 samples it ever runs, 1640 at once on a later dive',
+        same(got, want) && got[1024 + 4096 + 1024 + 316] === 4096 && got[1024 + 4096 + 1024 + 317] === 4095 &&
+        got.slice(-3072).every((v) => v === 1640) && got[1024 + 4096 + 1024 + 6144 - 1] === 1640 &&
+        got[1024 + 4096 + 1024 + 6144] === 4096, `first difference at ${firstDiff(got, want)}`);
+      // The same with preset 14 itself, on the noise: expected from one instance of 14, made fresh and stepped
+      // only on the wet blocks (the module's instance, the rule read).
+      const p14 = R.createRoomPath({ waterDraw: drawOf(5) });
+      const inst = R.createInstance(14, drawOf(5));
+      const g14 = [], w14 = [];
+      let pos = 0;
+      for (const [n, wet] of [[512, false], [2048, true], [1536, false], [4096, true], [512, false], [1024, true]]) {
+        p14.setWater(wet);
+        const d = Int32Array.from({ length: n }, (_, i) => NOISE[(pos + i) % NOISE.length] >> 1);
+        g14.push(...p14.process(d, new Int32Array(n)));
+        for (let i = 0; i < n; i++) w14.push(wet ? inst.next(d[i]) : d[i]);
+        pos += n;
+      }
+      check('preset 14 as the water: one instance, run only on the wet blocks, the dry blocks the sum itself', same(g14, w14),
+        `first difference at ${firstDiff(g14, w14)}`);
+    }
     // entry: the order's fixed points.
     const FIX = [[-32690, 229, -29128], [31388, 23, 2809], [32767, 256, 32639], [-32768, 256, -32640], [32767, 229, 29196],
       [32767, 26, 3314], [16384, 229, 14598], [16384, 26, 1657], [16384, 256, 16320]];
