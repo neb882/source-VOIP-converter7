@@ -24,7 +24,13 @@
       "order": "W3-13-steam-resampler",
       "state": "ready; merge held for the owner",
       "branch": "claude/w3-13-steam-resampler",
-      "note": "Built, reviewed and fixed (head 31d6fbe, CI green, 43 checks). The port equals the native library sample for sample under each of the four kernels: the builder on 84 streams, the reviewer's own driver on 259.9 million output samples per kernel, an hour-long stream among them; the stored bank is the library's own in-memory bank bit for bit; the hand-written fused multiply-add equals the C library's on 50 million cases and, since the fix round, at the overflow edge and for subnormals. The default kernel runs about 6 to 8 million output samples a second in Node. The orchestrator's private run on the final head: all 2,372 non-empty packets of Set G give the logged counts with the four sections of the one log as one stream (finding 29 has it). The MERGE waits only for the owner's yes to a modified LGPL file (its notices, licence text and dated notice of change are in place)."
+      "note": "Built, reviewed and fixed (head 00ce2e1, with main merged in, CI green, 43 checks). The port equals the native library sample for sample under each of the four kernels: the builder on 84 streams, the reviewer's own driver on 259.9 million output samples per kernel, an hour-long stream among them; the stored bank is the library's own in-memory bank bit for bit; the hand-written fused multiply-add equals the C library's on 50 million cases and, since the fix round, at the overflow edge and for subnormals. The default kernel runs about 6 to 8 million output samples a second in Node. The orchestrator's private run on the final head: all 2,372 non-empty packets of Set G give the logged counts with the four sections of the one log as one stream (finding 29 has it). The MERGE waits only for the owner's yes to a modified LGPL file (its notices, licence text and dated notice of change are in place)."
+    },
+    {
+      "order": "W3-11a-steam-render",
+      "state": "building",
+      "branch": "claude/w3-11a-steam-render",
+      "note": "The steam profile sends and decodes as Steam does, in process() and createRender: Steam's sender, the capture rounded to 16 bits, the library's own 16-bit Opus decode (the pinned module rebuilt with opus_decode exported), the decoder's rules, one resampler per render fed whole messages, the gain fed decoded packets only. Built on a branch that carries W3-13's (main at 595b2f5 plus origin/claude/w3-13-steam-resampler); it is merged to main only after W3-13 is, which waits for the owner. Private runs by the orchestrator afterwards: the accuracy table before (scratch accuracy/results-w305.json, the steam path as it is on main) and after, and Set D's demo through the sender."
     }
   ],
   "next": [
