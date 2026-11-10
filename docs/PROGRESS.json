@@ -24,19 +24,23 @@
       "order": "W2-02-render-stream",
       "branch": "claude/w2-02-render-stream",
       "stage": "review (built; CI green on 4005191); the reviewer runs a differential fuzz against process()",
-      "report": "docs/reports/W2-02-render-stream.md"
+      "report": "docs/reports/W2-02-render-stream.md",
+      "state": "fixing",
+      "note": "Review done: no defect in createRender (20,656 differential runs against process(), 0 mismatches; 30 minutes at 48 kHz grows 0.5 MiB). Four minor findings with the builder as fixer: three breaks the suite did not catch (the rounding of the output length, the gate's level on a last partial frame, the clip on received voice) and one older bug in process() (an empty source with a linear mixer and a room). The orchestrator has read the audio.js diff: nothing blocks a merge once those are in and CI is green."
     },
     {
       "order": "W3-02a-voice-channel",
       "branch": "claude/w3-02a-voice-channel",
       "stage": "building (new files only)",
-      "report": "docs/reports/W3-02a-voice-channel.md"
+      "report": "docs/reports/W3-02a-voice-channel.md",
+      "state": "review",
+      "note": "Built (head b3fdaaa, CI green, 68 checks). The orchestrator's private runs, 2026-11-10: the replay of the six log sections has 0 mismatching ticks of 9,808 with every fault mismatching somewhere, and the builder's log tool gives the planner's fixture event for event on all six sections. With a reviewer on the builders' model (mutations, a model of its own to compare against, the log tool under bad input)."
     },
     {
       "order": "W3-11-plan",
-      "state": "planning",
+      "state": "plan review",
       "branch": "claude/w3-11-plan",
-      "note": "Planner folding W3-09 into the orders: W3-02 revision 3 (the sender as Steam's chunk model), and new orders W3-11 (the app's Steam gate as read), W3-12 (Speex 1.0.2 as the module runs it), W3-13 (the 24 to 44.1 kHz step as libswresample's filter), with the order of work and proposed REFERENCE text. Then a plan reviewer on the builders' model."
+      "note": "Planned (branch claude/w3-11-plan, head 1f53b69, not merged): W3-02 revision 3 (the sender as Steam's chunk rule in a module shared by the timeline and the offline render), W3-11 (the app's Steam gate, 16-bit decode, concealment cap, per-packet resampler), W3-12 a and b (Speex 1.0.2 as the module runs it), W3-13 (a port of libswresample's 16-bit path), the order of work, and proposed REFERENCE text. With a plan reviewer on the builders' model. Decisions taken by the orchestrator: W3-02b is built without waiting for the owner's Steam console run; the hold's misfit is scored, not tuned; W3-06's point on Speex is struck in its brief; lost Speex frames give zeros. For the owner: the port carries LGPL source (as LAME already does)."
     }
   ],
   "next": [
