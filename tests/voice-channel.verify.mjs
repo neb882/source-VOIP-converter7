@@ -46,18 +46,22 @@ const FAULTS = [
   ['no grace', () => ({ noGrace: true })],
 ];
 
+// A section without a name is named by its place, one without bufferMs has voice_buffer_ms's
+// default; fps and the events must be there.
 function validFixture(f) {
   if (!f || !Array.isArray(f.sections) || !f.sections.length) throw new Error('a fixture is { about, sections: [...] } with at least one section');
+  f = { ...f, sections: f.sections.map((s, i) => ({ ...s, name: typeof s.name === 'string' ? s.name : `section ${i + 1}`, bufferMs: s.bufferMs === undefined ? VOICE_CHANNEL.bufferMs : s.bufferMs })) };
   for (const [i, s] of f.sections.entries()) {
     const where = `section ${i + 1}`;
-    if (typeof s.name !== 'string') throw new Error(`${where}: no name`);
     for (const k of ['fps', 'bufferMs']) if (typeof s[k] !== 'number' || !Number.isFinite(s[k]) || s[k] <= 0) throw new Error(`${where}: ${k} is not a positive number`);
     const ev = s.events;
     if (!Array.isArray(ev) || ev.length % 2) throw new Error(`${where}: events must be a flat list of pairs`);
     for (let k = 0; k < ev.length; k += 2) {
       const kind = ev[k], v = ev[k + 1];
       if (!Number.isInteger(kind) || kind < 0 || kind > 3 || !Number.isInteger(v)) throw new Error(`${where}: event pair ${k / 2} is not kind 0 to 3 and a whole number`);
-      if ((kind === 0 && v !== 0) || ((kind === 1 || kind === 2) && v < 0) || (kind === 3 && v < -1)) throw new Error(`${where}: event pair ${k / 2} has an impossible value`);
+      // A packet is at most 11264 samples (Steam's decoder writes into 22528 bytes, W3-03 §3);
+      // a million bounds packets and pulls far above any log.
+      if ((kind === 0 && v !== 0) || ((kind === 1 || kind === 2) && (v < 0 || v > 1e6)) || (kind === 3 && v < -1)) throw new Error(`${where}: event pair ${k / 2} has an impossible value`);
     }
   }
   return f;
@@ -460,6 +464,8 @@ function publicChecks() {
     const g3 = logToFixture(h3.join('\n'), { fps: 40 });
     check('the grace and the new channel are told apart by the next three steps, no more', JSON.stringify(g3.fixture.sections[0].events) === JSON.stringify(e3),
       JSON.stringify(g3.fixture.sections[0].events));
+    const bare = replayFixture({ sections: [{ fps: 66.67, events: g1.fixture.sections[0].events }] })[0];
+    check('a fixture section without a name or bufferMs replays at voice_buffer_ms 100', bare.name === 'section 1' && bare.waitTicks === 7 && bare.engine.bad === 0);
     const both = replayFixture({ sections: [g1.fixture.sections[0], g2.fixture.sections[0], g3.fixture.sections[0]] });
     check('and all three replay cleanly', both.every((r) => r.engine.bad === 0), both.map((r) => `${r.engine.ticks} ticks`).join(', '));
   }

@@ -83,8 +83,8 @@ runs the public checks, then replays every section through `createChannel` as th
 faults (the ring a sample longer or shorter, the wait a tick longer or shorter, the packet's first sample kept, no
 grace before a free), and prints the mismatching ticks per section with the first mismatch of the engine row. It exits
 non-zero if the engine mismatches anywhere, or if a fault mismatches nowhere in the file (then the log cannot tell
-that fault from the engine and proves less than it seems). `pnpm test` runs the same checks on a log the test writes
-itself.
+that fault from the engine and proves less than it seems). A section without `bufferMs` is replayed at 100, one
+without a name is named by its place. `pnpm test` runs the same checks on a log the test writes itself.
 
 To compare a section, event for event, with a section of another fixture:
 
