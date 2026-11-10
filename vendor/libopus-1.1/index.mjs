@@ -88,6 +88,19 @@ class Decoder {
   }
   decodeFloat(packet, options = {}) { return this.#decode(packet, options.frameSize ?? MAX_FRAME); }
   decodePacketLossFloat(frameSize = this.sampleRate / 50) { return this.#decode(null, frameSize); }
+  // The library's 16-bit decoder, opus_decode, as Steam's decoder calls it: in
+  // this float build it runs the soft clipper over the decoded frame (its memory
+  // kept in the decoder; a float decode clears it), then rounds each sample to
+  // the nearest integer, ties to even, clamped to 16 bits.
+  #decodeInt16(packet, frameSize) {
+    const x = this.#x;
+    let len = 0;
+    if (packet) { len = packet.length; new Uint8Array(x.memory.buffer, this.#in, len).set(packet); }
+    const n = check(x.opus_decode(this.#ptr, packet ? this.#in : 0, len, this.#pcm, frameSize, 0), 'decode');
+    return new Int16Array(x.memory.buffer, this.#pcm, n * this.channels).slice();
+  }
+  decodeInt16(packet, options = {}) { return this.#decodeInt16(packet, options.frameSize ?? MAX_FRAME); }
+  decodePacketLossInt16(frameSize = this.sampleRate / 50) { return this.#decodeInt16(null, frameSize); }
   free() {
     if (!this.#ptr) return;
     this.#x.opus_decoder_destroy(this.#ptr); this.#x.free(this.#pcm); this.#x.free(this.#in); this.#ptr = 0;

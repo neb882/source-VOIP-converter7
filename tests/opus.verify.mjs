@@ -364,6 +364,66 @@ check('Invalid PCM is rejected before encoding', true);
   await assert.rejects(() => opus.roundTrip(x, rate, 32000, { runtime: '0.9' }), /Unknown libopus runtime/);
   check('Unknown runtimes are rejected', true);
 }
+// W3-11a rebuilt the libopus 1.1.5 module with the library's 16-bit decoder,
+// opus_decode, exported (Steam decodes to 16 bits), and changed nothing else.
+{
+  const { testSignals, floatRun, int16Stream, digest, ENCODER, FRAME, RATE } = await import('./libopus11/native.mjs');
+  const { createEncoder: create11, createDecoder: decoder11 } = await import('../vendor/libopus-1.1/index.mjs');
+  const signals = testSignals();
+  // The float path must not move: these SHA-256 were recorded from the module
+  // as built before opus_decode was exported (b7a03edb...): the packets of 10 s
+  // of seeded noise bursts and vowels (some past full scale, and the same at
+  // 1/50 of the level), each packet through decodeFloat, and
+  // decodePacketLossFloat after every tenth.
+  const floatHashes = {
+    loud: { packets: '6bee8aa15d63d7f169940b8ecaa9f818555e3b733896e483d54c37e1718a75b2',
+      floats: 'faff9b07240216b0d25e9cc60d062ac2b6c4e405d5c88b2b21a683bcbbb7935f',
+      lost: '6787c35c12b7c6809ccdab66a493622f44061da95346dd191286e5b9e44d9bc8' },
+    quiet: { packets: 'b5226e0b8ff57bdda9fbec567cf244284eda90cad1eb6ea52d474df5b268648f',
+      floats: '56d18af46a017607e1ddbe8b9f33078154f1011329d54dca481a0327c8c6fa39',
+      lost: '8a03db0fe588c99e2d7db9154b9c7a0b13946090e928192ea8e5d8572a94a5ae' } };
+  for (const name of ['loud', 'quiet']) {
+    const got = await floatRun(signals[name]);
+    check(`libopus 1.1.5 rebuilt: the float path gives the earlier module's packets, decodeFloat and concealment (${name})`,
+      JSON.stringify(got) === JSON.stringify(floatHashes[name]));
+  }
+  // The 16-bit decoder against a native gcc build of the same checkout
+  // (`node tests/libopus11/native.mjs <checkout>`, gcc 13.3, x86-64): packets
+  // and opus_decode's samples, a concealed frame after every tenth packet.
+  const nativeHashes = {
+    loud: { packets: '6bee8aa15d63d7f169940b8ecaa9f818555e3b733896e483d54c37e1718a75b2',
+      int16: '12e83950d1dbc7bc70705b4a4f853a0fa7492a80c393892c307b4bed49f56cf9' },
+    quiet: { packets: 'b5226e0b8ff57bdda9fbec567cf244284eda90cad1eb6ea52d474df5b268648f',
+      int16: '24556dbc4662a730a6fa211602cc1a02a99176ecf995d4aef1628f782b015b97' } };
+  for (const name of ['loud', 'quiet']) {
+    const got = digest(await int16Stream(signals[name]));
+    check(`libopus 1.1.5: opus_decode's 16-bit samples match the native build sample for sample (${name}, ${got.samples} samples)`,
+      got.packets === nativeHashes[name].packets && got.int16 === nativeHashes[name].int16 && got.frames === 500);
+  }
+  // It is not the float decoder followed by a clip: the soft clipper changes
+  // the samples around a peak past full scale. On the quiet signal the two agree.
+  const roundEven = (v) => { const r = Math.round(v); return r - v === 0.5 && (r & 1) ? r - 1 : r; };
+  for (const [name, want] of [['loud', (n) => n >= 100], ['quiet', (n) => n === 0]]) {
+    const enc = await create11(ENCODER), d16 = await decoder11({ sampleRate: RATE, channels: 1 }), df = await decoder11({ sampleRate: RATE, channels: 1 });
+    let differ = 0, over = 0;
+    const x = signals[name];
+    for (let f = 0; (f + 1) * FRAME <= x.length; f++) {
+      const packet = enc.encodeFloat(x.subarray(f * FRAME, (f + 1) * FRAME));
+      const a = d16.decodeInt16(packet, { frameSize: FRAME }), b = df.decodeFloat(packet, { frameSize: FRAME });
+      for (let i = 0; i < FRAME; i++) {
+        if (Math.max(-32768, Math.min(32767, roundEven(b[i] * 32768))) !== a[i]) differ++;
+        if (Math.abs(b[i]) > 1) over++;
+      }
+      if (f % 10 === 9) {
+        const pa = d16.decodePacketLossInt16(FRAME), pb = df.decodePacketLossFloat(FRAME);
+        for (let i = 0; i < FRAME; i++) if (Math.max(-32768, Math.min(32767, roundEven(pb[i] * 32768))) !== pa[i]) differ++;
+      }
+    }
+    enc.free(); d16.free(); df.free();
+    check(`libopus 1.1.5: the 16-bit decoder ${name === 'loud' ? 'soft-clips' : 'equals'} clamp-and-round of decodeFloat (${name}: ${differ} samples differ; ${over} decoded floats past full scale)`,
+      want(differ));
+  }
+}
 const aliasSource = Float32Array.from({ length: 48000 }, (_, i) => Math.sin(2 * Math.PI * 16000 * i / 48000));
 const downsampled = A.resampleSinc(aliasSource, 48000, 24000).slice(100, -100);
 check('Downsampling rejects an out-of-band tone instead of aliasing it', energy(downsampled) / downsampled.length < 1e-7);
