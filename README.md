@@ -19,7 +19,7 @@ For GitHub Pages, enable Pages from the root of your publishing branch; no build
 
 Use HTTPS or localhost. Opening `index.html` as a local file does not reliably support codec modules or microphone capture. After the app and its service worker load, conversion works offline. Background cache updates never reload the page or discard loaded audio; refresh when you are ready to use updated page code.
 
-Choose an audio or video file (or drop one on the page) or record, pick a preset, process, and download. Microphone capture uses uncompressed PCM, so the only lossy pass is the emulated codec. Limits: 100 MB (1 GB for video) and 10 minutes per file, 5 minutes for recording. Supported upload formats depend on the browser.
+Choose an audio or video file (or drop one on the page) or record, pick a preset, process, and download. Microphone capture uses uncompressed PCM, so the only lossy pass is the emulated codec. Limits: 100 MB (1 GB for video) and 10 minutes per file, 5 minutes for recording. Supported upload formats depend on the browser. A file is decoded at its own sample rate, read from its header, not at the audio device's, so the same file gives the same samples and the same render on any machine (`filerate.js`). Opus decodes at 48 kHz, and AAC at 24 kHz or less without its own SBR signalling at twice that rate, as it may be HE-AAC. A WebM or Matroska file, whose rate the page does not read, is decoded at the device's rate, as is any file whose rate the browser cannot decode at; the console says so.
 
 ## Downloads and batches
 
@@ -291,6 +291,11 @@ pnpm test:all
   - The MP3 module matches its documented build. Its files are byte-identical to a native gcc build of LAME 3.100. Decoded with mpg123, they keep level and waveform, and their LAME tag accounts for every sample.
   - Rates MP3 cannot carry are resampled.
   - The WAV reader works, and ZIP archives have correct headers and CRC-32.
+- **`tests/filerate.verify.mjs`:** reading a file's own sample rate (`filerate.js`) from headers written byte by byte and from half-second tones made with ffmpeg in `tests/filerate/`:
+  - WAV at every rate from 8 to 96 kHz, WAVE_FORMAT_EXTENSIBLE, RF64 and BW64, and AIFF
+  - FLAC (also after an ID3v2 tag), and MPEG-1, 2 and 2.5 frames at all nine rates after ID3v2 tags, with a stray frame sync ignored
+  - AAC: ADTS, and AudioSpecificConfigs with explicit and backward-compatible SBR signalling; Ogg Vorbis, Opus (48 kHz) and FLAC; MP4 and MOV through video.js
+  - the decode's fallbacks to the device rate: a rate that cannot be read, a rate the context refuses, a failed decode, no OfflineAudioContext
 - **`tests/meter.verify.mjs`:** the meter against BS.1770-4 and EBU Tech 3342:
   - K-weighting coefficients
   - −3.01 LUFS for a full-scale 997 Hz sine, and −23 LUFS at −20 dBFS
@@ -312,7 +317,8 @@ pnpm test:all
   - a source dropped during a render stops that render, and the new source renders as itself
   - the chain strip, presets, console completion, `net_graph`, accessibility and mobile layout
   - the service worker: a worker update keeps the loaded audio, and workers and audio worklets get fresh scripts, as the page does
-  - the 44.1/48 kHz file × decode-rate matrix
+  - the 44.1/48 kHz file × device-rate matrix: a file keeps its own rate on either device; Ogg Opus decodes at 48 kHz, and a WebM falls back to the device rate
+  - on a 48 kHz device: 16-bit WAV and FLAC at 44.1 and 22.05 kHz decode to the file's own samples; MP3 (MPEG-1, 2 and 2.5), AAC (M4A and ADTS) and Ogg Vorbis to their own rate and length; a refused rate and a failed decode fall back to the device rate; a source at each of 8, 11.025, 16, 22.05, 32, 44.1, 48, 88.2 and 96 kHz renders through the default preset; a take and a batch file are decoded at their own rate too
 
   Set `CHROMIUM_EXECUTABLE` to use a preinstalled browser whose build differs from Playwright's pin.
 
@@ -340,6 +346,7 @@ These tests establish implementation behavior; the accuracy claims rest on the p
 | `meter.js` | loudness and level measurement |
 | `reference.js` | finding a source in a real take, aligning it talk spurt by talk spurt, and the comparison measures (page, worker and Node tools) |
 | `video.js` | reading MP4/MOV and writing the video back with the render as its audio |
+| `filerate.js` | reading a sound file's own sample rate from its header, and decoding it at that rate |
 | `demo.js` | reading the voice in a TF2 demo and decoding it as the receiving game does |
 | `live.js`, `live-worker.js`, `live-worklet.js` | live monitor: interface, the streaming chain in a worker, capture and playback on the audio thread |
 

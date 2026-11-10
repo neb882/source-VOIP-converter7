@@ -49,16 +49,36 @@ function mountSource(mono, sampleRate, name, left = null) {
   updateSignalChain();
 }
 
+// The audio device's context, which resamples what it decodes to the
+// device's rate: only for a file whose own rate cannot be used.
+function deviceDecodeContext() {
+  if (!state.decodeCtx) state.decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return state.decodeCtx;
+}
+
+// A file's bytes decoded at the file's own sample rate (filerate.js), so the
+// same file gives the same samples on any machine. When that cannot be done
+// it is decoded at the device's rate, as before, and the console says why.
+// again() gives the bytes anew for that second try (decoding takes them over).
+async function decodeAtFileRate(data, name, again = null) {
+  const { buffer, info, native, why } = await TF2FileRate.decode(data, { deviceContext: deviceDecodeContext, again });
+  if (native) {
+    if (info.note) logLine(`decodeAudioData: "${name}": ${info.format}, ${info.note}.`, 'sys');
+  } else {
+    logLine(`decodeAudioData: "${name}" was decoded at the audio device's rate, ${buffer.sampleRate.toLocaleString('en-US')} Hz, because ${why}.`, 'warn');
+  }
+  return buffer;
+}
+
 let sourceLoadId = 0;
 // Resolves true once the clip is the source (false if a newer one took over
-// or it failed).
-async function loadSourceFromArrayBuffer(ab, name) {
+// or it failed). again() gives the bytes anew if a second decode is needed.
+async function loadSourceFromArrayBuffer(ab, name, again = null) {
   const id = ++sourceLoadId;
   els.process.disabled = true;
   try {
     setStatus(`Decoding ${name}…`);
-    if (!state.decodeCtx) state.decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const decoded = await state.decodeCtx.decodeAudioData(ab);
+    const decoded = await decodeAtFileRate(ab, name, again);
     if (id !== sourceLoadId) return false; // A newer selection superseded this decode.
     if (decoded.duration > MAX_AUDIO_SECONDS) throw new Error('the clip exceeds the 10 minute limit');
     mountSource(TF2Audio.bufferToMono(decoded), decoded.sampleRate, name,
@@ -365,7 +385,7 @@ async function loadSourceFile(f) {
     // Decoding takes the buffer over, so a remuxable video keeps a copy.
     const info = video && window.TF2Video ? TF2Video.inspect(new Uint8Array(bytes)) : null;
     const keep = info && info.video ? bytes.slice(0) : null;
-    if (!(await loadSourceFromArrayBuffer(bytes, f.name))) return;
+    if (!(await loadSourceFromArrayBuffer(bytes, f.name, () => f.arrayBuffer()))) return;
     if (keep) {
       state.sourceVideo = { bytes: keep, name: f.name, info };
       logLine(`FS_MountFile: video (${info.container.toUpperCase()}, ${info.codec}) kept; Download video puts the render back into it.`, 'sys');
