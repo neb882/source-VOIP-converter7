@@ -13,5 +13,8 @@ does not edit them.
 - `dspmodel.py`: the model. Integer arithmetic as read.
 - `reference.py`: runs the model on fixed inputs and prints hashes (`reference.out`); with `--tails`, where
   each case's tail ends (`tails.out`). Needs Python 3 with numpy; reads only `room-presets.json`.
+- `auto.py` and `auto.json` are part b's builder's own, not the orchestrator's: `auto.py` reads the model's
+  automatic rooms into `auto.json`, which the Node tests compare against; rerun it after the model changes
+  (`python3 -I tests/roomdsp/auto.py`). `lines.py`, `lines.json` and `coefs.mjs` are part a's builder's.
 
 Not run by CI. The Node tests compare the app against the recorded hashes.

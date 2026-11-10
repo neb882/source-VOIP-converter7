@@ -1,15 +1,16 @@
 // tests/room-dsp.verify.mjs: room-dsp.js and room-presets.js, the room effects as the engine does them
-// (order W3-17, part a).
+// (order W3-17, parts a and b).
 //
 // Every expected value here comes from outside room-dsp.js: the reference's recorded outputs
 // (tests/roomdsp/reference.out and tails.out, made by reference.py on the model dspmodel.py), the order and
-// the reports (typed in below, each with where it is from), and tests/roomdsp/lines.json, which lines.py reads
-// out of the model's own instances. Where a check compares the module with itself (chunking, a number the table
-// does not hold), it says so.
+// the reports (typed in below, each with where it is from), and tests/roomdsp/lines.json and auto.json, which
+// lines.py and auto.py read out of the model's own instances and builds. Where a check compares the module with
+// itself (chunking, a number the table does not hold), it says so.
 //
 //   node tests/room-dsp.verify.mjs
 //   TF2_DIR=<folder> node tests/room-dsp.verify.mjs      the module and the table from a copy (to break one)
-//   ROOM_ONLY=<word> ...                                 only the sections whose name holds the word
+//   ROOM_ONLY=<word> ...                                 only the sections whose name holds the word (part b's:
+//                                                        "automatic")
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -979,6 +980,471 @@ export async function main() {
     console.log(`        ns a sample: ${speed.map(([n, v]) => `${n} ${v.toFixed(0)}`).join(', ')}; ` +
       `the heaviest, preset ${worst[0]}, ${(1e9 / worst[1] / 1e6).toFixed(1)} M samples a second, ${(1e9 / worst[1] / 44100).toFixed(0)} times real time`);
     check('every preset runs well over real time (under 2,000 ns a sample)', worst[1] < 2000);
+  }
+
+  // ================================================================ part b: the automatic room
+  // Expected values: the order's tables (part b, items 3 and 5: typed in below), R2 e1 and e2 and the W3-17a
+  // second read (typed in, each with where it is from), reference.out and tails.out, and tests/roomdsp/auto.json,
+  // which auto.py reads out of the model's own build_auto and instances.
+  const AUTO = JSON.parse(readFileSync(join(data, 'auto.json'), 'utf8'));
+  const toMeasures = (m) => ({ sky: !!m[0], width: m[1], length: m[2], height: m[3], reflectivity: m[4], openSides: m[5] });
+  const classList = (c) => [c.size, c.width, c.length, c.height, c.reflectivity, c.diffusion];
+  const singles = (p) => p.map(([t, v]) => [t, v.map(Math.fround)]);
+  // The module's build against one of auto.json's records: shape, classes, pair, copy, shares, header, parameters.
+  const againstModel = (rec, table) => {
+    let b;
+    try { b = R.buildAutomatic(toMeasures(rec.m), { table }); } catch (e) { return `${rec.label || ''}: ${e.message}`; }
+    const bad = [];
+    if (b.shapeNumber !== rec.shape) bad.push(`shape ${b.shapeNumber}`);
+    if (!same(classList(b.classes), rec.classes)) bad.push(`classes ${classList(b.classes)}`);
+    if (b.pair[0] !== rec.base || b.pair[1] !== rec.base + 1 || b.copy !== rec.copy) bad.push(`pair ${b.pair} copy ${b.copy}`);
+    if (!same(R.shares(b.preset), { room: rec.shares[0], direct: rec.shares[1] })) bad.push('shares');
+    if (!same(b.preset.h, rec.h.map(Math.fround))) bad.push('header');
+    if (!same(b.preset.p, singles(rec.p))) bad.push('parameters');
+    return bad.length ? `${rec.label || rec.m}: ${bad.join(', ')}` : null;
+  };
+  const allAgainstModel = (recs, table) => recs.map((r) => againstModel(r, table)).filter(Boolean);
+  // A copy of the table with templates edited as auto.py edits them.
+  const editedTable = (edits) => {
+    const t = JSON.parse(JSON.stringify(TABLE));
+    for (const e of edits) {
+      if (e.length === 2) t[e[0]].p = e[1].map(([ty, v]) => [ty, v.slice()]);
+      else t[e[0]].p[e[1]][1][e[2]] = e[3];
+    }
+    return t;
+  };
+  // The order's tables (part b, items 3 and 5): key, label, sky, width, length, height, reflectivity, open sides;
+  // shape; classes size, width, length, height; the template copied; room / direct.
+  const ORDER_CASES = [
+    ['closet', 'Very small room', false, 120, 140, 100, 0.3, 0, 'room', [0, 1, 0, 1], 102, 38, 217],
+    ['small_room', 'Small room', false, 200, 260, 120, 0.4, 0, 'room', [1, 2, 1, 1], 102, 38, 217],
+    ['room', 'Room', false, 300, 400, 160, 0.4, 0, 'room', [2, 3, 2, 2], 103, 41, 214],
+    ['large_room', 'Large room', false, 500, 700, 220, 0.4, 0, 'room', [3, 3, 3, 3], 103, 41, 214],
+    ['great_hall', 'Great hall', false, 700, 1300, 400, 0.4, 0, 'room', [4, 4, 4, 4], 103, 41, 214],
+    ['vent', 'Vent or duct', false, 48, 400, 64, 0.4, 0, 'duct', [1, 0, 2, 1], 106, 51, 204],
+    ['corridor', 'Corridor', false, 80, 400, 120, 0.4, 0, 'hall', [1, 1, 2, 1], 110, 38, 217],
+    ['long_corridor', 'Long corridor', false, 90, 1200, 120, 0.4, 0, 'hall', [2, 1, 4, 1], 111, 38, 217],
+    ['tunnel', 'Tunnel', false, 200, 1000, 150, 0.3, 0, 'tunnel', [2, 2, 3, 2], 115, 72, 183],
+    ['big_tunnel', 'Big tunnel', false, 280, 1400, 250, 0.4, 0, 'tunnel', [3, 2, 4, 3], 115, 72, 183],
+    ['alley', 'Alley, walls all round', true, 120, 600, 4800, 0.4, 0, 'alley', [1, 1, 3, 4], 122, 24, 231],
+    ['street', 'Street, walls all round', true, 300, 1300, 4800, 0.4, 0, 'street', [3, 3, 4, 4], 119, 23, 232],
+    ['courtyard', 'Courtyard', true, 500, 700, 4800, 0.4, 0, 'courtyard', [3, 3, 3, 4], 127, 5, 250],
+    ['open', 'Open ground (a guess)', true, 2, 2, 4800, 0.08, 4, 'open space', [0, 0, 0, 4], 130, 5, 250],
+  ];
+  const ORDER_MEASURED = [   // item 5: the classes the order gives (null: not given), the reflectivity class
+    ['set_c_room', 'Spawn-sized room (as recorded, Set C)', false, 300, 400, 160, 0.9, 0, 'room', [2, null, null, null], 103, 41, 214, 3, 'Set C'],
+    ['set_d_street', 'Street (as recorded, Set D)', true, 300, 1000, 4800, 0.4, 0, 'street', [3, 3, 3, null], 119, 23, 232, 1, 'Set D'],
+  ];
+  const KEYS = [...ORDER_CASES, ...ORDER_MEASURED].map((c) => c[0]);
+  // A check whose expression may throw on a broken module: the throw fails the check, with its message.
+  const checkTry = (name, fn) => { let ok = false, msg = ''; try { ok = !!fn(); } catch (e) { msg = e.message; } check(name, ok, msg); };
+  const built = Object.fromEntries(KEYS.map((k) => { try { return [k, R.buildAutomatic(k)]; } catch (e) { return [k, null]; } }));
+
+  if (section('The automatic room: shapes and classes (part b)')) {
+    const rows = R.ROOM_CASES || [];
+    check('ROOM_CASES: the 14 examples and the two measured cases, in the order\'s order, with its labels and measures',
+      same(rows.map((r) => [r.key, r.label, r.measures.sky, r.measures.width, r.measures.length, r.measures.height,
+        r.measures.reflectivity, r.measures.openSides]), [...ORDER_CASES, ...ORDER_MEASURED].map((c) => c.slice(0, 8))));
+    check('the two measured cases are marked measured, with their sets; no example is; ROOM_PLACES starts empty',
+      same(rows.filter((r) => r.measured).map((r) => [r.key, r.set]), [['set_c_room', 'Set C'], ['set_d_street', 'Set D']]) &&
+      Array.isArray(R.ROOM_PLACES) && R.ROOM_PLACES.length === 0 && Object.isFrozen(R.ROOM_CASES) &&
+      typeof (rows.find((r) => r.key === 'open') || {}).note === 'string');
+    // The two notes the page shows, typed here from the W3-17b second read, section 3 (what each take fixes and
+    // which measures build the same preset) and the order's item 5 (the reflectivity classes).
+    const NOTES = {
+      set_c_room: 'Fitted to the owner\'s Set C: a room whose shorter side is 145 to 576 units (12 to 48 feet); the take ' +
+        'fixes the size class (2), not the size. Reflectivity class 3 fits best, class 2 nearly as well. These ' +
+        'measures are one room that builds this preset.',
+      set_d_street: 'Fitted to the owner\'s Set D, PC A (echoes at 68, 120 and 308 ms): a street 289 to 460 units wide and ' +
+        '723 to 1152 long (24 to 38 by 60 to 96 feet). An open street (two walls open) with the same classes builds ' +
+        'the same preset, so the take cannot tell the two apart. The take does not fix the reflectivity class; class ' +
+        '1 is taken. These measures are one such street.',
+    };
+    check('the two measured cases\' notes say what the takes fix, word for word as typed here (second read, section 3)',
+      Object.entries(NOTES).every(([k, t]) => (rows.find((r) => r.key === k) || {}).note === t));
+    let bad = [];
+    for (const [k, , , , , , , , shape, cls, copy, room, direct] of ORDER_CASES) {
+      const b = built[k];
+      if (!b || b.shape !== shape || !same(classList(b.classes), [...cls, 1, 0]) || b.copy !== copy ||
+        b.pair[0] !== (copy & ~1) || !same(R.shares(b.preset), { room, direct })) bad.push(k);
+    }
+    check('the 14 examples: shape, classes (reflectivity class 1, diffusion 0), pair, copy and shares as the order\'s table gives them',
+      bad.length === 0, bad.join(' '));
+    bad = [];
+    for (const [k, , , , , , , , shape, cls, copy, room, direct, refl] of ORDER_MEASURED) {
+      const b = built[k];
+      if (!b || b.shape !== shape || b.copy !== copy || b.classes.reflectivity !== refl || b.classes.diffusion !== 0 ||
+        !cls.every((v, i) => v === null || v === classList(b.classes)[i]) || !same(R.shares(b.preset), { room, direct })) bad.push(k);
+    }
+    check('the two measured cases: set_c_room a room of size class 2 and reflectivity class 3, from 103, 41/214; set_d_street a street of size, width and length class 3, from 119, 23/232',
+      bad.length === 0, bad.join(' '));
+    bad = [];
+    for (const k of KEYS) {
+      const rec = AUTO.cases[k], b = built[k];
+      if (!b || b.shapeNumber !== rec.shape || !same(classList(b.classes), rec.classes) || b.pair[0] !== rec.base || b.copy !== rec.copy) bad.push(k);
+    }
+    check('the 16 cases: shape, classes, pair and copy are the model\'s (auto.json)', bad.length === 0, bad.join(' '));
+    // No case sits on a threshold of a class or of the reflectivity (the order, item 3; the thresholds of R2 e1),
+    // nor on a ratio of the shape rules (R2 e2); vent's width of 48 is the order's own: the widest a duct can be.
+    const near = [];
+    for (const [k, , sky, W, Lm, H, refl] of [...ORDER_CASES, ...ORDER_MEASURED]) {
+      if ([72, 144, 288, 576].includes(W)) near.push(`${k} width`);
+      const courtyard = k === 'courtyard';         // the courtyards' size class has a length scale of its own
+      if ([144, 288, 576, 1152].includes(Lm) || (courtyard && [120, 240, 480, 1200].includes(Lm))) near.push(`${k} length`);
+      if ([48, 128, 216, 384].includes(H)) near.push(`${k} height`);
+      if ([0.04, 0.5, 0.8].some((t) => Math.abs(refl - t) < 0.01)) near.push(`${k} reflectivity`);
+      if (Lm === 4 * W || Lm === 2.5 * W || (!sky && H === 3 * Lm)) near.push(`${k} a shape ratio`);
+      if ([96, 144].includes(W) || (W === 48 && k !== 'vent')) near.push(`${k} a shape width`);
+    }
+    check('no case sits on a threshold (of the widths, lengths, courtyard lengths, heights, reflectivities, the shape rules\' ratios and widths but vent\'s 48)',
+      near.length === 0, near.join(' '));
+    // Each threshold of R2 e1 and e2, on, one under and one over, judged against the model.
+    const groups = [
+      ['the width class at 72, 144, 288 and 576 (indoors, and under the sky where the size class is the width class)', /^width \d+,/],
+      ['the length class at 144, 288, 576 and 1152', /^length \d+/],
+      ['the height class at 48, 128, 216 and 384', /^height \d+/],
+      ['the courtyards\' size class at lengths 120, 240, 480 and 1200 (courtyard and open courtyard)', /courtyard, length \d+/],
+      ['the reflectivity class at 0.04, 0.5 and 0.8 (the single on it, one single under and over, doubles 1e-9 either side), and 0 and 1', /^reflectivity/],
+      ['the shape rules: length over 4 and 2.5 widths, widths 48, 96 and 144, the shaft swap, 0 to 4 open sides, open sides indoors', /^(duct|hall|tunnel|courtyard:|alley|the shaft|a duct|\d open|open sides)/],
+      ['the other reading of `open`, a width larger than the length, all measures 0', /^(open:|width larger|all zero)/],
+    ];
+    const used = new Set();
+    for (const [name, re] of groups) {
+      const recs = AUTO.probes.filter((p) => re.test(p.label));
+      recs.forEach((r) => used.add(r.label));
+      const errs = allAgainstModel(recs);
+      check(`${name}: the model's shape, classes, pair, copy, shares, header and parameters (${recs.length} measures)`,
+        recs.length > 0 && errs.length === 0, errs.slice(0, 4).join('; '));
+    }
+    check('every probe of auto.json was judged', used.size === AUTO.probes.length, `${used.size} of ${AUTO.probes.length}`);
+    // The reflectivity's thresholds as R2 e1 gives them, with the second read's row 20 for 0.8: above 0.04 as a
+    // double, at most 0.5, above 0.8 as a double against the double 0.8, so the single 0.8 (0.800000012) is class 3.
+    const rc = (r) => R.buildAutomatic({ sky: false, width: 300, length: 400, height: 160, reflectivity: r, openSides: 0 }).classes.reflectivity;
+    checkTry('reflectivity classes: 0.04 is 0 and the next single 1; 0.5 is 1 and the next single 2; 0.8 is 3 (the single 0.800000012 > 0.8), the single under it 2',
+      () => rc(0) === 0 && rc(0.04) === 0 && rc(0.040000003) === 1 && rc(0.5) === 1 && rc(0.50000006) === 2 && rc(0.8) === 3 &&
+      rc(0.79999995) === 2 && rc(0.6) === 2 && rc(0.9) === 3 && rc(1) === 3);
+    // The size class's three rules (R2 e1): the courtyards by the length's own scale, street and alley by the
+    // width class, the rest by the mean of the width and length classes, truncated. An open street is "the rest".
+    const sz = (sky, W, Lm, open, H = 4800) => R.buildAutomatic({ sky, width: W, length: Lm, height: H, reflectivity: 0.4, openSides: open });
+    checkTry('the size class: an alley 120 x 600 is 1 (its width class), an open street of the same measures 2 (the mean of 1 and 3), a courtyard of length 250 is 2, a room 300 x 700 is 3', () => {
+      const alley = sz(true, 120, 600, 0), ost = sz(true, 120, 600, 2), cy = sz(true, 200, 250, 0), room = sz(false, 300, 700, 0, 200);
+      return alley.shape === 'alley' && alley.classes.size === 1 && ost.shape === 'open street' && ost.classes.size === 2 &&
+        cy.shape === 'courtyard' && cy.classes.size === 2 && room.shape === 'room' && room.classes.size === 3;
+    });
+    // The other reading of `open` (the order, item 3): spans of 9600 give size class 4, a copy of 131, 5/250 too.
+    checkTry('`open` read the other way (spans of 9600): open space, size class 4, a copy of 131, and 5/250 as well', () => {
+      const other = R.buildAutomatic({ sky: true, width: 9600, length: 9600, height: 4800, reflectivity: 0.08, openSides: 4 });
+      return other.shape === 'open space' && other.classes.size === 4 && other.copy === 131 &&
+        same(R.shares(other.preset), { room: 5, direct: 250 }) && same(R.shares(built.open.preset), { room: 5, direct: 250 });
+    });
+    // The vertical shaft (W3-17b second read, finding 1): indoors, a height over three lengths (strictly), the engine
+    // exchanges length and height in its record (0x180032059 to 0x180032083), names the shape and works out the
+    // classes from that record, and exchanges them back afterwards (0x18003219f to 0x1800321b1). Typed from that read.
+    const indoor = (width, length, height) => R.buildAutomatic({ sky: false, width, length, height, reflectivity: 0.4, openSides: 0 });
+    checkTry('a vertical shaft has the classes of its exchanged length and height: 100 x 100 x 400 a room of size 1, width 1, length 2, height 1 (102); 200 x 250 x 800 size 2, width 2, length 3, height 3 (103); 100 x 100 x 300 is no shaft', () => {
+      const a = indoor(100, 100, 400), b = indoor(200, 250, 800), c = indoor(100, 100, 300);
+      return a.shaft && a.shape === 'room' && same(classList(a.classes), [1, 1, 2, 1, 1, 0]) && a.copy === 102 &&
+        b.shaft && b.shape === 'room' && same(classList(b.classes), [2, 2, 3, 3, 1, 0]) && b.copy === 103 &&
+        !c.shaft && same(classList(c.classes), [0, 1, 0, 3, 1, 0]);
+    });
+    {
+      const f = Math.fround, rv = (b) => b.preset.p.find(([t]) => t === 2)[1], df = (b) => b.preset.p.find(([t]) => t === 10)[1];
+      const at = (v, idx) => idx.map((i) => v[i]);
+      checkTry('the second read\'s three shafts, value for value: 200 x 250 x 800 (room, 103: DFR 1, 3, 0.150000006; RVA 105.599998, 33.2000008, 5.19999981, 0.856000006, 1.62000012, cutoff 2850), 60 x 100 x 400 (hall, 110), 120 x 150 x 600 (tunnel, 115)', () => {
+        const r = indoor(200, 250, 800), h = indoor(60, 100, 400), t = indoor(120, 150, 600);
+        return r.shape === 'room' && same(classList(r.classes).slice(0, 4), [2, 2, 3, 3]) && r.copy === 103 &&
+          same(r.preset.h, [0.32, 0.8, 0, 0, 80, 0.5].map(f)) && same(df(r).slice(0, 3), [1, 3, 0.150000006].map(f)) &&
+          same(at(rv(r), [0, 1, 2, 3, 4, 5]), [105.599998, 33.2000008, 5.19999981, 0.856000006, 1.62000012, 2850].map(f)) &&
+          h.shape === 'hall' && same(classList(h.classes).slice(0, 4), [1, 0, 2, 1]) && h.copy === 110 &&
+          same(at(rv(h), [2, 4, 5, 9, 10, 11, 12, 13, 14]),
+            [3.5999999, 1.96000004, 4500, 7, 47.5200043, 12.1599998, 0.850000024, -0.659999967, 0.300000012].map(f)) &&
+          t.shape === 'tunnel' && same(classList(t.classes).slice(0, 4), [2, 1, 3, 2]) && t.copy === 115 &&
+          same(df(t).slice(0, 3), [1, 2.4000001, 0.148980007].map(f)) &&
+          same(at(rv(t), [2, 4, 5, 9, 10, 11, 12, 13, 14]),
+            [7.19999981, 2, 4500, 9.60000038, 89.6000061, 18.6399994, 0.94599998, -0.600000024, 0.439999998].map(f));
+      });
+      checkTry('a shaft\'s measures in place of negative values stay the true ones: the hall pair with w, d, h -1 in both, 60 x 100 x 400, gives 6, 8.33333302, 33.3333321 (feet of 60, 100 and 400)', () => {
+        const t = editedTable([[110, 0, 9, -1], [110, 0, 10, -1], [110, 0, 11, -1], [111, 0, 9, -1], [111, 0, 10, -1], [111, 0, 11, -1]]);
+        const b = R.buildAutomatic({ sky: false, width: 60, length: 100, height: 400, reflectivity: 0.4, openSides: 0 }, { table: t });
+        return b.shaft && b.shape === 'hall' && same(at(rv(b), [9, 10, 11]), [6, 8.33333302, 33.3333321].map(f));
+      });
+    }
+  }
+
+  if (section('The automatic room: the build (part b)')) {
+    let bad = [];
+    for (const k of KEYS) {
+      const rec = AUTO.cases[k], b = built[k];
+      if (!b || !same(b.preset.h, rec.h.map(Math.fround)) || !same(b.preset.p, singles(rec.p))) { bad.push(k); continue; }
+      const la = L.auto[k];                        // part a's record of the same build (lines.py), for the 14
+      if (la && (!same(b.preset.h, la.h) || !same(b.preset.p, la.p))) bad.push(`${k} (lines.json)`);
+    }
+    check('the 16 cases: the built header and parameters are the model\'s, value for value in single precision (auto.json; the 14 also lines.json)',
+      bad.length === 0, bad.join(' '));
+    bad = [];
+    for (const k of KEYS) if (!built[k] || !same(R.createInstance(built[k].preset, upper).describe(), AUTO.cases[k].d)) bad.push(k);
+    check('the 16 cases: describe() is the model\'s built integers', bad.length === 0, bad.join(' '));
+    // The order's tables (items 3 and 5), typed in: the built integers each row names.
+    const d = (k) => (built[k] ? R.createInstance(built[k].preset, upper).describe() : []);
+    const rva = (k) => (d(k).find((u) => u.t === 'RVA') || { lines: [] }).lines;
+    const pv = (k, type, i) => { const q = built[k] && built[k].preset.p.find(([t]) => t === type); return q ? q[1][i] : NaN; };
+    const lines3 = (k) => rva(k).map((l) => [l.D, l.a, l.g]);
+    const firstLast = (k) => { const ls = rva(k); return ls.length ? [ls.length, ls[0].D, ls[0].a, ls[0].g, ls.at(-1).D, ls.at(-1).a, ls.at(-1).g] : []; };
+    const allpasses = (k) => (d(k).find((u) => u.t === 'DFR') || { stages: [] }).stages.map((s) => [s.D, s.a]);
+    const C_LINES = [[1464, 3506, 764], [2081, 3283, 1053], [2698, 3075, 1323], [3360, 2866, 1327], [3977, 2684, 1327]];
+    const AP3 = [[573, 614], [837, 614], [1146, 614]];
+    const PINS = [
+      ['closet: lines 1323 (3194; 1983), 2425 (2597; 2252); cutoff 2850 (R2\'s example 2)', () =>
+        same(lines3('closet'), [[1323, 3194, 1983], [2425, 2597, 2252]]) && pv('closet', 2, 5) === 2850],
+      ['small_room: 3 lines 1358 (3350; 1350), 2152 (2979; 1856), 2989 (2632; 1856)', () =>
+        same(lines3('small_room'), [[1358, 3350, 1350], [2152, 2979, 1856], [2989, 2632, 1856]])],
+      ['room: 3 all-passes; 5 lines 1464 to 3977 (3506 to 2684; 764 to 1327), Set C\'s lines; cutoff 2850', () =>
+        same(allpasses('room'), AP3) && same(lines3('room'), C_LINES) && pv('room', 2, 5) === 2850],
+      ['large_room: 3 all-passes; 6 lines 1640 to 5300 (3661 to 2851; 545 to 1283)', () =>
+        allpasses('large_room').length === 3 && same(firstLast('large_room'), [6, 1640, 3661, 545, 5300, 2851, 1283])],
+      ['great_hall: 3 all-passes; 8 lines 1887 to 7267 (3817 to 3123; 298 to 1039)', () =>
+        allpasses('great_hall').length === 3 && same(firstLast('great_hall'), [8, 1887, 3817, 298, 7267, 3123, 1039])],
+      ['vent: lines 444 (3727; 1472), 3619 (1898; 4096); cutoff 3000', () =>
+        same(lines3('vent'), [[444, 3727, 1472], [3619, 1898, 4096]]) && pv('vent', 2, 5) === 3000],
+      ['corridor: predelay 2072 (factor 2703), 617 (1228; 2676), 308 (3481; 1607); cutoff 4500', () =>
+        same(rva('corridor').map((l) => [l.kind, l.D, l.fb, l.g]), [[4, 2072, -2703, 4096], [2, 617, 1228, 2676], [2, 308, 3481, 1607]]) &&
+        pv('corridor', 2, 5) === 4500],
+      ['long_corridor: predelay 5733 (1720) and 5 lines 926, 308, 1719, 1234, 617', () =>
+        same(rva('long_corridor').map((l) => l.D), [5733, 926, 308, 1719, 1234, 617]) && rva('long_corridor')[0].kind === 4 &&
+        rva('long_corridor')[0].fb === -1720],
+      ['tunnel: R2\'s example 3: 2 all-passes (573, 837; 610), predelay 3924 (2457) and 8 lines', () =>
+        same(allpasses('tunnel'), [[573, 610], [837, 610]]) && same(rva('tunnel').map((l) => [l.D, l.kind, l.fb, l.g]),
+          [[3924, 4, -2457, 4096], [1543, 2, 1802, 910], [617, 2, 3899, 227], [1278, 2, 2457, 910], [1852, 2, 1802, 910],
+            [926, 2, 3899, 227], [1587, 2, 2457, 910], [2160, 2, 1802, 910], [1234, 2, 3899, 227]])],
+      ['big_tunnel: 2 all-passes (feedback 611), predelay 5909 (2048) and 8 lines', () =>
+        same(allpasses('big_tunnel'), [[573, 611], [837, 611]]) && rva('big_tunnel').length === 9 &&
+        same([rva('big_tunnel')[0].kind, rva('big_tunnel')[0].D, rva('big_tunnel')[0].fb], [4, 5909, -2048])],
+      ['alley: predelays 5997 (1130) and 3087 (901), line 2205 (2048; 3686); cutoff 3500', () =>
+        same(rva('alley').map((l) => [l.kind, l.D, l.fb, l.g]), [[4, 5997, -1130, 4096], [4, 3087, -901, 4096], [2, 2205, 2048, 3686]]) &&
+        pv('alley', 2, 5) === 3500],
+      ['street: predelays 17287 (524) and 5292 (901), line 2998 (1769; 3686); cutoff 1750', () =>
+        same(rva('street').map((l) => [l.kind, l.D, l.fb, l.g]), [[4, 17287, -524, 4096], [4, 5292, -901, 4096], [2, 2998, 1769, 3686]]) &&
+        pv('street', 2, 5) === 1750],
+      ['courtyard: one echo, 5144 samples (116.67 ms, the length / 6), feedback 1802, gain 4915; cutoff 2760', () =>
+        same(d('courtyard').map((u) => u.line && [u.t, u.line.kind, u.line.D, u.line.a, u.line.g]), [['DLY', 2, 5144, 1802, 4915]]) &&
+        pv('courtyard', 1, 5) === 2760 && pv('courtyard', 1, 1) === Math.fround(700 / 6)],
+      ['open: all-pass 13230, 3 all-passes, delay 7937, 6 modulated lines 9702 to 14112', () => {
+        const u = d('open');
+        return u.length === 4 && u[0].t === 'DLY' && u[0].line.kind === 1 && u[0].line.D === 13230 && u[1].stages.length === 3 &&
+          u[2].t === 'DLY' && u[2].line.D === 7937 && u[3].lines.length === 6 && u[3].lines[0].D === 9702 &&
+          u[3].lines[5].D === 14112 && Array.isArray(u[3].mod);
+      }],
+      ['set_c_room: 3 all-passes (573, 837, 1146; 614); 5 lines 1464, 2081, 2698, 3360, 3977 (feedback 3506 ... 2684; gain 764 ... 1327); cutoff 4950', () =>
+        same(allpasses('set_c_room'), AP3) && same(lines3('set_c_room'), C_LINES) && pv('set_c_room', 2, 5) === 4950],
+      ['set_d_street: predelays 13582 (308 ms; 557) and 5292 (120 ms; 901), line 2998 (68 ms; 1769; 3686); cutoff 1750', () =>
+        same(rva('set_d_street').map((l) => [l.kind, l.D, l.fb, l.g]), [[4, 13582, -557, 4096], [4, 5292, -901, 4096], [2, 2998, 1769, 3686]]) &&
+        pv('set_d_street', 2, 5) === 1750 && same([9, 10, 11].map((i) => pv('set_d_street', 2, i)), [68, 308, 120])],
+    ];
+    for (const [name, fn] of PINS) check(`the order's numbers, ${name}`, (() => { try { return fn(); } catch (e) { return false; } })());
+    // R2's two examples by their echo tables (R2 "Model" 2 and 3: 64 x the room share fed straight in).
+    const echoes = (preset, x0) => peaks(run(R.createInstance(preset, upper), [x0], 6 * 44100 - 1), 10);
+    check('closet (R2\'s small room) fed 2432: (0, 2514) (1324, 259) (2426, 239) (2649, 105) (3974, 61) (4853, 79) (5299, 39) (6625, 27) (7280, 37)',
+      !!built.closet && same(echoes(built.closet.preset, 2432), [[0, 2514], [1324, 259], [2426, 239], [2649, 105], [3974, 61], [4853, 79], [5299, 39], [6625, 27], [7280, 37]]));
+    check('tunnel (R2\'s) fed 4608: (0, 125) (573, -864) (837, -864) (1146, -133) (1410, 5622) (1674, -133) (1983, 833) (2028, 86) (2247, 833) (2337, 85)',
+      !!built.tunnel && same(echoes(built.tunnel.preset, 4608), [[0, 125], [573, -864], [837, -864], [1146, -133], [1410, 5622], [1674, -133], [1983, 833], [2028, 86], [2247, 833], [2337, 85]]));
+    // Templates edited for the rules no template of the table runs (auto.json, the model's build of each).
+    for (const rec of AUTO.templates) {
+      const err = againstModel(rec, editedTable(rec.edits));
+      let dOk = false;
+      try {
+        // A delay's high-pass first section (a width over 0) is computed and marked "not pinned"; the mark aside.
+        const b = R.buildAutomatic(toMeasures(rec.m), { table: editedTable(rec.edits) });
+        const desc = rec.d === null ? [] : R.createInstance(b.preset, upper).describe();
+        // (null: a template the app cannot build, a filter; its parameters are still the model's)
+        dOk = rec.d === null || same(desc.map(({ notPinned, ...u }) => u), rec.d);
+      } catch (e) { /* err says */ }
+      check(`edited templates, ${rec.label}: the model's build and built integers`, !err && dOk, err || 'describe()');
+    }
+    // The order's synthetic pair (part b's checks; reference.py's template case): built width 6.6666665, depth
+    // 33.333332, and its hash in reference.out.
+    checkTry('the synthetic pair "negative width and depth in templates" (110 width -1, 111 depth -1, the corridor\'s measures): width 6.6666665, depth 33.333332, the reverb reference.out prints, and its hash', () => {
+      const corridor = { sky: false, width: 80, length: 400, height: 120, reflectivity: 0.4, openSides: 0 };
+      const tpl = R.buildAutomatic(corridor, { table: editedTable([[110, 0, 9, -1], [111, 0, 10, -1]]) });
+      const exp = REF.rows.get('synthetic: negative width and depth in templates');
+      const sh = R.shares(tpl.preset);
+      const y = run(R.createInstance(tpl.preset, drawOf(2)), NOISE.map((s) => R.entry(s, sh.room)), 66150);
+      return tpl.preset.p[0][1][9] === Math.fround(6.6666665) && tpl.preset.p[0][1][10] === Math.fround(33.333332) &&
+        same(tpl.preset.p[0][1].map(f32text), REF.built) && sh.room === exp.room && sh.direct === exp.direct && sha(y) === exp.hash;
+    });
+    const errs = allAgainstModel(AUTO.sweep);
+    check(`${AUTO.sweep.length} seeded random measures over every shape: the model's shape, classes, pair, copy, shares, header and parameters`,
+      errs.length === 0 && new Set(AUTO.sweep.map((r) => r.shape)).size === 11, errs.slice(0, 4).join('; '));
+    // AMP on the size class and MDY on the length class, linear (R2 e1; difference 12): no template of the table holds
+    // either and the model's build does not blend them, so the expected values are R2 e1's formula, typed here:
+    // A + (B - A) x class / 5 in single precision, step by step. The first and second of a type, not the third.
+    checkTry('an amplifier blended on the size class and a modulating delay on the length class, linear (R2 e1); a third amplifier copied as it is', () => {
+      const f = Math.fround, lin = (a, b, c) => f(f(a) + f(f(f(b) - f(a)) * f(f(c) / f(5))));
+      const ampA = [1, 0.1, 0.2, 0, 10, 0.6, 80, 0], ampB = [2, 0.3, 0.5, 0, 4, 0.2, 20, 1];
+      const mdyA = [0, 100, 0.4, 1, 0, 2000, 0, 0, 8, 0.2, 10, 0.5, 0.25], mdyB = [2, 400, 0.6, 0.5, 1, 5000, 300, 2, 2, 0.4, 30, 1, 0.75];
+      const pad = (v) => [...v, ...new Array(16 - v.length).fill(0)];
+      const t = editedTable([[102, [[11, pad(ampA)], [9, pad(mdyA)], [11, pad(ampA)], [11, pad(ampA)]]],
+        [103, [[11, pad(ampB)], [9, pad(mdyB)], [11, pad(ampB)], [11, pad(ampB)]]]]);
+      const b = R.buildAutomatic({ sky: false, width: 600, length: 400, height: 160, reflectivity: 0.4, openSides: 0 }, { table: t });
+      return b.classes.size === 3 && b.classes.length === 2 && b.copy === 103 &&
+        same(b.preset.p[0][1], pad(ampA.map((a, i) => lin(a, ampB[i], 3)))) && same(b.preset.p[2][1], b.preset.p[0][1]) &&
+        same(b.preset.p[3][1], pad(ampB).map(f)) && same(b.preset.p[1][1], pad(mdyA.map((a, i) => lin(a, mdyB[i], 2))));
+    });
+  }
+
+  if (section('The automatic room: outputs (part b)')) {
+    // The 14 examples built here, on the noise: reference.out's "auto" rows. The two measured: the order's numbers.
+    const roomHash = (preset, sh) => { try { return sha(run(R.createInstance(preset, drawOf(2)), NOISE.map((s) => R.entry(s, sh.room)), 66150)); } catch (e) { return e.message; } };
+    const tailTry = (preset, water, input) => { try { return tailOf(preset, water, input); } catch (e) { return e.message; } };
+    let bad = [];
+    for (const [k] of ORDER_CASES) {
+      const exp = REF.rows.get(`auto ${k}`), b = built[k];
+      const sh = b && R.shares(b.preset);
+      if (!b || !exp || sh.room !== exp.room || sh.direct !== exp.direct || roomHash(b.preset, sh) !== exp.hash) bad.push(k);
+    }
+    check('the 14 examples built here, on the noise: the shares and hash of reference.out', bad.length === 0, bad.join(' '));
+    const MEASURED_OUT = {   // the order, part b, item 5
+      set_c_room: [41, 214, 'b8160db1baa79bbf672458a508da2590c72479c17d403f14bd7bbf1274d8167f', 32481, 80874],
+      set_d_street: [23, 232, '337b9b8673dd8fd76e028ca611165e1b3cc85cd871c9a88e5d1612efb14a285c', 22050, 39889],
+    };
+    bad = [];
+    for (const [k, [room, direct, hash]] of Object.entries(MEASURED_OUT)) {
+      const b = built[k], sh = b && R.shares(b.preset);
+      if (!b || sh.room !== room || sh.direct !== direct || roomHash(b.preset, sh) !== hash) bad.push(k);
+    }
+    check('set_c_room 41/214 b8160db1... and set_d_street 23/232 337b9b86... on the noise (the order\'s hashes)', bad.length === 0, bad.join(' '));
+    check('the model gives the order\'s numbers for the two (auto.json, which auto.py stops without)',
+      Object.entries(MEASURED_OUT).every(([k, [room, direct, hash, q, s]]) => same(AUTO.measured[k], { shares: [room, direct], hash, quiet: q, square: s })));
+    const Q = quiet(), S = square();
+    bad = [];
+    for (const [k] of ORDER_CASES) {
+      const e = TAILS.get(`auto ${k}`), p = built[k] && built[k].preset;
+      const got = p && { quiet: tailTry(p, false, Q), square: tailTry(p, false, S), qwater: tailTry(p, true, Q), swater: tailTry(p, true, S) };
+      if (!got || !same(got, e)) bad.push(`${k}: ${JSON.stringify(got)}`);
+    }
+    check('the 14 examples built here: where each tail ends, quiet and square, alone and under water (tails.out, 56 tails)', bad.length === 0, bad.join('; '));
+    check('the great hall built here, after the long square: tails.out\'s 173162',
+      !!built.great_hall && tailTry(built.great_hall.preset, false, square(220500)) === TAILS.get('auto great_hall long').long);
+    bad = [];
+    for (const [k, [, , , q, s]] of Object.entries(MEASURED_OUT)) {
+      const p = built[k] && built[k].preset;
+      if (!p || tailTry(p, false, Q) !== q || tailTry(p, false, S) !== s) bad.push(k);
+    }
+    check('set_c_room\'s tails 32481 (quiet) and 80874 (square), set_d_street\'s 22050 and 39889 (the order\'s)', bad.length === 0, bad.join(' '));
+  }
+
+  if (section('The automatic room: the API (part b)')) {
+    const m = { sky: false, width: 200, length: 1000, height: 150, reflectivity: 0.3, openSides: 0 };
+    checkTry('buildAutomatic takes a case\'s key, its row or the measures alike, and says what it built', () => {
+      const byKey = R.buildAutomatic('tunnel'), byRow = R.buildAutomatic(R.roomCase('tunnel')), byMeasures = R.buildAutomatic(m);
+      return same(byKey.preset, byMeasures.preset) && same(byRow.preset, byMeasures.preset) && byKey.key === 'tunnel' && byMeasures.key === null &&
+        byKey.shape === 'tunnel' && byKey.variable === 'adsp_tunnel_min' && same(byKey.pair, [114, 115]) && byKey.copy === 115 &&
+        same(byKey.measures, m) && R.roomCase('nowhere') === null;
+    });
+    const refused = (arg, word) => { try { R.buildAutomatic(arg); return false; } catch (e) { return e.message.includes(word); } };
+    check('measures refused by name: a width that is not a whole number, a negative height, a reflectivity over 1, five open sides, an unknown key',
+      refused({ ...m, width: 200.5 }, 'width') && refused({ ...m, height: -1 }, 'height') && refused({ ...m, reflectivity: 1.2 }, 'reflectivity') &&
+      refused({ ...m, sky: true, openSides: 5 }, 'open sides') && refused('nowhere', 'nowhere') && refused(undefined, 'measures'));
+    {
+      const { sky, openSides, ...noSky } = m;
+      checkTry('nothing passes silently: sky must be true or false (not "false", 1 or missing), open sides must be given (not missing or null); a row with measures and no key builds with key null',
+        () => refused({ ...m, sky: 'false' }, 'sky') && refused({ ...m, sky: 1 }, 'sky') && refused({ ...noSky, openSides }, 'sky') &&
+          refused({ ...noSky, sky }, 'open sides') && refused({ ...m, openSides: null }, 'open sides') &&
+          R.buildAutomatic({ label: 'a row', measures: m }).key === null);
+    }
+    // The built preset is a preset of the table's form: frozen, its values singles, and it goes straight into the
+    // room path (the module's own path, run on it against an instance of it: the module against itself).
+    checkTry('the built preset is frozen, of the table\'s form, its values singles; a path made with it gives its shares (72/183) and direct + its output', () => {
+      const p = R.buildAutomatic('tunnel').preset;
+      const path = R.createRoomPath({ room: p, roomDraw: drawOf(2) });
+      path.spurtStart();
+      const sh = path.shares();
+      const r = Int32Array.from(NOISE.slice(0, 4410), (s) => R.entry(s, sh.room)), dd = Int32Array.from(NOISE.slice(0, 4410), (s) => R.entry(s, sh.direct));
+      const out = path.process(dd, r), inst = R.createInstance(p, drawOf(2));
+      return Object.isFrozen(p) && Object.isFrozen(p.p[1][1]) && p.h.length === 6 && p.p.every(([, v]) => v.length === 16 && v.every((x) => x === Math.fround(x))) &&
+        same(sh, { room: 72, direct: 183 }) && same(Array.from(out), Array.from(dd, (x, i) => (x + inst.next(r[i])) | 0)) &&
+        R.createSlot({ preset: p }).state().preset === p;
+    });
+    checkTry('SHAPES: the eleven shapes, their variables and the defaults of W3-15 section 4',
+      () => same(R.SHAPES.map((s) => [s.name, s.variable, s.base]), [['room', 'adsp_room_min', 102], ['duct', 'adsp_duct_min', 106],
+        ['hall', 'adsp_hall_min', 110], ['tunnel', 'adsp_tunnel_min', 114], ['street', 'adsp_street_min', 118],
+        ['alley', 'adsp_alley_min', 122], ['courtyard', 'adsp_courtyard_min', 126], ['open space', 'adsp_openspace_min', 130],
+        ['open wall', 'adsp_openwall_min', 130], ['open street', 'adsp_openstreet_min', 118], ['open courtyard', 'adsp_opencourtyard_min', 126]]));
+  }
+
+  if (section('The automatic room: the console\'s log (part b)')) {
+    // The W3-17b second read, section 4: "NEW DSP NODE: size:(a,b) height:(c) ... refl r ... sky s". The first size
+    // number is the length, the second the width, each units / 12 rounded to a whole foot; height 400 under an open
+    // sky is 4800; a printed N stands for 12N - 6 to 12N + 6 units. A class is open where the printed feet sit on a
+    // threshold: width 6, 12, 24, 48; length 12, 24, 48, 96; height 4, 11, 18, 32; a courtyard's length 10, 20, 40,
+    // 100; the reflectivity at 0.0400, 0.5000, 0.8000. The mix values tell an open-sided shape's pair: 0.21, 0.8, 95,
+    // 0.1 one side open; 0.3, 0.8, 75, 0.3 two; 0.22, 0.6, 95, 0.1 three or four; and a room's copy: 0.3 first is 102,
+    // 0.32 is 103. All typed from that section.
+    const pd = (line) => R.placeFromDebug(line);
+    checkTry('size:(33,25) height:(13) refl 0.9000 sky 0 is length 396, width 300, height 156 (the first number the length): set_c_room\'s room, size class 2, reflectivity class 3, copy 103, nothing open', () => {
+      const p = pd({ size: [33, 25], height: 13, refl: 0.9, sky: 0 });
+      return same(p.measures, { sky: false, width: 300, length: 396, height: 156, reflectivity: 0.9, openSides: 0 }) &&
+        p.shape === 'room' && p.classes.size === 2 && p.classes.reflectivity === 3 && p.copy === 103 && p.open.length === 0 &&
+        p.candidates.length === 1 && !p.shaft;
+    });
+    checkTry('size:(83,25) height:(400) sky 1 with "OUTSIDE STREET Detected": height 4800, a street of size, width and length class 3 from 119 (set_d_street\'s), no open side', () => {
+      const p = pd({ size: [83, 25], height: 400, refl: 0.4, sky: 1, shape: 'OUTSIDE STREET Detected' });
+      return same(p.measures, { sky: true, width: 300, length: 996, height: 4800, reflectivity: 0.4, openSides: 0 }) &&
+        p.shape === 'street' && same(classList(p.classes).slice(0, 4), [3, 3, 3, 4]) && p.copy === 119 && p.open.length === 0;
+    });
+    const openAt = (name, make, top) => {
+      const got = [];
+      for (let n = 1; n <= top; n++) if (pd(make(n)).open.includes(name)) got.push(n);
+      return got;
+    };
+    checkTry('the width class is open exactly at printed widths 6, 12, 24, 48 (1 to 60)',
+      () => same(openAt('width', (n) => ({ size: [200, n], height: 1, refl: 0.4, sky: 0 }), 60), [6, 12, 24, 48]));
+    checkTry('the length class is open exactly at printed lengths 12, 24, 48, 96 (1 to 110)',
+      () => same(openAt('length', (n) => ({ size: [n, 25], height: 1, refl: 0.4, sky: 0 }), 110), [12, 24, 48, 96]));
+    checkTry('the height class is open exactly at printed heights 4, 11, 18, 32 (1 to 60)',
+      () => same(openAt('height', (n) => ({ size: [400, 25], height: n, refl: 0.4, sky: 0 }), 60), [4, 11, 18, 32]));
+    checkTry('a courtyard\'s size class is open exactly at printed lengths 10, 20, 40, 100 (1 to 110)',
+      () => same(openAt('size', (n) => ({ size: [n, 100], height: 400, refl: 0.4, sky: 1, shape: 'OUTSIDE COURTYARD' }), 110), [10, 20, 40, 100]));
+    checkTry('the reflectivity class is open at 0.0400 (0 or 1), 0.5000 (1 or 2) and 0.8000 (2 or 3), not at 0.0399, 0.0401, 0.4999, 0.5001, 0.7999, 0.8001', () => {
+      const cls = (r) => [...new Set(pd({ size: [33, 25], height: 13, refl: r, sky: 0 }).candidates.map((c) => c.classes.reflectivity))].sort();
+      return same(cls(0.04), [0, 1]) && same(cls(0.5), [1, 2]) && same(cls(0.8), [2, 3]) &&
+        [0.0399, 0.0401, 0.4999, 0.5001, 0.7999, 0.8001].every((r) => cls(r).length === 1);
+    });
+    checkTry('the open-sided line\'s pair by the mix: 0.21, 0.8, 95, 0.1 one side open; 0.3, 0.8, 75, 0.3 two; 0.22, 0.6, 95, 0.1 three or four (built alike); with no mix all four stay open', () => {
+      const line = { size: [83, 25], height: 400, refl: 0.4, sky: 1, shape: 'OPEN SIDED OUTDOOR AREA Detected' };
+      const shapes = (mix) => pd({ ...line, mix }).candidates.map((c) => [c.shape, c.measures.openSides]);
+      const none = pd(line);
+      const three = pd({ ...line, mix: [0.22, 0.6, 95, 0.1] }).candidates;
+      return same(shapes([0.21, 0.8, 95, 0.1]), [['open courtyard', 1]]) && same(shapes([0.3, 0.8, 75, 0.3]), [['open street', 2]]) &&
+        same(three.map((c) => [c.shape, c.measures.openSides]), [['open wall', 3], ['open space', 4]]) &&
+        same(R.buildAutomatic(three[0].measures).preset.p, R.buildAutomatic(three[1].measures).preset.p) &&
+        none.open.includes('openSides') && same([...new Set(none.candidates.map((c) => c.measures.openSides))].sort(), [1, 2, 3, 4]);
+    });
+    checkTry('a room\'s copy by the mix: on the width and length thresholds (12 and 24 feet) the copy is open; 0.3, 0.8, 80, 0.5 leaves 102 (size class 0 or 1), 0.32, 0.8, 80, 0.5 leaves 103 (size class 2)', () => {
+      const line = { size: [24, 12], height: 13, refl: 0.4, sky: 0 };
+      const a = pd(line), b = pd({ ...line, mix: [0.3, 0.8, 80, 0.5] }), c = pd({ ...line, mix: [0.32, 0.8, 80, 0.5] });
+      return a.open.includes('copy') && b.candidates.every((x) => x.copy === 102 && x.classes.size <= 1) &&
+        c.candidates.every((x) => x.copy === 103 && x.classes.size === 2) && b.candidates.length > 0 && c.candidates.length > 0;
+    });
+    // A printed N is 12N - 6 to 12N + 6 units; with R2 e2's hall rule (length over 2.5 widths, width 49 to 96):
+    // size:(11,5) is length 126 to 138 and width 54 to 66, and 136 > 2.5 x 54 = 135, so a hall or a room; size:(13,6)
+    // is 150 to 162 by 66 to 78, and 2.5 x 66 = 165 > 162, so a room only (by hand, from those two sentences).
+    checkTry('a printed foot is 12N - 6 to 12N + 6 units: size:(11,5) may be a hall or a room, size:(13,6) only a room',
+      () => {
+        const shapes = (size) => [...new Set(pd({ size, height: 1, refl: 0.4, sky: 0 }).candidates.map((c) => c.shape))].sort();
+        return same(shapes([11, 5]), ['hall', 'room']) && same(shapes([13, 6]), ['room']);
+      });
+    // size:(8,5) height:(66) indoors: length 90 to 102, width 54 to 66, height 786 to 798, a shaft throughout; by
+    // the second read's finding 1 the classes come from the exchanged record: width class 0, length class 3 (786 to
+    // 798), height class 1 (90 to 102), size class 1; the shape a hall (786 > 2.5 x 66, width 54 to 66); copy 110.
+    checkTry('a shaft in the log (size:(8,5) height:(66) indoors): a hall of classes 1, 0, 3, 1 from 110 (finding 1); printed numbers that are not feet, a sky of 2, an unknown shape line, or a shape the numbers cannot build are refused by name', () => {
+      const refusedP = (line, word) => { try { R.placeFromDebug(line); return false; } catch (e) { return e.message.includes(word); } };
+      const sh = pd({ size: [8, 5], height: 66, refl: 0.4, sky: 0 });
+      return sh.candidates.length === 1 && sh.shaft && sh.shape === 'hall' && same(classList(sh.classes).slice(0, 4), [1, 0, 3, 1]) &&
+        sh.copy === 110 &&
+        refusedP({ size: [33.5, 25], height: 13, refl: 0.9, sky: 0 }, 'size') && refusedP({ size: [33, 25], height: 13, refl: 0.9, sky: 2 }, 'sky') &&
+        refusedP({ size: [33, 25], height: 13, refl: 0.9, sky: 0, shape: 'CAVE Detected' }, 'shape line') &&
+        refusedP({ size: [33, 25], height: 13, refl: 0.9, sky: 0, shape: 'DUCT Detected' }, 'no space');
+    });
   }
 
   console.log(`\n${passed} room checks passed${failed.length ? `, ${failed.length} FAILED` : ''} (${((performance.now() - T0) / 1000).toFixed(1)} s)`);
