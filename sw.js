@@ -13,7 +13,7 @@
  */
 
 const CACHE_PREFIX = 'tf2ve-';
-const CACHE = `${CACHE_PREFIX}v21`;
+const CACHE = `${CACHE_PREFIX}v22`;
 const ASSETS = [
   './',
   './index.html',
