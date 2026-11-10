@@ -33,10 +33,11 @@ const root = process.env.TF2_DIR || path.join(here, '..');
 
 // The engine's rule as docs/work-orders/W3-05-receiver-gain.md writes it
 // (from docs/reports/W3-03-engine-binary.md, section 2; the script that
-// matched Set H), on integer samples, with every float operation rounded
-// to 32 bits as compiled single-precision code rounds it (the box rounds
-// the denominator once; at avggain 0.5 the two agree, so Set H cannot
-// tell them apart: the per-operation reading is inferred, not measured). Returns the output samples and the
+// matched Set H), on integer samples, as the engine's gain function was
+// read a second time: every float operation a separate single-precision
+// one (the box rounds the denominator once; at avggain 0.5 the two agree),
+// the cap kept only when the quotient is strictly less, and the gain and
+// product as 32-bit integers that wrap. Returns the output samples and the
 // value of `fixed` at the start of each block. notDecoded(n), when given,
 // is spec point 4 of the order, which is not in the engine: an all-zero
 // block whose first sample n was not decoded holds the gain.
@@ -49,7 +50,8 @@ export function engineGain(xs, settings, notDecoded = null) {
     const x = xs[n];
     if (pos === 0) fixedAt.push(fixed);
     const a = Math.abs(x); sum += a; peak = Math.max(peak, a);
-    const y = (fixed + pos * step) * x >> 7;               // arithmetic shift
+    const g = (fixed + Math.imul(pos, step)) | 0;          // 32-bit
+    const y = Math.imul(g, x) >> 7;                        // 32-bit product, low 32 bits kept; arithmetic shift
     out[n] = Math.min(32767, Math.max(-32768, y));
     pos += 1;
     if (pos === 128) {
@@ -60,8 +62,8 @@ export function engineGain(xs, settings, notDecoded = null) {
         fixed   = Math.trunc(current * 128);
         const mean = Math.floor(sum / 128);                // integer division
         const den  = f32(mean + f32((peak - mean) * avggain));   // product, then sum
-        let t      = den > 0 ? f32(32767 / den) : Infinity;
-        if (t > maxgain) t = maxgain;
+        let t      = f32(32767 / den);                     // a zero blend: +infinity
+        t = t < maxgain ? t : maxgain;                     // the cap (a NaN gives maxgain)
         next = f32(t * scale);
         step = Math.trunc(f32(f32(f32(next - current) / 127) * 128));   // toward zero
       }

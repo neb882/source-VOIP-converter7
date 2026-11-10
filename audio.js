@@ -326,10 +326,10 @@
   /* against the game's own decoded voice (Set H: 0 of 291,840 samples  */
   /* differ). Decoded voice is int16. Per sample x:                     */
   /*   sum += |x|; peak = max(peak, |x|)                                */
-  /*   y = clamp(floor((fixed + pos * step) * x / 128), int16)          */
+  /*   y = clamp((fixed + pos * step) * x >> 7, int16)  (32-bit, wraps) */
   /* and at the end of each 128-sample block, in 32-bit floats, each    */
-  /* operation rounded to 32 bits as compiled single-precision code     */
-  /* rounds it (inferred; Set H, at voice_avggain 0.5, cannot tell):    */
+  /* operation a separate scalar single-precision one, in this order    */
+  /* (read from the binary; no fused multiply-add, no double):          */
   /*   current = next * scale; fixed = trunc(current * 128)             */
   /*   mean = floor(sum / 128)                    (integer division)    */
   /*   next = min(maxgain, 32767 / (mean + (peak - mean) * avggain))    */
@@ -364,12 +364,15 @@
         const a = v < 0 ? -v : v;
         sum += a;
         if (a > peak) peak = a;
-        // The engine's (fixed + pos * step) * x >> 7, an arithmetic shift.
-        // floor(product / 128) is the same wherever the 32-bit product
-        // cannot overflow, which is everywhere inside the app's limits: the
-        // gain is at most voice_maxgain 100 x voice_scale 4 x 128 = 51,200,
-        // and 51,200 x 32,768 = 1.68e9 < 2^31.
-        const y = Math.floor((fixed + pos * step) * v / 128);
+        // As the engine computes it (read): g = fixed + pos * step and the
+        // product g * x are 32-bit signed integers that keep the low 32 bits
+        // (nothing widens or saturates), then an arithmetic shift by 7, then
+        // the clamp. The product can wrap: at a block start g reaches
+        // maxgain x scale^2 x 128, 204,800 at the app's limits (100 and 4),
+        // and 204,800 x 32,768 passes 2^31. At the defaults and the page's
+        // own limits (scale up to 2) it does not.
+        const g = (fixed + Math.imul(pos, step)) | 0;
+        const y = Math.imul(g, v) >> 7;
         out[at + i] = (y > 32767 ? 32767 : (y < -32768 ? -32768 : y)) / 32768;
         index++;
         if (++pos < GAIN_BLOCK) continue;
@@ -386,8 +389,8 @@
           fixed = Math.trunc(current * 128);
           const mean = Math.floor(sum / GAIN_BLOCK);
           const den = f32(mean + f32((peak - mean) * avgGain));   // the product, then the sum
-          let t = den > 0 ? f32(32767 / den) : Infinity;
-          if (t > maxGain) t = maxGain;
+          let t = f32(32767 / den);              // no test for zero: a zero blend gives +infinity
+          t = t < maxGain ? t : maxGain;          // kept only if strictly less (a NaN gives the cap)
           next = f32(t * scale);
           step = Math.trunc(f32(f32(f32(next - current) / (GAIN_BLOCK - 1)) * 128));
         }

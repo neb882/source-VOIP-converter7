@@ -128,9 +128,9 @@ console.log('\n[1b] The 32-bit floats: cases where a rounding to 32 bits changes
     const want = engineGain(xs, settings).out, got = toInts(A.receiverAutoGain(toFloat(xs), settings));
     check(`${name}: sample ${at} is ${f32} (in doubles ${doubles})`, want[at] === f32 && differing(got, want) === 0, `${got[at]}`);
   }
-  // Each operation is rounded to 32 bits, as compiled single-precision code
-  // does: in the denominator the product (peak - mean) x avggain, then the
-  // sum. The order's box rounds the sum once; the two agree whenever the
+  // Each operation is rounded to 32 bits, as the engine's code does (read
+  // from the binary): in the denominator the product (peak - mean) x
+  // avggain, then the sum. The order's box rounds the sum once; the two agree whenever the
   // product is exact in 32 bits (avggain 0.5, the default, and Set H), and
   // differ here, at avggain 0.3: den 6553.400390625 against 6553.39990234375,
   // which puts the target either side of 5 (fixed 639 or 640).
@@ -187,6 +187,29 @@ console.log('\n[2] Each detail of the rule, with the order\'s numbers');
   // Only an all-zero block is held: one sample of 1 in a block not decoded runs the rule.
   const notAllZero = run(blocks(block(16384), [1, ...block(0, 127)], block(10)), { scale: 1, maxGain: 10, avgGain: 0.5 }, (i) => !(i >= 128 && i < 256));
   check('a block not decoded but not all zeros is run by the rule', notAllZero[256] !== 20, `${notAllZero[256]}`);
+
+  // The product wraps as a 32-bit integer (read from the binary): two
+  // blocks of zeros at voice_maxgain 100 and voice_scale 4 put the next
+  // block's start at maxgain x scale^2 x 128 = 204,800, and 204,800 x x
+  // passes 2^31 for x over 10,485. A product that saturated, or was exact
+  // and then clamped, would give 32767 for both.
+  const wrapAt = { scale: 4, maxGain: 100, avgGain: 0.5 };
+  for (const [x, want] of [[12000, -32768], [20972, 768]]) {
+    const w = run(blocks(block(0, 256), [x]), wrapAt);
+    check(`the product wraps at 32 bits: after two quiet blocks at maxgain 100, scale 4, a sample of ${x} comes out as ${want}`,
+      w[256] === want, `${w[256]}`);
+  }
+  // |x| of -32768 is 32768: a block of it has mean and peak 32768, so its
+  // target is 32767/32768 and the block after next starts at fixed 127.
+  const neg = run(blocks(block(-32768), block(1000), block(1000)), { scale: 1, maxGain: 10, avgGain: 0.5 });
+  check('|x| of -32768 is 32768: after a block of it, the block after next starts at 992 (fixed 127; with 32767 it would be 1000)',
+    neg[256] === 992, `${neg[256]}`);
+  // The sum and the peak are of the input samples, before the gain: block
+  // 1's 8000s go out ramping toward 16,000, but its target is 32767 / 8000,
+  // which sets block 2's ramp (block 2's start is block 0's target).
+  const input = run(blocks(block(16384), block(8000), block(1000)), { scale: 1, maxGain: 10, avgGain: 0.5 });
+  check('the block\'s mean and peak are of its input, before the gain: block 2 runs from 1992 to 3976',
+    input[256] === 1992 && input[383] === 3976, `${input[256]}..${input[383]}`);
 
   // A last, partial block follows the ramp and makes no update.
   const part = run(blocks(block(16384), block(100, 50)), { scale: 1, maxGain: 10, avgGain: 0.5 });
