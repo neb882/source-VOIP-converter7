@@ -440,6 +440,21 @@ export async function main() {
     check('in 10 s, as many draws as a draw every period + 1 samples gives', bad10.length === 0, bad10.join('; '));
   }
 
+  // -------------------------------------------------------------- the seeded streams (Decision 7)
+  if (section('The seeded streams (Decision 7)')) {
+    const ranges = Array.from({ length: 2000 }, (_, i) => [i % 97, (i % 97) + (i * 7919) % 30000]);
+    check('seededDraw(seed) is reference.py\'s randint_from: lo + floor(u x (hi - lo + 1)), u from mulberry32(seed)',
+      [1, 2, 5, 0xC0FFEE].every((seed) => { const a = R.seededDraw(seed), b = drawOf(seed); return ranges.every(([lo, hi]) => a(lo, hi) === b(lo, hi)); }));
+    const seed = 0x1234abcd;
+    const voice = Int32Array.from(NOISE, (s) => R.entry(s, 26)), dry = Int32Array.from(NOISE, (s) => R.entry(s, 229));
+    const padded = (a) => { const o = new Int32Array(60000); o.set(a); return o; };
+    const viaSeed = R.createRoomPath({ seed, room: 17, water: true }).process(padded(dry), padded(voice));
+    const viaDraw = R.createRoomPath({ room: 17, water: true, roomDraw: drawOf((seed ^ 0x524F4F4D) >>> 0),
+      waterDraw: drawOf((seed ^ 0x57415452) >>> 0) }).process(padded(dry), padded(voice));
+    check('a path\'s room slot draws from mulberry32((seed ^ 0x524F4F4D) >>> 0), its water slot from mulberry32((seed ^ 0x57415452) >>> 0)',
+      same(Array.from(viaSeed), Array.from(viaDraw)));
+  }
+
   // -------------------------------------------------------------- the reference hashes
   if (section('The reference hashes (reference.out)')) {
     const done = new Set();
@@ -496,7 +511,7 @@ export async function main() {
     }
     const z = new Int32Array(B);
     let t = path.tailLeft();
-    while (!t.ended) { path.process(z, z.slice()); t = path.tailLeft(); }
+    for (let guard = 0; !t.ended && guard < 300; guard++) { path.process(z, z.slice()); t = path.tailLeft(); }
     return t.length;
   };
   if (section('Where each tail ends (tails.out)')) {
@@ -568,16 +583,17 @@ export async function main() {
           i += step(Math.min(size(), until - i), i);
           if (i === 30000) { if (b === 'water') path.setWater(true); else path.setRoom(b); }
         }
-        while (!t.ended) i += step(Math.min(size(), 1 << 20), i);
+        while (!t.ended && i < 2000000) i += step(Math.min(size(), 1 << 20), i);
         const all = new Int32Array(parts.reduce((s, q) => s + q.length, 0));
         let o = 0;
         for (const q of parts) { all.set(q, o); o += q.length; }
         results.push([label, sha(all), t.length, all.length]);
       }
-      const ok = results.every(([, h, len, n]) => h === results[0][1] && len === results[0][2] && n === results[0][3]);
+      const ok = results.every(([, h, len, n]) => h === results[0][1] && len === results[0][2] && n === results[0][3]) &&
+        results[0][3] === voice.length + results[0][2];
       if (!ok) bad.push(`${name}: ${JSON.stringify(results)}`);
     }
-    check('five cases, a fade in each, in pieces of 1, 127, 512, 4096 and random sizes: the same samples and tail length',
+    check('five cases, a fade in each, in pieces of 1, 127, 512, 4096 and random sizes: the same samples and tail length, the output as long as the voice and its tail',
       bad.length === 0, bad.join('; '));
   }
 
@@ -655,6 +671,21 @@ export async function main() {
     check('a slot made with a preset starts with the fade over: the instance alone from sample 0',
       same(Array.from(R.createSlot({ preset: 6, draw: upper }).process(inp.subarray(0, 3000))),
         Array.from(run(R.createInstance(6, upper), Array.from(inp.subarray(0, 3000))))));
+    // During a fade both instances run on the same input and draw from the slot's one stream, the old one first in
+    // each sample (the order, part a, item 9). Expected: two instances stepped by hand, old then new, on one
+    // stream, mixed with the model's 0.2 s weights lined up as above (the module's instances, the order's rule).
+    const sd = R.createSlot({ preset: 17, draw: drawOf(9) });
+    sd.set(16);
+    const got = sd.process(inp);
+    const shared = drawOf(9), A = R.createInstance(17, shared), B = R.createInstance(16, shared);
+    const W = lined(room);
+    const want = Array.from(inp, (x, k) => {
+      if (k > 8820) return B.next(x);
+      const a = A.next(x), b = B.next(x);
+      return (a + (Math.imul(b - a, W[k]) >> 12)) | 0;
+    });
+    check('during a fade from 17 to 16 (both draw), the old instance draws first in each sample', same(Array.from(got), want),
+      `first difference at ${firstDiff(Array.from(got), want)}`);
   }
 
   // -------------------------------------------------------------- shares and entry
@@ -702,6 +733,16 @@ export async function main() {
       same(e, { room: 72, direct: 183 }) && same(f, { room: 0, direct: 256 }) && same(g, f));
     const made = R.createRoomPath({ room: 126 });
     check('a path made with a room has its shares at once (126: 5/250)', same(made.shares(), { room: 5, direct: 250 }));
+    // The four mix values change when the slot takes a preset (R2 d, "setting a preset on a slot"), not when it is
+    // asked for: a spurt that starts in between keeps the old values (a reading; the report says so).
+    const p6 = R.createRoomPath({ room: 6 });
+    p6.setRoom(114);
+    p6.spurtStart();
+    const asked = p6.shares();
+    p6.process(z, z.slice());
+    p6.spurtStart();
+    check('the four mix values change when the slot takes the preset, not when it is asked (26/229, then 72/183)',
+      same(asked, { room: 26, direct: 229 }) && same(p6.shares(), { room: 72, direct: 183 }));
     // entry: the order's fixed points.
     const FIX = [[-32690, 229, -29128], [31388, 23, 2809], [32767, 256, 32639], [-32768, 256, -32640], [32767, 229, 29196],
       [32767, 26, 3314], [16384, 229, 14598], [16384, 26, 1657], [16384, 256, 16320]];

@@ -123,6 +123,9 @@ EXTRA = collections.OrderedDict([
     ('modulating delay: FLINEAR, mix 1', [[9, z(4, 40, 0.5, 1, 0, 2500, 0, 0, 12, 0.3, 4, 1)]]),
     ('reverb: 3-D with a loop filter and random taps', [[2, z(0, 0, 6, 0, 2, 4000, 1, 10, 3, 8, 32, 10, 0.9, -0.9, 0.4)]]),
     ('reverb: 3-D, push-apart moves the largest down', [[2, z(0, 0, 3, 0.8, 1, 0, 0, 0, 0, 30, 29, 12, 0, 0, 0)]]),
+    ('reverb: 3-D, two equal sizes (the sort leaves them in place)', [[2, z(0, 0, 3, 0, 1, 0, 0, 0, 0, 20, 20, 10, 0.5, 0.8, 0.3)]]),
+    ('reverb: random taps, depth clamped to 0.99', [[2, z(12, 10, 2, 0.5, 1, 0, 0, 50, 2)]]),
+    ('reverb: random taps, depth clamped to 0.01', [[2, z(100, 100, 1, 0.5, 1, 0, 0, 0.1, 2)]]),
     ('amplifier: partial clip, slow glide', [[11, z(1.5, 0.08, 0.3, 0.5, 4, 0.5, 300, 0)]]),
     ('chain of five', [[10, z(1, 2, 0.15)], [11, z(1, 0, 0, 0, 10, 0.6, 80, 0)], [1, z(0, 10, 0.3, 1)],
                        [2, z(50, 20, 3, 0.9, 1, 5000, 1)], [0, z()]]),
@@ -175,7 +178,8 @@ def main(table_path, out_path):
     mods = [('preset %d' % n, P[n]) for n in (8, 9, 10, 14, 15, 16, 17, 18, 19, 23, 24, 25, 130, 131)]
     mods += [('synthetic: ' + k, R.synth(k)) for k in ('amplifier, random gain', 'modulating delay, mix 0.5',
                                                      'modulating delay, mix 0.3, low-pass')]
-    mods += [('extra: ' + k, preset(EXTRA[k])) for k in ('modulating delay: ALLPASS, mix 0.7', 'reverb: 3-D with a loop filter and random taps')]
+    mods += [('extra: ' + k, preset(EXTRA[k])) for k in ('modulating delay: ALLPASS, mix 0.7', 'reverb: 3-D with a loop filter and random taps',
+                                                         'reverb: random taps, depth clamped to 0.99', 'reverb: random taps, depth clamped to 0.01')]
     out['draws'] = collections.OrderedDict((name, draws_of(ps)) for name, ps in mods)
     out['ramps'] = collections.OrderedDict([
         ('room slot 0.2 s', ramp_values(0.2, 0, 0x1000)), ('water slot 0.1 s', ramp_values(0.1, 0, 0x1000)),
