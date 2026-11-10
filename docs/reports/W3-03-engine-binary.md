@@ -87,7 +87,7 @@ file as in Set B. Each tick's `bufsize` line, with the `incoming` lines between 
 
 | Question | Answer | Confidence |
 | --- | --- | --- |
-| 1. The queue | A 22050-sample ring per speaker (0.5 s at 44.1 kHz). A new channel waits `voice_buffer_ms` before playing, but the wait is counted down by one **frame's** duration once per **tick**, so it lasts about `voice_buffer_ms` x frame rate x 0.015: 100 ms at 67 fps, about 350 ms at 233 fps. A channel ends on the tick after its ring runs dry; a packet that comes before that is appended. One sample is dropped from every packet. | Code: high. That this is the measured L0: medium, until a take at a known frame rate. |
+| 1. The queue | A 22050-sample ring per speaker (0.5 s at 44.1 kHz). A new channel waits `voice_buffer_ms` before playing, but the wait is counted down by one **frame's** duration once per **tick**, so it lasts about `voice_buffer_ms` x frame rate x 0.015: 100 ms at 67 fps, about 350 ms at 233 fps. A spurt's first packets bring about 150 ms of sound at once, so above about 235 fps the ring overflows at every restart and the level the takes call L0 is the ring's limit, 0.5 s less that burst: about 350 ms. A channel ends on the tick after its ring runs dry; a packet that comes before that is appended. One sample is dropped from every packet. | Code: high. That this is the measured L0: medium, until a take at a known frame rate. |
 | 2. Gain and output | The measured law is confirmed constant by constant, including `voice_scale` entering twice. Corrections: a block of zeros drives the gain to the cap (it is not left untouched), and the gain is reset to 1.0 whenever a channel restarts. Steam's decoder, not the engine, makes the 44.1 kHz. | High |
 | 3. The sender | Once per client tick the engine asks Steam for compressed voice (up to 2048 bytes) and sends whatever comes as one message. It adds nothing to the payload and has no end-of-transmission logic of its own for Steam. | High |
 | 4. Debug variables | Above. | High |
@@ -200,12 +200,30 @@ start delay     = about (N - 1) x 15 ms after the packet        (the packet's ow
 | 250 fps | about 360 ms |
 | 300 fps | about 435 ms |
 
-**Inferred, medium confidence: this is the measured restart latency L0.** W3-01 fits L0 at 350 ms (330 to 375) on
-the owner's first PC and under 280 ms on the second, and found that it is not `voice_buffer_ms` as it stands. The
-code gives 330 to 375 ms for a game running at about 220 to 260 fps and under 280 ms for one below about 195 fps.
-The owner's frame rates in those sessions are not recorded, so this is a prediction, with a cheap test: the same
-take with `fps_max 67` and with the usual cap (checks, below). A dip in frame rate during the countdown shortens
-it, and one frame of 0.1 s or more ends it at once.
+A dip in frame rate during the countdown shortens it, and one frame of 0.1 s or more ends it at once.
+
+**The start delay meets the ring's limit.** The ring holds 0.5 s, and a spurt does not arrive in real time: its
+first packets carry Steam's pre-roll all at once. Measured from the Set D demo with the repository's own extractor
+(`tests/demovoice/extract.mjs`): in 17 of the 20 spurts the first group of packets holds 8 or more 20 ms frames
+(160 ms; SourceTV groups 60 ms of arrivals), and a spurt's sound is longer than the time its packets took to
+arrive by 140 to 200 ms in 17 of the 20 (80 to 100 ms in the other three; the demo resolves 60 ms). Call that the
+burst, about 150 ms. While the channel waits, the ring fills with the burst
+plus real time. If the start delay plus the burst is more than 0.5 s, the oldest samples (the pre-roll first, then
+the onset) are overwritten, and the ring starts playing full.
+
+**Inferred, medium confidence: this is the measured restart level L0.** In W3-01's terms (how long after a spurt's
+first packet its queue would run dry, less the spurt's own length and its silence record):
+
+```
+L0 = min( start delay, 0.5 s - burst )
+```
+
+W3-01 fits L0 at 350 ms (330 to 375) on the owner's first PC and under 280 ms on the second, and found that it is
+not `voice_buffer_ms` as it stands. 0.5 s less a burst of 125 to 170 ms is 330 to 375 ms: so the first PC is at the
+ring's limit, which needs a start delay above about 350 ms, a game running above about 235 fps (TF2's default cap
+is 300). The second PC's level under 280 ms needs a start delay under 280 ms, below about 190 fps, with no
+overflow. The owner's frame rates in those sessions are not recorded, so this is a prediction, with a cheap test:
+the same take with `fps_max 67` and with the usual cap (checks, below).
 
 ### The mixer pulls (read; `0x1800590b0`, called through the voice sound source at `0x18005b790`)
 
@@ -267,16 +285,18 @@ when the mixer wants n samples from a playing channel:
 In the terms of W3-01's fitted rule (`l` the voice queued when a spurt's first packet arrives, `g` the arrival gap
 in the stream's own time):
 
-- **Restart level:** `l` = the start delay above, about `voice_buffer_ms x fps x 0.015`. Call it L0.
+- **Restart level:** `l` = the start delay above, about `voice_buffer_ms x fps x 0.015`, but no more than the
+  ring's 0.5 s less the burst a spurt opens with (about 150 ms). Call it L0.
 - **Append:** a spurt is appended if its first packet is processed before the tick on which the channel is found
   starved. With the silence record queued behind the previous spurt that is `g < l + 62.5 ms`, plus a grace of at
   most one tick (15 ms) after the ring has run dry. An appended spurt keeps the channel: no countdown, no gain
   reset, and it plays straight after what is queued.
-- **Ceiling:** the ring's 0.5 s. The newest 0.5 s is kept; the excess is skipped at the moment a packet overflows
-  it.
+- **Ceiling:** the ring's 0.5 s of queued sound: in `l`, 0.5 s less the burst, about 350 ms on any PC. The newest
+  0.5 s is kept; the excess is dropped from the play position at the moment a packet overflows, so it is heard as
+  a skip at once.
 
 **What it predicts for a spurt arriving 140, 300 and 440 ms after the previous one ended**, the previous one having
-restarted, on a PC where L0 is 350 ms (about 233 fps):
+restarted, on a PC where L0 is 350 ms (235 fps or more):
 
 | `g` | Outcome | Start | `l` afterwards |
 | ---: | --- | --- | ---: |
@@ -291,9 +311,10 @@ the one-tick grace, the 0.5 s ceiling, the gain reset, and the fade.
 ### W3-01's findings and questions, one by one
 
 1. **Restart after L0 (about 350 ms on PC A, lower on PC B).** *Corrected in what L0 is:* it is `voice_buffer_ms`
-   counted down by frame durations once per tick, so it is 100 ms only at 67 fps and grows with the frame rate. The
-   rest of the delay to the ear (mix-ahead, device) is the same for every spurt. Confirmed in kind: a fixed wait
-   after the first packet of a spurt that finds no channel.
+   counted down by frame durations once per tick, so it is 100 ms only at 67 fps and grows with the frame rate,
+   until the ring's limit stops it at about 350 ms (0.5 s less the burst). The rest of the delay to the ear
+   (mix-ahead, device) is the same for every spurt. Confirmed in kind: a wait after the first packet of a spurt
+   that finds no channel.
 2. **A silence record of 62.5 ms after each end of transmission.** *Not shown by the engine, and not contradicted:*
    the engine has no end-of-transmission code for Steam voice and inserts nothing itself. The 62.5 ms can only be
    samples that Steam's decoder returns for the record (1500 samples at 24 kHz are 2756 at 44.1 kHz), which the
@@ -301,19 +322,23 @@ the one-tick grace, the 0.5 s ceiling, the gain reset, and the fade.
 3. **Append if `l + 62.5 - g > 0`, else restart.** *Confirmed,* with one addition: the channel survives until the
    first tick after its ring is empty, so a packet up to 15 ms late is still appended, after a few milliseconds of
    repeated and zeroed samples.
-4. **A ceiling at about L0, the excess skipped within seconds.** *Corrected:* the ceiling is the ring's 22050
-   samples (0.5 s of queued sound), not L0. On a PC whose L0 is about 350 ms the two nearly coincide once the first
-   packets of a spurt are counted: if a spurt's first packet carries its 120 ms of pre-roll and a normal packet's
-   worth at once (inferred from finding 12; the demo's first packet of each spurt would show it), then 350 ms later
-   the ring holds about 350 + 120 + 60 = 530 ms and is already over. The excess is dropped packet by packet as each
-   overflows, which is within the first packets, not over seconds. At a lower frame rate the ceiling would stay at
-   0.5 s while L0 falls, and chains of short gaps could then raise `l` above L0.
+4. **A ceiling at about L0, the excess skipped within seconds.** *Confirmed, and explained:* the ceiling is the
+   ring's 22050 samples (0.5 s of queued sound). On the first PC it equals L0 because L0 there is that same limit.
+   The excess is dropped from the play position when a packet overflows the ring, not over seconds. (The 14 ms of
+   silence W3-01 saw between two spurts that followed each other at the restart level fits this: the second
+   spurt's burst overflowed the ring and about 48 ms of the first spurt's tail was skipped; the 62.5 ms record
+   itself was played.) At a lower frame rate the ceiling stays where it is while L0 falls, so chains of gaps
+   shorter than 62.5 ms could raise `l` above L0, up to about 350 ms.
 5. (a) **A restarted spurt plays 25 to 50 ms late at first and skips that much in steps of 11 to 25 ms within half a
-   second; appended spurts do not.** *Explained, medium confidence, by the same overflow:* a restart fills the ring
-   to its limit (L0 plus the first packets), and each later packet that does not fit drops the oldest samples,
-   which are the next to be played. The size of each skip is the overflow of that packet, any number of samples:
-   the code has **no 256-sample step** anywhere in the voice path. An appended spurt joins a ring that has drained
-   by `g - 62.5` and does not overflow. This predicts no skips after a restart on a PC with a low L0.
+   second; appended spurts do not.** *Explained, medium confidence, by the same overflow:* a restart at a high
+   frame rate fills the ring to its limit. What overflows while the channel still waits comes off the spurt's
+   pre-roll, where there is nothing to hear. Once it plays, Steam's packets do not come evenly (the demo's 60 ms
+   groups hold 1 to 7 frames), and each time arrivals run further ahead of playback than before, the packet that
+   does not fit drops the oldest samples, which are the next to be played. Each skip is that packet's overflow, a
+   frame or so, any number of samples: the code has **no 256-sample step** anywhere in the voice path. After a few
+   hundred milliseconds the ring has room for the largest bunch and the skips stop. An appended spurt joins a ring
+   that has drained by `g - 62.5` and does not overflow. This predicts no skips after a restart on a PC whose start
+   delay is under about 350 ms, and more skipped the higher the frame rate.
    (b) **Small upward steps of 7 to 19 ms after pauses inside a spurt.** *Consistent with the underrun rule:* when
    the ring runs dry for a moment and the next packet comes before the next tick, the mixer has already been given
    repeated and zeroed samples for what was missing (up to a tick's worth, 15 ms, and a frame's), and playback goes
@@ -370,11 +395,12 @@ at the end of each block:
 | 128-sample blocks at 44.1 kHz (finding 3) | **Confirmed.** Block size `0x80` passed at `0x180058773`; the rate is 44100 for Steam. Blocks run on across packets. For the legacy codecs the same gain runs at the codec's rate (22050 or 11025 Hz), as the profiles assume. |
 | `T = min(maxgain, 32767 / (mean + avggain x (peak - mean)))` (finding 3) | **Confirmed**, constant 32767.0 (`0x46FFFE00`). The mean is an integer division of the sum by 128. |
 | `voice_scale` enters twice: a block starts at s² x T and climbs toward s x T (finding 4) | **Confirmed exactly.** `next` already holds one factor of scale, and `current = next x scale` applies it again. |
-| The ramp moves in whole 1/128 steps per sample, truncated toward zero (finding 4) | **Confirmed.** The step is divided by 127 (block size - 1), so the last sample of a block would reach the target but for truncation. The start value is truncated too. |
+| The ramp moves in whole 1/128 steps per sample, truncated toward zero (finding 4) | **Confirmed, with one constant to correct in the app:** the step is the gain difference divided by **127** (block size - 1; `lea eax, [rbp-1]` at `0x18005a424`), so the last sample of a block would reach the target but for truncation. The app's `receiverAutoGain` divides by 128, which gives a step one unit smaller whenever the difference in 1/128 units is between a multiple of 127 and the same multiple of 128. The start value is truncated too. |
+| The block mean | **A detail:** the code divides the sum by 128 as integers (truncating) before the blend; the app keeps the fraction. At most one part in the mean. |
 | The remainder below one step lands at the block edge (finding 4) | **Confirmed:** each block starts again from `int(current x 128)`. |
 | The clamp is int16 (finding 1) | **Confirmed:** -32768 to 32767 after the shift. The shift is arithmetic, so negative products round down. |
 | "All-zero blocks, when no voice data arrives, leave the gain untouched" (finding 4) | **Corrected in part.** When no data arrives nothing runs, so the state is untouched: true. But a block of zero samples that **is** decoded (a silence record, the digital silence inside a spurt) has mean and peak 0, the division gives infinity, and the cap applies: `next = maxgain x scale`. So every spurt ends, after its 62.5 ms silence record, with the gain at its cap. |
-| (not in the model) | **New: the gain is reset when a channel is assigned** (current = next = 1.0, step 0, block position 0). The first 128 samples of a restarted spurt are at gain 1.0 exactly, the second block ramps from `scale` to `scale x T(block 0)`, and so on. An **appended** spurt is not reset: it starts from the gain the previous spurt's silence record left, which is the cap. So a restarted spurt and an appended one start differently, the first quiet for 2.9 ms, the second at full boost. |
+| (not in the model) | **New: the gain is reset when a channel is assigned** (current = next = 1.0, step 0, block position 0). The first 128 samples of a restarted spurt are at gain 1.0 exactly (128/128, whatever `voice_scale` is; the app starts at `scale`), the second block ramps from `scale` to `scale x T(block 0)`, and so on. An **appended** spurt is not reset: it starts from the gain the previous spurt's silence record left, which is the cap. So a restarted spurt and an appended one start differently, the first quiet for 2.9 ms, the second at full boost. |
 | The voice rate is 44.1 kHz; the receiver adds no EQ (finding 14) | **Confirmed** for the voice path: decoder output at 44100 Hz, gain, ring, then the ordinary 16-bit mono mixer. The resampling from 24 kHz is inside Steam's `DecompressVoice`, which is not in these files. |
 | Output stage `[0.1, 0.8, 0.1]` | **Not found in the voice path.** Nothing between the decoder and the mixer filters the voice. The mixer's own output stages were not read. |
 | `volume` | Not read (it is in the mixer, not the voice code). |
@@ -394,7 +420,11 @@ Read, from `_Host_RunFrame_Client` (`0x1801a71a0`) and the function it calls (`0
   message whose length is the byte count times 8. The engine writes nothing of its own around the payload. It is
   sent only when the client is fully connected, as an ordinary (unreliable) message with the next outgoing packet.
 - **Batches:** the engine does not form them. It polls 66.7 times a second, yet the Set D demo has 17.8 messages a
-  second: Steam hands the voice out in pieces of about 56 ms, and most polls get nothing.
+  second: Steam hands the voice out in pieces of about 56 ms, and most polls get nothing. A spurt opens with a
+  burst: the pre-roll comes at once (8 or more frames in the first 60 ms of 17 of the demo's 20 spurts).
+- **A limit on the receiving side (inferred):** the decoder's output buffer is 22528 bytes, 255 ms at 44.1 kHz. If
+  one message ever held more sound than that, `DecompressVoice` would report an error and the engine would queue
+  nothing for it. The demo's bursts stay under it.
 - **Start:** `+voicerecord` (only when fully connected) stops any recording in progress, prepares the files of
   `voice_recordtofile`, and calls `StartVoiceRecording`.
 - **End:** `-voicerecord` sends one more packet, calls `StopVoiceRecording`, and sets a "stopping" flag, but the
@@ -487,14 +517,18 @@ Read from `Voice_Init` and the two rate functions:
 
 ## Disagreements with the measured findings and the app
 
-1. **Finding 21 and W3-01, L0:** not a constant of the machine but `voice_buffer_ms` scaled by the frame rate
-   (question 1). The measurements are not contradicted; the explanation is new and untested.
+1. **Finding 21 and W3-01, L0:** not a constant of the machine but `voice_buffer_ms` scaled by the frame rate,
+   limited by the 0.5 s ring (question 1). The measurements are not contradicted; the explanation is new and
+   untested.
 2. **Finding 10, "trims latency in 256-sample skips":** the voice path has no 256-sample operation. It has two
    things that shorten the delay: one sample per packet (a steady 0.4 ms per second), and the ring's overflow (any
    size, after a restart or an over-full append). W3-01 already found that the steps are not a steady drain.
 3. **Finding 15 and the accuracy suite's "clock" (about 400 ppm, "the recorder's clock against the game's"):** it is
    the receiver dropping one sample per packet, and it scales with the packet rate.
-4. **Finding 4, zero blocks:** decoded zeros drive the gain to its cap; and the gain is reset at each restart.
+4. **Finding 4 and the app's `receiverAutoGain`:** decoded zeros drive the gain to its cap (the app holds the gain
+   through any zero block); the gain is reset to 1.0 at each restart and not at an append (the app carries it
+   across every gap); the ramp's divisor is 127, not 128; the mean is an integer. Whether a render changes audibly
+   depends on where zeros and restarts fall; the first two decide how a spurt's first few milliseconds sound.
 5. **`celt_44`:** frame 1024 and 128 bytes, at an effective 22.05 kHz, not 256 and 120 at 44.1 kHz.
 6. **`celt_22` and `celt_44`, complexity:** 5, not 10.
 7. **The fade:** not in the model at all. The last 100 ms of every queue fades out, and sound played from a queue
@@ -507,8 +541,9 @@ Read from `Voice_Init` and the two rate functions:
    (`tf2_voice_nettest_v1.wav`, whose bursts alternate early and restart), `voice_showchannels 1` and
    `voice_showincoming 1` logged with `con_logfile`, once with `fps_max 67` and once with `fps_max 300` (noting the
    frame rate actually reached). Predicted: at 67 fps the `bufsize` lines start falling about 6 ticks after the
-   first `incoming` line of a restarted spurt, and no burst starts early; at the higher rate the wait is about
-   `1.5 ms x fps`. If L0 does not move, this reading is wrong.
+   first `incoming` line of a restarted spurt, `bufsize` never reaches 44100, no burst starts early and no
+   restarted burst loses sound; at the higher rate the wait is about `1.5 ms x fps` and, above about 235 fps,
+   `bufsize` sits at 44100 at each restart. If L0 does not move with the frame rate, this reading is wrong.
 2. **`voice_buffer_ms 200` at a fixed frame rate** (W3-01's take 2): predicted to double the wait, up to the ring's
    0.5 s, beyond which the start of every restarted spurt is cut off.
 3. **The drift:** in any logged take, the queue receives one sample fewer than each `incoming` line says. Over a
@@ -529,7 +564,8 @@ Read from `Voice_Init` and the two rate functions:
   whether the mix rate can be other than 44100 Hz. (If the mixer ever asked the voice source for more than 1024
   samples at once, the source would hand back repeated samples: a units slip in the read limit, harmless at pitch
   1.0.)
-- **The second code path for running client frames** (three more call sites of `_Host_RunFrame_Client` in
-  `_Host_RunFrame`, used when a flag at `0x1806DD970` is set). The per-tick reading above is of the ordinary path.
+- **Only skimmed:** the second way `_Host_RunFrame` runs client frames (when a flag at `0x1807531A8` is set). It
+  also calls `_Host_RunFrame_Client` once per tick, in a loop from `0x1801a6790`; one further call, for a frame
+  with no tick, is behind two checks on what looks like the demo player.
 - **The microphone test** ("tweak mode"), which uses the same queue for channel 0 with its own rules.
 - **Speex's frame and packet sizes**, as said.
