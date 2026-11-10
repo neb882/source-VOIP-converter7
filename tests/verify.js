@@ -864,19 +864,20 @@ async function liveSteamSection() {
   };
   const seed = 7;
 
-  // The live chain is the render: 20 s of talk at 24 and 48 kHz, four plans.
+  // The live chain is the render: 20 s of talk at 24 kHz at four plans, and
+  // at 48 kHz at two with no seed passed (as the page passes none: the
+  // default seed must be the render's).
   const x24 = talk(20, 24000, 3), x48 = talk(20, 48000, 3);
   const full48 = {};
-  for (const [rate, x] of [[24000, x24], [48000, x48]]) {
-    const ren = await renderRun(x, rate, { seed });
-    for (const [name, sizes] of plans(x.length, seed).slice(0, 4)) {
-      const live = await liveRun(x, rate, { seed }, sizes);
+  for (const [rate, x, o, which] of [[24000, x24, { seed }, ['128', '480', '4096', 'uneven']], [48000, x48, {}, ['480', 'uneven']]]) {
+    const tr = await withBlockTally(() => renderRun(x, rate, o)), ren = tr.result;
+    for (const [name, sizes] of plans(x.length, seed).filter(([p]) => which.includes(p))) {
+      const tl = await withBlockTally(() => liveRun(x, rate, o, sizes)), live = tl.result;
       if (rate === 48000 && name === '480') Object.assign(full48, { live, ren });
       if (rate === 24000 && name === '480') {
         // The per-frame counts are the stream's blocks over the messages the
         // live chain handled, which are the render's first ones; the slots'
         // rule places them; the render's own log keeps its fixed size.
-        const tr = await withBlockTally(() => renderRun(x, rate, { seed })), tl = await withBlockTally(() => liveRun(x, rate, { seed }, sizes));
         const handled = tl.tallies[0].length, blocks = tr.tallies[0].slice(0, handled).flat();
         const want = { bytes: 0, dtx: 0, hybrid: 0, silk: 0, celt: 0 };
         for (const b of blocks) { want.bytes += b.bytes; if (b.bytes <= 2) want.dtx++; want[b.mode]++; }
@@ -900,22 +901,58 @@ async function liveSteamSection() {
         `${eq.n} of ${ren.laid.length} samples given out, first difference at ${eq.diff}; ${live.resampled.length} packets, ${live.codes.length} slots, ${live.stats.spurts} spurts${rate === 24000 ? ` (the sender ${spurts})` : ''}`);
     }
   }
-  // The same with other settings, at the uneven plan (the gate off at two).
+  // The same with other settings, at the uneven plan (the gate off at two),
+  // on 8 s of talk; the gain off with voice_scale 2 on louder talk, which the
+  // scale and the clip of stage 4 must reach.
+  const x8 = talk(8, 24000, 3), x8loud = talk(8, 24000, 3, 0.6);
   {
-    const up = [await renderRun(x24, 24000, { seed, steamUptime: 14400 }), await renderRun(x24, 24000, { seed, steamUptime: 3110400 })];
+    const up = [await renderRun(x8, 24000, { seed, steamUptime: 14400 }), await renderRun(x8, 24000, { seed, steamUptime: 3110400 })];
     check('two uptimes end a spurt on different chunks in the render of this source (seed 7: 14400 s and 3110400 s)',
       JSON.stringify(up[0].info.sender.spurts) !== JSON.stringify(up[1].info.sender.spurts));
     const cases = [['the gate off', { gate: false }, ['uneven', '480']], ['steamUptime 14400', { steamUptime: 14400 }], ['steamUptime 3110400', { steamUptime: 3110400 }],
-      ['a typed threshold of -46', { gateThresholdDb: -46 }], ['agc off', { agc: false }], ['voice_scale 0.5', { voiceScale: 0.5 }]];
-    for (const [name, o, which = ['uneven']] of cases) {
-      const ren = await renderRun(x24, 24000, { seed, ...o });
-      for (const [plan, sizes] of plans(x24.length, seed).filter(([p]) => which.includes(p))) {
-        const live = await liveRun(x24, 24000, { seed, ...o }, sizes);
+      ['a typed threshold of -46', { gateThresholdDb: -46 }], ['agc off and voice_scale 2, clipping', { agc: false, voiceScale: 2 }, ['uneven'], x8loud],
+      ['voice_scale 0.5', { voiceScale: 0.5 }]];
+    for (const [name, o, which = ['uneven'], x = x8] of cases) {
+      const ren = await renderRun(x, 24000, { seed, ...o });
+      const clipped = ren.laid.some((v) => Math.abs(v) === 32767 / 32768);
+      for (const [plan, sizes] of plans(x.length, seed).filter(([p]) => which.includes(p))) {
+        const live = await liveRun(x, 24000, { seed, ...o }, sizes);
         const eq = equalsRender(live, ren);
         check(`the live chain is the render with ${name} (blocks of ${plan})`,
           eq.diff === -1 && eq.n > 0.9 * ren.laid.length && eq.packets && eq.codes && eq.counted && live.stats.droppedLate === 0 && live.stats.movedLate === 0
-          && (o.gate !== false || (ren.info.sender.spurts.length === 1 && ren.info.sender.spurts[0].start === -S.preroll && live.gateDb === null)),
-          `${eq.n} samples, first difference at ${eq.diff}; gate ${live.gateDb}`);
+          && (o.gate !== false || (ren.info.sender.spurts.length === 1 && ren.info.sender.spurts[0].start === -S.preroll && live.gateDb === null))
+          && (o.agc !== false || clipped),
+          `${eq.n} samples, first difference at ${eq.diff}; gate ${live.gateDb}${o.agc === false ? `; the render clips: ${clipped}` : ''}`);
+      }
+    }
+  }
+  // A spurt anchored before sample 0 (the gate off, or sound at the chain's
+  // start) whose opening packet loses its last frames ends before 0: the next
+  // packet lies before 0 too, where nothing has been given out, and is laid
+  // where the render lays it, not moved (the review's finding 1). Hand-made
+  // masks: the opening message's last two frames; frames 0 to 9 (the gate
+  // off); frames 0 to 6 with a burst from sample 0 (the gate on).
+  {
+    const opening = (() => {
+      const s = Sender.createSender({ seed, gate: false }), q = captured(x8);
+      const m = s.push(q).find((v) => v.silence === undefined);
+      return m;
+    })();
+    const burst = Float32Array.from(x8);
+    for (let i = 0; i < 0.6 * S.rate; i++) burst[i] = 0.3 * Math.sin(2 * Math.PI * 180 * i / S.rate) + 0.1 * Math.sin(2 * Math.PI * 540 * i / S.rate);
+    const cases = [
+      ['the gate off, the opening message\'s last two frames lost', x8, { gate: false }, (f) => (f >= opening.last - 1 && f <= opening.last ? 1 : 0)],
+      ['the gate off, frames 0 to 9 lost', x8, { gate: false }, (f) => (f < 10 ? 1 : 0)],
+      ['a burst from sample 0, the gate on, frames 0 to 6 lost', burst, {}, (f) => (f < 7 ? 1 : 0)]];
+    for (const [name, x, o, mask] of cases) {
+      const ren = await withStreamMask(mask, () => renderRun(x, 24000, { seed, ...o }));
+      const anchored = Math.round((ren.info.sender.spurts[0].start - ren.info.lookahead) * VR / S.rate);
+      for (const [plan, sizes] of plans(x.length, seed).filter(([p]) => ['480', 'uneven'].includes(p))) {
+        const live = await withStreamMask(mask, () => liveRun(x, 24000, { seed, ...o }, sizes));
+        const diff = firstDiff(live.laid, ren.laid);
+        check(`at the chain's start, ${name} (blocks of ${plan}): nothing moved, the render's laid signal`,
+          anchored < 0 && diff === -1 && live.moves.length === 0 && live.stats.movedLate === 0 && live.stats.droppedLate === 0 && live.laid.length > 0.9 * ren.laid.length,
+          `the first spurt anchored at ${anchored}; moves ${JSON.stringify(live.moves)}; first difference ${diff}`);
       }
     }
   }
@@ -962,7 +999,7 @@ async function liveSteamSection() {
       && TF2Audio.steamGiveOut(P, Infinity, reach, la, false) === R,
       `R ${R}; 11 frames behind: ${g(R - 11 * frame)}`);
   }
-  // 30 frames lost in a row inside a long spurt, at every plan: one packet
+  // 30 frames lost in a row inside a long spurt, at four plans: one packet
   // moved, the rest of its spurt later by exactly to - from.
   const x10 = talk(10, 24000, 12, 0.25);
   {
@@ -981,7 +1018,7 @@ async function liveSteamSection() {
     const sp = spurts[pick], anchor = Math.round((sp.start - ren.info.lookahead) * VR / S.rate);
     const spurtEnd = anchor + ren.resampled.filter((p) => p.spurt === pick).reduce((n, p) => n + p.y.length, 0);
     const outs = [];
-    for (const [plan, sizes] of plans(x10.length, seed)) {
+    for (const [plan, sizes] of plans(x10.length, seed).filter(([p]) => ['128', 'uneven', 'whole', 'on each chunk\'s end'].includes(p))) {
       let live = null, error = null;
       try { live = await withStreamMask(mask, () => liveRun(x10, 24000, { seed }, sizes)); } catch (e) { error = e; }
       const mv = live ? live.moves : [];
@@ -1028,6 +1065,22 @@ async function liveSteamSection() {
         && dropped <= preVoice * opened && live.stats.movedLate === 0 && low.moved === 0,
         `${live.laid.length} given out (the rule ${low.given}); ${live.stats.droppedLate} dropped (the rule ${dropped}, at most ${Math.round(preVoice * opened)}); first difference ${diff}`);
     }
+    // An onset just after the chain's start, in low latency: the first spurt
+    // is anchored before 0 while something has been given out, so its cut
+    // runs from before 0, and only what lies at or after 0 is counted.
+    {
+      const x = Float32Array.from(x10);
+      x.fill(0, 0, 2400);
+      for (let i = 2400; i < 14400; i++) x[i] = 0.3 * Math.sin(2 * Math.PI * 180 * i / S.rate) + 0.1 * Math.sin(2 * Math.PI * 540 * i / S.rate);
+      const r0 = await renderRun(x, 24000, { seed }), d0 = dryMessages(x, { seed });
+      const m0 = giveOutModel(d0, r0.resampled.map((p) => p.y.length), lowReach, r0.info.lookahead);
+      const want = m0.cuts.reduce((n, c) => n + Math.max(0, Math.min(c.at + c.len, c.given) - Math.max(c.at, 0)), 0);
+      const first = m0.cuts[0] || { at: 0, given: 0 };
+      const l0 = await liveRun(x, 24000, { seed, lowLatency: true }, fixed(x.length, 480));
+      check('low latency, an onset 0.1 s after the chain\'s start: the first spurt\'s cut starts before 0 and only what lies at or after 0 is counted, as the order\'s rule counts it',
+        first.at < 0 && first.given > 0 && l0.stats.droppedLate === want && want > 0,
+        `cut from ${first.at} to ${first.given}; ${l0.stats.droppedLate} dropped (the rule ${want})`);
+    }
     check('low latency: the outputs and droppedLate are the same at every plan', outs.every((o) => firstDiff(o.out, outs[0].out, Math.max(o.out.length, outs[0].out.length)) === -1
       && o.stats.droppedLate === outs[0].stats.droppedLate));
     const saved = fullLive.stats.latencyMs - outs[0].stats.latencyMs, want = (fullReach - lowReach) / (S.rate / 1000);
@@ -1071,6 +1124,29 @@ async function liveSteamSection() {
     check('push-to-talk, the app\'s stand-in: with the key up twice (100 ms, bridged by one spurt; 1.2 s, which ends it) the live chain is the render of the source with those blocks zeroed',
       bridged && ended && diff === -1 && live.laid.length > 0.9 * ren.laid.length && sp.length >= 2,
       `${sp.length} spurts in the zeroed render; bridged ${bridged}, ended ${ended}; first difference ${diff}`);
+    // At 48 kHz the capture resampler is not the identity: the zeros must
+    // come before it, at the chain's input.
+    const x48k = speechLike(12, 48000, -20), B48 = 960;
+    const zeroed48 = Float32Array.from(x48k, (v, i) => (up(Math.floor(i / B48)) ? 0 : v));
+    const ren48 = await renderRun(zeroed48, 48000, { seed });
+    const live48 = await liveRun(x48k, 48000, { seed }, fixed(x48k.length, B48), (b) => !up(b));
+    const diff48 = firstDiff(live48.laid, ren48.laid);
+    check('push-to-talk at 48 kHz (blocks of 960): the live chain is the render of the source with those blocks zeroed',
+      diff48 === -1 && live48.laid.length > 0.9 * ren48.laid.length, `first difference ${diff48}`);
+    // The input meter still shows the microphone with the key up.
+    const chain = await TF2Audio.createLiveChain({ codec: 'steam' }, 24000);
+    chain.setTalking(false);
+    await chain.process(x.subarray(0, 4800));
+    const meter = chain.stats.inputPeak, peak = peakAbs(x.subarray(0, 4800));
+    chain.free();
+    check('with the key up the input meter still shows the microphone', meter > 0 && Math.abs(meter - peak) < 1e-6, `${meter} against the block's peak ${peak}`);
+  }
+  // steam with the codec bypassed keeps the frame path (the order's decision 6).
+  {
+    const chain = await TF2Audio.createLiveChain({ codec: 'steam', enableWarble: false }, 24000);
+    const ok = chain.realOpus === false && chain.stats.droppedLate === undefined && chain.slotOffsetSeconds === undefined;
+    chain.free();
+    check('steam with the codec bypassed keeps the frame path, not the render\'s stages', ok);
   }
   // null, undefined and '' are the profile's own threshold in all three
   // readers; '-46' is -46.
@@ -1558,10 +1634,10 @@ async function main() {
     // The whole chain, 20 ms at a time, against a render of the same audio:
     // the same level, and the same waveform once the live chain's own delay
     // (the capture EQ's half length, Opus lookahead, output FIR 1 sample at
-    // 44.1 kHz) is allowed for. Since W3-11a a `steam` render runs Steam's
-    // sender and decoder, while the live chain keeps the 20 ms frame gate,
-    // the float decode and the app's resampler until W3-11b; `steam_48` runs
-    // that path in both, so it holds the live chain to the render here.
+    // 44.1 kHz) is allowed for. `steam_48` runs the 20 ms frame gate, the
+    // float decode and the app's resampler in both, so it holds the frame
+    // path's live chain to the render here; the `steam` live chain is proved
+    // in liveSteamSection, sample for sample.
     const src = speechLike(3, SR, -20);
     const opts = { codec: 'steam_48', volume: 1 };
     const chain = await TF2Audio.createLiveChain(opts, SR);

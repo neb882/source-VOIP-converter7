@@ -960,7 +960,11 @@
   //   - the packet of a spurt's opening message (the one that carries the
   //     pre-roll) is cut: its samples before given are dropped, and those at
   //     or after index 0 are counted in dropped(); the rest is laid where it
-  //     belongs;
+  //     belongs. Where the cut overlaps the spurt before, that spurt's tail
+  //     stays (it has been given out), where a render has the new pre-roll;
+  //   - a packet before index 0 while nothing at or after 0 has been given
+  //     out (a spurt anchored before 0, at the chain's start) is not late:
+  //     it is laid as the render lays it, what lies before 0 dropped;
   //   - any other packet is moved: laid whole from given, the cursor
   //     following it (moved() counts them; cfg.onMove(from, to) is told the
   //     cursor as it stood and given). The gain has already run on it, as in
@@ -1044,7 +1048,7 @@
           }
           if (!made.silence) {
             let at = cursor;
-            if (given !== undefined && at < given) {
+            if (given !== undefined && Math.max(at, 0) < given) {
               if (opening) dropped += Math.max(0, Math.min(at + y.length, given) - Math.max(at, 0));
               else {
                 cfg.onMove?.(at, given);
@@ -1648,7 +1652,9 @@
         if (Math.abs(v) > peak) peak = Math.abs(v);
       }
       stats.inputPeak = Math.max(stats.inputPeak, peak);
-      // The key up (the app's stand-in): zeros in place of the microphone.
+      // The key up (the app's stand-in): zeros in place of the microphone,
+      // after its meter. The order puts them before the mic gain; the gain
+      // and the clip are memoryless, so after them is the same samples.
       if (!talking) x.fill(0);
       let y = toCodec(x);
       for (const f of filters) y = f(y);
