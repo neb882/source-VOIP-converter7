@@ -520,7 +520,7 @@ DEALINGS IN THE SOFTWARE.
     let buf, start, len, pos, ph, inverted, flushed;
 
     function reset() {
-      buf = new Float32Array(4096);
+      buf = new Float32Array(2048);
       start = -CENTER; len = CENTER;
       pos = 0; ph = 0;
       inverted = false; flushed = false;
@@ -528,7 +528,7 @@ DEALINGS IN THE SOFTWARE.
 
     function room(n) {
       if (len + n <= buf.length) return;
-      const next = new Float32Array(Math.max(len + n, 2 * buf.length));
+      const next = new Float32Array(len + n);
       next.set(buf.subarray(0, len));
       buf = next;
     }
@@ -555,7 +555,9 @@ DEALINGS IN THE SOFTWARE.
     }
 
     function packet(samples) {
-      if (!(samples instanceof Int16Array)) throw new TypeError('swresample: packet() takes an Int16Array');
+      if (Object.prototype.toString.call(samples) !== '[object Int16Array]') {
+        throw new TypeError('swresample: packet() takes an Int16Array');
+      }
       // Drop the inputs no later output needs.
       if (inverted) {
         const drop = pos - CENTER - start;
