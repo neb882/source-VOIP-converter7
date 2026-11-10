@@ -1,9 +1,11 @@
 # W2-02 report: a render made a piece at a time, equal to `process()`
 
 Branch `claude/w2-02-render-stream`, from `main` at `61fcb92` (W1-01 merged), with `origin/main` merged in twice
-after the first push (`6cd299f`: W2-01 and the W3 orders; `7059578`: the W3-01 and W3-03 reports). Files changed: `audio.js`, `opus-codec.mjs`, `package.json`,
-`tests/render-stream.verify.mjs` (new), `tests/predictions/PREDICTIONS.md` and this report. `process()` is unchanged,
-as is everything it calls.
+after the first push (`6cd299f`: W2-01 and the W3 orders; `7059578`: the W3-01 and W3-03 reports). Files changed:
+`audio.js`, `opus-codec.mjs`, `package.json`, `tests/render-stream.verify.mjs` (new), `tests/predictions/PREDICTIONS.md`,
+`tests/verify.js` (the review's F4) and this report. `process()`'s body is unchanged. One function it calls,
+`resampleLinear`, changed in the review's fix round (F4, below): an empty input now gives an empty output instead of
+one NaN sample, which moves no recorded render.
 
 ## Commits
 
@@ -15,7 +17,9 @@ as is everything it calls.
   Speex stream's two fields, the PREDICTIONS note, and one more golden case (below).
 - `96d3101` Render-stream test: four renders in turn, and the memory check as `--memory`.
 - `ede9d8e` This report, then `cfc6e4a`, a merge of `origin/main` at `7059578` (docs and `tests/retiming.mjs`; no
-  conflicts), and this note of its CI run.
+  conflicts), and `4005191`, this note of its CI run.
+- The review's fix round: `dfaad2e`, six cases for F1 to F3; `cb28415`, the F4 fix in `resampleLinear` with its check
+  in `tests/verify.js`; then this section of the report.
 
 ## What was built
 
@@ -40,8 +44,8 @@ How each stage carries over a chunk edge (spec point 3):
 - **The linear mixer** (`celt_22`, `speex`) is a stage of its own, not `streamResampleLinear` flushed with zeros:
   `resampleLinear` clamps both neighbours to the last input, so its last outputs lean on the last sample, and a zero
   flush gives different samples there (break B6 below). The stage computes each output with `resampleLinear`'s
-  expression once both its inputs are in hand, which at the end includes the clamped ones; an empty input gives the
-  one NaN sample `resampleLinear` gives, which the output cut removes in both paths.
+  expression once both its inputs are in hand, which at the end includes the clamped ones; an empty input gives none,
+  as `resampleLinear` now does (F4; it gave one NaN sample, which the output cut removed in both paths).
 - **Zero-phase FIRs** (capture EQ, decoder EQ, output FIR): causal, the first `(taps - 1) >> 1` outputs dropped and
   as many zeros pushed at the end, but not through `streamFir`. A first build with `streamFir` gave every case equal
   under `===` and in its WAV bytes, yet 463 samples were zeros of the other sign (-0 for +0), all in the five cases
@@ -101,7 +105,7 @@ samples, and two cases are also rendered in a `vm` context against the recorded 
 it at a copy of the sources, which is how the breaks below were run.
 
 - **[1] Golden renders.** The SHA-256 of `process()`'s WAV and of its codecInfo (canonical JSON: keys sorted, typed
-  arrays as `{ Type: [values] }`) for all 41 cases, checked on every run, and checks that each case exercises what its
+  arrays as `{ Type: [values] }`) for all 41 cases (47 after the review's fix round), checked on every run, and checks that each case exercises what its
   name says (spurts, SILK, hybrid, DTX, CELT and Speex frames, capture clipping, lost and late frames on every codec).
   40 were recorded in `7e1862c`, before `createRender` existed; all 41 matched on GitHub's runner in CI. The 41st, `steam, volume 0.3`, was added afterwards:
   the matrix's volumes were 0.5 and 1, both exact multiplies, so the order of volume and output FIR was invisible
@@ -139,7 +143,7 @@ The matrix (every case at 48 kHz unless it says otherwise, with the options the 
 Chunk plans: the default Steam case runs 7, 960, 12,345, one second, an uneven mix and the whole source; every other
 case runs one or two of them; the 1 s case runs 1. The uneven mix cycles through 0, 1, 7, 2, 959, 961, 13, 48,000, 0,
 4,097, 333, 12,345, 1, 30,011, 480, 481 and 65,537, so empty pushes and pushes that split a codec frame, a resampler
-period and an auto-gain block are all in it. 48 streamed runs in all.
+period and an auto-gain block are all in it. 48 streamed runs in all (56 after the review's fix round, below).
 
 ## Checks run
 
@@ -186,6 +190,36 @@ a time under the heavy lock, against the test with `96d3101`'s additions (128 ch
 | B20 | `retime` refused always, not only where it applies | 2 checks: the received and bypassed `retime` cases |
 
 B9, B14 and B15 are each caught by one case only; a reviewer looking for thin spots should start there.
+
+## The review's fix round
+
+The review (20,656 differential runs, no mismatch) found no defect in `createRender` and four minor findings. F1 to F3
+were breaks the suite did not catch; each now has cases, whose golden hashes were made by `7e1862c`'s code (which
+also gave all 41 earlier hashes again), and each break was made in a scratch copy and run through the suite
+(`breaks.py` in the scratch folder, under the heavy lock):
+
+| Finding | New cases | The break with the cases in place |
+|---|---|---|
+| F1: the output length's rounding (`Math.round` to `Math.ceil` passed) and the end padding | Steam on 192,004 samples at 24 kHz (not a multiple of 80; an output of 352,807.35), 256,007 at 32 kHz (the stream pads its end), 302,401 at 37.8 kHz (352,801.17, cut) and 88,203 at 11.025 kHz (cut) | `Math.ceil`: 3 checks fail, `352808 samples, not 352807` at 24 kHz (both plans) and `352802 samples, not 352801` at 37.8 kHz. B9 (no padding) is now caught by two cases, 32 kHz among them |
+| F2: the gate's RMS on the last, partial frame (dividing by the frame's own length passed) | Steam at 48 kHz, 96,240 samples, silent but for a 0.02 sine over the last 240: -37 dBFS over its own samples, -43 over the frame, so it is gated (0 spurts) | 2 checks fail: `1502 samples differ ... the first at 89948 (-1.109477995586694e-10 for 0)` |
+| F3: the int16 clip on received voice (skipping it passed) | a demo's received voice at 24 kHz peaking at 1.2 | 1 check fails: `11011 samples differ ... the first at 22 (0.3380935788154602 for 0.33809202909469604)` |
+
+A check in [1] confirms each new case does what its name says (the fractions, the pad and the cuts, the gated quarter
+frame, the peak above full scale). The suite now has 47 cases, 56 streamed runs and 145 checks.
+
+F4 was in `process()`, older than this order: an empty source with a linear-mixer profile (`celt_22`, `speex`) and a
+room threw `DSP produced a non-finite sample at index 0`, because `resampleLinear` of an empty signal returned one NaN
+sample (its floor of one output sample) and the room's tail carried it past the output's cut. Fixed at the cause in
+its own commit: `resampleLinear` returns an empty copy for an empty input, as `resampleSinc` does, and the stream's
+linear stage mirrors the length. `tests/verify.js` [10] gained two checks, that `resampleLinear` of nothing is nothing
+and that an empty source through `dsp_room` 6 gives the same silent tail (7,201 samples at 48 kHz) with all five
+profiles; both failed before the fix (`celt_22: DSP produced a non-finite sample at index 0.`, the same for `speex`)
+and pass after it (211 passed). With the fix, all 47 golden renders are unchanged and the stream equal in every case.
+PREDICTIONS.md's W2-02 note now says that `resampleLinear` changed and why no predicted render does.
+
+After the round, under the heavy lock: `pnpm test` exit 0 (`211 passed, 0 failed` for verify.js, 119 Opus, 63 Speex,
+41 paired-reference, 66 formats, 50 meter, 45 video, 31 demo, `145 render-stream checks passed, 0 failed`); the
+browser suite `179 browser checks passed`, exit 0.
 
 ## Memory and time
 
