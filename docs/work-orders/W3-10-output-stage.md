@@ -245,6 +245,34 @@ Every function named here is exported on `TF2Audio`: the checks need them, and W
     misreading: that figure is `reference.js`'s share of samples within 5% of the clamp, which a plateau
     0.4% under the ceiling does not move. The item is struck, with its edit to the reference.)
 
+## Amendment after the reviewer's short read (2026-11-10): seven corrections that overrule the text above
+
+The reviewer ran every test vector of this order and they hold. These points of wording do not, and a builder
+follows this section where it differs from the text above.
+
+1. **`onGain` hands over the gain's output before the round to even** (item 1's hook; the control's step 1
+   and 2). That is where it fires on `steam` today, and the control's hashes are recorded that way. Handing
+   over rounded values would move the hashes of "steam, auto-gain off" and "steam, auto-gain off,
+   voice_scale 3" and stop a correct build.
+2. **The frame path's `contentDelay` only loses the output FIR's term** (item 8). It gains nothing for the
+   upsampler: `contentDelay` is the live output's shift against a render, and the upsampler's one or three mix
+   samples are in the render too. On `steam` it is 0, as item 8 says.
+3. **The frame path's own `latencyMs`** (`preroll + delaySeconds`) and its check also lose the FIR's term. They
+   are among the figures to re-derive, with old and new in the report.
+4. **The low-latency saving is unchanged**, not "follows": it is the difference of the two figures.
+5. **The mix's length is exactly 2N + 1 samples for a 22050 Hz voice and 4N + 3 for 11025 Hz.** The zeros the
+   upsampler runs on over, to give its last mean, are not part of the mix. A stream must flush the upsampler
+   before it ends the device stage, or the last mean reads as 0.
+6. **The spec model in the control's step 3 calls the engine's own `applyBiquad`** for the one golden case
+   with a low-pass at the seam ("test position with a low-pass"): its Float32 output times 32768, then rounded
+   to even. A biquad written afresh in doubles can differ in the last bit. No other golden case has an old
+   stage at the seam.
+7. **"The video's audio" means the MOV's PCM.** AAC and Opus take floats and do not change. `toInt16`'s other
+   callers: the render's WAV, the dry WAV, the aligned take, the live take, and the MP3 path on its resampling
+   branch only. `tests/video.verify.mjs` (about line 69) decodes over 32767 and becomes 32768. The three MP3
+   hashes do not move. One side effect for the report: the dry WAV of a 16-bit source now round-trips exactly,
+   so the A/B dry file changes by one unit on positive samples.
+
 ## Checks
 
 A render here has no room and no voice channel: every check below is written for that.
