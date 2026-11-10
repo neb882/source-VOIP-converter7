@@ -33,7 +33,10 @@ const root = process.env.TF2_DIR || path.join(here, '..');
 
 // The engine's rule as docs/work-orders/W3-05-receiver-gain.md writes it
 // (from docs/reports/W3-03-engine-binary.md, section 2; the script that
-// matched Set H), on integer samples. Returns the output samples and the
+// matched Set H), on integer samples, with every float operation rounded
+// to 32 bits as compiled single-precision code rounds it (the box rounds
+// the denominator once; at avggain 0.5 the two agree, so Set H cannot
+// tell them apart: the per-operation reading is inferred, not measured). Returns the output samples and the
 // value of `fixed` at the start of each block. notDecoded(n), when given,
 // is spec point 4 of the order, which is not in the engine: an all-zero
 // block whose first sample n was not decoded holds the gain.
@@ -56,11 +59,11 @@ export function engineGain(xs, settings, notDecoded = null) {
         current = f32(next * scale);
         fixed   = Math.trunc(current * 128);
         const mean = Math.floor(sum / 128);                // integer division
-        const den  = f32(mean + (peak - mean) * avggain);
+        const den  = f32(mean + f32((peak - mean) * avggain));   // product, then sum
         let t      = den > 0 ? f32(32767 / den) : Infinity;
         if (t > maxgain) t = maxgain;
         next = f32(t * scale);
-        step = Math.trunc(f32(f32(next - current) / 127 * 128));   // toward zero
+        step = Math.trunc(f32(f32(f32(next - current) / 127) * 128));   // toward zero
       }
       pos = 0; sum = 0; peak = 0;
     }

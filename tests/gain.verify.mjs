@@ -112,21 +112,33 @@ console.log('\n[1b] The 32-bit floats: cases where a rounding to 32 bits changes
   // values are exact in 32 bits). Two blocks with a given integer mean and
   // peak, then a probe block of 1000s that shows the gain they left. Each
   // case changes when its one rounding is done in doubles instead. The
-  // rounding of the difference next - current and of the step before its
-  // truncation changed nothing in 3 x 10^7 cases searched; they are in the
-  // transcription as the box writes them.
+  // roundings inside the step (of next - current, of its quotient by 127
+  // and of the product by 128) changed nothing in 3 x 10^7 cases searched;
+  // they are in the transcription, one per operation.
   const probe = block(1000);
   const meanPeak = (M, P) => { const rest = 128 * M - P, q = Math.floor(rest / 127), r = rest - 127 * q; return [P, ...Array.from({ length: 127 }, (_, i) => q + (i < r ? 1 : 0))]; };
   const flat = (v) => block(v);
   for (const [name, b0, b1, o, at, f32, doubles] of [
     ['current = f32(next x scale)', meanPeak(1181, 8337), meanPeak(10893, 16183), { avgGain: 0.7, scale: 0.7 }, 256, 2593, 2585],
-    ['den = f32(mean + (peak - mean) x avggain)', meanPeak(6471, 14913), meanPeak(10742, 22570), { avgGain: 0.7, scale: 0.7 }, 256, 1296, 1289],
+    ['den = f32(mean + f32((peak - mean) x avggain))', meanPeak(10895, 14646), probe, { avgGain: 0.7, scale: 0.7 }, 256, 1179, 1187],
     ['next = f32(t x scale)', meanPeak(2652, 15084), meanPeak(13378, 26915), { avgGain: 0.7, scale: 0.7 }, 256, 1406, 1414],
     ['t = f32(32767 / den)', flat(25547), flat(3485), { avgGain: 0.5, scale: 0.7 }, 383, 5585, 6578]
   ]) {
     const xs = blocks(b0, b1, probe), settings = { maxGain: 10, ...o };
     const want = engineGain(xs, settings).out, got = toInts(A.receiverAutoGain(toFloat(xs), settings));
     check(`${name}: sample ${at} is ${f32} (in doubles ${doubles})`, want[at] === f32 && differing(got, want) === 0, `${got[at]}`);
+  }
+  // Each operation is rounded to 32 bits, as compiled single-precision code
+  // does: in the denominator the product (peak - mean) x avggain, then the
+  // sum. The order's box rounds the sum once; the two agree whenever the
+  // product is exact in 32 bits (avggain 0.5, the default, and Set H), and
+  // differ here, at avggain 0.3: den 6553.400390625 against 6553.39990234375,
+  // which puts the target either side of 5 (fixed 639 or 640).
+  {
+    const xs = blocks(meanPeak(2993, 14861), probe, probe), settings = { avgGain: 0.3, maxGain: 10, scale: 1 };
+    const want = engineGain(xs, settings).out, got = toInts(A.receiverAutoGain(toFloat(xs), settings));
+    check('den rounds the product, then the sum: at voice_avggain 0.3 sample 256 is 4992 (rounded once, 5000)',
+      want[256] === 4992 && got[256] === 4992 && differing(got, want) === 0, `${got[256]}`);
   }
 }
 

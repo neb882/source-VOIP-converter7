@@ -327,7 +327,9 @@
   /* differ). Decoded voice is int16. Per sample x:                     */
   /*   sum += |x|; peak = max(peak, |x|)                                */
   /*   y = clamp(floor((fixed + pos * step) * x / 128), int16)          */
-  /* and at the end of each 128-sample block, in 32-bit floats:         */
+  /* and at the end of each 128-sample block, in 32-bit floats, each    */
+  /* operation rounded to 32 bits as compiled single-precision code     */
+  /* rounds it (inferred; Set H, at voice_avggain 0.5, cannot tell):    */
   /*   current = next * scale; fixed = trunc(current * 128)             */
   /*   mean = floor(sum / 128)                    (integer division)    */
   /*   next = min(maxgain, 32767 / (mean + (peak - mean) * avggain))    */
@@ -339,7 +341,7 @@
   /* the first block is at unity whatever voice_scale is.               */
   /* ------------------------------------------------------------------ */
 
-  const GAIN_BLOCK = 128;   // VOICE_ENGINE.autoGain.blockSize; the ramp divides by GAIN_BLOCK - 1
+  const GAIN_BLOCK = 128;   // the engine's block; the ramp divides by GAIN_BLOCK - 1 (VOICE_ENGINE.autoGain.blockSize is not read)
 
   // The rule's state and its sample loop, shared by receiverAutoGain,
   // streamAutoGain and createGain. options: { avgGain, maxGain, scale,
@@ -362,6 +364,11 @@
         const a = v < 0 ? -v : v;
         sum += a;
         if (a > peak) peak = a;
+        // The engine's (fixed + pos * step) * x >> 7, an arithmetic shift.
+        // floor(product / 128) is the same wherever the 32-bit product
+        // cannot overflow, which is everywhere inside the app's limits: the
+        // gain is at most voice_maxgain 100 x voice_scale 4 x 128 = 51,200,
+        // and 51,200 x 32,768 = 1.68e9 < 2^31.
         const y = Math.floor((fixed + pos * step) * v / 128);
         out[at + i] = (y > 32767 ? 32767 : (y < -32768 ? -32768 : y)) / 32768;
         index++;
@@ -378,11 +385,11 @@
           current = f32(next * scale);
           fixed = Math.trunc(current * 128);
           const mean = Math.floor(sum / GAIN_BLOCK);
-          const den = f32(mean + (peak - mean) * avgGain);
+          const den = f32(mean + f32((peak - mean) * avgGain));   // the product, then the sum
           let t = den > 0 ? f32(32767 / den) : Infinity;
           if (t > maxGain) t = maxGain;
           next = f32(t * scale);
-          step = Math.trunc(f32(f32(next - current) / (GAIN_BLOCK - 1) * 128));
+          step = Math.trunc(f32(f32(f32(next - current) / (GAIN_BLOCK - 1)) * 128));
         }
         pos = 0; sum = 0; peak = 0;
       }
