@@ -25,16 +25,37 @@ that is known to the sample. That one recording can settle all three.
 
 - `voice_decompressed.wav` holds **whole packets as decoded**, taken before the channel drops its one sample
   per packet (W3-03's report, "For the recording session", point 3). There is no drop to model.
-- At `voice_maxgain 1` the gain is **exactly unity** (`fixed` 128, `step` 0). The one way out is a 128-sample
-  block whose mean and peak sum past 65,534, which is near-constant negative full scale.
+- At `voice_maxgain 1` the gain is **exactly unity** (`fixed` 128, `step` 0), from the first sample: the reset
+  that a new channel brings leaves it at unity for the first block too, whatever the settings (W3-05's second
+  read). The one way out is a 128-sample block whose mean and peak sum past 65,534, which is near-constant
+  negative full scale.
 - The file is capped at 1 MiB: about 11.9 s, about 525,000 samples. Each key press starts it again.
 - With a file as the microphone Steam's chunks have no grid: a chunk is the time since the last frame times
   24000. A spurt's frames are still 480 samples from the spurt's own start, so only that start is unknown.
 - The clip loops in real time: 5.000 s (120,000 samples at 24 kHz) for the continuous clip, 5.600 s for the one
   with silences. So the recording holds about two loops, and where in the clip a spurt began is not known.
 - The owner's clips peak at about -3.8 and -2.2 dBFS.
-- The recording does not begin a decoder's life, so the resampler's phase at its first sample is unknown (147
-  possibilities) and the first-packet flush is probably not in it.
+- **Where the file starts.** Under the Steam codec the file is read by Steam, not by the engine: `mic_inputfile`
+  skips exactly 44 bytes when the file begins with `RIFF` and looks at no header field (W3-09), so the clip's
+  sample 0 is the first sample Steam plays. The two samples that the engine's own file reader skips (W3-08)
+  belong to `voice_inputfromfile` under the engine codecs and are **not** in this path: expect no fixed offset
+  of that kind. A clip saved with a longer header (extra chunks before the data) would play its extra header
+  bytes as sound and shift everything by half their count; check the clip's header is 44 bytes before
+  anything else. Where in the loop a spurt began is searched in any case (step 2).
+- **The resampler's state is carried in.** Steam keeps one resampler as long as the speaker's decoder, across
+  channel reassignments and reconnects (finding 29). If Steam has decoded this speaker before in the same
+  Steam run, the recording's first packet is not a stream's first: the phase at its first sample is unknown
+  (147 possibilities), the 16-sample lateness is already in, and there is no flush in the file. If it has not
+  (Steam freshly started, the first key press), the recording begins a stream: phase 0, the start mirrored,
+  and the first packet's flush in the file.
+- **The recommendation: search the phase always, and ask the owner for a fresh start as well.** The search
+  (step 1) costs nothing and does not depend on how the run was made, so the method never assumes a fresh
+  stream. A fresh start is still worth asking for, because it is the only way the first-packet flush gets
+  into a recording (W3-09 lists it as never seen). The sentence for the owner's steps: *"Quit Steam
+  completely and start it again before the run; start the game, load the map, and make the first recording
+  with the very first key press after that; note which recording was the first."* If the first recording's
+  best phase is 0 and its first packet's last 29 or so output samples fit the mirrored flush, that is the
+  first-packet behaviour seen; if its phase is not 0, Steam's decoder was not new, and nothing is lost.
 
 ## What it needs
 
