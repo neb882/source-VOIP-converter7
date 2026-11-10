@@ -556,8 +556,9 @@ async function steamSection() {
   // Laying (point 8) and the slots (point 9). On this source two spurts meet
   // (the gate closes and opens again, its pre-roll over the last one's end),
   // and some anchors round up. The gain off: what is laid is what reaches onGain.
+  // The seed is 10 since W3-16's clock (it was 1, where two spurts no longer meet).
   {
-    const x = talk(12, 11), h = hooked(), r = await render(x, { seed: 1, agc: false, voiceScale: 1 }, h), L = r.codecInfo.lookahead;
+    const x = talk(12, 11), h = hooked(), r = await render(x, { seed: 10, agc: false, voiceScale: 1 }, h), L = r.codecInfo.lookahead;
     const want = new Float32Array(h.gained.length);
     let spurt = null, cursor = 0, twice = 0, up = 0;
     for (const { y, msg } of h.resampled) {
@@ -625,6 +626,33 @@ async function steamSection() {
     check('re-timing on the steam path moves a spurt\'s laid samples whole: the moved spurt equals the unmoved one, nothing is left at its old place, it lands after the spurt before, the rest is as it was',
       moves >= 6 && whole === moves && clear === moves && apart === moves && rest === 6,
       `${moves} moves; ${whole} whole, ${clear} leaving nothing behind, ${apart} after the spurt before; ${rest} of 6 renders otherwise as they were`);
+  }
+  // steamUptime (W3-16): how long the sender's Steam had run, passed to the
+  // sender as its uptime, unclamped. 1 s of loud tone then 2 s of silence: at
+  // 4 hours the last chunk is read at most 0.466 s after the last active one,
+  // at 36 days at least 0.5 s after it, so the spurt is longer.
+  {
+    const x = new Float32Array(3 * R);
+    x.set(sine(440, 1, 0.5));
+    const base = await render(x, { seed: 2 }), today = await render(x, { seed: 2, steamUptime: 14400 }), month = await render(x, { seed: 2, steamUptime: 3110400 });
+    const nul = await render(x, { seed: 2, steamUptime: null }), week = await render(x, { seed: 2, steamUptime: 777600 });
+    check('steamUptime: codecInfo.sender.uptime is the value the sender ran with (777600 when none is passed, or null); the default render is the 777600 one',
+      base.codecInfo.sender.uptime === 777600 && nul.codecInfo.sender.uptime === 777600 && today.codecInfo.sender.uptime === 14400
+      && month.codecInfo.sender.uptime === 3110400 && same(Array.from(base.samples), Array.from(week.samples)) && same(Array.from(base.samples), Array.from(nul.samples)));
+    const a = today.codecInfo.sender.spurts[0], b = month.codecInfo.sender.spurts[0];
+    check('steamUptime: 1 s of tone then 2 s of silence, the same seed: the spurt is longer at "about a month" (3110400) than at "since today" (14400), from the same start',
+      a.start === b.start && b.frames > a.frames && today.codecInfo.sender.chunks === month.codecInfo.sender.chunks, `${a.frames} and ${b.frames} frames from ${a.start}`);
+    let refused = 0;
+    for (const v of [-1, 4000001, NaN, Infinity, '7']) {
+      try { await render(x.subarray(0, R), { steamUptime: v }); } catch (e) { if (e.name === 'RangeError' && /uptime/.test(e.message)) refused++; }
+    }
+    check('steamUptime: a value that is not a finite number from 0 to 4,000,000 is the sender\'s RangeError, not clamped (-1, 4000001, NaN, Infinity, \'7\')', refused === 5, `${refused} of 5`);
+    const stream = await TF2Audio.createRender({ sampleRate: R, length: x.length, numberOfChannels: 1 }, { codec: 'steam', volume: 1, seed: 2, steamUptime: 3110400 });
+    const parts = [await stream.push(x.subarray(0, 30000)), await stream.push(x.subarray(30000))];
+    const end = await stream.finish();
+    const streamed = Float32Array.from([...parts[0], ...parts[1], ...end.samples]);
+    check('steamUptime: the stream gives the offline render\'s samples and codecInfo.sender', same(Array.from(streamed), Array.from(month.samples))
+      && JSON.stringify(end.codecInfo.sender) === JSON.stringify(month.codecInfo.sender));
   }
   // The seed, the resampler's kernel, the complexity.
   {
