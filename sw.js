@@ -21,7 +21,6 @@ const ASSETS = [
   './constants.js',
   './steam-sender.js',
   './vendor/swresample/swresample.js',
-  './vendor/swresample/COPYING.LGPLv2.1',
   './audio.js',
   './audio-worker.js',
   './opus-codec.mjs',
