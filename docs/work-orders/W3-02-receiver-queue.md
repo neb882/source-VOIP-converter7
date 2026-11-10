@@ -497,9 +497,20 @@ service-worker file loads `steam-sender.js` yet (W3-11 does that).
 
 ## W3-02c: the render and the stream run the channel, behind an option
 
-**Branch:** `claude/w3-02c-timeline-option`, from `main` **after W2-02, W3-05, W3-06 and W3-02b have merged**
-(W3-05 leaves the gain as an object with `reset()`; W3-06 and this order both change `audio.js`). **Time
-budget:** 1 day.
+**Branch:** `claude/w3-02c-timeline-option`, from `main` **after W2-02, W3-05, W3-06, W3-02b, W3-13 and W3-11
+have merged** (W3-05 leaves the gain as an object with `reset()`; W3-11 leaves the Steam render making Steam's
+messages and resampling each as a packet). **Time budget:** 1 day.
+
+**Revision 3: what replaces spec 2's frames.** Since W3-11 the Steam render already has, for every message of
+the sender, its game tick, its decoded frames and their 44.1 kHz samples from W3-13's resampler (one call per
+message, the silence record's zeros included). Under `'game'` those packets, as they are, go to
+`createTimeline.push({ tick, pcm, source })` in the sender's order, and `advance(tick)` is called as the source
+runs on; nothing is cut into 882-sample frames, and spec 2's frame cutting does not apply. The gain object is
+handed over as written. Wherever this order says "the codec's frame" for the re-timed logs (spec 4), a slot's
+code and size are those of the sender's frame that holds `info.source[i]`, or 0. In the checks, "17.85 packets
+a second" reads 17.88 and the range for `d(30) - d(10)` is 340 to 375 as written. The 16 input samples that
+the resampler adds after a speaker's first packet (W3-13) are in both renders, so the shift check is unchanged.
+Everything else in this order stands.
 
 ### Files
 
@@ -678,6 +689,10 @@ rule) is then void: say so in the report so the orchestrator notes it in PROGRES
 
 **Branch:** `claude/w3-02g-demo-packets`, from `main` **after W3-02c, W3-06 (both change `demo.js`) and
 W3-02f**. **Time budget:** half a day.
+
+*Revision 3:* each demo message's decoded samples go through W3-13's resampler as one packet, as in the
+game, in place of "resampled to the voice rate as the whole signal is"; the silence record is that many zeros
+through the same resampler. The rest stands.
 
 A demo has the real packets and their ticks, so nothing is made up. **Files:** `demo.js` (`decode` also returns
 `packets`), `app/source.js` (passes them in `received`), `voice-channel.js` (`createTimeline` takes packets in
