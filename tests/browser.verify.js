@@ -874,10 +874,15 @@ async function verifyLiveMonitor(page) {
       await page.locator('#codec').selectOption(codec);
       await page.waitForFunction((c) => TF2Live.stats && TF2Live.stats.codec === c && TF2Live.stats.sent > 20, codec, { timeout: 15000 });
     }
+    // Wait for this take, not the one before it (W3-11b: the steam_48 take
+    // was read before it was mounted, against the steam take's buffers, which
+    // lined up only while both live chains ran the frame path).
+    await page.evaluate(() => { window.__takeBefore = state.decodedSource; });
     await page.locator('#live-record').click();
     await page.waitForTimeout(3000);
     await page.locator('#live-record').click();
-    await page.waitForFunction(() => state.sourceName && state.sourceName.startsWith('live-') && state.processedBuffer, null, { timeout: 20000 });
+    await page.waitForFunction(() => state.sourceName && state.sourceName.startsWith('live-') && state.processedBuffer
+      && state.decodedSource && state.decodedSource !== window.__takeBefore, null, { timeout: 20000 });
     // The live chain and a render of the same microphone audio cut it into
     // frames at different points, so their codec output differs a little:
     // with the noise probe (wavProbe) the correlation was 0.87-0.91 over 58
@@ -923,12 +928,15 @@ async function verifyLiveMonitor(page) {
   // its resampler started elsewhere), and the gate's edges, which that clock
   // moves. Sixty takes simulated in Node (the probe looped from a seeded
   // point, a seeded run before the 3 s recording, lined up as live-worker.js
-  // lines them up) at 44.1 kHz peaked at -1, 0 or 1 with r 0.811 to 0.900
-  // (tenth percentile 0.844); see the order's report. This is a smoke test:
-  // a float decode, a missing rounding, a kept FIR delay or a missing uptime
-  // would all pass it; tests/verify.js [10b] is the proof.
+  // lines them up) peaked at -1, 0 or 1 at 44.1 and at 48 kHz, with r from
+  // 0.811 (tenth percentile 0.844) and from 0.759 (tenth percentile 0.841):
+  // below the order's 0.8 at 48 kHz, so the bound is the lower tenth
+  // percentile less 0.05 (the order's rule; the table is in
+  // docs/reports/W3-11b-live-chain.md). This is a smoke test: a float decode,
+  // a missing rounding, a kept FIR delay or a missing uptime would all pass
+  // it; tests/verify.js [10b] is the proof.
   const k = take.rate / 44100;
-  check(Math.abs(take.lag) <= 2 * k && take.r > 0.8,
+  check(Math.abs(take.lag) <= 2 * k && take.r > 0.79,
     'steam: an offline render of the recorded microphone lines up with the live take (both late by Steam\'s resampler\'s 16 inputs)',
     `peak at ${take.lag} samples at ${take.rate} Hz, r ${take.r.toFixed(3)}`);
   // steam_48 runs the frame path in the render and in the live chain alike.
@@ -1425,14 +1433,19 @@ async function main() {
       const steam = await threshold();
       await page.locator('#codec').selectOption('celt_22');
       const celt = await threshold();
+      await page.locator('#codec').selectOption('steam_48');
+      const frameGate = await threshold();
       await page.locator('#codec').selectOption('steam');
       const back = await threshold();
       check(steam.value === '-40' && steam.sent === 'absent' && celt.value === '-39.5' && celt.sent === 'absent' && back.value === '-40' && back.sent === 'absent',
         'the threshold shows the profile\'s own default (-40 on steam, -39.5 on a CELT profile, -40 again), and renderOptions() carries no gateThresholdDb at it',
         `${steam.value} / ${celt.value} / ${back.value}; sent ${steam.sent}, ${celt.sent}, ${back.sent}`);
+      // celt_22 sends everything (no gate); steam_48 keeps the 20 ms frame gate.
       check(/mean of \|x\| over a capture chunk/.test(steam.help) && /Steam's own is -40/.test(steam.help) && /20 ms frame RMS/.test(celt.help)
-        && steam.gate.includes('chunks · 100 ms kept · 0.4 s hold') && !celt.gate.includes('chunks') && celt.gate.includes('gate > -39.5 dBFS'),
-        'its help and the chain strip\'s gate follow the profile: chunks · 100 ms kept · 0.4 s hold on steam, the frame RMS on CELT', `${steam.gate} | ${celt.gate}`);
+        && /20 ms frame RMS/.test(frameGate.help) && frameGate.value === '-39.5'
+        && steam.gate.includes('gate > -40 dBFS · chunks · 100 ms kept · 0.4 s hold') && frameGate.gate.includes('gate > -39.5 dBFS') && !frameGate.gate.includes('chunks'),
+        'its help and the chain strip\'s gate follow the profile: chunks · 100 ms kept · 0.4 s hold on steam, the 20 ms frame RMS on steam_48 and CELT',
+        `${steam.gate} | ${frameGate.gate}`);
       await page.locator('#vad_threshold').fill('-46');
       await page.locator('#vad_threshold').dispatchEvent('change');
       const typed = await page.evaluate(async () => {
