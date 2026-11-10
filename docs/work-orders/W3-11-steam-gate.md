@@ -198,7 +198,7 @@ Wherever this order says "the render", it means a render with the `steam` profil
     `spurts[0].start + 480 x spurts[0].frames - E` is between 9,000 and 13,500 samples (375 to 562 ms: the
     review measured 393 to 545 over random placements).
   - **The gate off:** one spurt, `start` -2400, `codecInfo.sender.gate` false, `codecInfo.resampler.calls`
-    equal to `codecInfo.sender.messages`.
+    equal to the sender's messages that hold samples (see "Once per message").
   - **16 bits:** a source that drives the decoder past full scale: the samples handed to the resampler (through
     a test hook, `opts.onDecoded`, that receives each message's `Int16Array`) equal the module's
     `decodeInt16` frame for frame, and differ from clamp-and-round of `decodeFloat` in at least one sample.
