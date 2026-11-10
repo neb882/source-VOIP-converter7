@@ -205,9 +205,11 @@ console.log('\n[4] The entry comes first, at the voice\'s own rate');
   const after = [...A.mixUpsample2(Int32Array.of(257, 255), s2), ...A.mixUpsample2(Int32Array.of(0), s2)].map(v => A.mixEntry(v, 255));
   check('entered first: [mixEntry(257), mixEntry(255)] and a zero give 127, 255, 254, 254, 127, 0; upsampled first, 127, 255, 255, 254, 126, 0',
     same(entered, [127, 255, 254, 254, 127, 0]) && same(after, [127, 255, 255, 254, 126, 0]), `${entered.join(', ')} / ${after.join(', ')}`);
+  // At volume 0.5, so that the mix before mixOut cannot be taken for the
+  // one after it.
   for (const [codec, stages] of [['celt_22', 1], ['speex', 2]]) {
     const x = talk(3, 48000, 5);
-    const { gain, mix, blocks, r } = await hooked(x, 48000, { codec, volume: 1 });
+    const { gain, mix, blocks, r } = await hooked(x, 48000, { codec, volume: 0.5 });
     const want = upsampleRun(Array.from(gain, (v) => entry(int16Of(v))), stages);
     const factor = 1 << stages;
     check(`${codec}: the render's mix before the clip (onMixBlock) is the gain's output (onGain) entered and upsampled ${stages === 1 ? 'once' : 'twice, with two states,'} by hand, sample for sample from the first block`,
