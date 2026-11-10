@@ -135,6 +135,13 @@ function gateDefaultDb(codecKey) {
   if (profile.senderGate && profile.senderGate.rule === 'steam') return -40;
   return profile.senderGate ? profile.senderGate.thresholdDb : -39.5;
 }
+// The threshold control's number, or null when it is blank (spaces too) or
+// holds no number: the engine reads that as the profile's own.
+function typedGateDb() {
+  const raw = els.vadThreshold.value.trim();
+  const n = raw === '' ? NaN : Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
 const isSteamRule = (codecKey) => (CODEC_PROFILES[codecKey] || CODEC_PROFILES.steam).senderGate?.rule === 'steam';
 
 /* ------------------------------------------------------------------ */

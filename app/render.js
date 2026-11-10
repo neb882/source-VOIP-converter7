@@ -139,7 +139,9 @@ function renderOptions() {
     // scale, 327.67, exactly; -39.5 for the others) the page sends no number,
     // so the key a render is cached and batched by does not change at a
     // default; a number otherwise (W3-11b).
-    gateThresholdDb: Number(els.vadThreshold.value) === gateDefaultDb(els.codec.value) ? undefined : Number(els.vadThreshold.value),
+    // A blank control (or one that holds no number) is the profile's own too,
+    // as the engine reads it (gateThresholdDb() in audio.js), not 0 dBFS.
+    gateThresholdDb: typedGateDb() === null || typedGateDb() === gateDefaultDb(els.codec.value) ? undefined : typedGateDb(),
     // How long the sender's Steam had been running (W3-16): its float clock
     // sets the hold's real length. `steam` only; left out for other profiles.
     steamUptime: els.codec.value === 'steam' ? Number(els.steamUptime.value) : undefined,

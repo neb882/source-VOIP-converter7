@@ -46,6 +46,9 @@ function normalizeControlValue(el, raw) {
     return Array.from(el.options).some((option) => option.value === value) ? value : null;
   }
   if (el.type === 'number') {
+    // The threshold may be left blank: the profile's own (W3-11b). Elsewhere a
+    // blank number keeps the current setting.
+    if (value === '') return el === els.vadThreshold ? '' : null;
     const number = Number(value);
     if (!Number.isFinite(number)) return null;
     const min = el.min === '' ? -Infinity : Number(el.min);
@@ -493,7 +496,7 @@ function updateSignalChain() {
   const maxGain = num(els.maxGain, VOICE_ENGINE.autoGain.maxGain), volume = num(els.volume, VOICE_ENGINE.volume);
   const codecOn = els.warble.value === '1', agcOn = els.agc.value === '1';
   const gateOn = codecOn && (els.vad.value === 'auto' ? !!codec.senderGate : els.vad.value === '1');
-  const gateDb = num(els.vadThreshold, gateDefaultDb(els.codec.value));
+  const gateDb = typedGateDb() ?? gateDefaultDb(els.codec.value);
   // Steam's sender gates its capture chunks (W3-11a); the others, 20 ms frames.
   const S = TF2SteamSender.STEAM_SENDER;
   const gateText = isSteamRule(els.codec.value)
@@ -676,6 +679,9 @@ function applyConfig(cfg) {
   // A setting saved before W3-11b holds the frame model's -39.5 for `steam`:
   // it reads as that profile's default, Steam's own -40.
   if (cfg.vadthr != null && Number(cfg.vadthr) === -39.5 && isSteamRule(els.codec.value)) els.vadThreshold.value = String(gateDefaultDb(els.codec.value));
+  // A threshold given with the settings belongs to the codec given with it:
+  // no default is carried over from the profile the page had before.
+  if (cfg.vadthr != null) gateProfile = els.codec.value;
   if (applied) updateSignalChain();
   return applied;
 }

@@ -125,9 +125,9 @@ the laid packets, as in a render) to within 0.15 ms (measured: 207.238 − 0.667
 
 **What the page now says.** The latency shown is `10 ms` (half a capture block) + `latencyMs` + what the worklet has
 queued + the context's base and output latency; the browser suite checks it lies between `latencyMs` and that plus
-400 ms. The low-latency label reads "Low latency (no pre-roll, saves 80 ms)" once the monitor runs, the figure taken
-from the chain's `lowLatencySavingMs`; its title says what is held back instead and that each phrase's pre-roll is not
-played. README: "About 0.3 s from microphone to speaker on the Steam profile", the chain holding back about 0.2 s, and
+400 ms. The low-latency label reads "Low latency (shorter pre-roll, saves 80 ms)" once the monitor runs, the figure
+taken from the chain's `lowLatencySavingMs`; its title says what is held back instead and that 17 to 80 ms of each
+phrase's first 100 ms is not played (corrected in the fix round: it first said the whole pre-roll was dropped). README: "About 0.3 s from microphone to speaker on the Steam profile", the chain holding back about 0.2 s, and
 "saves about 80 ms (the panel gives the figure)".
 
 **The chain has no flush.** What is held back when the monitor stops (the reach, the lookahead, the filters' and
@@ -186,7 +186,7 @@ runner of [10b] alone whose parts can be chosen). Every listed mutation was caug
 | 9 | the wait at 12 frames; at 5 | the give-out function (11 frames behind), each |
 | 10 | a late packet dropped (cut at `given`), not moved | the 30-lost mask, every plan |
 | 11 | a late packet laid from `given + 1`; from `R`; moved by whole frames | the 30-lost mask's shifted equality, each |
-| 12 | samples before index 0 counted in `droppedLate` | the gate off, both plans |
+| 12 | samples before index 0 counted in `droppedLate` | the gate off, both plans; after the fix round, low latency with an onset 0.1 s after the chain's start (the fix keeps a cut from starting at a packet before 0 while nothing is given out, so the gate-off cases no longer reach the count; this case does) |
 | 13 | `given` updated before the sample's messages are handled | low latency at every plan: `droppedLate` and the cut differ from the order's rule |
 | 14 | the low-latency reach the longest chunk alone | low latency: a difference in mid-spurt, `movedLate` above 0 |
 | 15 | what is given out decided per block | low latency: the plans give different outputs and `droppedLate` |
@@ -205,6 +205,21 @@ runner of [10b] alone whose parts can be chosen). Every listed mutation was caug
 | B3 | slots counted before they are final (a frame early) | "the live chain is the render": the count of final slots is the order's rule exactly (added after a first version of this mutation went unseen) |
 | B4 | the per-frame counts not taken from the stream's blocks | the per-frame counts check (added for it) |
 | B5 | `steam_48`'s live path changed after its gain | `steam_48`'s hash |
+
+| # | Mutation (the fix round, against the fixed code) | Caught by |
+| --- | --- | --- |
+| F1 | a packet before 0 moved (the condition before the fix, `at < given`) | the three chain-start cases (6 failures) |
+| F3 | `agc` off: `voice_scale` and the clip left out of the live chain | the `agc` off and `voice_scale` 2 case (the render clips) |
+| F4 | the key's zeros after the capture resampler | push-to-talk at 48 kHz |
+| F5 | the live chain's default seed not the render's | the 48 kHz equality, which passes no seed, both plans |
+| F12a | the input meter reads the zeros with the key up | the input meter check |
+| F12b | `steam` with the codec bypassed sent to the render's stages | the bypass check |
+| (page) | a blank threshold sent as 0; a saved blank restored as -10; the share link's -40 carried over as -39.5 | each run on the page before its fix (`share.js`); the browser check added fails on any of them |
+
+After the fix round and the suite's shortening, every mutation of the three tables was rerun against the new [10b]
+(`fmut-a.txt`, `fmut-b.txt` in the scratch folder): all caught. Mutation 12 was missed on the first rerun, because
+the fix took the gate-off path away from the count it changes; the low-latency case with an early onset was added for
+it, and it is caught.
 
 Mutation 22 alone would have been caught only by the golden hashes; the pointed check was added. Mutation 21 is in
 `app/render.js`; it was run against the browser suite on a copy of the tree, which stopped at its first check of the
@@ -267,11 +282,20 @@ removed rather than left untested.
     against a `steam_48` render of that microphone. On main both live chains ran the frame path, so that lined up
     within a sample by accident; with the `steam` live chain on Steam's resampler it peaked at 28 samples (Steam's
     16 inputs). The helper now waits for a take other than the one before.
+22. **Where the key's zeros go** (the review's finding 7). The order says the block is replaced by zeros before the
+    mic gain; the code zeroes it after the gain and the clip, right after the input meter reads it. The gain and the
+    clip are memoryless (zero times any gain, clipped, is zero), so the samples are the same, and the meter still shows
+    the microphone, as the order asks. Left as built.
+23. **The key on the page** (finding 8). Inside the chain "sound captured while the key is up is never sent" holds by
+    construction (the reviewer tried a dozen key patterns at both rates, all equal to the zeroed render). On the page
+    the key's message and the sound's blocks reach the worker by separate channels, so it holds to within about one
+    20 ms block; README says so. Carrying the key with each block would change `live-worklet.js`, which this order
+    may not touch.
+24. **A blank threshold** (finding 6) is read by the page as the engine reads it: the profile's own, sent as nothing.
 
 ## Not done, and why
 
-- README's codec line still says "complexity 10"; it has been 9 since W3-11a. It is not among the lines this order
-  lists, so it was left; the orchestrator may fix it with any doc edit.
+- README's codec line said "complexity 10"; the fix round corrected it to 9, with the orchestrator's leave.
 - The worklet is unchanged, as the order says: in a loss run that makes the chain wait for the cursor, its queue
   runs dry and then skips what is over its limit (figures below).
 
@@ -324,7 +348,8 @@ running; a browser's worker is slower than Node's.
 `docs/reports/W3-11b/`: the Sender controls with the threshold at -40 (`desktop-threshold.png`,
 `phone-threshold.png`), the chain strip with "gate > -40 dBFS · chunks · 100 ms kept · 0.4 s hold"
 (`desktop-chain-strip.png`, `phone-chain-strip.png`) and the live monitor running on the fake microphone: "● TX",
-"0 concealed · 0 late", "latency 309 ms", "Low latency (no pre-roll, saves 80 ms)" (`desktop-live.png`,
+"0 concealed · 0 late", "latency 309 ms", "Low latency (no pre-roll, saves 80 ms)" (the label before the fix round
+renamed it "shorter pre-roll") (`desktop-live.png`,
 `phone-live.png`). Chromium headless with the suite's probe as the microphone, 1366 × 900 and 390 × 844.
 
 ## The texts of item 6, as they now read
@@ -343,9 +368,10 @@ running; a browser's worker is slower than Node's.
 - Latency title, `steam`: "Microphone to speaker: what the voice chain holds back (Steam's longest capture chunk and
   its 100 ms pre-roll, the codec's lookahead, the filters' waits), the playback queue and the audio device's
   buffers"; the others as before.
-- Low latency, `steam`: label "Low latency (no pre-roll, saves 80 ms)" once running; title "Hold back Steam's longest
-  capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but each
-  phrase's pre-roll is not played. Saves 80 ms. Not how TF2 sounds."; the others as before.
+- Low latency, `steam`: label "Low latency (shorter pre-roll, saves 80 ms)" once running; title "Hold back Steam's
+  longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but part
+  of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. Saves 80 ms. Not how TF2
+  sounds."; the others as before. (The fix round's wording; before it said the whole pre-roll was not played.)
 - Push-to-talk title, `steam`: "Send only while V (TF2's +voicerecord key) or the Talk button is held. This is the
   app's stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by
   its own hold. Steam's own key rules (it goes on sending for half a second after a release) are not built yet."; the
@@ -375,6 +401,87 @@ the recorded hashes.
 | `pnpm test:vendor`, under the lock | pass |
 | the browser suite, under the lock (`CHROMIUM_EXECUTABLE` set) | pass, 238 checks |
 | CI (`tests` workflow) | pass on `5aadf1b` (the last code change, run 42890081492) and on `434ebcf` (run 42890497723); the commits after it change only this report. The two failing runs before `5aadf1b` were the browser checks fixed there (the gate text against a profile with no gate; the 3f take race) |
+
+## Review
+
+`tf-reviewer` read the build at `15c9d93` (`agents/w3-11b-review/REVIEW-HANDBACK.md` in the scratch folder). Its
+verdict: the build does what part b asks; one defect to fix, two test gaps that would let a wrong live chain pass
+[10b], untrue low-latency texts, and notes. It found 1 defect (should fix), 3 more should-fix findings (the
+low-latency texts and two test gaps) and 8 notes. Its differential ran 136 cases, 340 runs, 228.6 million laid samples
+compared at the mix point: 260 runs equal to the render over everything given out, 54 low-latency runs differing only
+in the cut pre-roll regions (in 32 of them the previous spurt's tail kept there, by design), 26 runs with the chain-start
+move (finding 1), no other difference and no error; every plan of every case gave the same output. It confirmed every
+stage of the live `steam` path is the render's own function, the latency figures (derived, and measured with clicks
+through the chain within 0.3 ms), the untouched files and the golden hashes. It ran 13 mutations of its own: 7 caught
+by [10b], 1 equivalent (`givenNoMax`), 5 not caught (the key's zeros after the 24 kHz resampler, the default seed,
+`agc` off without the scale and clip, the input meter reading zeros, `steam` bypassed sent to the render's stages).
+
+**Its timing** (5 minutes of speech-like sound at 48 kHz in 20 ms blocks, with three or four other jobs on the machine,
+so the tails are pessimistic):
+
+| Run | Cost (of real time) | Median block | p99 | Worst block | Blocks over 20 ms | Worst backlog |
+| --- | --- | --- | --- | --- | --- | --- |
+| full, no loss | 0.18 | 2.24 ms | 12.6 ms | 29.1 ms | 5 of 15,000 | 9.1 ms |
+| low latency, no loss | 0.19 | 2.28 ms | 13.8 ms | 263.6 ms (a pause of the machine) | 18 | 249.6 ms (that pause) |
+| full, 15% loss, 50 ms jitter | 0.23 | 2.37 ms | 19.9 ms | 67.6 ms | 147 | 47.5 ms |
+| low latency, 15% loss, 50 ms jitter | 0.27 | 2.82 ms | 23.7 ms | 96.5 ms | 274 | 78.7 ms |
+
+The worst backlog is the deficit if blocks arrived exactly every 20 ms. With no loss it is 9 ms against the worklet's
+40 ms queue. Under simulated loss the backlog, and the wait for the cursor (which stalls output once a run of lost
+frames outlasts the cursor's lead over `R`: about 9 frames at the full reach, 5 in low latency), do give gaps: that is
+the order's stated price, and loss is off by default. Pushing the sender one sample at a time costs about 0.2% of real
+time (121 ms a minute against 13.5 ms in one push), so nothing was changed for speed. My own one-minute replay (above,
+on an idle machine) agrees: 0.17 of real time, one underrun under loss.
+
+## Fix round
+
+Each item of the coordinator's list, with its break in the table below.
+
+1. **Finding 1, the defect.** `steamTimeline.add` moved any packet that was not an opening with `at < given`. At the
+   chain's start `given` is 0, and a spurt anchored before 0 (the gate off, or sound at the start or right after a
+   settings change) whose opening packet lost its last frames ended before 0, so the next packet was "late" and moved
+   to 0: the whole spurt 6.5 to 106.5 ms later than the render, with no long gap. Fixed as proposed: `Math.max(at, 0) <
+   given`. A packet before 0 while nothing at or after 0 has been given out is laid as the render lays it, what lies
+   before 0 dropped and uncounted. [10b] gains three cases at two plans each: the gate off with the opening message's
+   last two frames lost; the gate off with frames 0 to 9 lost (the reviewer's); a burst from sample 0 with the gate on
+   and frames 0 to 6 lost (the reviewer's). Each: the first spurt anchored before 0, the render's laid signal, no move.
+   The reviewer's 13 natural cases (26 runs) rerun on the fixed tree with its own harness: no move, equal to the
+   render (low latency: outside the cut regions), every plan the same. So "a move happens only after a gap of more than
+   ten lost frames" is true again, and the code comment, the order's claim and REFERENCE needed no correction for it.
+2. **Finding 2.** Low latency cuts 17 to 80 ms of each phrase's 100 ms pre-roll (the reviewer's 34 spurts: median 48.7
+   ms), not all of it. README, the panel's title and this report now say "part of each phrase's first 100 ms is not
+   played: 17 to 80 ms of it, about half as a rule"; the label is "Low latency (shorter pre-roll, saves 80 ms)". The
+   browser suite checks the new title. "Saves 80 ms" stays.
+3. **Finding 3.** The `agc` off case runs at `voice_scale` 2 on talk loud enough that the render clips (asserted).
+4. **Finding 4.** Push-to-talk is also checked at 48 kHz in blocks of 960.
+5. **Finding 5.** The 48 kHz equality passes no `seed`, as the page passes none.
+6. **Finding 6, the page's side.** Run on the page before the fix (`agents/w3-11b/share.js`): a cleared control sent 0
+   (0 dBFS); a saved or shared blank and a string of spaces restored as -10; a share link `{codec: celt_22, vadthr:
+   -40}` restored as -39.5 through the stale `gateProfile`. Fixed in a few lines: `typedGateDb()` (`app/core.js`) is
+   the control's number or null when blank, spaces or not a number, and `renderOptions()` and the chain strip use it;
+   `normalizeControlValue` lets the threshold restore as blank; `applyConfig` sets `gateProfile` to the codec when the
+   settings carry a threshold (a link with the codec alone still takes the new profile's default). One browser check
+   covers all four.
+7. **Finding 7.** The key's zeros are after the mic gain and its meter, where the order says before the gain; the gain
+   and the clip are memoryless, so the samples are the same. Left as it is, with a comment (reading 22 below).
+8. **Finding 8.** On the page the key reaches the worker from the main thread and the sound from the worklet's port,
+   so a press or a release can land about one 20 ms block off. Carrying the key with each block would need the
+   worklet, which this order may not change, so README's push-to-talk line now says so in plain words (as does
+   `live.js`'s header).
+9. **Finding 10, stale lines.** README's "complexity 10" is 9; its status line says the `steam` panel counts frames
+   concealed; its live section says the one exception to "the render, sample for sample" (a gap of more than ten lost
+   frames); `tests/verify.js`'s comment above the `steam_48` whole-chain check; REFERENCE's Network row says the rest of
+   the spurt is laid later, not one packet; the `steam` panel texts show only with the codec on (a browser check).
+10. **Finding 12.** Two cheap checks: with the key up the input meter shows the microphone (its peak equals the block's);
+    `steam` with the codec bypassed keeps the frame path.
+11. **Finding 11.** Check 3f's bound is by rate: r > 0.79 at 44.1 kHz, the rate the headless browser runs (the
+    simulated takes' tenth percentile less 0.05, under their minimum 0.811), and r > 0.70 at any other rate (the 48 kHz
+    takes' minimum 0.759 less 0.05), so a 48 kHz device does not fail a few runs in a hundred.
+12. **The suite's cost.** The settings cases run on 8 s sources; the 48 kHz equality at two plans (480 and uneven);
+    the block tally reuses the 480-plan run; the 30-lost case at four plans (128, uneven, the whole source, on each
+    chunk's end); the low-latency loop keeps all eight. Every mutation was rerun on the new suite (table below), and
+    all are still caught. [10b]'s `steam` section takes 99 s alone, where it took about 240; `pnpm test`: see "Runs".
+13. This section and the review's.
 
 ## For W3-10's builder
 

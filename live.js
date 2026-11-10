@@ -12,8 +12,9 @@
  * is silenced while the key is up and the gate ends the phrase by its own
  * hold (Steam's own key rules are not built). With push-to-talk off the key
  * counts as held. Low latency on `steam` holds back a chunk and a frame
- * instead, losing each phrase's pre-roll; the figure it saves comes from the
- * chain. On the other profiles push-to-talk sends only while the key is held
+ * instead, losing 17 to 80 ms of each phrase's 100 ms pre-roll; the figure it
+ * saves comes from the chain. The key and the sound reach the worker by
+ * separate channels, so a press or release can land about a block off. On the other profiles push-to-talk sends only while the key is held
  * (the gate still applies inside) and low latency drops the frame gate's
  * 120 ms pre-roll. Record keeps the microphone and the voice and loads them
  * into the app as a dry/wet pair (mountLiveTake).
@@ -43,8 +44,8 @@
   const texts = {
     steam: {
       latency: 'Microphone to speaker: what the voice chain holds back (Steam\'s longest capture chunk and its 100 ms pre-roll, the codec\'s lookahead, the filters\' waits), the playback queue and the audio device\'s buffers',
-      lowLatency: (ms) => `Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but each phrase's pre-roll is not played. ${ms != null ? `Saves ${ms.toFixed(0)} ms.` : 'Saves the figure shown once the monitor runs.'} Not how TF2 sounds.`,
-      lowLabel: (ms) => `Low latency (no pre-roll${ms != null ? `, saves ${ms.toFixed(0)} ms` : ''})`,
+      lowLatency: (ms) => `Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. ${ms != null ? `Saves ${ms.toFixed(0)} ms.` : 'Saves the figure shown once the monitor runs.'} Not how TF2 sounds.`,
+      lowLabel: (ms) => `Low latency (shorter pre-roll${ms != null ? `, saves ${ms.toFixed(0)} ms` : ''})`,
       ptt: 'Send only while V (TF2\'s +voicerecord key) or the Talk button is held. This is the app\'s stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by its own hold. Steam\'s own key rules (it goes on sending for half a second after a release) are not built yet.'
     },
     frame: {
@@ -54,7 +55,8 @@
       ptt: 'Send only while V (TF2\'s +voicerecord key) or the Talk button is held, as with push-to-talk in the game. The voice gate still applies while you hold it.'
     }
   };
-  const steamCodec = () => typeof isSteamRule === 'function' && typeof els !== 'undefined' && isSteamRule(els.codec.value);
+  // The render's own chain runs only with the codec on: bypassed, `steam` keeps the frame path's texts.
+  const steamCodec = () => typeof isSteamRule === 'function' && typeof els !== 'undefined' && isSteamRule(els.codec.value) && els.warble.value === '1';
   function updateTexts() {
     const t = steamCodec() ? texts.steam : texts.frame;
     const saving = live && live.codec === 'steam' ? live.lowLatencySavingMs : null;
