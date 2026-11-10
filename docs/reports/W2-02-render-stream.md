@@ -1,7 +1,7 @@
 # W2-02 report: a render made a piece at a time, equal to `process()`
 
-Branch `claude/w2-02-render-stream`, from `main` at `61fcb92` (W1-01 merged), with `origin/main` (`6cd299f`: W2-01
-and the W3 orders) merged in after the first push. Files changed: `audio.js`, `opus-codec.mjs`, `package.json`,
+Branch `claude/w2-02-render-stream`, from `main` at `61fcb92` (W1-01 merged), with `origin/main` merged in twice
+after the first push (`6cd299f`: W2-01 and the W3 orders; `7059578`: the W3-01 and W3-03 reports). Files changed: `audio.js`, `opus-codec.mjs`, `package.json`,
 `tests/render-stream.verify.mjs` (new), `tests/predictions/PREDICTIONS.md` and this report. `process()` is unchanged,
 as is everything it calls.
 
@@ -14,7 +14,8 @@ as is everything it calls.
 - `43c302a` `TF2Audio.createRender`: `process()` a piece at a time, equal bit for bit. The stream, its tests, the
   Speex stream's two fields, the PREDICTIONS note, and one more golden case (below).
 - `96d3101` Render-stream test: four renders in turn, and the memory check as `--memory`.
-- This report.
+- `ede9d8e` This report, then `cfc6e4a`, a merge of `origin/main` at `7059578` (docs and `tests/retiming.mjs`; no
+  conflicts), and this note of its CI run.
 
 ## What was built
 
@@ -148,7 +149,7 @@ period and an auto-gain block are all in it. 48 streamed runs in all.
 | The Node suites | `pnpm test` | `209 passed, 0 failed` (verify.js), 119 Opus, 63 Speex, 41 paired-reference, 66 formats, 50 meter, 45 video, 31 demo, `128 render-stream checks passed, 0 failed`; exit 0 (under the heavy lock, on `96d3101` with this report's draft) |
 | The browser suite | `CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux*/chrome \| head -1) flock /tmp/tf2ve-heavy.lock node tests/browser.verify.js` | `ok    48000 Hz browser: no page errors`, `179 browser checks passed`, exit 0 |
 | The memory check | `node tests/render-stream.verify.mjs --memory 60` (under the heavy lock) | `ok    60 minutes streamed in 1 s chunks peak under source + output + 300 MB of RSS   [peak 1429 MB: source 659 MB + output 659 MB + 110 MB; 118 s (30.4x real time), 1075 spurts]` |
-| CI | the `tests` workflow on the branch | success on `7e1862c` (run 42725944175: every golden hash matched on GitHub's runner), `43c302a` (42729249114) and `96d3101` (42729466229: `128 render-stream checks passed, 0 failed`, `179 browser checks passed`) |
+| CI | the `tests` workflow on the branch | success on `7e1862c` (run 42725944175: every golden hash matched on GitHub's runner), `43c302a` (42729249114), `96d3101` (42729466229) and `cfc6e4a` (42733766093), each with `128 render-stream checks passed, 0 failed` and `179 browser checks passed` from `96d3101` on |
 
 `tests/verify.js`'s checks are untouched and pass (209), its live-chain section 10b included, which exercises
 `streamAutoGain` after its change.
