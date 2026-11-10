@@ -1,22 +1,32 @@
 # W3-02: the receiver's voice channel, as the engine runs it
 
-*Revised 2026-11-10 after the plan's review by a builder (the findings and what was done about each are in
+*Revision 3, 2026-11-10.* **What changed and why:** W3-09 read Steam's sender out of the Steam client
+(`docs/reports/W3-09-steam-voice.md`). So "The sender's packets" and W3-02b no longer fit a model to the logs (a
+56 ms hand-out clock with drawn jitter, a drawn 8-frame opening, a 6-frame pre-roll, a 22-frame hold): they run
+Steam's own rule (chunks of whole capture steps, the gate on each chunk's mean and peak, 2400 samples of
+pre-roll, a 0.4 s hold on the clock, frames of 480 cut from what was kept plus the chunk, one chunk one
+message). Only the clock is still drawn. The sender is a module of its own, `steam-sender.js`, shared with the
+offline render (W3-11). W3-02c now starts after W3-11 and W3-13 and takes its packets from them; W3-02g's
+decoded packets go through W3-13's resampler. **W3-02a is not changed in any way.** The reasons and the order
+of work are in `docs/reports/W3-11-plan.md`.
+
+*Revision 2, 2026-11-10, after the plan's review by a builder (the findings and what was done about each are in
 `docs/reports/W3-02-plan.md`, "The review").* Seven orders, each leaving main working:
 
 | Order | What | Starts after | Budget |
 | --- | --- | --- | --- |
 | **W3-02a** | the channel as a pure module, and the log replay | now (new files only) | 1 day |
-| **W3-02b** | the sender model and the timeline stage; `retiming.mjs --engine` | W3-02a | 1 day |
-| **W3-02c** | the render and the stream run it behind an option | W2-02, W3-05, W3-06, W3-02b | 1 day |
+| **W3-02b** | the sender (`steam-sender.js`) and the timeline stage; `retiming.mjs --engine` | W3-02a | 1 day |
+| **W3-02c** | the render and the stream run it behind an option | W2-02, W3-05, W3-06, W3-02b, W3-11, W3-13 | 1 day |
 | **W3-02d** | the page: controls, the default, the words | W3-02c | 1 day |
 | **W3-02e** | the page: the codec lane's marks and the real-take check | W3-02d | half a day |
 | **W3-02f** | the flat rule retired | W3-02d | 2 hours |
 | **W3-02g** | a demo's own packets | W3-02c, W3-06, W3-02f | half a day |
 
 W3-02a and W3-02b touch no file another order touches (one line of `package.json` aside), so they run beside
-anything. W3-02c, W3-02f, W3-02g, W3-05 and W3-06 all change `audio.js` and run one at a time. W3-02d and W3-02e
-change the page and run one after the other; either may run beside W3-02g or another `audio.js` order, except
-that W3-02f waits for W3-02d to merge.
+anything. W3-02c, W3-02f, W3-02g, W3-05, W3-06, W3-11, W3-12b and W3-10 all change `audio.js` and run one at a
+time (the order is in `docs/reports/W3-11-plan.md`). W3-02d and W3-02e change the page and run one after the
+other; either may run beside W3-02g or another `audio.js` order, except that W3-02f waits for W3-02d to merge.
 
 **Agents:** `tf-builder`, then `tf-reviewer`; W3-02c's diff also gets a second reader on the stronger model (it
 changes how a render is computed). Each may push its branch to run CI. Worktrees are given in the briefs.
@@ -61,7 +71,7 @@ mixer block (512 samples) is 1024.
 | `fps` | 300, limited to 10..1000 | `fps_max`'s default; the frame's duration is limited to 0.001..0.1 s (read) |
 | `fadeTime` | 0.1 s: `fade = max(2, floor(rate x fadeTime))` = 4410 | `voice_fadeouttime`, read |
 | `mixBlock` | 512 samples; the first block after a channel starts asks for 513 | the logs (see "The first pull") |
-| `sender` | see "The sender's packets" | the logs and the Set D demo |
+| the sender | `STEAM_SENDER` in `steam-sender.js`: see "The sender's packets" | W3-09, read; the logs and the Set D demo |
 
 **`waitTicks(bufferMs, fps) = ceil(clamp(bufferMs, 1, 5000) / 1000 x clamp(fps, 10, 1000) - 1e-6)`**: 7 at 66.67,
 10 at 100, 30 at 300. The packet's own tick is the first. (The logs: 7, 10 and 30 lines before the queue can fall,
@@ -126,60 +136,134 @@ source has it. Output before sample 0 or past the render's length is dropped.
 
 ## The sender's packets
 
-A source file has no packets, so the render makes them up from the codec's frame log (which frames the gate sent).
-What is known, from the first Set G log (1,520 packets) and the Set D demo (1,816 messages):
+*Rewritten in revision 3 from W3-09 (`docs/reports/W3-09-steam-voice.md`, sections 1, 2 and (a)).* A source file
+has no packets, so the render makes them as Steam does: it reads the sound in chunks, gates each chunk, and sends
+one message per chunk. The rule is read from Steam's client; only the clock that says when Steam's frames fall is
+a model. It lives in a new module, `steam-sender.js` (global `TF2SteamSender`), which W3-02b builds and which the
+offline render shares (W3-11): there is one gate.
 
-- **Deterministic:** a packet holds whole 20 ms frames in order (882 samples each at 44.1 kHz); a spurt's sound
-  arrives in real time after its first packet; the end of a spurt is followed by one more packet, the silence
-  record; at most one packet is added per tick.
-- **Drawn (seeded):** how many frames open a spurt (8 in 17 of 23 openings after a pause, 6 in 4, 7 and 9 once
-  each); which frames each later packet holds (3 frames in 65%, 2 in 14%, 4 in 11%, 1 in 10%) and its tick (3, 4
-  or 5 ticks after the one before: 41%, 49%, 10%); the silence record's length (62.5 ms in 39 of 47, 31.25 ms in
-  8).
-- **Unknown:** what in Steam decides the pieces (W3-09 is reading Steam's side); Steam's own hold (425 to 485 ms)
-  and pre-roll (115 to 152 ms), which the gate model fixes at 440 and 120; why the takes' silences on speech run
-  about 50 ms longer than the gate model's (W3-01). These decide which pauses near 0.4 s close, so a render will
-  not match a given take pause for pause.
+**Constants** (`STEAM_SENDER`, each with its source in a comment):
 
-**The sender model** (`VOICE_CHANNEL.sender = { open: [[8, 0.77], [6, 0.92], [7, 0.96], [9, 1]], period: 0.056,
-captureJitter: 0.010, slip: 0.1, networkJitter: 0.020, record: [[0.0625, 0.85], [0.03125, 1]] }`). `F` is the
-frame's duration (0.02 s); frame `j` ends at `(j + 1) F`. All times are doubles in seconds, computed as written
-(a hand-out's time is `h0 + 0.056 * i`, not a running sum). `lastTick` starts at -1 and carries across spurts.
-For each talk spurt, frames `s..e`:
+| Name | Value | Source |
+| --- | --- | --- |
+| `rate`, `frame` | 24000 Hz, 480 samples | read |
+| `grid` | 750 samples (31.25 ms): the capture's step | shown: every packet of the demo and all but 39 of Set G's fit it |
+| `preroll` | 2400 samples; 2400 zeros when nothing was kept | read |
+| `hold` | 0.4 s of the clock, from the read of the last active chunk | read |
+| `meanMin`, `peakMin` | 327.67 (on the mean of \|x\|), 4915 (on the peak) | read |
+| `timer` | 0.015625 s | the planner's model (see "The clock") |
+| `period` | 0.05585 s | measured: the mean time between chunks |
+| `late` | 0.06, up to 0.030 s | fitted to the share of 2250-sample chunks |
+| `relay` | 0.002 s | arbitrary: it only sets the phase against the game's ticks |
 
-1. Draw `u1`: the opening holds `k0 = 8` frames if `u1 < 0.77`, 6 if `< 0.92`, 7 if `< 0.96`, else 9; never more
-   than the spurt has. Draw `u2`. `h0 = (s + k0) * F`. The opening's tick is
-   `max(lastTick + 1, ceil((h0 + 0.020 * u2) / 0.015))`.
-2. For `i = 1, 2, ...` while a frame of the spurt is unsent: `h = h0 + 0.056 * i`; draw `u3, u4, u5` (always all
-   three); `limit = h - 0.010 * u3 - (u4 < 0.1 ? F : 0)`; the packet holds the unsent frames `j <= e` with
-   `j + 1 <= floor(limit / F + 1e-9)`; if there are none, no packet; else its tick is
-   `max(lastTick + 1, ceil((h + 0.020 * u5) / 0.015))`.
-3. Then, with the next `i`: `h = h0 + 0.056 * i`; draw `u6, u7`; the silence record's tick is
-   `max(lastTick + 1, ceil((h + 0.020 * u6) / 0.015))` and it is `round(0.0625 x 44100) = 2756` zeros if
-   `u7 < 0.85`, else `round(0.03125 x 44100) = 1378`.
-4. A frame the loss model lost or made late (frame codes 5 and 6) is sent like any frame in steps 1 to 3, and its
-   samples (the concealment, or zeros) are what the packet holds, as Steam's decoder hands concealment out with
-   the packet that reveals the gap. (Not measured under loss; said in the report.)
+**Deterministic** (no draw): the gate's verdict for a chunk; the four states; the pre-roll; the hold; the frames;
+which frames a message holds; the end marker and the sequence number's restart; the silence record's length.
+**Drawn** (seeded): the clock only, which decides how long each chunk is and on which game tick its message
+arrives. Every render is reproducible from its seed.
 
-The random source is `mulberry32((seed ^ 0x51ED270B) >>> 0)` (`mulberry32` as in `audio.js`), drawn in exactly
-that order, so a seed gives one schedule and the loss pattern (drawn from `seed` itself) does not move.
-
-**A reference schedule**, from the plan's prototype: seed `0xC0FFEE`, two spurts, frames 50..109 and 125..139.
-Packets as `[tick, first frame, last frame]`, a record as `[tick, -1, samples]`:
+**The clock.** Steam's frames come 55.85 ms apart on average and the capture moves 750 samples at a time (W3-09,
+section 2). The model: Windows's timer ticks every 15.625 ms; the capture gains 750 samples on every second tick;
+Steam's frame `i` runs on the first tick at or after `phase + i x period`, a few of them late. This is the
+planner's model, not a reading: it was chosen because it gives the logs' spacing of packets (3, 4 or 5 game
+ticks apart in 36, 50 and 11% against the logged 41, 49 and 10%) and the logged packet sizes with no further
+constant (the table below). The random source is `mulberry32((seed ^ 0x51ED270B) >>> 0)` (`mulberry32` as in
+`audio.js`), drawn in exactly this order, all arithmetic in doubles as written:
 
 ```
-[76,50,55] [80,56,57] [84,58,59] [86,60,63] [91,64,64] [95,65,68] [98,69,70] [102,71,74] [106,75,76]
-[110,77,79] [113,80,82] [117,83,85] [121,86,88] [124,89,91] [128,92,94] [132,95,96] [136,97,99] [139,100,102]
-[143,103,105] [146,106,107] [150,108,109] [154,-1,1378] [179,125,132] [182,133,134] [186,135,137]
-[189,138,139] [193,-1,1378]
+phase = 0.03125 * draw()
+for i = 0, 1, 2, ...:
+    u1 = draw() ; u2 = draw()                              # always both
+    late = u1 < 0.06 ? 0.030 * u2 : 0
+    n[i] = max(n[i-1] + 1, ceil((phase + i * 0.05585 + late) / 0.015625))       # n[-1] = 0
 ```
 
-**Its statistics**, from the prototype over seeds 1 to 2,000, one spurt of frames 50..199 each: later packets hold
-1, 2, 3, 4 frames in 0.024, 0.261, 0.632, 0.082 of cases; they come 2, 3, 4, 5 ticks after the one before in
-0.020, 0.341, 0.524, 0.115; the opening is 8, 6, 7, 9 frames in 0.755, 0.153, 0.043, 0.049; the record is 2756 in
-0.847. Over a long spurt it makes 17.85 packets a second. The model was fitted to the log's table of ticks and
-frames and is 28 percentage points from it, summed over the table (too few one-frame packets). It is the part of
-the render that is a model and not a reading. No empty packet is made: that is a key press, and a file has none.
+Frame `i` runs at clock time `now = n[i] x 0.015625` s. By then the capture holds `750 x floor(n[i] / 2)`
+samples. The frame's **chunk** is the samples from the last frame's count to this one's (0, 750, 1500 or 2250
+of them); samples past the end of the source are zeros. A message made by frame `i` reaches the receiver on
+game tick `max(lastTick + 1, ceil((now + 0.002) / 0.015))` (`lastTick` starts at -1 and carries across spurts:
+the engine adds at most one packet a tick).
+
+**The gate, the states and the frames** (W3-09 (a); the samples are 16-bit integers at 24 kHz, after the capture
+roll-off):
+
+```
+each frame with a chunk that is not empty:
+    active = sum(|x|) / n >= 327.67  or  max(|x|) >= 4915
+    if state is SILENT or ENDED:
+        if active:
+            if state is SILENT:
+                if past is empty: past = 2400 zeros
+                chunk = past + chunk ; past = empty
+            kept = empty ; state = ACTIVE ; last = now ; send(encode(chunk, final = false))
+        else:
+            past = the last 2400 samples of (past + chunk)
+            if state is ENDED: send(silence record, the chunk's length)
+            state = SILENT
+    else:                                              # ACTIVE or HANGING
+        if active: state = ACTIVE ; last = now
+        else:      state = HANGING
+        final = state is HANGING and now > last + 0.4
+        send(encode(chunk, final))
+        if final: state = ENDED
+
+encode(pcm, final):
+    buf = kept + pcm
+    if final: pad buf with zeros to a whole number of frames
+    the message holds every whole 480-sample frame of buf, numbered from 0 within the spurt
+    kept = what is left of buf (empty after a final)
+    a message with no frame and no end marker is not sent
+    if final: the message carries the end marker; the codec is reset; the next spurt numbers from 0
+```
+
+The state starts SILENT with `past` empty. A spurt's frames therefore sit on a grid of their own: frame `f` of a
+spurt is samples `start + 480 f` to `start + 480 f + 479`, where `start` is the onset chunk's first sample less
+the pre-roll it was given (2400, or fewer straight after a spurt, or 0 from ENDED; a `start` before sample 0
+means zeros). At the end of the source the frames go on, reading zeros, until the state is SILENT again, so a
+spurt cut off by the end of the file is ended as Steam would end it.
+
+Not in a file render: the key (so no 0.5 s tail and no empty packet, decision 8), `voice_preprocess`, and the
+32-bit float clock's coarse steps on a Steam that has run for days.
+
+**A reference schedule**, from the plan's prototype: seed `0xC0FFEE`; 96,000 samples, all 0 but samples 24000 to
+59999 and 72000 to 77999, which are 1000. The clock starts `2, 6, 9, 13, 16, 20, 24, 27, 31, 34, 38, 41, 45, 49,
+52, 57, 59, 63, 66, 70, 75, 77, 81, 84`. Messages as `[tick, first frame, last frame]` (frames counted through
+the whole render), `e` for the end marker, a record as `[tick, -1, samples at 24 kHz]`:
+
+```
+[69,0,7] [74,8,10] [79,11,13] [81,14,14] [85,15,18] [88,19,21] [92,22,24] [95,25,25] [100,26,29] [104,30,32]
+[107,33,35] [111,36,38] [114,39,39] [118,40,43] [123,44,46] [126,47,49] [130,50,52] [133,53,54] [137,55,57]
+[140,58,60] [144,61,63] [149,64,66] [154,67,69] [156,70,71] [159,72,74] [163,75,77] [167,78,80] [170,81,82]
+[175,83,85] [178,86,88] [183,89,91] [185,92,93] [189,94,96] [192,97,99] [196,100,103,e] [201,-1,1500]
+[204,104,107] [209,108,112] [211,113,113] [215,114,117] [218,118,118] [223,119,121] [227,122,124] [230,125,128]
+[234,129,131] [237,132,132] [241,133,135] [244,136,138] [249,139,143,e] [253,-1,1500]
+```
+
+Two spurts: `start` 20850 with 104 frames, and `start` 70500 with 40 (the second opens one chunk after the first
+one's silence record, so its pre-roll is that chunk, 1500 samples, and it opens with 4 frames). With a clock
+given by hand, `n[i] = 4 (i + 1)` (a frame every 62.5 ms, every chunk 1500 samples), the same signal gives
+`[71,0,7] [76,8,10] [80,11,13] [84,14,16] [88,17,19] [92,20,22] [96,23,25] [101,26,29] [105,30,32] ...
+[246,136,139,e] [251,-1,1500]`, spurts of 102 and 38 frames starting at 21600 and 70500: the 8-frame opening is
+2400 + 1500 samples with 60 kept, and the kept samples grow by 60 a chunk until a fourth frame fits.
+
+**Its statistics**, from the prototype over seeds 1 to 400, each with a signal of 240,000 samples that is 1000
+from sample 24000 to 215999 and 0 elsewhere, beside the logs:
+
+| What | The model | Set G and the demo |
+| --- | --- | --- |
+| Chunks of 750, 1500, 2250 samples (first 259 chunks of each clock) | 0.228, 0.755, 0.017 (and 0.001 empty) | 0.235, 0.745, 0.02 |
+| Frames in a message after the opening: 1, 2, 3, 4, 5 | 0.080, 0.148, 0.684, 0.076, 0.011 | 0.10, 0.14, 0.65, 0.11 |
+| Game ticks between messages: 2, 3, 4, 5, 6 | 0.021, 0.359, 0.500, 0.111, 0.008 | 3, 4, 5 in 0.41, 0.49, 0.10; none under 3 |
+| Opening of 8, 6, 9 frames (this signal's onset sits on the grid) | 0.943, 0.037, 0.020 | 8 in 17 of 20 and 17 of 23 |
+| The final chunk is the 7th, 8th after the last active one | 0.058, 0.943 | 9 and 9 of 18 |
+| Silence record of 750, 1500, 2250 samples | 0.233, 0.750, 0.018 | 750 in 8 of 47, 1500 in 39 |
+| Messages a second | 17.88 | 17.8, 18.0 |
+
+**Where the model is known to be off.** A steady 55.85 ms clock puts the 7th chunk at 391 ms, under the hold, so
+the model ends a spurt on the 8th chunk nearly always; the demo has the 7th as often as the 8th. The model's
+spurts therefore end about 28 ms later than Steam's on average. Two in a hundred messages come 2 ticks after the
+one before, which the logs never show. Both say the real clock is less regular than this one; W3-09 lists the
+run that would measure it (`@voice_spew_activity_check 1`). The constants above are named so that a measured
+clock replaces them without a change to the rule.
 
 ## W3-02a: the channel as a module, and the log replay
 
@@ -302,84 +386,114 @@ broken; say how you broke it and what failed.
 - If the orchestrator's private replay has a mismatch in the engine column: do not adjust the model to fit; the
   orchestrator sends the ten events before the first mismatching tick (numbers only).
 
-## W3-02b: the sender model and the timeline stage
+## W3-02b: the sender and the timeline stage
 
-**Branch:** `claude/w3-02b-voice-timeline`, from `main` **after W3-02a**. **Time budget:** 1 day.
+*Rewritten in revision 3.* **Branch:** `claude/w3-02b-voice-timeline`, from `main` **after W3-02a**. **Time
+budget:** 1 day.
 
 ### Files
 
-May touch: `voice-channel.js`, `tests/voice-channel.verify.mjs`, `tests/retiming.mjs` (a new `--engine` flag
-only). May add: `tests/voicequeue/synthetic-results.mjs`. May not touch anything else.
+May add: `steam-sender.js`, `tests/steam-sender.verify.mjs`, `tests/voicequeue/synthetic-results.mjs`. May touch:
+`voice-channel.js` (`createTimeline` only), `tests/voice-channel.verify.mjs`, `tests/retiming.mjs` (a new
+`--engine` flag only), `package.json` (the `test` script). May not touch anything else: no page, worker or
+service-worker file loads `steam-sender.js` yet (W3-11 does that).
 
 ### Spec
 
-1. **`createSender({ frameSeconds, seed })`**: `frame(sent)` is called once per codec frame in order (`sent`: the
-   gate sent it) and returns the packets that became known, each `{ tick, first, last }` (frame numbers) or
-   `{ tick, silence: samples }`; `finish()` returns the rest (a spurt cut off by the end of the source gets its
-   remaining frames by step 2 and its record by step 3, as if it had ended there). It is the sender model above
-   and nothing else. A packet is known as soon as its last frame is; a record once the frame after the spurt is
-   known to be unsent.
-2. **`createTimeline({ fps, bufferMs, fadeTime, seed, gain, length })`** (`frameSamples` 882, `frameSeconds` 0.02)
-   joins the sender and the channel on the clock above: `pushFrame(pcm or null, code)` takes a codec frame's 882
-   voice-rate samples before the gain (`null` when the gate did not send it) with its frame code, and returns
-   the output samples that became final (a `Float32Array`, possibly empty: the output is final up to the last
-   block that starts before tick `ceil((j + 1) F / 0.015)`, `j` being the last frame pushed, since no packet not
-   yet known can arrive earlier); `finish()` returns `{ samples, info }` with the rest, cut or padded with zeros
-   to `length`. The first block after each start asks the channel for 513 and plays the last 512.
-   `info` is `{ timeline: 'game', fps, bufferMs, waitTicks, latency, packets, opens, appended, gainResets,
+1. **`steam-sender.js`**, in the form of `demo.js` (an IIFE that sets `module.exports` under Node and
+   `root.TF2SteamSender` elsewhere; no imports). It exports `STEAM_SENDER`, `createClock` and `createSender`. It
+   is "The sender's packets" above and nothing else.
+2. **`createClock({ seed })`** returns `{ next() }`, each call giving the next `n[i]`. **`createSender({ seed,
+   clock })`**: `clock` is optional and replaces the seeded one (an object with `next()`; the tests pass fixed
+   lists). `push(samples)` takes an `Int16Array` of 24 kHz sound (any length, any number of calls) and returns the
+   messages that became known, in order; `finish()` returns the rest (frames go on over zeros until the state is
+   SILENT). A message is `{ tick, spurt, first, last, start, end: true or false }` (`first`, `last`: frame
+   numbers through the whole render; `start`: the source sample index of frame `first`'s first sample, which may
+   be negative; a message with only an end marker has `last = first - 1`) or `{ tick, silence: samples }`.
+   `info()` returns `{ spurts: [{ start, frames, preroll }], chunks, messages }`. It keeps at most 2400 + 2250 +
+   479 samples of sound; no array grows with the audio.
+3. **`createTimeline({ fps, bufferMs, fadeTime, gain, length })`** in `voice-channel.js` joins the channel and
+   the clock of "The model": `push({ tick, pcm, source })` takes one message as the receiver gets it: its game
+   tick, its decoded samples at 44.1 kHz as a `Float32Array` (whatever length the decoder's resampler gave;
+   empty for an end marker alone; zeros for a silence record) and `source`, the 44.1 kHz source position of
+   `pcm[0]` (-1 for a silence record). It returns the output samples that became final (final up to the last
+   block that starts before the tick of the latest message; `advance(tick)` says that no message will come
+   before `tick` and returns likewise); `finish()` returns `{ samples, info }` with the rest, cut or padded with
+   zeros to `length`. The first block after each start asks the channel for 513 and plays the last 512. `info`
+   is rev 2's: `{ timeline: 'game', fps, bufferMs, waitTicks, latency, packets, opens, appended, gainResets,
    droppedSamples, drops: [{ time, ms }], spurts: [{ start, end, opened, offsetStartMs, offsetEndMs,
-   droppedMs }], played: Uint32Array }`: `start` and `end` are source seconds; an offset is how much later than
-   the source a sample came out (negative: early), `offsetStartMs` taken at the first played sample that lies at
-   least 0.2 s into the spurt (its first played sample if the spurt is shorter) and `offsetEndMs` at its last
-   played sample; `drops[].time` is the output time of the skip; `played[i]` is the number of the codec frame
-   heard at the centre of output frame `i` (20 ms slots), or `0xFFFFFFFF` for silence and padding.
-3. **`tests/voicequeue/synthetic-results.mjs`** prints a file in the shape `tests/retiming.mjs` reads
-   (`{ generated, results: [{ name, set, random: false, gateSpurts: [{ start, end }], timeline: { segments:
-   [{ spurt, start, end, delayMs }] } }] }`): one result, `synthetic_speech`, set `S`, of 12 spurts of 2 s
-   separated by silences of 300, 900, 160, 140, 1200, 360, 440, 200, 600, 120 and 300 ms, whose one segment per
-   spurt has `delayMs = 2000 + offsetStartMs` from `createTimeline` at 300 fps and seed 7 (`pcm` of zeros). It is
-   the builder's stand-in for the private accuracy results.
-4. **`tests/retiming.mjs --generative --engine [--fps 300]`** adds a third model beside the queue and the rule in
-   section 2 (free running): each take's gate-model spurts through `createTimeline` (zeros for sound), seeds 1 to
-   `--seeds` (200 by default for this model), scored like the others (a spurt's start is `offsetStartMs`, its end
-   `offsetEndMs`). Without `--engine` the output is byte for byte what it is now.
+   droppedMs }], source: Int32Array }`. A spurt here is a run of messages up to a silence record; `start` and
+   `end` are source seconds; an offset is how much later than the source a sample came out, with `latency`
+   taken out (negative: early), `offsetStartMs` at the first played sample at least 0.2 s into the spurt (its
+   first played sample if it is shorter) and `offsetEndMs` at its last; `source[i]` is the source position
+   heard at the centre of output slot `i` (20 ms slots), or -1 for silence and padding. The timeline does not
+   call the sender, a codec or a resampler: its caller does, so this order needs neither W3-11 nor W3-13.
+4. **`tests/voicequeue/synthetic-results.mjs`** prints a file in the shape `tests/retiming.mjs` reads, as in
+   rev 2: one result, `synthetic_speech`, set `S`, of 12 spurts of 2 s separated by silences of 300, 900, 160,
+   140, 1200, 360, 440, 200, 600, 120 and 300 ms, whose one segment per spurt has `delayMs = 2000 +
+   offsetStartMs` from the sender and `createTimeline` at 300 fps and seed 7 (the sound is 1000 in a spurt and 0
+   outside; a message's `pcm` is zeros, 882 a frame, `round(samples x 44100 / 24000)` for a record).
+5. **`tests/retiming.mjs --generative --engine [--fps 300]`** adds a third model beside the queue and the rule:
+   each take's gate-model spurts become a 24 kHz signal that is 1000 inside a spurt less its pre-roll and hold
+   (the loud part: `start + 0.12 s` to `end - 0.44 s`) and 0 elsewhere, put through the sender and the timeline,
+   seeds 1 to `--seeds` (200 by default for this model), scored like the others. Without `--engine` the output
+   is byte for byte what it is now.
 
 ### The builder runs
 
-- `node tests/voice-channel.verify.mjs`, each check failing when its line is broken (say how):
-  - **The reference schedule** above, packet for packet, from `createSender` at seed `0xC0FFEE` on frames
-    50..109 and 125..139 sent and all others not. Called frame by frame, a packet is never returned before its
-    last frame was given.
-  - **The statistics** above over seeds 1 to 2,000 (frames 50..199): each share within 0.02 of the figure given.
-    Every frame is sent once and in order; no packet's tick is before its last frame ends; no two packets share
-    a tick; two seeds differ and one seed repeats.
-  - **Timeline** (zeros with tags are enough): spurts of 2 s separated by 300, 500 and 1200 ms (frames 25..124,
-    140..239, 265..364, 425..524), seeds 1 to 50. At 300 fps: the first spurt's `offsetStartMs` is between 0 and
-    +70; the second is not `opened` and starts 195 to 275 ms early; the third and fourth are `opened` and each
-    lost 30 to 150 ms to overflow (`droppedMs`). At 67 fps every spurt is `opened`, each starts within 60 ms of
-    the source and nothing is dropped. (The prototype: +13 to +55, -259 to -210, 40 to 136; at 67 fps -32 to +52.)
-  - **Collecting does not matter:** two timelines given the same frames, one whose `pushFrame` results are kept
-    and joined with `finish()`'s, one whose `pushFrame` results are thrown away after checking their total
-    length: the first's samples equal (`===`) the second's `finish()` samples placed after the discarded length,
-    and the `info` objects are deep-equal.
-  - **The 400 ppm:** one 60 s spurt at 150 fps (the queue stays between 150 and 450 ms there: no fade, no
-    overflow): `offsetEndMs - offsetStartMs` is between -25 and -23 ms (one sample for each of 17.85 packets a
-    second: 405 ppm, the accuracy suite's "clock"). At 300 fps it is that or lower (the prototype: -44 to -24).
-  - **The first pull:** after a start, the first 512 output samples of a restarted spurt at 67 fps are the
-    queue's samples 1 to 512, not 0 to 511 (a ramp as sound, no gain).
+- `node tests/steam-sender.verify.mjs` (in `pnpm test`), each check failing when its line is broken (say how):
+  - **The clock:** seed `0xC0FFEE` starts with the 24 numbers of the reference; two seeds differ; one repeats.
+  - **The reference schedule**, message for message, with its two spurts' `start` and frame counts; and the
+    hand-clock schedule (`n[i] = 4 (i + 1)`), its first nine messages and last two as given. Pushing the signal
+    in pieces of 1, 479, 750 and 10,000 samples gives the same messages, and no message is returned before its
+    last sample was pushed.
+  - **The statistics** of the table (seeds 1 to 400): each share within 0.005 of the model's column. The
+    prototype is this algorithm in doubles, so they should be equal to the digits given.
+  - **The gate**, with the hand clock: a chunk of 1500 samples of 327 is not active and one of 328 is; a chunk
+    of zeros with one sample of 4915 is active and with 4914 is not; a 440 Hz sine with a peak of -36 dBFS opens
+    and one of -40 dBFS does not (finding 5's cases).
+  - **The pre-roll:** an onset in the first chunk of the signal gives a `start` of -2400; an onset one chunk
+    after a silence record gives a pre-roll of that chunk only; an onset in the ENDED state (the chunk after the
+    final one) gives no pre-roll and no silence record.
+  - **The hold**, with the hand clock: sound that stops at the end of chunk `c` ends on chunk `c + 7` (7 x 62.5
+    ms is over 0.4 s), with the last frame padded; with `n[i] = 3 (i + 1)` (every 46.875 ms) on chunk `c + 9`. A
+    burst of sound in chunk `c + 5` keeps the spurt going with no end marker.
+  - **Every sample once:** over seeds 1 to 50 on seeded noise bursts, the frames of a spurt are contiguous from
+    `start`, no source sample inside a spurt is in two frames, and `kept` never reaches 480.
+- `node tests/voice-channel.verify.mjs` gains the timeline's checks (messages from the sender on a signal of
+  1000 and 0, `pcm` of zeros as in spec 4; seeds 1 to 50):
+  - Spurts of 2 s of sound separated by 300, 500 and 1200 ms of silence. At 300 fps the first spurt's
+    `offsetStartMs` is between -20 and +90; the second is not `opened` and starts 150 to 300 ms early; the
+    third and fourth are `opened` and each lost 30 to 170 ms to overflow. At 67 fps every spurt but the second
+    is `opened`, each opened one starts within 80 ms of the source and nothing is dropped. **These ranges are
+    rev 2's, widened: the planner did not re-run the timeline's prototype with the new sender.** If the
+    sender's reference schedule passes and a range here fails, give the measured range in the report and go on;
+    the orchestrator sets the range.
+  - **Collecting does not matter**, **the 400 ppm** (one 60 s spurt at 150 fps: `offsetEndMs - offsetStartMs`
+    between -26 and -22 ms: one sample for each of 17.88 messages a second) and **the first pull**, as in rev 2.
 - `node tests/voicequeue/synthetic-results.mjs > <scratch>/synthetic.json`, then
   `node tests/retiming.mjs --accuracy <scratch>/synthetic.json --generative --engine --seeds 50` prints section 2
-  with an engine column in which `synthetic_speech`'s start error is lower than "none"'s; and without `--engine`
-  the same command's output is identical on this branch and on main (`diff`).
+  with an engine column in which `synthetic_speech`'s start error is lower than "none"'s; without `--engine`
+  the output is identical on this branch and on main (`diff`).
 - `pnpm test` passes; CI passes on the pushed branch.
 
 ### The orchestrator runs privately
 
-`node tests/retiming.mjs --accuracy <results.json> --generative --takes <takes folder> --engine`.
-Expected from the plan's prototype (100 seeds; a spurt's start taken the same way): the speech take 50% of
-transitions right and a start error near 96 ms ("none": 11% and 150 ms), the Set C baseline 72% and 95 ms (33%
-and 88 ms), the four Set B test-signal takes and sender A worse than leaving them (80 to 114 ms against 29 to 83).
-**If the speech take's start error is above 130 ms the orchestrator holds W3-02c** and asks the planner.
+- `node tests/retiming.mjs --accuracy <results.json> --generative --takes <takes folder> --engine`. Rev 2's
+  prototype gave the speech take 50% of transitions right and a start error near 96 ms ("none": 11% and 150
+  ms), the Set C baseline 72% and 95 ms. The new sender's figures are not known: **the orchestrator records them
+  on this first run.** Acceptable: the speech take at 45% or more and 110 ms or less (the receiver is unchanged
+  and the sender is now the read rule, so it should not be worse than the fitted one; the hold's 28 ms and the
+  input being the gate model's spurts, not the sound, are what could cost). Between 110 and 130 ms: go on, and
+  say so in PROGRESS. **Above 130 ms the orchestrator holds W3-02c** and asks the planner.
+- The sender against the demo, with a scratch script of the orchestrator's (the builder writes nothing for it):
+  Set D's 20 spurts decoded to 24 kHz, cut at the demo's own chunk lengths (a hand clock), through `createSender`:
+  expected, from W3-09, the end marker on the model's final chunk in 18 of 20 spurts and the openings' frame
+  counts in all 20.
+
+### Stop and ask
+
+- If the reference schedule cannot be met with the rule as written (give the first message that differs).
 
 ## W3-02c: the render and the stream run the channel, behind an option
 
