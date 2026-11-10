@@ -179,6 +179,7 @@ for (const [name, rate, opts, plan] of [
   ['steam, source at 24 kHz', 24000, {}, 'uneven'],
   ['celt_22, source at 22.05 kHz', 22050, { codec: 'celt_22' }, 'uneven'],
   ['speex, source at 11.025 kHz', 11025, { codec: 'speex' }, 'uneven'],
+  ['speex, source at 8 kHz', 8000, { codec: 'speex' }, 'uneven'],
   ['steam, volume 1, voice_maxgain 3', 48000, { volume: 1, maxGain: 3 }, 'uneven'],
   ['steam, volume 0.3 (a volume whose product rounds)', 48000, { volume: 0.3 }, 'uneven'],
   ['steam, auto-gain off, voice_scale 3', 48000, { agc: false, voiceScale: 3 }, 'uneven'],
@@ -244,6 +245,9 @@ add('demo voice as received, past full scale', 24000, () => {
 // codecInfo hash of the 100-sample case, whose output is unchanged. The case
 // 'speex, source at 8 kHz' became 'speex, source at 11.025 kHz', so that it
 // still needs no resampling into the codec. No other hash moved.
+// W3-12b's review fix round added 'speex, source at 8 kHz' back, as a new
+// case on the new profile: a Speex source below the codec's rate, resampled up
+// into it. No other hash moved.
 const GOLDEN = {
   "steam": ["5444343b90249dca5ce53c1141708c994240877b647fd06516258c142406dd35", "67cfe1bbede8e10591d27f9c6228b896dc4b20ddc143f5f12ad91ac1af1ae8bb"],
   "steam_48": ["abc36ae7f3f7794aea98c7abc3cc3cd68e631ea299dc6b08e1d4a05caba5ce91", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
@@ -275,6 +279,7 @@ const GOLDEN = {
   "steam, source at 24 kHz": ["ba0e01f7f871ac37280ca0ba8e0c18cda352cf63987b6fefc50c0ed7fe22edcd", "6d9367ebcae0078f3f61f537caca45043ba94971a9788b1ca659b5616e509111"],
   "celt_22, source at 22.05 kHz": ["b583cae25a70ec68e6e413cb57f61e1edb8a3a36c621ba7a6eb547a291c3de31", "9b67647157556b164aa32ad69d116915e881ce1d41cd76a6c832559d126710a2"],
   "speex, source at 11.025 kHz": ["a02f755aaed2b8fe3086e77a269f932891eb629ebfada02543f317e9fd93236e", "41787e0c606f0f7a809b62b8f250db41a1f2069af26ad28e90af0eb815707665"],
+  "speex, source at 8 kHz": ["0700da70cd9fe0f1318b4a89df78b6050c6c9befc9d12a2744c31908a45d71d3", "41787e0c606f0f7a809b62b8f250db41a1f2069af26ad28e90af0eb815707665"],
   "steam, volume 1, voice_maxgain 3": ["504e0ae610a190f2d696493a34822c42bde1d92e4428b2b449e176ba3df864d5", "f30befe79e342d9e341aaf0aa7b57be72fd5d8b1bcacb98c645b2d7f7c8f90fd"],
   "steam, volume 0.3 (a volume whose product rounds)": ["6470e3d7e4fc44d9744d0b1fc63dea02b26d4b865f276f9cf3074457a388abbf", "f30befe79e342d9e341aaf0aa7b57be72fd5d8b1bcacb98c645b2d7f7c8f90fd"],
   "steam, auto-gain off, voice_scale 3": ["81dc0d3e91c5736afece6846a0cbc0536c5cedeca6ef5e95a12a39829eef2dc0", "7b3a3ef57fe145669138f8c115b35bc2f0eb747e0cdd9fa40d8c88137890a7e4"],
