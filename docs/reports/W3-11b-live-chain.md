@@ -195,7 +195,7 @@ runner of [10b] alone whose parts can be chosen). Every listed mutation was caug
 | 18 | `lost` counting the mask's lost frames | the loss case: `stats.lost` is not the render's `lostFrames` over the span |
 | 19 | the key up skipping blocks | push-to-talk |
 | 20 | the key up zeroing after the capture's filters | push-to-talk |
-| 21 | the page sends -40 as a number at the default | browser: "renderOptions() carries no gateThresholdDb at it" (asserted, not mutated: see below) |
+| 21 | the page sends -40 as a number at the default | browser: "a fresh page shows the steam gate's own threshold, -40, and sends none" (run on a mutated copy of the tree); the later threshold checks assert the same at each profile and the batch key |
 | 22 | the open-ended frame log in a render too | the golden hashes (`codecInfo`), and the pointed check added for it: a render's log keeps `ceil((n + lookahead) / 480)` slots |
 
 | # | Mutation (the builder's own, for rules no listed one covers) | Caught by |
@@ -207,10 +207,8 @@ runner of [10b] alone whose parts can be chosen). Every listed mutation was caug
 | B5 | `steam_48`'s live path changed after its gain | `steam_48`'s hash |
 
 Mutation 22 alone would have been caught only by the golden hashes; the pointed check was added. Mutation 21 is in
-`app/render.js`; its check is in the browser suite, which serves the worktree as it stands, so it was not run on a
-mutated copy (a second browser run of a copied tree under the heavy lock was not spent on one line); the check asserts
-`renderOptions().gateThresholdDb === undefined` at the default for `steam` and for `celt_22`, and that the render's key
-is unchanged after the control is touched and put back. B3's first form (counting a frame early) passed until the
+`app/render.js`; it was run against the browser suite on a copy of the tree, which stopped at its first check of the
+threshold. B3's first form (counting a frame early) passed until the
 check that the count of final slots is the order's rule was added. The frame log's own "floor" (marking only slots at
 or after `given`) had no effect anyone could see, since a slot before `given` is already final and taken; it was
 removed rather than left untested.
@@ -272,7 +270,6 @@ removed rather than left untested.
 
 ## Not done, and why
 
-- The browser check of mutation 21 was not run on a mutated tree (above).
 - README's codec line still says "complexity 10"; it has been 9 since W3-11a. It is not among the lines this order
   lists, so it was left; the orchestrator may fix it with any doc edit.
 - The worklet is unchanged, as the order says: in a loss run that makes the chain wait for the cursor, its queue
