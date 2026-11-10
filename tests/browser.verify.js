@@ -120,8 +120,8 @@ function checkRenderedTone(wav, source, label) {
     `${label}: populated PCM WAV`, `${wav.size} bytes`);
   check(wav.format === 1 && wav.channels === 1 && wav.bits === 16 && wav.dataBytes === wav.frames * 2,
     `${label}: mono 16-bit PCM header agrees with payload`);
-  // decodeAudioData resamples to AudioContext.sampleRate. The browser's
-  // default can be 44.1 kHz on CI and 48 kHz locally, regardless of file rate.
+  // The source is decoded at the file's own rate (filerate.js), whatever the
+  // device's rate (44.1 kHz on CI, 48 kHz locally); the render keeps it.
   check(wav.rate === source.rate, `${label}: WAV preserves decoded playback rate`, `${wav.rate} Hz`);
   check(wav.frames === source.length && wav.size === 44 + source.length * 2,
     `${label}: conversion preserves every decoded input frame`, `${wav.frames} frames`);
@@ -134,19 +134,27 @@ function checkRenderedTone(wav, source, label) {
     `${label}: resampling preserves tone pitch`, `${wav.toneHz?.toFixed(2)} Hz`);
 }
 
+// A page whose audio device runs at `deviceRate`: every AudioContext it
+// makes is made at that rate, as on a machine whose device runs there.
+async function deviceRateContext(browser, deviceRate, options = {}) {
+  const context = await browser.newContext({ serviceWorkers: 'block', ...options });
+  await context.addInitScript((sampleRate) => {
+    const NativeAudioContext = window.AudioContext;
+    window.AudioContext = class extends NativeAudioContext {
+      constructor(options = {}) { super({ ...options, sampleRate }); }
+    };
+  }, deviceRate);
+  return context;
+}
+const deviceRateOf = (page) => page.evaluate(async () => { const c = new AudioContext(), r = c.sampleRate; await c.close(); return r; });
+
 async function verifySampleRateMatrix(browser, base) {
-  console.log('\n[Browser 5] Explicit file-rate / decode-rate matrix');
+  console.log('\n[Browser 5] Explicit file-rate / device-rate matrix');
   for (const decodeRate of [44100, 48000]) {
-    const context = await browser.newContext({ serviceWorkers: 'block' });
+    // A real AudioContext at the requested rate, not mocked decoded PCM.
+    // Keep production defaults unchanged; exercise both CI and local paths.
+    const context = await deviceRateContext(browser, decodeRate);
     try {
-      // A real AudioContext at the requested rate, not mocked decoded PCM.
-      // Keep production defaults unchanged; exercise both CI and local paths.
-      await context.addInitScript((sampleRate) => {
-        const NativeAudioContext = window.AudioContext;
-        window.AudioContext = class extends NativeAudioContext {
-          constructor(options = {}) { super({ ...options, sampleRate }); }
-        };
-      }, decodeRate);
       const page = await context.newPage();
       page.setDefaultTimeout(15000);
       const errors = [];
@@ -156,10 +164,9 @@ async function verifySampleRateMatrix(browser, base) {
         const label = `${fileRate} Hz file -> ${decodeRate} Hz browser`;
         await page.locator('#file').setInputFiles({ name: `tone-${fileRate}.wav`, mimeType: 'audio/wav', buffer: wavTone(.5, fileRate) });
         await page.waitForFunction(() => !document.getElementById('process').disabled);
-        const source = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate,
-          length: state.decodedSource.length, contextRate: state.decodeCtx.sampleRate }));
-        check(source.contextRate === decodeRate && source.rate === decodeRate,
-          `${label}: requested browser decode rate is actually active`);
+        const source = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, length: state.decodedSource.length }));
+        check(await deviceRateOf(page) === decodeRate && source.rate === fileRate,
+          `${label}: the device runs at ${decodeRate} Hz and the file is decoded at its own rate`, `${source.rate} Hz`);
         await page.locator('#process').click();
         await page.waitForFunction(() => !document.getElementById('download').disabled, null, { timeout: 60000 });
         checkRenderedTone(await readRenderedWav(page), source, label);
@@ -167,9 +174,153 @@ async function verifySampleRateMatrix(browser, base) {
         check(log.includes('libopus 1.1.5, 32 kbps VBR + DTX') && !log.includes('compatibility path'),
           `${label}: real Opus conversion completes in the worker`);
       }
+      if (decodeRate === 44100) {
+        // Opus decodes at 48 kHz, whatever rate its header says it was made
+        // from. A WebM's rate is not read: it is decoded at the device rate,
+        // as before, and the console says so.
+        await page.locator('#file').setInputFiles(path.join(__dirname, 'filerate', 'tone_16000.opus'));
+        await page.waitForFunction(() => state.sourceName === 'tone_16000.opus' && !els.process.disabled);
+        const opus = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, length: state.decodedSource.length }));
+        check(opus.rate === 48000 && opus.length === 24000, 'an Ogg Opus file made from 16 kHz decodes at 48 kHz on a 44.1 kHz device', `${opus.rate} Hz, ${opus.length} samples`);
+        await page.locator('#file').setInputFiles(path.join(__dirname, 'filerate', 'tone_16000.webm'));
+        await page.waitForFunction(() => state.sourceName === 'tone_16000.webm' && !els.process.disabled);
+        const webm = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, log: document.getElementById('console-out').textContent }));
+        check(webm.rate === 44100 && webm.log.includes('"tone_16000.webm" was decoded at the audio device\'s rate, 44,100 Hz, because its sample rate could not be read from its header'),
+          'a WebM, whose rate is not read, still loads, at the device rate, and the console says why', `${webm.rate} Hz`);
+      }
       check(errors.length === 0, `${decodeRate} Hz browser: no page errors`, errors.join('; '));
     } finally { await context.close(); }
   }
+}
+
+// The 16-bit samples of a WAV that wavTone or encodeWav wrote.
+const wavSamples = (buffer) => Array.from({ length: (buffer.length - 44) / 2 }, (_, i) => buffer.readInt16LE(44 + 2 * i));
+
+// A file is decoded at its own rate, not the audio device's (filerate.js):
+// the device runs at 48 kHz here, and no file below is at 48 kHz.
+async function verifyNativeRate(browser, base) {
+  console.log('\n[Browser 7] A file decoded at its own rate, on a 48 kHz device');
+  const context = await deviceRateContext(browser, 48000);
+  try {
+    // Chromium's decoder maps a 16-bit sample k to k / 32768 below zero and
+    // k / 32767 above (measured: within 0.00025 of k after scaling back), so
+    // "the file's own samples" is: every decoded sample scales back to the
+    // file's k to within a thousandth of a step. A resampled one would not.
+    await context.addInitScript(() => {
+      window.sameSamples = (got, pcm) => got.length === pcm.length
+        && pcm.every((k, i) => Math.abs(got[i] * (got[i] > 0 ? 32767 : 32768) - k) < 1e-3);
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(30000);
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(base, { waitUntil: 'domcontentloaded' });
+    check(await deviceRateOf(page) === 48000, 'the page\'s audio device runs at 48 kHz');
+    const load = async (file) => {
+      await page.locator('#file').setInputFiles(file);
+      const name = typeof file === 'string' ? path.basename(file) : file.name;
+      await page.waitForFunction((n) => state.sourceName === n && !els.process.disabled, name);
+    };
+    // Whether the source's samples are exactly these 16-bit samples.
+    const sameAs = (expected) => page.evaluate((pcm) => {
+      const got = state.decodedSource.getChannelData(0);
+      return { same: sameSamples(got, pcm), rate: state.decodedSource.sampleRate, length: got.length, status: els.status.textContent };
+    }, expected);
+
+    // 16-bit WAV and FLAC: the decoded samples are the file's samples.
+    for (const rate of [44100, 22050]) {
+      const wav = wavTone(.5, rate), pcm = wavSamples(wav);
+      await load({ name: `own-${rate}.wav`, mimeType: 'audio/wav', buffer: wav });
+      const got = await sameAs(pcm);
+      check(got.same && got.rate === rate && got.status.includes(`${rate.toLocaleString('en-US')} Hz`),
+        `a 16-bit WAV at ${rate} Hz decodes to exactly its own samples, and the status shows its rate`, got.status);
+      const flac = await page.evaluate(({ pcm, rate }) => [...TF2Flac.encode(Int16Array.from(pcm), rate)], { pcm, rate });
+      await load({ name: `own-${rate}.flac`, mimeType: 'audio/flac', buffer: Buffer.from(flac) });
+      const fromFlac = await sameAs(pcm);
+      check(fromFlac.same && fromFlac.rate === rate, `a FLAC at ${rate} Hz decodes to exactly its own samples`, `${fromFlac.length} samples`);
+    }
+
+    // Lossy files: their own rate, and their length (half a second of tone).
+    // MP3 with a LAME tag and AAC in MP4 come out exact; Vorbis loses part
+    // of a block and ADTS keeps the encoder's priming and padding.
+    const lossy = [['tone_44100.mp3', 44100, 1], ['tone_22050.mp3', 22050, 1], ['tone_11025.mp3', 11025, 1],
+      ['tone_44100.m4a', 44100, 1], ['tone_22050.m4a', 22050, 1], ['tone_22050.ogg', 22050, 2048],
+      // ADTS cannot say whether the stream carries SBR: twice the 22.05 kHz core.
+      ['tone_22050.aac', 44100, 2 * 2048]];
+    for (const [name, rate, within] of lossy) {
+      await load(path.join(__dirname, 'filerate', name));
+      const got = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, length: state.decodedSource.length }));
+      check(got.rate === rate && Math.abs(got.length - rate / 2) <= within, `${name} decodes at ${rate} Hz to its length`, `${got.rate} Hz, ${got.length} samples`);
+    }
+
+    // The fallbacks: a file always loads.
+    // Chromium's OfflineAudioContext and its decoder both take 3 to 768 kHz,
+    // so a rate the context refuses but the decoder takes needs another
+    // browser: here a context that takes only the standard's 8 to 96 kHz.
+    await page.evaluate(() => {
+      const Offline = window.__offline = window.OfflineAudioContext;
+      window.OfflineAudioContext = class extends Offline {
+        constructor(channels, length, rate) {
+          if (rate < 8000 || rate > 96000) throw new DOMException(`${rate} Hz is not supported`, 'NotSupportedError');
+          super(channels, length, rate);
+        }
+      };
+    });
+    await load({ name: 'low-4000.wav', mimeType: 'audio/wav', buffer: wavTone(.5, 4000, 220) });
+    await page.evaluate(() => { window.OfflineAudioContext = window.__offline; });
+    const low = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, log: document.getElementById('console-out').textContent }));
+    check(low.rate === 48000 && low.log.includes('"low-4000.wav" was decoded at the audio device\'s rate, 48,000 Hz, because 4,000 Hz is a rate this browser cannot decode at'),
+      'a rate the OfflineAudioContext refuses loads at the device rate and the console says why', `${low.rate} Hz`);
+    await page.evaluate(() => {
+      window.__decodeAtRate = OfflineAudioContext.prototype.decodeAudioData;
+      OfflineAudioContext.prototype.decodeAudioData = () => Promise.reject(new DOMException('refused by the test', 'EncodingError'));
+    });
+    const refusedWav = wavTone(.5, 22050);
+    await load({ name: 'refused-22050.wav', mimeType: 'audio/wav', buffer: refusedWav });
+    const refused = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, length: state.decodedSource.length, log: document.getElementById('console-out').textContent }));
+    await page.evaluate(() => { OfflineAudioContext.prototype.decodeAudioData = window.__decodeAtRate; });
+    check(refused.rate === 48000 && Math.abs(refused.length - 24000) <= 1 && refused.log.includes('"refused-22050.wav" was decoded at the audio device\'s rate, 48,000 Hz, because the decode at 22,050 Hz failed'),
+      'when the decode at the file\'s rate fails, the file loads at the device rate from its bytes read again', `${refused.rate} Hz, ${refused.length} samples`);
+
+    // Every source rate the page can now meet renders through the default preset.
+    await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
+    const rendered = [];
+    for (const rate of [8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000]) {
+      await load({ name: `render-${rate}.wav`, mimeType: 'audio/wav', buffer: wavTone(.5, rate) });
+      await page.locator('#process').click();
+      await page.waitForFunction(() => !els.dl.disabled && state.processedBuffer, null, { timeout: 60000 });
+      const wav = await readRenderedWav(page), length = await page.evaluate(() => state.decodedSource.length);
+      const outRate = Math.max(44100, rate);
+      rendered.push(`${rate}: ${wav.rate} Hz ${wav.frames} rms ${wav.rms.toFixed(3)} ${wav.toneHz?.toFixed(1)} Hz`);
+      check(length === Math.round(rate / 2) && wav.rate === outRate && wav.frames === Math.round(length * outRate / rate) && wav.rms > .01 && Math.abs(wav.toneHz - 440) < 2,
+        `a ${rate} Hz source renders at ${outRate} Hz, its whole length, and is not silent`, rendered.at(-1));
+    }
+
+    // A take loaded for comparison is decoded at its own rate too.
+    await load({ name: 'speech-48000.wav', mimeType: 'audio/wav', buffer: wavSpeech(6) });
+    await page.locator('#process').click();
+    await page.waitForFunction(() => !els.dl.disabled && state.processedBuffer, null, { timeout: 60000 });
+    const take = Buffer.from(await page.evaluate(async () => {
+      const sim = state.processedBuffer, rate = state.processedRate;
+      const shifted = TF2Reference.warp(sim, rate, { offsetSeconds: .25, scale: 1 }, rate, sim.length + rate);
+      return [...new Uint8Array(await TF2Audio.encodeWav(TF2Audio.resampleSinc(shifted.map(v => v * .5), rate, 22050), 22050).arrayBuffer())];
+    }));
+    await page.locator('#reference summary').click();
+    await page.locator('#reference-file').setInputFiles({ name: 'take-22050.wav', mimeType: 'audio/wav', buffer: take });
+    await page.waitForFunction(() => state.realTake && document.querySelector('#reference-report table'), null, { timeout: 60000 });
+    const real = await page.evaluate((pcm) => {
+      return { same: sameSamples(referenceDecoded.decoded.getChannelData(0), pcm), rate: referenceDecoded.decoded.sampleRate, aligned: state.realTake.rate };
+    }, wavSamples(take));
+    check(real.same && real.rate === 22050 && real.aligned === 22050, 'a 22.05 kHz take decodes to exactly its own samples and is lined up at its rate', `${real.rate} Hz`);
+
+    // And a batch file.
+    await page.locator('#batch-files').setInputFiles({ name: 'batch-22050.wav', mimeType: 'audio/wav', buffer: wavTone(.5, 22050) });
+    await page.locator('#batch-run').click();
+    await page.waitForFunction(() => /1 rendered/.test(document.getElementById('batch-summary').textContent), null, { timeout: 120000 });
+    const item = await page.evaluate(() => TF2Batch.items().map(i => ({ rate: i.sourceRate, error: i.error })));
+    check(item.length === 1 && item[0].rate === 22050 && !item[0].error, 'a batch file is decoded at its own rate', JSON.stringify(item));
+    check(errors.length === 0, 'files decoded at their own rate: no page errors', errors.join('; '));
+  } finally { await context.close(); }
 }
 
 // Visualizer zoom, scales, meter and loudness-matched A/B, on the last render.
@@ -1073,11 +1224,11 @@ async function main() {
       `worker ${fresh.worker}, worklet ${fresh.worklet}`);
     check(await page.evaluate(async (name) => {
       const cache = await caches.open(name);
-      const needed = ['batch.js', 'formats.js', 'flac.js', 'zip.js', 'meter.js', 'reference.js', 'video.js', 'demo.js', 'live.js', 'live-worker.js', 'live-worklet.js',
+      const needed = ['batch.js', 'formats.js', 'flac.js', 'zip.js', 'meter.js', 'reference.js', 'video.js', 'filerate.js', 'demo.js', 'live.js', 'live-worker.js', 'live-worklet.js',
         'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs', 'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs',
         'vendor/speex/index.mjs', 'vendor/speex/speex-1.2.1.wasm.mjs'];
       return (await Promise.all(needed.map(path => cache.match(new URL(path, location.href).href)))).every(Boolean);
-    }, SHELL_CACHE), 'batch, format, meter, reference, video, demo, live-monitor, CELT, Speex and MP3 encoder files are cached for offline use');
+    }, SHELL_CACHE), 'batch, format, meter, reference, video, file-rate, demo, live-monitor, CELT, Speex and MP3 encoder files are cached for offline use');
     // Restore the normal registration while still online. Otherwise reloading
     // registers sw.js again and races another replacement against file loading.
     await activateServiceWorker(page, 'sw.js');
@@ -1102,6 +1253,7 @@ async function main() {
 
     await verifyBatchAndFormats(browser, base);
     await verifySampleRateMatrix(browser, base);
+    await verifyNativeRate(browser, base);
 
     console.log(`\n${passed} browser checks passed`);
   } finally {
