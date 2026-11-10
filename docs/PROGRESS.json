@@ -29,6 +29,12 @@
       "branch": "claude/w3-03-engine-binary",
       "stage": "investigating (the stronger model; no app code)",
       "report": "docs/reports/W3-03-engine-binary.md"
+    },
+    {
+      "order": "W3-04-native-rate-decode",
+      "branch": "claude/w3-04-native-rate-decode",
+      "stage": "building",
+      "report": "docs/reports/W3-04-native-rate-decode.md"
     }
   ],
   "next": [
@@ -52,7 +58,6 @@
     "Steam's own decoder as a reference: the public Steamworks call DecompressVoice on a demo's packets would settle the exact libopus build and the comfort noise bit for bit, if the demo payload is the format it takes. Untested.",
     "Old public SourceTV demos as packet evidence for the Speex and CELT years, read with demo.js, if they kept their voice.",
     "Page scripts as ES modules instead of classic scripts sharing globals (no build step is needed for either). Migrate gradually.",
-    "Decode sources at the file's own sample rate instead of the audio device's, so the same file renders the same on every machine.",
     "The Node suites load audio.js and constants.js in a vm context, which makes Math-heavy code about 12 times slower than the page runs it (found by W2-01's builder). Loading them another way could cut pnpm test's minute, if the results stay bit for bit the same.",
     "tests/accuracy.mjs could report its level figure without the half-second blocks that hold a talk spurt's end or a moved spurt, next to the figure it gives now: on speech that is 0.18 dB against 0.96, and the second number reads as a model error it is not."
   ],
@@ -119,11 +124,6 @@
     },
     {
       "date": "2026-11-09",
-      "what": "Long sources are still decoded by the browser's decodeAudioData, at the audio device's rate.",
-      "why": "Decoding another way gives different samples from the same file. It stays an idea (ideas_not_started) until the owner wants it."
-    },
-    {
-      "date": "2026-11-09",
       "what": "Work is split by model (docs/PIPELINE.md, 'Which model does what'): builders and reviewers on the builders' model, where a written check says whether the work is right; plans, the skeptic, the reading of evidence and the last read of each diff on the stronger model the orchestrating session runs on. The orchestrator works at high effort.",
       "why": "The owner asked that the stronger model be used to the full. Its vendor's published comparison puts the two models a few points apart on agentic coding and far apart on long unattended work, scientific computing and research, at twice the price per token. W1-03's plan was written on the builders' model and reviewed on the stronger one; from now on it is the other way round."
     },
@@ -136,6 +136,11 @@
       "date": "2026-11-10",
       "what": "The owner's standard is an exact recreation by any means. The orchestrator will not use leaked engine source; the owner supplied their own install's engine and codec files and the game's 'find voice' output, and reading those is allowed (CLAUDE.md, hard rules).",
       "why": "The receiver's queue and the legacy codecs' settings are in those files, and the public SDK has neither."
+    },
+    {
+      "date": "2026-11-10",
+      "what": "The owner left the choice of further improvements to the orchestrator. In order: (1) a sample-exact check of the codec stage with the game's own debug commands, once W3-03 says what they read and write; (2) phrase timing (W3-01, W3-03), and re-timing on by default for the modern preset if the engine's rule is found; (3) sources decoded at the file's own rate (W3-04, started); (4) the unverified parts (rooms, vaudio_celt_high, the Speex settings) verified from the game files or moved under a label; (5) the second PC's peaks 2.5 dB above the model's clamp (Listener B) explained; (6) a look at the page for a simpler first screen.",
+      "why": "Exactness on the modern preset is the owner's standard; each item either proves it more strictly or removes a place where the page claims more than is shown."
     }
   ]
 }
