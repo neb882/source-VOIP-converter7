@@ -13,6 +13,22 @@ Six sets of recordings were made on private servers, playing files into TF2's mi
 
 Set B identified the receiver law, and Set A and the speech take validate it. Set C measured what loss and jitter do to the voice. Set D separates the sender from the receiver: its packets show exactly what Steam's encoder sent, and the recordings show what the game made of them.
 
+On 2026-11-10 three more sets were made with the game's own debug output and no recorder, and the game's and Steam's own files were read (see "What was read"):
+
+- **Set G**: console logs of the receiver's queue on a local game with `voice_loopback 1`, at the default cap of 300 frames a second and at `fps_max` 67 and 100.
+- **Set H**: `vaudio_celt` and `vaudio_celt_high` with a file as the microphone, the game writing its own decoded voice to a file.
+- **Set I**: the same with `sv_voicecodec vaudio_speex`.
+
+Set G confirms the receiver's queue as read from the engine. Set H checks the receiver's gain and the two CELT codecs sample for sample. Findings 22 to 31 and the corrections that cite them date from then.
+
+How a statement is known is said where it is made:
+- **read**: from a binary, with the report that read it;
+- **measured**: from takes or logs, with the numbers;
+- **reproduced**: a check that was run, with its count;
+- **inferred**: a conclusion, with what it rests on.
+
+A statement in findings 1 to 21 with no label is measured from the sets it names.
+
 ## Provenance
 
 ### Set A: music loopback
@@ -66,7 +82,7 @@ Each take was aligned to the test signal from its level envelope, then from 10�
 | take3_voice_maxgain_1 | −90 ppm | 4.7 ms SD |
 | take3_voice_avggain_0.25 | −208 ppm | 4.4 ms SD |
 
-The speech take needed a separate alignment for each talk spurt. The delay changes between spurts, between 1.94 s and 2.29 s, which is consistent with the receiver's jitter buffer restarting at each spurt.
+The speech take needed a separate alignment for each talk spurt. The delay changes between spurts, between 1.94 s and 2.29 s: the receiver's queue restarts at some spurts and is appended to at others (findings 21 and 22).
 
 ### Set C: packet loss and jitter
 
@@ -106,7 +122,7 @@ The demo holds 1 816 voice messages from one speaker:
 
 The decoded packets were aligned to the test signal spurt by spurt by cross-correlation. Each recording was aligned to the packets in 100 ms windows every 50 ms, following the delay.
 
-Output levels imply `volume` 0.147 on PC A (the owner's `volume 0.15`) and about 0.077 on PC B. Game ambience sits near −35 dBFS in A and −40 dBFS in B, so quieter voice output cannot be checked against the recordings.
+Output levels imply `volume` 0.147 on PC A (the owner's `volume 0.15`). On PC B the levels alone fitted about 0.077; its ceiling shows `volume 0.11`, with `voice_scale 0.77` making up the rest (inferred from the recording, finding 15). Game ambience sits near −35 dBFS in A and −40 dBFS in B, so quieter voice output cannot be checked against the recordings.
 
 ### Set E: a DTX artifact in music
 
@@ -131,16 +147,59 @@ The owner played `tf2_voice_lowtone_v1.wav` ([`tests/testsignal/`](testsignal/))
 
 Each take was aligned to the model's render of the signal by 10 ms envelopes, then tone by tone within ±0.5 s. The receiver re-times talk spurts (finding 15). Levels are the mean over each tone without its first and last 0.75 s.
 
+### Set G: the receiver's queue in the console
+
+The owner ran a local game with the Steam codec, `voice_loopback 1`, `voice_showincoming 1` and `voice_showchannels 1`, and logged the console. The game then prints one line for every voice packet, with its decoded sample count, and one line per 15 ms tick with the channel's queued bytes (finding 27). The logs stay private; only counts are quoted.
+
+| Section | Frames a second | Ticks | Channels opened |
+| --- | ---: | ---: | --- |
+| first run: about 40 s of speech, 1,520 packets | 300 | 6,267 | 20, and one grace |
+| second run | 300 | 934 | 2 |
+| `fps_max 67` | 66 | 511 | 2 |
+| `fps_max 100` | 99 | 598 | 4 |
+| `fps_max 300` | 299 | 581 | 3 |
+| one more section at the default | 300 | 917 | 3 |
+
+In all: 2,375 packets and 9,808 ticks. The first run's frame rate was not noted when it was made; the owner's `fps_max` is 300.
+
+### Set H: the CELT codecs with a file as the microphone
+
+The owner set `sv_voicecodec vaudio_celt`, then `vaudio_celt_high`. The game took a file as its microphone (`voice_inputfromfile 1`: 16-bit mono at 22050 Hz) and recorded its own decoded voice (`voice_recordtofile 1`), with `voice_maxgain 1` and again with 10 (finding 27). No recorder and no cable is in the chain.
+
+| Recording | Decoded voice, 16-bit at 22050 Hz |
+| --- | --- |
+| `vaudio_celt`, `voice_maxgain 1` | 292,352 samples: 571 packets of 512 |
+| `vaudio_celt`, `voice_maxgain 10` | the same input; compared over its first 291,840 samples (570 packets) |
+| `vaudio_celt_high`, `voice_maxgain 1` | 292,864 samples: 286 packets of 1024 |
+
+The last packet differs between two key presses on the same input.
+
+### Set I: a current game asked for Speex
+
+The same method with `sv_voicecodec vaudio_speex` gave a recording of 145,920 samples in 512-sample packets at 22050 Hz. The game had run `vaudio_celt` (finding 31).
+
+### What was read
+
+The reports in `docs/reports/` say what was read from which file and where. Nothing of the files is in this repository. They were read as data with a disassembler and never run, and no leaked source was used. Public sources were set beside them: libopus, CELT, Speex and FFmpeg's libswresample.
+
+| What | Read from | Report |
+| --- | --- | --- |
+| the receiver's queue and gain, the engine's side of sending, the debug variables, the codec table | the game's engine module and its `vaudio_celt` module, from the owner's install | W3-03 |
+| the mixer and the output | the same engine module | W3-07 |
+| the CELT build | the `vaudio_celt` module, a second one from another Source game, and the public CELT source | W3-08 |
+| Steam's sender and decoder | the owner's Steam client library and Valve's public copy of it; Valve's public resampler library; the public Linux client | W3-09 |
+| Speex | a `vaudio_speex` module from another Source game, supplied by the owner | W3-09 |
+
 ## Findings
 
 ### 1. The output ceiling is int16 full scale times `volume`
 
-With the default settings, loud input comes out hard-clipped at a 99.9th-percentile ceiling of exactly 0.15 × 32767/32768 (−16.48 dBFS). That is int16 full scale times the owner's `volume 0.15`. The music recording's −16.4 dBFS ceiling is the same `volume`, not headroom in the voice path.
+With the default settings, loud input comes out hard-clipped at a 99.9th-percentile ceiling of exactly 0.15 × 32767/32768 (−16.48 dBFS). That is int16 full scale times the owner's `volume 0.15`. The music recording's −16.4 dBFS ceiling is the same `volume`, not headroom in the voice path. Finding 30 gives the order of the stages as read: the clip is on the sum of the voice and the game's other sound, and `volume` comes after it.
 
 ### 2. Sender and codec are linear; the codec is 24 kHz Opus in SILK/CELT hybrid mode
 
 With `voice_maxgain 1` the receiver never boosts, so that take shows the sender and codec on their own:
-- **Levels:** sines come out at +0.5 dB against the file from −24 to −1 dBFS. The sender has no gain control or noise suppression; 10 s of steady pink noise does not decay.
+- **Levels:** sines come out at +0.5 dB against the file from −24 to −1 dBFS. The sender has no gain control or noise suppression; 10 s of steady pink noise does not decay. Read since in Steam's client: nothing processes the samples between the capture and the gate (finding 28).
 - **Spectrum:** libopus 1.6.1 at 24 kHz, VOIP, `signal=voice` reproduces the take's hybrid structure. Finding 14 measures the remaining difference, up to ±1 dB, directly against Steam's packets.
 - **Profile EQ:** refitted to this take at the time. Finding 14 replaces it with a fit to Steam's own packets.
 - **Pure tones:** 8, 8.5, 11 and 11.5 kHz tones come out 10–18 dB lower than libopus 1.6.1 made them. Steam's packets show why: its encoder sent them as DTX comfort noise (finding 13).
@@ -148,11 +207,12 @@ With `voice_maxgain 1` the receiver never boosts, so that take shows the sender 
 Set A shows the same codec:
 - Coherence has a hole at 8 kHz, the hybrid SILK/CELT crossover, which libopus reproduces only with the `voice` hint.
 - The band ends at about 11.5–12 kHz.
-- Noise-like energy at 12–19.5 kHz is not transmitted content. It is incoherent with the source, is not a resampling image, not MP3 encoding, and not a 48 kHz stream. It is reproduced by clipping the decoded voice at 44.1 kHz (`SOUND_DMA_SPEED 44100` in `public/soundsystem/snd_device.h`). `DecompressVoice` in `public/steam/isteamuser.h` returns 16-bit PCM at any requested rate from 11025 to 48000.
+- Noise-like energy at 12–19.5 kHz is not transmitted content. When this was measured it was found incoherent with the source, and judged not to be a resampling image, MP3 encoding or a 48 kHz stream. It is reproduced by clipping the decoded voice at 44.1 kHz (`SOUND_DMA_SPEED 44100` in `public/soundsystem/snd_device.h`). `DecompressVoice` in `public/steam/isteamuser.h` returns 16-bit PCM at any requested rate from 11025 to 48000; the engine asks for 44100 (read, W3-03).
+- **To be looked at again.** Two stages found since put sound above 12 kHz, and neither was in the model when this was measured. The decoder's resampler mirrors 11–12 kHz into 12–13 kHz, coherent with the source (finding 29). The output device's interpolation leaves images of the top of the band at 12–16 kHz (finding 30). The decoder's 16-bit step may also soften peaks before any clip (finding 29). How much of the 12–19.5 kHz energy each explains is not measured yet.
 
 ### 3. The receiver auto-gain blends the block mean and peak
 
-The engine's voice-channel auto-gain (`voice.cpp`, not in the public Source SDK 2013) works on the int16 voice at 44.1 kHz in 128-sample blocks. The fixed-point details are in finding 4. Every block sets the target gain for the next one:
+The engine's voice-channel auto-gain (`voice.cpp`, not in the public Source SDK 2013) works on the int16 voice at 44.1 kHz in 128-sample blocks. The fixed-point details are in finding 4, and finding 26 gives the rule as it was later read from the engine. Every block sets the target gain for the next one:
 
 ```
 T = min(voice_maxgain, 32767 / (mean|x| + voice_avggain * (peak|x| - mean|x|)))
@@ -174,16 +234,18 @@ The gain starts each block at s²·T. It then climbs toward s·T in whole 1/128 
 - **The extra 3 dB drop on −6 and −1 dBFS sines:** their step truncates to zero, so the gain stays at s²·T.
 - **Every level:** within 0.3 dB, including pink −13.5 / −13.5 and vowel −9.9 / −9.8 dB.
 
-At the default s = 1 the same update ramps from the previous target, and any remainder below one step lands at the block edge. That is where the 344.5 Hz (44100/128) lines in Set A come from. All-zero blocks, when no voice data arrives, leave the gain untouched. With that rule the modeled onsets after gaps match the recording in 1.3 ms steps: 0.08 / 0.10 / 0.13 / 0.64 / 1.0 of full scale against 0.07 / 0.08 / 0.17 / 0.53 / 0.98.
+At the default s = 1 the same update ramps from the previous target, and any remainder below one step lands at the block edge. That is where the 344.5 Hz (44100/128) lines in Set A come from. The step is the difference divided by 127, the block size less one (read, finding 26).
+
+When no voice data arrives nothing runs, so the gain is untouched. A decoded block of zeros is different: it sends the gain to the cap (read, finding 26). The silence record after each spurt is such a block. The model as fitted here held the gain through every all-zero block. With that rule its onsets after gaps matched the recording in 1.3 ms steps: 0.08 / 0.10 / 0.13 / 0.64 / 1.0 of full scale against 0.07 / 0.08 / 0.17 / 0.53 / 0.98. Recording A against Steam's own decoded packets shows the gain already at its cap at each loud onset: the slow-looking rise is the codec's own attack, times 10 (measured, finding 26). The app still runs the fitted rule; order W3-05 replaces it.
 
 ### 5. Steam's sender gates quiet input
 
 The sender transmits only while its level gate is open:
-- **Opening:** full-band RMS of a 20 ms frame above about −39.5 dBFS.
-- **Evidence for the threshold:** a −36 dBFS sine (−39.0 dBFS RMS) opens it. A −42 dB RMS pink noise, whose loudest frame is −39.97 dBFS, never does. Neither does a −40 or −42 dBFS sine.
+- **Opening:** a capture chunk whose mean of |x| is at least 1.0% of full scale, or which has a sample at 15% of full scale (read from Steam's client, finding 28). A chunk is 31.25 to 93.75 ms on the owner's PC. For a sine the mean rule is −39.09 dBFS RMS, and for Gaussian noise about −38. The figure first measured here, about −39.5 dBFS RMS of a 20 ms frame, was the sine's.
+- **Evidence for the threshold:** a −36 dBFS sine (−39.0 dBFS RMS) opens it. A −42 dB RMS pink noise, whose loudest frame is −39.97 dBFS, never does. Neither does a −40 or −42 dBFS sine. Each agrees with the rule as read: the −36 dBFS sine has a mean of 1.009% of full scale and the −40 dBFS sine 0.64% (W3-09).
 - **Closed frames are not sent;** the receiver hears silence.
 
-Set D refines the timing (finding 12). The gate sends a pre-roll before each onset and holds for 440 ms, not 300. For about the last 240 ms of that hold the encoder sends DTX comfort noise, so the audible tail is about 200 ms of coded sound plus a quieter fade. The WebRTC VAD in every mode fits worse than threshold and hold.
+Set D refines the timing (finding 12). The gate sends a pre-roll before each onset and holds for about 440 ms as first measured, not 300; as read, the hold is 0.4 s of Steam's clock. For about the last 240 ms of that hold the encoder sends DTX comfort noise, so the audible tail is about 200 ms of coded sound plus a quieter fade. It is a level rule on chunks, read from the client: not a voice detector, and not a 20 ms rule. The app's gate is still the 20 ms frame fit of finding 12.
 
 ### 6. A stereo source reached the game as its left channel
 
@@ -213,22 +275,30 @@ A two-state (Gilbert-Elliott) loss process whose mean burst is 2.2 frames reprod
 
 The speech take agrees. Under `net_fakeloss 10`, 38% of active speech frames correlate below 0.5 with the clean render (median 0.71). The app at 45% loss gives 37% (median 0.67), against 23% at 30% and 51% at 60%.
 
+Steam's decoder conceals at most 10 frames of a gap. What a longer gap lacks beyond that is not filled, so the sound closes up there (read, finding 29). No take shows it.
+
 ### 9. Jitter adds isolated late frames
 
 With `net_fakelag 100` and `net_fakejitter 50`, about 1.4 extra events per second appear (3% of frames). They are single frames: 81% last one frame, against 51% for packet loss. Nine in ten are concealed and about one in ten plays as a short silence, consistent with a frame that arrived too late for playback.
 
-### 10. The receiver re-times talk spurts and trims latency in 256-sample skips
+### 10. The receiver re-times talk spurts
 
-The delay from source to output changes from one talk spurt to the next. In the baseline, alternate noise bursts came out about 240 ms apart in delay (2.02 s against 1.74–1.81 s), so the receiver shortens some silences between spurts and restores others. Within continuous voice, the delay falls by 2–8 ms per second in steps of about 5.8 ms, the length of 256 samples at 44.1 kHz. That happens in every take, including the clean baseline, so it is the receiver trimming buffered latency rather than an effect of jitter. `help voice_buffer_ms` describes the 100 ms voice buffer as avoiding "dropouts due to jitter and frame time differences".
+The delay from source to output changes from one talk spurt to the next. In the baseline, alternate noise bursts came out about 240 ms apart in delay (2.02 s against 1.74–1.81 s), so the receiver shortens some silences between spurts and restores others. Findings 19, 21 and 22 say how.
+
+Within continuous voice, the delay fell by 2–8 ms per second in steps of about 5.8 ms. That happens in every take, including the clean baseline, so it is the receiver and not an effect of jitter. It was first read as latency trimmed in 256-sample skips, since 256 samples at 44.1 kHz are 5.8 ms. The engine has no such operation: the voice path has no 256-sample step (read, W3-03). Two things shorten the delay:
+- **One sample is dropped from every packet**, a steady 0.4 ms a second (finding 24).
+- **The ring overflows after a restart**, and whatever did not fit is skipped (findings 22 and 23). The skips are any size. The 2–8 ms per second was the average over spurts that had just restarted: appended spurts show no step over 5 to 8 s (measured, W3-01).
+
+`help voice_buffer_ms` describes the 100 ms voice buffer as avoiding "dropouts due to jitter and frame time differences". Finding 23 shows what the setting does.
 
 ### 11. Steam's packets: Opus 24 kHz hybrid, VBR, DTX, no in-band FEC
 
 Every frame in the demo is a 20 ms Opus packet with TOC configuration 13: hybrid, super-wideband (12 kHz band), mono. The stream's rate field says 24 000.
-- **VBR:** coded frames carry 34–189 bytes (98% between 40 and 105). That is about 32 kbps on noise, 26 kbps on the synthetic vowel and 29.9 kbps averaged over all coded frames.
+- **VBR:** coded frames carry 34–189 bytes (98% between 40 and 105). That is about 32 kbps on noise, 26 kbps on the synthetic vowel and 29.9 kbps averaged over all coded frames. The encoder asks for 32000 bit/s and leaves VBR constrained, the library's default (read, finding 28).
 - **DTX:** 693 of the 5 109 frames are 1-byte packets. The decoder answers these with comfort noise.
-- **No in-band FEC:** the LBRR flag is never set.
-- **Spurt ends:** each talk spurt ends with Steam's end-of-transmission marker, which resets the receiver's decoder, and a silence record of 62.5 ms (sometimes 31 ms).
-- **Sequence numbers:** each frame carries a 16-bit number that starts again at 0 after every end-of-transmission marker. In the demo all 20 talk spurts start at 0 and the number falls 19 times, once at each spurt after the first (the longest spurt reaches 975). So a number that goes backwards means a new talk spurt, which is how `demo.js` recognises a spurt whose end marker was lost (checked 2026-11-09 with `tests/demovoice/extract.mjs`).
+- **No in-band FEC:** the LBRR flag is never set. The client never asks for it (read, W3-09).
+- **Spurt ends:** each talk spurt ends with Steam's end-of-transmission marker, which resets the receiver's decoder, and a silence record of 62.5 ms (sometimes 31 ms). Each message is one capture chunk and carries its own sample-rate record (read, finding 28; all 1,816 messages of the demo hold exactly one of each).
+- **Sequence numbers:** each frame carries a 16-bit number that starts again at 0 after every end-of-transmission marker. In the demo all 20 talk spurts start at 0 and the number falls 19 times, once at each spurt after the first (the longest spurt reaches 975). So a number that goes backwards means a new talk spurt, which is how `demo.js` recognises a spurt whose end marker was lost (checked 2026-11-09 with `tests/demovoice/extract.mjs`). Read since: the encoder writes 0 after each end marker (W3-09).
 
 libopus 1.6.1 reproduces Steam's DTX decisions only at complexity 6 or below, where it decides from the SILK voice detector. From complexity 7 its tonality analysis decides:
 
@@ -241,13 +311,18 @@ It also spends up to 15% fewer bytes than Steam at 32 kbps. Finding 16 explains 
 
 A client demo made with `record` keeps the voice messages but not their payloads. That held for both client demos checked.
 
-### 12. The gate sends 120 ms of pre-roll and holds 440 ms
+### 12. The gate keeps 100 ms and holds 0.4 s
 
 Talk spurts start on a 31.25 ms grid, 115–152 ms before a loud onset, so the frames before the onset go out too. Spurts end 425–485 ms after the last loud frame.
 
-A 20 ms frame model reproduces this. A frame above −39.5 dBFS RMS is sent with the 6 frames before it and the 22 after it. That puts both boundaries of 16 of the 18 spurts within 4 frames of Steam's, and most within 1–2. The exceptions are pure tones at 11.8–12 kHz, which Steam's gate and the model's (on the 24 kHz signal) treat differently.
+**Steam's own rule** was read from its client afterwards (finding 28), and it is not a frame rule:
+- **Pre-roll:** the last 2400 samples (100 ms) before the onset's chunk are kept and sent with it. With 62.5 ms chunks that is 100 to 162.5 ms of sound before the onset (measured: 115 to 152).
+- **Hold:** 0.4 s of Steam's clock from the read of the last active chunk. Sound goes on for 380 to 460 ms after that chunk (measured from the last loud frame: 425 to 485).
+- **The 31.25 ms grid** is the capture's step on the owner's PC.
+- **A pause shorter than the hold keeps the spurt going.** There is no 560 ms rule.
+- **Each spurt resets the encoder and the decoder.**
 
-A pause shorter than the hold plus the pre-roll (560 ms) keeps the spurt going. Each new talk spurt starts a fresh encoder and decoder.
+**The app's gate today** is a 20 ms frame model fitted to the measurements above. A frame above −39.5 dBFS RMS is sent with the 6 frames before it and the 22 after it, and a pause shorter than the hold plus the pre-roll (560 ms) keeps the spurt going. That puts both boundaries of 16 of the 18 spurts within 4 frames of Steam's, and most within 1–2. The exceptions are pure tones at 11.8–12 kHz, which Steam's gate and the model's (on the 24 kHz signal) treat differently. Orders W3-02b and W3-11a replace the fit with Steam's rule for the `steam` profile.
 
 ### 13. DTX is why steady tones fade
 
@@ -264,24 +339,34 @@ Opus's voice detector marks a steady tone inactive after a while. The encoder th
 
 Speech-like material keeps the detector active; steady tones and very even noise do not.
 
-### 14. The high-band difference is on the sender; the receiver is flat
+### 14. The high-band difference is on the sender; the receiver adds no EQ
 
-Decoding Steam's packets and passing them through the receiver model matches recording A within 0.1 dB per band from 100 Hz to 11.5 kHz. The receiver model here is the 44.1 kHz auto-gain, the `[0.1, 0.8, 0.1]` output stage and `volume`. Median 50 ms levels match within ±0.3 dB on segments more than 15 dB above the game ambience. The receiver adds no EQ.
+Decoding Steam's packets and passing them through the receiver model matches recording A within 0.1 dB per band from 100 Hz to 11.5 kHz. The receiver model here is the 44.1 kHz auto-gain, the `[0.1, 0.8, 0.1]` output stage and `volume`; the filter stands in for the output device's interpolation (finding 30). Median 50 ms levels match within ±0.3 dB on segments more than 15 dB above the game ambience. The receiver adds no EQ. Read since: nothing between the decoder and the mixer filters the voice (W3-03, W3-07).
+
+The receiver's own 24 to 44.1 kHz step is finding 29's resampler, which the app's stood in for when this was measured. Its roll-off above 10.5 kHz belongs to the receiver. The two resamplers were not compared (W3-09).
 
 Against libopus 1.6.1 on the same input, Steam's decoded packets have:
 - 0.5–1.1 dB more energy from 1.5 kHz up to the 8 kHz SILK/CELT crossover
 - 1.0 dB less in the CELT band above it
 - a roll-off from 11.2 kHz to −7 dB at 11.8 kHz (the capture resampler)
 
-The earlier profile EQ trimmed 2.5 dB above 8.2 kHz and nothing below. That left the old model 1–2 dB dull from 2 to 12 kHz against recording A. Finding 16 shows that the ±1 dB comes from the libopus release. Only the capture roll-off is Steam's own, and the model now applies it before the gate and the encoder.
+The earlier profile EQ trimmed 2.5 dB above 8.2 kHz and nothing below. That left the old model 1–2 dB dull from 2 to 12 kHz against recording A. Finding 16 shows that the ±1 dB comes from the libopus release. The capture roll-off is not Steam code either: Steam opens the capture at 24 kHz, so the conversion from the device's rate is done by Windows or the virtual cable (read, finding 28). It belongs to the sender's machine and may differ on another (inferred). The model applies it before the gate and the encoder.
 
 ### 15. A remote listener hears the same chain
 
-Recording B divided by recording A is flat within ±0.2 dB from 100 Hz to 11 kHz on pink noise. B is 6 dB lower overall, which is its `volume`. Both recordings drift by −0.4 ms/s against the sender between the latency trims of finding 10.
+Recording B divided by recording A is flat within ±0.2 dB from 100 Hz to 11 kHz on pink noise. B is 6 dB lower overall. That is two settings of PC B, inferred from the recording (W3-07):
+- **`volume 0.11`:** its largest sample is exactly round(32767 × 0.11) = 3604.
+- **`voice_scale 0.77`:** with the engine's gain law (finding 26) it gives B's 1 kHz staircase within 1 to 3% and its 344.5 Hz sidebands within 1 dB.
+
+The owner has not yet read the two values off PC B's console. B's output path is the same as A's: it shows the same interpolation images (finding 30).
+
+Both recordings gain 0.4 ms a second on the sender: the receiver drops one sample from every packet (finding 24).
 
 Both also re-time talk spurts:
 - In A, some spurts start up to 330 ms early against their neighbours, shortening the silence before them.
 - In B the spurt-to-spurt changes stay within about 90 ms.
+
+The difference between the two PCs is what finding 23 predicts for a listener at a lower frame rate (inferred; the second PC's frame rate was not recorded).
 
 ### 16. Steam's voice runs libopus 1.1.x at both ends
 
@@ -296,7 +381,7 @@ libopus releases from 1.1 to 1.6.1 were built natively. Each one re-encoded the 
 
 Steam's input is a resampled capture, so exact sizes cannot all match. The DTX frames, which carry no audio, are bit-identical.
 
-**Encoder.** Decoded with its own release, the 1.1.x re-encode matches Steam's decoded packets within ±0.1 dB from 0 to 11 kHz. The SILK/CELT tilt of finding 14 disappears. 1.1.2 to 1.1.5 give identical packets here. Release 1.1 is 0.4 dB low at 7.6–8 kHz, so Steam's build is most likely 1.1.2 or later. What remains is the capture resampler: −0.5 dB at 11.25 kHz, −2.6 dB at 11.45 kHz and −6.5 dB at 11.75 kHz.
+**Encoder.** Decoded with its own release, the 1.1.x re-encode matches Steam's decoded packets within ±0.1 dB from 0 to 11 kHz. The SILK/CELT tilt of finding 14 disappears. 1.1.2 to 1.1.5 give identical packets here. Release 1.1 is 0.4 dB low at 7.6–8 kHz, so Steam's build is most likely 1.1.2 or later. The public Linux build of Steam's client carries the string `libopus 1.1.4`; the Windows build holds no version string and is inferred to be the same (W3-09). What remains is the capture resampler (Windows's or the cable's, finding 28): −0.5 dB at 11.25 kHz, −2.6 dB at 11.45 kHz and −6.5 dB at 11.75 kHz.
 
 **Decoder.** Steam's receiver decodes with the same release. Decoding Steam's packets with 1.1.5 reproduces recording A where 1.6.1 does not. Levels in dBFS:
 
@@ -307,7 +392,9 @@ Steam's input is a resampled capture, so exact sizes cannot all match. The DTX f
 | 11.5 kHz tone, coded frames | −30.9 | −30.6 | −33.8 |
 | 1 kHz DTX tails, three talk spurts | −50.5 / −48.0 / −52.3 | −50.2 / −48.5 / −52.1 | −51.3 / −49.6 / −55.2 |
 
-The Steam profile therefore encodes and decodes with libopus 1.1.5, compiled to WebAssembly with musl's libm (`vendor/libopus-1.1`, built by `tests/libopus11/build.mjs`). It runs at libopus's default complexity 10. Its packets are bit-identical to a native build of the same release.
+The Steam profile therefore encodes and decodes with libopus 1.1.5, compiled to WebAssembly with musl's libm (`vendor/libopus-1.1`, built by `tests/libopus11/build.mjs`). Its packets are bit-identical to a native build of the same release.
+
+The app passes complexity 10. Steam sets none, so it runs the library's default, which is 9 in 1.1.x (read, finding 28). The pinned build gives byte-identical packets at 8, 9 and 10 (reproduced on 19,428 frames, W3-09), so no packet depends on it; order W3-11a sets 9. Steam also decodes to 16-bit samples, where the app decodes to float (finding 29).
 
 ### 17. Comfort noise replaces music held after a vocal (Set E)
 
@@ -362,7 +449,7 @@ Music with held sub-bass is where it would show. The app's meter reports it.
 | −12 dBFS | −0.93 | +0.94 | −0.1 dB |
 | −6 dBFS | +0.90 | +0.91 | 0.0 dB |
 
-**Sign:** each plateau's sign and height differ between recording and model, so they are not predictable. Comfort noise is random excitation shaped by the decoder's state. Steam's capture resampler makes that state differ slightly from the model's. At 30 and 40 Hz the offset wanders more, and its size in the recording ranges from 0.06 to 0.80 of the RMS against 0.16 to 0.80 in the model.
+**Sign:** each plateau's sign and height differ between recording and model, so they are not predictable. Comfort noise is random excitation shaped by the decoder's state. The capture resampler on the sender's PC (finding 28) makes that state differ slightly from the model's. At 30 and 40 Hz the offset wanders more, and its size in the recording ranges from 0.06 to 0.80 of the RMS against 0.16 to 0.80 in the model.
 
 **Checks:**
 - The 1 kHz control and the bass line under a melody have no DC in either (under 0.01%).
@@ -379,9 +466,11 @@ The accuracy suite ([`tests/accuracy.mjs`](accuracy.mjs)) lines every take up wi
   - The early start takes up most of that silence: 0–130 ms of it is left in 21 of the 25.
   - The next spurt goes back to the usual delay in 19 of the 25.
 - **Rate.** After a silence of at most 0.45 s, not directly after an early start, 21 of 51 spurts (41%) start early. It varies from take to take (1 of 9 for listener B, 4 of 4 in two takes), and the same test signal gets different spurts moved in different takes. Which spurt moves is not predictable from the signal; finding 21 shows what decides it.
-- **Inside a spurt**, the delay steps by a few milliseconds (57 steps of 4–20 ms, a few up to 68 ms, over 24 minutes of talk spurts). These include the 5.8 ms latency trims of finding 10.
+- **Inside a spurt**, the delay steps by a few milliseconds (57 steps of 4–20 ms, a few up to 68 ms, over 24 minutes of talk spurts). These include the steps of finding 10.
 
 The render keeps the source's timeline by default, so the dry/wet A/B and the real-take check line up. **Talk-spurt timing → TF2 re-timing** (`voice_retime 1`) applies this finding: after a silence of up to 0.45 s, a spurt starts early with probability 0.41, by the silence less a random 0–130 ms (at most 350 ms), and the spurt after it keeps its time. It is seeded like the loss model.
+
+This flat rule is what the app runs today when the option is on. It cannot chain early starts, and the speech take has two chains (W3-01). The engine's queue (findings 22 to 25) is to take its place. It is built as a module, `voice-channel.js` (W3-02a), which no render uses yet. Orders W3-02b to W3-02d put it into the render and the page, and W3-02f retires the flat rule.
 
 ### 20. The Steam render's low frequencies lead the source by Opus's own phase
 
@@ -390,9 +479,10 @@ A render of white noise lines up with its source to 0.3 µs in the 8–11 kHz ba
 ### 21. An early start is the receiver appending a spurt to voice it still has queued
 
 What makes a spurt start early (finding 19) is the receiver's queue:
-- **Restart.** The receiver keeps some voice queued ahead of playback. A spurt that arrives to an empty queue waits a fixed restart latency, L0.
-- **Silence record.** After every end of transmission, the sender sends a 1500-sample (62.5 ms) silence record. It is in every spurt of the Set D demo.
-- **Appending.** If a spurt's first packet arrives while the previous spurt's voice and that silence record are still queued, the spurt is appended. It starts early by the silence less 62.5 ms, and the queue shrinks by as much.
+- **Restart.** The receiver keeps some voice queued ahead of playback. A spurt that arrives when the speaker has no channel waits `voice_buffer_ms` counted in frames (finding 23). L0, the restart latency the takes show, is that wait less what the ring dropped: 305 to 385 ms at 300 frames a second.
+- **Silence record.** After every end of transmission, the sender sends a silence record one capture chunk long: 1500 samples (62.5 ms) 17 times and 750 samples twice in the Set D demo (finding 28).
+- **Appending.** If a spurt's first packet arrives while the previous spurt's voice and that silence record are still queued, the spurt is appended. It starts early by the silence less 62.5 ms, and the queue shrinks by as much. The channel lasts until the first tick after its ring is empty (finding 22).
+- **The silence record, measured.** In recording A two appended spurts (9 and 13) start 63.4 ms after the last sample of the spurt before them: 62.5 ms plus finding 24's 0.04% over 1.6 s (W3-01).
 - **Draining.** If the queue has drained first, the spurt restarts at L0, which is why the next spurt returns to the usual delay.
 
 `tests/retiming.mjs` reproduces all of the following from the accuracy suite's results and the Set D demo.
@@ -402,17 +492,17 @@ What makes a spurt start early (finding 19) is the receiver's queue:
   - **Early or not:** the early starts follow arrival gaps of 380 ms, and the spurts after gaps of 440–460 ms restart.
   - **The signal cannot tell them apart.** Spurts 4 and 8 follow identical 440 ms silences in the gate model of the test signal, but their packets arrived 380 and 440 ms after the previous spurt's. Spurt 4 started early; spurt 8 did not.
 - **Size.** At a 380 ms gap the model predicts −317 ms; spurts 4, 6 and 9 came out at −335, −324 and −306 ms. The fourth early start, spurt 13, follows two spurts whose packets overlapped: it came out at −328 ms against −437 predicted, with 60 ms timing resolution at both ends.
-- **Listener B.** No spurt moved by more than 88 ms, the size of its alignment noise. That fits a shorter queue on that PC (L0 under about 0.28 s), for which the model predicts no early starts here.
+- **Listener B.** No spurt moved by more than 88 ms, the size of its alignment noise. That fits a lower frame rate on that PC (finding 23): under about 190 frames a second for an L0 under about 0.28 s, for which the model predicts no early starts here. Inferred; that PC's frame rate was not recorded.
 - **The other takes** show the same structure:
-  - early starts of the appending kind only after gate-model silences of 0.44 s or less. The two other shifts past −80 ms (−128 and −156 ms, after silences of 1.4 and 10.4 s) are far too small to be a spurt appended across that silence.
+  - early starts of the appending kind only after gate-model silences of 0.44 s or less. The two other shifts past −80 ms (−128 and −156 ms, after silences of 1.4 and 10.4 s) are far too small to be a spurt appended across that silence. W3-01 found that the −128 is probably a spurt gated differently in that take, and that the −156 is real: a restart that came in under L0. W3-03 gives two readings for such a restart (inferred): a key press whose empty packet starts the wait early (finding 25), or long frames during the countdown ending it early (finding 23).
   - at the test signal's 440 ms silences, every early start is followed by a restart (11 of 11)
-  - at the shorter silences in speech and the network signal, early starts chain until the queue runs out. The speech take has three with no restart between them: −124, −197 and −102 ms.
+  - at the shorter silences in speech and the network signal, early starts chain until the queue runs out. The speech take has three with no restart between them: −124, −197 and −102 ms. W3-01 reads the last two as one chain and a later pair, −217 and −105 ms, as a second: after the −124 the delay came back inside the spurt, in steps that each follow a pause.
 - **Predicting from a recording or source file.** Each transition was predicted from the take's earlier transitions only, with the model learning the session's L0. Over the 146 transitions, it scores −0.379 per transition (log-likelihood) against −0.356 for the flat 41% rule.
   - It wins where silences sit clearly below or above the threshold: speech (−7.2 against −11.5), the network signal (−1.4 against −4.2) and listener B.
   - It loses on the four Set B takes, whose 440 ms silences sit at the threshold. There, ±30 ms of packet batching decides, which a recording does not show.
   - The arrival jitter was fixed at ±30 ms from Set D beforehand. At ±60 ms, chosen after seeing the results, the model scores −0.349.
 
-So the mechanism explains the early starts, and a demo's packet timing predicts them spurt by spurt. From a recording or a source file, a spurt near the threshold stays a coin flip. The app therefore keeps the statistical rule (`voice_retime`).
+So the mechanism explains the early starts, and a demo's packet timing predicts them spurt by spurt. From a recording or a source file, a spurt near the threshold stays a coin flip. The mechanism has since been read from the engine and confirmed against the game's own logs (findings 22 and 23). The app still keeps the statistical rule (`voice_retime`) today; finding 19 says which orders replace it.
 
 ## Model
 
