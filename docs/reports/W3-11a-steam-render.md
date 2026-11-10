@@ -5,8 +5,10 @@ The builder's report. The order is part a of `docs/work-orders/W3-11-steam-gate.
 `origin/claude/w3-13-steam-resampler`, merged in at `d440ec7`); W3-13 merged to main during the build, before this
 branch (pull request 15), and the branch has since merged `origin/main` with it.
 
-**Status:** built. `pnpm test`, `pnpm test:vendor` and the browser suite pass on the head, and CI's `tests`
-workflow passes on it (see "Runs"). The private runs (the accuracy suite, Set D's demo) are the orchestrator's.
+**Status:** built, reviewed (no must-fix), and the review's fix round done (see "Review" and "Fix round").
+`pnpm test`, `pnpm test:vendor` and the browser suite pass on the head, and CI's `tests` workflow passes on it
+(see "Runs"). The private runs (the accuracy suite, Set D's demo, the re-timing check) are the orchestrator's; they
+were acceptable on `8853fea`.
 
 ## Summary
 
@@ -41,7 +43,12 @@ workflow passes on it (see "Runs"). The private runs (the accuracy suite, Set D'
 | `f9d18b2` | `PREDICTIONS.md`: the spurts' edges as measured |
 | `c199f31` | The pre-roll check reads the spurt's own pre-roll (a gap a break found) |
 | `7539c7a` | Merge of `origin/main` (W3-13's merge and docs; no conflict) |
-| the last | This report |
+| `ca807eb` | This report |
+| `8853fea` | Merge of `origin/main` (docs) |
+| `63c4b7a` | Fix round: re-timing by the laid spans, 16-bit sequence numbers, the reach from the sender's constants, and the checks the review asked for (two new render-stream cases with new hashes) |
+| `97e853d` | Fix round: `tests/accuracy.mjs`'s `MODEL_FILES` |
+| `efe9b2f` | Merge of `origin/main` (docs and `tests/roomdsp`; no conflict) |
+| the last | This report, for the fix round |
 
 ## Files changed
 
@@ -51,7 +58,8 @@ Allowed by the order: `audio.js`, `opus-codec.mjs`, `constants.js`, `tests/libop
 `tests/opus.verify.mjs`, `tests/browser.verify.js`, `tests/predictions/PREDICTIONS.md`; new
 `tests/libopus11/native.mjs` and `tests/libopus11/native.c`; this report.
 
-Outside the order's list, each authorised by the orchestrator during the build:
+Outside the order's list, each authorised by the orchestrator during the build (and in the fix round, one line of
+`tests/accuracy.mjs`: its `MODEL_FILES`):
 
 | File | Why |
 | --- | --- |
@@ -67,7 +75,7 @@ chain, which part a does not change, so it needs nothing and is untouched. `test
 unchanged.
 
 Not touched: `steam-sender.js`, `vendor/swresample/`, `voice-channel.js`, the other `vendor/` folders, `demo.js`,
-`reference.js`, `app/realtake.js`, `tests/speex*.verify.mjs`, `tests/accuracy.mjs`, `tests/REFERENCE_2026.md`,
+`reference.js`, `app/realtake.js`, `tests/speex*.verify.mjs`, `tests/accuracy.mjs` (but its `MODEL_FILES` in the fix round), `tests/REFERENCE_2026.md`,
 `tests/predictions/predictions.json`, `docs/PROGRESS.json`, `createLiveChain`.
 
 ## The Opus module (point 2)
@@ -204,8 +212,8 @@ frame).
 
 ## The checks, and how each was broken
 
-`tests/verify.js` gains a section, `[5c] The steam profile: Steam's sender and decoder`, 26 checks (the order's,
-and three for gaps the breaks found), all on sources made at 24 kHz unless said; other suites gain the checks the
+`tests/verify.js` gains a section, `[5c] The steam profile: Steam's sender and decoder`, 29 checks (the order's,
+three for gaps the breaks found, and three from the fix round), all on sources made at 24 kHz unless said; other suites gain the checks the
 order names (the module's in `tests/opus.verify.mjs`, the chunk plans in `tests/render-stream.verify.mjs`, the
 scripts in the browser suite). Each break below was made in a scratch
 copy of the tree (`steam-sender.js` included, for the sender's own rules; nothing in the branch), the named suites
@@ -391,7 +399,18 @@ may not touch.
 
 ## Runs
 
-On the head before this report (`7539c7a`, after the last merge of `origin/main`), under the heavy lock:
+**Fix round,** on `efe9b2f` (after the fix round's commits and a merge of `origin/main`), under the heavy lock:
+
+- `pnpm test:vendor`: the three modules match their recorded hashes.
+- `pnpm test`: `verify.js` 245 passed (three new); `gain.verify` 68; `gain-exact --synthetic` ok; `opus.verify` 147
+  (the wrap check new, the mute check restated); `speex102.verify` 71; `reference.verify` 42; `formats.verify` 66;
+  `filerate.verify` 53; `meter.verify` 50; `video.verify` 45; `demo.verify` 36; `render-stream.verify` 270 (the two
+  heavy-loss cases); `voice-channel.verify` 127; `steam-sender.verify` 58; `swresample.verify` 43. None failed.
+- The browser suite: 228 passed; check 3f on `steam` peaked at -30 samples at 44.1 kHz (0.680 ms), r 0.845, at the
+  window's edge as 4 of the 60 simulated takes were; `steam_48` at 0, r 0.861.
+- CI (`tests`): passed on `efe9b2f` (run 42846023426, job `verify`).
+
+**Before the review,** on `7539c7a`, under the heavy lock:
 
 - `pnpm test:vendor`: the libopus 1.1.5, CELT 0.11 and Speex 1.0.2 modules match their recorded hashes.
 - `pnpm test`: `verify.js` 242 passed; `gain.verify` 68; `gain-exact --synthetic` ok; `opus.verify` 146;
@@ -405,6 +424,91 @@ On the head before this report (`7539c7a`, after the last merge of `origin/main`
   branch failed where expected: before the golden re-record, and on `a3ce67f` at check 3f's first window (48 kHz),
   which the device rate (44.1 kHz) put out of reach; `927742b` fixed it.
 
+## Review
+
+Two readers went over `8853fea`; neither found a must-fix.
+
+- The reviewer: an independent model of the decode side, written from the reports, equals `process()` on 54 of 54
+  cases (the decoded messages, every `packet()` output, the capture and the laid signal), and `createRender`
+  equals `process()` on 279 of 279 streamed renders (270 at chunk sizes from 1 to 9001 and 9 under heavy loss).
+  Both module hashes reproduce from the build script, and the native comparison passes.
+- The second reader: the branch's own `process()`, driven by Steam's real chunk lengths (W3-14's recording), gives
+  Steam's recording in 524,286 of 524,288 samples (W3-14's two). The gate clip as one session through
+  `createSteamDecoder` gives 524,256 of 524,288 with W3-16's 17-frame cut (by hand: the render has no cut), and
+  523,712 with W3-14's reading of it.
+
+Their should-fix findings are the fix round's.
+
+## Fix round
+
+Each item with the check that fails without it (the breaks are in the table below):
+
+1. **Re-timing on the steam path** (the second reader's finding 1, the reviewer's note 9). `steamTimeline` records
+   each spurt's laid span; `retimeSpurts` moves, for the spurts it chooses by the slots as before, every laid span
+   their slots meet, whole, and never onto the spurt before (the laid spans run up to half a slot past the slots,
+   so an uncapped move could reach into the spurt before by up to a slot). New check in `[5c]`: six bursts 0.8 s
+   apart at seeds 1 to 4, 18 and 21 (at 18 and 21 a move would otherwise reach the spurt before): 8 moves, each
+   moved spurt equal to the unmoved one sample for sample, nothing left between its new end and its old end, each
+   after the spurt before, and the rest of every render as it was. The frame path does not pass spans and is
+   unchanged.
+2. **The stream's cursor bound** (the reviewer's finding 1). Two cases in `tests/render-stream.verify.mjs`: 4 s of
+   noise, the gate off, loss 80% at seed 1 and loss 40% at seed 3, each at chunks of 960 and 7 (and the steam
+   plans). Without the cursor term both throw at every chunk size. Their hashes are new entries; no recorded hash
+   moved.
+3. **Rules the golden hashes alone held** (the reviewer's finding 2). In `[5c]`: each silence record is exactly
+   `msg.silence` zeros and the resampler gives for it what it gives for that many zeros in its place; under loss
+   on a loud source, every decoded message equals the module's `decodeInt16` and `decodePacketLossInt16` with a
+   decoder per spurt, in two renders: gaps of 3 and 12, the last two frames of the longest spurt and the first
+   frame of every other spurt lost (15 concealed, 13 + 2); and the gate off with three frames in ten lost (91
+   concealed), enough concealment for the rounding of `decodePacketLossFloat` to show.
+4. **The late frame's span rounding** (the reviewer's finding 3). It cannot be made to matter: every sound packet is
+   480 F samples, and the resampler (147/80) gives exactly 882 F for it, its first packet included (it flushes:
+   7,056 for 8 frames), since 480 x 147/80 = 882 and a whole number added to the resampler's running position adds
+   that many outputs whatever the fraction a silence record left. So `j n / F` is `882 j`, a whole number, and
+   `Math.floor` and `Math.round` agree on every frame of every render: the floor is an equivalent change. What can
+   be pinned is the premise, and the late-frame check now asks it: every sound packet is 882 samples a frame.
+5. **The mute check** (`tests/opus.verify.mjs`). The render now starts with half a second of a faint tone the gate
+   does not send, so the first spurt's pre-roll is that tone and the reset gain's unity block is heard where the
+   spurt starts. The check asks it heard there (laid at 15,975; not zero from 16,011 to 16,103, the block's 128
+   samples and the output filter's one) and nothing after it; an all-zero render fails it. The 100% loss case keeps
+   its own check.
+6. **Sequence numbers of 16 bits** (the second reader's finding 3). `createSteamDecoder` keeps the number the
+   decoder expects as `(seq + 1) & 0xFFFF` and judges "behind" against it as Steam does, the numbers as they are;
+   the render's `lost()` and `late()` count on in 16 bits and do not move that number, so a frame lost at 65535
+   makes 0 behind and resets, as in Steam. The stream gives `(f - first) & 0xFFFF`. New check in
+   `tests/opus.verify.mjs`: a decoder given 65530 to 65535 and 0 to 5 decodes one frame each after the wrap (the
+   10 concealed in front of 65530 are what a fresh decoder does), exactly as one module decoder given the same
+   calls; and a frame lost at 65535 makes 0 behind: a reset. A spurt reaches the wrap only at its 65,536th frame,
+   and encoding that many frames takes 20 to 25 s here, so the check drives the decoder with hand-numbered
+   packets rather than the stream with messages. No render changes below that frame (all recorded hashes
+   unchanged).
+7. **The stream's reach** (the second reader's finding 7): `3 x grid + preroll` from `STEAM_SENDER` (4650, as
+   before).
+8. **`tests/accuracy.mjs`**: `MODEL_FILES` lists `steam-sender.js` and `vendor/swresample/swresample.js`.
+9. **This report**: the "18 frames" paragraph corrected (W3-02c's notes), the typed threshold's meaning until
+   W3-11b (reading 3), re-timing (reading 9), the reach (reading 11), and this section and "Review".
+
+The fix round's breaks, in scratch copies as before (the control, unbroken, passed `verify.js` and
+`opus.verify.mjs`):
+
+| Item | Break (scratch copy) | Fails |
+| --- | --- | --- |
+| 1 | re-timing moves the slots' samples, not the laid spans (the code before the fix) | `verify.js` "re-timing on the steam path moves a spurt's laid samples whole ..." (8 moves; 0 whole, 0 leaving nothing behind) |
+| 1 | the move not kept off the spurt before | the same check (8 moves; 6 after the spurt before) |
+| 2 | `createRender` ignores the open spurt's cursor (the reviewer's M18) | `render-stream` "steam, gate off, loss 80%, seed 1 ..., chunks: 960" and "chunks: 7" (threw: a Steam packet landed on samples already given out), "chunks: 12345", and the loss 40% case likewise |
+| 3 | a silence record one sample long (M07) | `verify.js` "a silence record is exactly its count of zeros, and the resampler gives for it what it gives for that many zeros in its place" |
+| 3 | the decoder kept across spurts, only the encoder fresh (M05) | `verify.js` "under loss the decoded samples are the module's decodeInt16 and decodePacketLossInt16, a fresh decoder each spurt ..." (in its first render, where each spurt but the longest loses its first frame) |
+| 3 | concealment through `decodePacketLossFloat`, rounded half up and clamped (M10) | the same check, in its second render (the gate off, 91 frames concealed: "NOT the module's"); with one render of 15 concealed frames it passed, since the two roundings part only at a tie or past full scale |
+| 4 | a late frame's span by `Math.floor` (M16) | nothing: equivalent (every packet is 882 samples a frame, so `j n / F` is whole; the check now asks that premise) |
+| 5 | the steam render's voice all zeros (with `check()` made to print, as the suite stops at its first failure) | `opus.verify` "Receiver mute is exact silence after the first block, which is heard where the first spurt starts", and "Quality changes the decoded audio", the timing check, "Partial loss conceals packets ..." |
+| 6 | the decoder's expected number not masked (`seq + 1`) | `opus.verify` "Steam's decoder: sequence numbers wrap at 16 bits, 65535 then 0 with no reset and nothing concealed; ..." |
+| 6 | "behind" judged against the render's count, lost frames included | the same check (the frame lost at 65535: concealed, not reset) |
+| 6 | the stream's numbers not masked | nothing: equivalent (the decoder masks what it is given) |
+| 6 | `receive()` not masking what it is given | nothing: equivalent (its one caller, the stream, masks) |
+
+Golden hashes after the fix round: the 49 recorded cases unchanged (the 48 of `origin/main` and the `steam_48`
+quarter frame), and the two new heavy-loss cases recorded.
+
 ## Readings of the order
 
 1. **"The app's demo speech."** There is none rendered through the gate (the demo's voice is received sound); I
@@ -414,7 +518,10 @@ On the head before this report (`7539c7a`, after the last merge of `origin/main`
    0 dBFS. W3-11b replaces the line.
 3. **A typed threshold** is a number clamped to -90..0 dB and gives `meanMin = 32767 x 10^(dB/20)`; `codecInfo.gate`
    reports it, and -40 when none is typed (the sender's 327.67 is -40.0 dB of 32767). `codecInfo.sender.meanMin` is
-   reported with the gate off too (what the gate would have used).
+   reported with the gate off too (what the gate would have used). So until W3-11b a number typed in the
+   threshold control means, on `steam`, the mean of |x| in dBFS (a sine opens about 0.9 dB above the same number
+   read as its RMS), while the control's help still says a frame's RMS; and -39.5 itself cannot be asked for as a
+   mean, since the page sends nothing for it. W3-11b rewrites the control and its help.
 4. **The path is chosen by `senderGate.rule === 'steam'`**, with the codec on and no received voice; it refuses a
    decoder EQ or rates other than 24 and 44.1 kHz (a test profile with a decoder EQ stays on the frame path, by
    leaving the rule out).
@@ -428,17 +535,22 @@ On the head before this report (`7539c7a`, after the last merge of `origin/main`
    decoder never saw the late frame, so the gap runs through it); frames lost at a spurt's end are never played.
 8. **A fresh encoder and decoder each spurt** (as Steam makes one at each spurt): new objects, not a reset.
 9. **Retiming** (`opts.retime`) on the steam path works on the 44.1 kHz signal, with 882-sample frames and the
-   lookahead scaled (`round(156 x 147/80)`).
+   lookahead scaled (`round(156 x 147/80)`). It chooses spurts and gaps by the slots, as before, and moves each
+   spurt's laid samples whole (the spans `steamTimeline` records), never onto the spurt before. Before the fix
+   round it moved the slots' samples, and the laid packets run up to half a slot past the slots they mark: a moved
+   spurt left part of its tail behind or lost part of its head (the second reader's finding 1).
 10. **The hooks** get the message as a second argument; `onGain` is called once a render in `process()` and once a
     piece in `createRender`.
-11. **`createRender`'s hold-back**, above: about 200 ms of the sender's input plus the open spurt.
+11. **`createRender`'s hold-back**, above: about 200 ms of the sender's input plus the open spurt. The 4650 is
+    taken from the sender's own constants (3 grid steps, its longest chunk, and the pre-roll).
 12. **The render-stream suite** now takes about 5 minutes: every `steam` case runs at four chunk plans, and the
     six-minute case at chunks of 7 takes about a minute.
 
 ## What I would change in the order
 
-- `tests/accuracy.mjs`'s `MODEL_FILES` does not list `steam-sender.js` or `vendor/swresample/swresample.js`, so a
-  change to either would not mark predictions as made after a model change. The file is not mine to touch.
+- `tests/accuracy.mjs`'s `MODEL_FILES` did not list `steam-sender.js` or `vendor/swresample/swresample.js`, so a
+  change to either would not mark predictions as made after a model change. Added in the fix round, with the
+  orchestrator's leave (one line).
 - The order's file list missed four test files that the change reaches (`tests/reference.compare.mjs`,
   `tests/gain.verify.mjs`, `tests/reference.verify.mjs`, check 3f of `tests/browser.verify.js`); the orchestrator
   authorised each.
@@ -471,7 +583,14 @@ On the head before this report (`7539c7a`, after the last merge of `origin/main`
 - A late frame here is 480 zeros in place and no gap; the resampler's lateness (16 inputs) is inside its
   output, not added on the timeline.
 - W3-16, merged to main during this build, reads that Steam's decoder buffer holds 17 frames and cuts a record
-  that needs more (the frame that does not fit is spent, the rest skipped). The render here does not cut: a gap
-  of 10 concealed before a message of 8 frames gives 18. That rule was not in this order; it belongs to the next
-  one that touches the decoder. W3-16's float hold (`now > noted + 0.4` in 32-bit floats) is the sender's, in
+  that needs more. A render cannot reach it: only a spurt's first message holds 7 to 9 frames, and it follows no
+  gap (a fresh decoder, number 0); any later message is at most 479 kept samples and a 2250-sample chunk, 5
+  frames (6 when the end pads it). So a render's worst is 10 concealed and 6 decoded, 16. What a render can pass
+  is the game's room: by W3-16 the engine takes at most 22,528 bytes a call, 12 frames at 44.1 kHz, and refuses a
+  message over it whole (code 4: none of it plays), while the render plays all of it. Under loss a render makes
+  messages of 13 to 16 blocks (10 concealed and 3 to 6 decoded). That is the loss model's order, not this one.
+  (The report first said "a gap of 10 before a message of 8 frames gives 18": an 8-frame message is an opening and
+  follows no gap, so that was wrong.) W3-16's float hold (`now > noted + 0.4` in 32-bit floats) is the sender's, in
   `steam-sender.js`, which this order did not touch.
+- Sequence numbers are 16 bits since the fix round (`(seq + 1) & 0xFFFF`, "behind" compared as the numbers are),
+  as Steam's packets carry them; a frame the render loses at 65535 makes 0 behind and resets, as in Steam.
