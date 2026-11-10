@@ -236,7 +236,9 @@
   //     offsetStartMs at the first played sample at least 0.2 s into the spurt (its first played
   //     sample if none is), offsetEndMs at its last played sample; null if none played.
   //     droppedMs: its samples lost to overflow (its silence record's included).
-  //   - drops: each overflow, at the output time (seconds) where the skip is heard.
+  //   - drops: each overflow (one per message that caused one), at the output time (seconds)
+  //     where the skip is heard: the start of the next block the channel plays (during a wait,
+  //     the first one after it).
   //   - source[i]: the source position heard at the centre of output slot i (20 ms slots of
   //     882 samples), or -1 for silence, padding, a silence record and a pre-roll before
   //     sample 0.
@@ -266,7 +268,7 @@
     // many of its samples have left the ring (played or dropped). They leave in order, so the
     // next one out is pcm[1 + that]: the channel does not write pcm[0].
     const pSource = [], pSpurt = [], pOut = [];
-    const spurts = [], drops = [];
+    const spurts = [], drops = [], unheard = [];
     let nextTick = 0, nextBlock = 0, floor = 0, fresh = false, open = false, finished = false, dropEntries = 0;
     let pieces = [];                              // the output of the blocks run since the last return
 
@@ -277,6 +279,9 @@
       nextBlock++;
       let samples = null;                         // a free or waiting channel gives zeros
       if (ch.playing) {
+        // A skip is heard where the channel next plays: here, for every drop not yet placed.
+        for (const d of unheard) d.time = at / VOICE_CHANNEL.rate;
+        unheard.length = 0;
         let tags;
         if (fresh) {                              // the first block after a start
           fresh = false;
@@ -308,7 +313,6 @@
         const tt = TICK * nextTick, tb = BLOCK * nextBlock;
         if (tt <= tb && tt < t) runTick();
         else if (tb < t) runBlock();
-        else if (tt < t) runTick();
         else break;
       }
     }
@@ -358,7 +362,8 @@
           total += d.count;
           if (d.tag >= 0) { pOut[d.tag] += d.count; if (pSpurt[d.tag] >= 0) spurts[pSpurt[d.tag]].dropped += d.count; }
         }
-        drops.push({ time: (N * nextBlock - D) / VOICE_CHANNEL.rate, ms: total / PER_MS });
+        const d = { time: null, ms: total / PER_MS };
+        drops.push(d); unheard.push(d);
       }
       return take();
     }
@@ -376,6 +381,7 @@
       while (N * nextBlock - D < length) {
         if (TICK * nextTick <= BLOCK * nextBlock) runTick(); else runBlock();
       }
+      for (const d of unheard) d.time = (N * nextBlock - D) / VOICE_CHANNEL.rate;   // never heard: after the end
       const info = {
         timeline: 'game', fps, bufferMs, waitTicks: ch.waitTicks, latency: lat,
         packets: pSource.length, opens: ch.opens, appended: spurts.filter((s) => !s.opened).length, gainResets,

@@ -1014,6 +1014,33 @@ function timelineChecks() {
       && noisy.length <= 2 && silent.length >= 150, `${exact.length} slots exact, ${heard.length - exact.length} faded, ${silent.length} silent (${noisy.length} in an underrun's padding)`);
   }
   {
+    // Drops are placed where the skip is heard. A ramp at 300 fps: an opening of 7056 and 2646
+    // every 4 ticks overflows during the wait (as by hand: 3520 samples); a packet of 9000 in
+    // mid-play overflows again. The output's ramp jumps exactly where info.drops says.
+    const messages = [];
+    let pos = 0;
+    for (let t = 20; t <= 200; t += 4) {
+      const pcm = new Float32Array(t === 20 ? 7056 : t === 120 ? 9000 : 2646);
+      for (let i = 0; i < pcm.length; i++) pcm[i] = pos + i + 1;
+      messages.push({ tick: t, pcm, source: pos });
+      pos += pcm.length;
+    }
+    const length = 44100 * 5;
+    const { samples, info } = timelineRun(messages, { fps: 300, length });
+    const start = samples.findIndex((v) => v !== 0);
+    const waiting = info.drops.filter((d) => Math.round(d.time * 44100) === start);
+    const playing = info.drops.filter((d) => Math.round(d.time * 44100) > start);
+    // Inside a packet the ramp moves by 1, and by 1 more at each packet's start (its first
+    // sample is not written); across a skip by the samples skipped more.
+    const jumps = [];
+    for (let i = start + 1; i < start + 44100 * 2.5; i++) if (samples[i] - samples[i - 1] > 2) jumps.push([i, samples[i] - samples[i - 1]]);
+    const atDrops = playing.map((d) => [Math.round(d.time * 44100), Math.round(d.ms * 44.1)]);
+    check('a drop is placed where its skip is heard: those of the wait where the channel starts playing, those of mid-play where the ramp jumps',
+      waiting.length > 0 && Math.round(waiting.reduce((a, d) => a + d.ms * 44.1, 0)) === 3520 && playing.length > 0
+      && jumps.length === atDrops.length && jumps.every(([i, j], k) => i === atDrops[k][0] && j - atDrops[k][1] >= 1 && j - atDrops[k][1] <= 5),
+      `${waiting.length} in the wait, starting at ${start}; in play ${JSON.stringify(atDrops)}, jumps ${JSON.stringify(jumps)}`);
+  }
+  {
     const calls = [];
     const gain = { reset() { calls.push('reset'); }, process(pcm) { calls.push(pcm.length); return pcm; } };
     const messages = madeUpMessages(7, 1500);
