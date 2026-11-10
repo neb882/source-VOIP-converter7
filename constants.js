@@ -252,7 +252,9 @@ const PRESETS = {
  *                 profile) a render runs Steam's own sender, read from its
  *                 client (steam-sender.js: capture chunks, the mean of |x|
  *                 at 1% of full scale or a peak at 15%, 100 ms kept, a 0.4 s
- *                 hold), decodes to 16 bits with the library's opus_decode
+ *                 hold on Steam's 32-bit float clock, whose length depends
+ *                 on how long the sender's Steam has run), decodes to 16
+ *                 bits with the library's opus_decode
  *                 and Steam's decoder rules, and resamples each packet with
  *                 FFmpeg's libswresample (vendor/swresample) as Steam's
  *                 decoder does; the three numbers are then only the frame

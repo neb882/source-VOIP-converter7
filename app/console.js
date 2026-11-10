@@ -456,6 +456,8 @@ function setActivePreset(name) {
 
 // Live, human-readable summary of the voice path the next render will use.
 function updateSignalChain() {
+  // The sender's Steam age is a setting of the `steam` profile's sender only.
+  if (els.steamUptime) els.steamUptime.closest('.control').hidden = els.codec.value !== 'steam';
   if (!els.chain) return;
   const codec = CODEC_PROFILES[els.codec.value] || CODEC_PROFILES.steam;
   const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
@@ -610,6 +612,7 @@ const CONFIG_FIELDS = [
   configControl('chan', els.captureChannel),
   configControl('vad', els.vad),
   configControl('vadthr', els.vadThreshold),
+  configControl('uptime', els.steamUptime),
   configControl('vol', els.volume),
   configControl('frame', els.frameMs),
   configControl('loss', els.loss),

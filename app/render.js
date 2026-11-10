@@ -141,6 +141,9 @@ function renderOptions() {
     // until W3-11b, reads a null as 0 dBFS and an absent value as its -39.5.
     // W3-11b replaces this line (the profile's own default).
     gateThresholdDb: els.codec.value === 'steam' && Number(els.vadThreshold.value) === -39.5 ? undefined : Number(els.vadThreshold.value),
+    // How long the sender's Steam had been running (W3-16): its float clock
+    // sets the hold's real length. `steam` only; left out for other profiles.
+    steamUptime: els.codec.value === 'steam' ? Number(els.steamUptime.value) : undefined,
     volume:      Number(els.volume.value),
     lossPct:     Number(els.loss.value),
     frameMs:     Number(els.frameMs.value),
