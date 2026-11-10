@@ -1,5 +1,12 @@
 # W2-03: sources past 10 minutes render in the page
 
+> **Held (the owner's priority). Note of 2026-11-10 (`docs/reports/W3-plan-maintenance-2.md`), for when it
+> is taken up:** W2-04 is superseded. Where this order says a room or `voice_retime` is refused by the stream
+> "until W2-04", read: a room until W3-17c, `voice_retime` until W3-02f. A render's output is at the
+> listener's device rate after W3-10 (48000 Hz by default), not at the source's rate, and can end in a
+> room's tail after W3-17c: the worker's output buffer of `outputLength` needs the tail's cap
+> (`maxTail`). W2-05 and W2-06 say they may run beside W2-04; there is no such order to run beside.
+
 **Branch:** `claude/w2-03-long-render-page`, from `main` **after W1-01, W2-01 and W2-02 have merged**. **Worktree:**
 given in the brief. **Agent:** `tf-builder`, then `tf-reviewer`. May push its branch to run CI. **Time budget:**
 1 day. May run beside W2-04 (no shared files).
