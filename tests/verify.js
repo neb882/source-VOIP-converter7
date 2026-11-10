@@ -27,6 +27,10 @@ const code =
 
 const sandbox = { window: {}, Blob: globalThis.Blob, console };
 vm.createContext(sandbox);
+// Steam's sender and the decoder's resampler load beside audio.js, as on the page.
+for (const file of ['steam-sender.js', 'vendor/swresample/swresample.js']) {
+  vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), sandbox);
+}
 vm.runInContext(code, sandbox);
 const TF2Audio = sandbox.window.TF2Audio;
 const ENGINE = vm.runInContext('VOICE_ENGINE', sandbox);
@@ -175,7 +179,7 @@ const clean = { enableWarble: false, agc: false, volume: 1, listenerPos: 'open' 
 /* ---------------- tests ---------------- */
 
 async function main() {
-  sandbox.TF2Opus = await import('../opus-codec.mjs');
+  sandbox.TF2Opus = await import(require('url').pathToFileURL(path.join(root, 'opus-codec.mjs')).href);
   const SR = 48000;
 
   console.log('\n[1] Resampler');

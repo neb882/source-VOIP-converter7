@@ -414,11 +414,13 @@
     </details>
 
     <footer>
-      Runs entirely in your browser · Opus via bundled libopus · MP3 via <a href="https://lame.sourceforge.io">LAME</a> (LGPL) · Not affiliated with Valve
+      Runs entirely in your browser · Opus via bundled libopus · MP3 via <a href="https://lame.sourceforge.io">LAME</a> (LGPL) · Steam's 24 to 44.1 kHz step via <a href="https://ffmpeg.org">FFmpeg</a>'s libswresample (<a href="vendor/swresample/COPYING.LGPLv2.1">LGPL</a>; translated to JavaScript, modified) · Not affiliated with Valve
     </footer>
   </main>
 
   <script src="constants.js"></script>
+  <script src="steam-sender.js"></script>
+  <script src="vendor/swresample/swresample.js"></script>
   <script src="audio.js"></script>
   <script src="flac.js"></script>
   <script src="formats.js"></script>

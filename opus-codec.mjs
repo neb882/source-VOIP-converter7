@@ -183,6 +183,138 @@ export async function roundTrip(samples, sampleRate, bitrate, options = {}) {
   }
 }
 
+// Steam's decoder for one speaker, as its client runs it (docs/reports/
+// W3-09-steam-voice.md, section 4, read): libopus's own 16-bit decoder
+// (opus_decode: in this float build the soft clipper over the decoded frame,
+// then each sample rounded, ties to even), at 24000 Hz, frame by frame:
+//   - a sequence number ahead of the expected one: the gap is concealed first,
+//     at most 10 frames of it (the decoder called with no data), then the frame
+//     is decoded;
+//   - one behind: the decoder is reset and nothing is concealed;
+//   - the end marker: the decoder is reset (a new one: a spurt starts with a
+//     fresh decoder), expected 0.
+// The render's network model adds two calls the client does not have: lost(seq)
+// for a frame the mask lost, which counts toward the next gap; and late(seq) for
+// a frame the mask made late (the measured stand-in, finding 9: one in ten late
+// frames plays as silence), which the decoder does not see, gives 480 zeros in
+// its place and is not a gap. receive() returns the 480-sample blocks it made,
+// the concealed ones first.
+export async function createSteamDecoder(options = {}) {
+  const { createDecoder } = await runtime(options.runtime ?? '1.1.5');
+  const sampleRate = 24000, frameSize = 480;
+  let decoder = await createDecoder({ sampleRate, channels: 1 }), expected = 0, lost = 0;
+  async function reset() {
+    decoder.free();
+    decoder = await createDecoder({ sampleRate, channels: 1 });
+    expected = 0; lost = 0;
+  }
+  return {
+    frameSize,
+    async receive(seq, packet) {
+      const blocks = [];
+      if (seq < expected) await reset();
+      else {
+        const conceal = Math.min(lost + seq - expected, 10);
+        for (let k = 0; k < conceal; k++) blocks.push(decoder.decodePacketLossInt16(frameSize));
+      }
+      blocks.push(decoder.decodeInt16(packet, { frameSize }));
+      expected = seq + 1; lost = 0;
+      return blocks;
+    },
+    lost(seq) { lost += seq + 1 - expected; expected = seq + 1; },
+    late(seq) { lost += seq - expected; expected = seq + 1; return new Int16Array(frameSize); },
+    end: reset,
+    free() { decoder?.free(); decoder = null; }
+  };
+}
+
+// The `steam` profile's codec, fed the messages of Steam's sender
+// (steam-sender.js) one at a time: the sender, not a frame gate, decides what
+// is sent. Each sound message's frames are its pcm (16-bit samples, 480 a
+// frame), given to the encoder as q / 32768 through the float entry point,
+// which is what the library's own 16-bit opus_encode does in a float build.
+// Each spurt starts with a fresh encoder and a fresh decoder (the end marker
+// resets both). miss(f), called once per frame in the sender's frame order,
+// gives the network's verdict: 0 sent, 1 lost, 2 late. message() returns
+//   { pcm, blocks, silence }
+// pcm: the message's decoded samples (an Int16Array; concealed and late blocks
+// included, in the order the decoder made them; a silence record's are zeros);
+// blocks: one entry per 480 samples of pcm, { frame, code, bytes, mode }: the
+// frame it stands for, its FRAME code (lost for a concealed block, late for a
+// late one), the frame's packet size and its coding mode. Frames lost at the
+// end of a spurt, with no later frame in it, make no block.
+export async function createSteamStream(bitrate, options = {}) {
+  const sampleRate = 24000;
+  const encoderOptions = encoderSettings(sampleRate, bitrate, options);
+  const lib = await runtime(options.runtime ?? '1.1.5');
+  const probe = await lib.createEncoder(encoderOptions), lookahead = probe.getLookahead();
+  probe.free();
+  const version = (await lib.loadLibopus()).version;
+  const frameSize = encoderOptions.frameSize, input = new Float32Array(frameSize);
+  let encoder = null, decoder = null, spurt = null, spurtFirst = 0, pending = [];
+  async function close() {
+    encoder?.free(); decoder?.free(); encoder = decoder = null; pending = [];
+  }
+  return {
+    frameSize, version, lookahead, sampleRate,
+    async message(msg, miss) {
+      if (msg.silence !== undefined) return { pcm: new Int16Array(msg.silence), blocks: [], silence: true };
+      if (msg.spurt !== spurt || !encoder) {
+        await close();
+        encoder = await lib.createEncoder(encoderOptions);
+        decoder = await createSteamDecoder(options);
+        spurt = msg.spurt; spurtFirst = msg.first;
+      }
+      const parts = [], blocks = [];
+      for (let f = msg.first; f <= msg.last; f++) {
+        const at = (f - msg.first) * frameSize;
+        for (let i = 0; i < frameSize; i++) input[i] = msg.pcm[at + i] / 32768;
+        const packet = encoder.encodeFloat(input), mode = packetMode(packet), dtx = packet.byteLength <= 2;
+        const frame = { frame: f, code: dtx ? FRAME.dtx : FRAME[mode], bytes: packet.byteLength, mode };
+        const seq = f - spurtFirst, m = miss(f);
+        if (m === 1) { decoder.lost(seq); pending.push(frame); continue; }
+        if (m === 2) { parts.push(decoder.late(seq)); blocks.push({ ...frame, code: FRAME.late }); continue; }
+        const made = await decoder.receive(seq, packet);
+        for (let k = 0; k < made.length - 1; k++) blocks.push({ ...pending[k], code: FRAME.lost });
+        pending = [];
+        parts.push(...made);
+        blocks.push(frame);
+      }
+      if (msg.end) await close();
+      const pcm = new Int16Array(parts.length * frameSize);
+      parts.forEach((p, k) => pcm.set(p, k * frameSize));
+      return { pcm, blocks, silence: false };
+    },
+    free: close
+  };
+}
+
+// createSteamStream over all of a render's messages at once, for
+// TF2Audio.process(); options.makeLossMask(count) gives the mask over the
+// count frames the messages hold, by frame number (as roundTrip's).
+export async function steamRoundTrip(messages, bitrate, options = {}) {
+  const stream = await createSteamStream(bitrate, options);
+  try {
+    const count = messages.reduce((n, m) => (m.silence === undefined ? Math.max(n, m.last + 1) : n), 0);
+    const mask = options.makeLossMask ? options.makeLossMask(count) : null;
+    const miss = (f) => (mask ? mask[f] : 0);
+    const results = [];
+    let done = 0;
+    for (const msg of messages) {
+      results.push(await stream.message(msg, miss));
+      if (msg.silence === undefined && Math.floor((msg.last + 1) / 32) > Math.floor(done / 32)) {
+        options.onProgress?.(count ? (msg.last + 1) / count : 1);
+        if (options.yieldControl) await options.yieldControl();
+      }
+      if (msg.silence === undefined) done = msg.last + 1;
+    }
+    options.onProgress?.(1);
+    return { results, lookahead: stream.lookahead, version: stream.version };
+  } finally {
+    await stream.free();
+  }
+}
+
 // Source's engine CELT codecs (vaudio_celt, vaudio_celt_high): CELT 0.11 in a
 // custom mode, one frameSize-sample frame per fixed packetBytes packet, the
 // same gate, loss and delay handling as roundTrip. Frames are

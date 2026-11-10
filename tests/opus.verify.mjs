@@ -12,6 +12,9 @@ const peak = x => { let at = 0; for (let i = 1; i < x.length; i++) if (Math.abs(
 const difference = (a, b) => a.reduce((sum, v, i) => sum + (v - b[i]) ** 2, 0);
 const sandbox = { window: {}, Blob, console, TF2Opus: opus };
 vm.createContext(sandbox);
+for (const file of ['../steam-sender.js', '../vendor/swresample/swresample.js']) {
+  vm.runInContext(fs.readFileSync(new URL(file, import.meta.url), 'utf8'), sandbox);
+}
 vm.runInContext(fs.readFileSync(new URL('../constants.js', import.meta.url), 'utf8') + '\n' +
   fs.readFileSync(new URL('../audio.js', import.meta.url), 'utf8'), sandbox);
 const A = sandbox.window.TF2Audio;

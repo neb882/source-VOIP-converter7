@@ -243,14 +243,25 @@ const PRESETS = {
  *                 matching the SILK/CELT crossover seen in the recording
  *   encoder     : libopus runtime ('1.1.5' or '1.6.1') / complexity / vbr /
  *                 dtx. Without it: libopus 1.6.1, complexity 10, CBR, no DTX
+ *                 (`steam` runs the library's own 16-bit decoder too: see
+ *                 senderGate.rule)
  *   captureEq   : optional FIR (linear gains interpolated between points)
  *                 applied at codecRate before the gate and encoder
  *   decoderEq   : optional FIR applied to decoded audio at codecRate
- *   senderGate  : Steam's sender voice gate. A 20 ms frame above thresholdDb
- *                 (RMS, dBFS) is sent with the prerollMs before it and the
- *                 holdMs after it; other frames are not sent. Profiles
- *                 without it transmit continuously (push-to-talk engine
- *                 codecs).
+ *   senderGate  : Steam's sender voice gate. With rule 'steam' (the `steam`
+ *                 profile) a render runs Steam's own sender, read from its
+ *                 client (steam-sender.js: capture chunks, the mean of |x|
+ *                 at 1% of full scale or a peak at 15%, 100 ms kept, a 0.4 s
+ *                 hold), decodes to 16 bits with the library's opus_decode
+ *                 and Steam's decoder rules, and resamples each packet with
+ *                 FFmpeg's libswresample (vendor/swresample) as Steam's
+ *                 decoder does; the three numbers are then only the frame
+ *                 model below, for the tools that line a take up with it.
+ *                 Without a rule, the 20 ms frame model: a frame above
+ *                 thresholdDb (RMS, dBFS) is sent with the prerollMs before
+ *                 it and the holdMs after it; other frames are not sent.
+ *                 Profiles without a senderGate transmit continuously
+ *                 (push-to-talk engine codecs).
  *   voiceRate   : rate at which the engine receives decoded voice and runs
  *                 its auto-gain (128-sample blocks)
  *   mixer       : how voiceRate is converted to the 44.1 kHz mixer:
@@ -260,18 +271,28 @@ const PRESETS = {
 const CODEC_PROFILES = {
   steam: {
     displayName: 'Steam voice (Opus 24 kHz VBR, 32 kbps)',
-    // Steam's voice packets are libopus 1.1.x at its default complexity 10,
-    // 32 kbps VBR with DTX: the same frame sizes, DTX decisions and decoded
-    // spectrum as the SourceTV packets (tests/REFERENCE_2026.md).
+    // Steam's voice packets are libopus 1.1.x, 32 kbps VBR with DTX: the same
+    // frame sizes, DTX decisions and decoded spectrum as the SourceTV packets
+    // (tests/REFERENCE_2026.md). Steam sets no complexity, so the library's
+    // default, 9 (W3-09 section 3, finding 28); 8, 9 and 10 give the same
+    // packets (19,428 frames).
     codecRate: 24000, bitrate: 32000, application: 'voip', signal: 'voice',
-    encoder: { runtime: '1.1.5', complexity: 10, vbr: true, dtx: true },
+    encoder: { runtime: '1.1.5', complexity: 9, vbr: true, dtx: true },
     // Steam's capture resampler rolls the band edge off from 11.1 kHz.
     captureEq: {
       taps: 255,
       freqs:   [0, 11000, 11150, 11250, 11350, 11450, 11550, 11650, 11750, 11850, 12000],
       gainsDb: [0, 0,     -0.1,  -0.35, -0.9,  -2.2,  -3.4,  -4.8,  -6.6,  -7.8,  -8.5]
     },
-    senderGate: { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 },
+    // rule 'steam': a render sends as Steam's client does (steam-sender.js,
+    // findings 5, 12 and 28) and decodes as its decoder does (finding 29). The
+    // three numbers are the 20 ms frame model of finding 12, a fit: a frame
+    // over -39.5 dBFS RMS sent with the 120 ms before it and the 440 ms after.
+    // The render does not read them. They stay for the tools that line a take
+    // up with that model (reference.js, app/realtake.js: they find a take's
+    // spurts within a few frames, and reference.js scores the registered
+    // predictions), and for the live chain until W3-11b.
+    senderGate: { rule: 'steam', thresholdDb: -39.5, prerollMs: 120, holdMs: 440 },
     voiceRate: 44100, mixer: 'sinc', status: 'measured'
   },
   // Optional fullband profile, NOT a verified TF2-era or native-rate preset.
@@ -329,13 +350,14 @@ const CODEC_PROFILES = {
 /* -------------------------------------------------------------------------
  * Receiver voice path, identified from the 2026 test-signal takes:
  *
- *   autoGain  : Source's voice-channel auto-gain on int16 voice at 44.1 kHz.
- *               Per 128-sample block the target gain is
+ *   autoGain  : Source's voice-channel auto-gain on int16 voice at 44.1 kHz,
+ *               voice_avggain 0.5 and voice_maxgain 10 by default. Per block
+ *               of the engine's 128 samples the target gain is
  *                 min(maxGain, 32767 / (mean + avgGain * (peak - mean)))
- *               (voice_avggain 0.5 and voice_maxgain 10 by default). The
- *               next block steps toward it in truncated 1/128 fixed-point
- *               increments, scaled by voice_scale, and clamps to int16.
- *               audio.js receiverAutoGain() has the exact update.
+ *               and the next block ramps toward it in whole 1/128 steps of
+ *               the difference over 127, voice_scale entering twice; the
+ *               output clamps to int16. audio.js gainRule() has the exact
+ *               update and its block size (GAIN_BLOCK).
  *   outputFir : gentle post-mixer rolloff measured above 12 kHz
  *   volume    : output level. The recordings' ceiling (-16.5 dBFS) is the
  *               owner's `volume 0.15`, so this is a setting, not a fit.
@@ -348,7 +370,7 @@ const CODEC_PROFILES = {
  * ------------------------------------------------------------------------- */
 const VOICE_ENGINE = {
   mixRate: 44100,
-  autoGain: { blockSize: 128, avgGain: 0.5, maxGain: 10 },
+  autoGain: { avgGain: 0.5, maxGain: 10 },
   outputFir: [0.1, 0.8, 0.1],
   volume: 0.5,
   network: { burstMeanFrames: 2.2, lateFramesAt50ms: 0.032, underrunShare: 0.1 }
