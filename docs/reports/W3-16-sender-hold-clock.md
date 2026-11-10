@@ -305,13 +305,14 @@ Then the figures of 1 to 3 go into `PREDICTIONS.md`'s note (it has public figure
 
 ## Runs
 
-- `node tests/steam-sender.verify.mjs`: 106 passed.
-- `flock /tmp/tf2ve-heavy.lock pnpm test` on the head: see the hand-back (every suite passed before the hash
-  commit, and `render-stream` 270 passed after it).
+On `db9e250` (code and tests as at the head; later commits touch only this report), each under
+`flock /tmp/tf2ve-heavy.lock`:
+
+- `pnpm test`: exit 0. Among it: `steam-sender` 106 passed, `render-stream` 270 passed, 0 failed, `voice-channel`
+  128 passed, `verify.js` 249 passed, 0 failed.
 - `pnpm test:vendor`: the three builds match their recorded hashes.
-- Browser suite (`CHROMIUM_EXECUTABLE=… flock /tmp/tf2ve-heavy.lock node tests/browser.verify.js`): 231 passed on
-  `744b144`.
-- CI: see the hand-back.
+- The browser suite (with `CHROMIUM_EXECUTABLE` set): 231 passed.
+- CI (`tests`, `pnpm test:all`): success on `df117e8`, `0889e92`, `db9e250` and `6c69d59`.
 
 ## Not done
 
