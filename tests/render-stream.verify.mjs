@@ -1,8 +1,11 @@
 // A render made a piece at a time (TF2Audio.createRender, W2-02) against
 // the whole render (TF2Audio.process).
 //
-//   node tests/render-stream.verify.mjs            the checks
-//   node tests/render-stream.verify.mjs --hashes   print each case's hashes
+//   node tests/render-stream.verify.mjs                the checks
+//   node tests/render-stream.verify.mjs --hashes       print each case's hashes
+//   node tests/render-stream.verify.mjs --memory 60    the memory check alone:
+//     60 minutes streamed in 1 s chunks into one preallocated output must
+//     peak under source + output + 300 MB of RSS (heavy: run it on its own)
 //
 // Golden renders: GOLDEN holds the SHA-256 of process()'s WAV and of its
 // codecInfo for every case below. They were recorded from process() before
@@ -249,6 +252,32 @@ const infoHash = (info) => sha256(JSON.stringify(canonical(info)));
 const buffer = (samples, rate) => ({ sampleRate: rate, length: samples.length, numberOfChannels: 1, getChannelData: () => samples });
 const wavBytes = async (blob) => new Uint8Array(await blob.arrayBuffer());
 
+/* ---------------- the memory check (--memory) ---------------- */
+
+if (process.argv.includes('--memory')) {
+  const minutes = Number(process.argv[process.argv.indexOf('--memory') + 1]) || 60, rate = 48000, MB = 1048576;
+  const src = voice(minutes * 60, rate, 6);
+  const t0 = performance.now();
+  const render = await A.createRender({ sampleRate: rate, length: src.length, numberOfChannels: 1 }, PAGE);
+  const out = new Float32Array(render.outputLength);
+  let filled = 0;
+  for (let o = 0; o < src.length; o += rate) {
+    const y = await render.push(src.subarray(o, Math.min(src.length, o + rate)));
+    out.set(y, filled);
+    filled += y.length;
+  }
+  const end = await render.finish();
+  out.set(end.samples, filled);
+  filled += end.samples.length;
+  const seconds = (performance.now() - t0) / 1000, peak = process.resourceUsage().maxRSS * 1024;
+  const limit = src.byteLength + out.byteLength + 300 * MB;
+  check(`${minutes} minutes streamed in 1 s chunks peak under source + output + 300 MB of RSS`, filled === out.length && peak < limit,
+    `peak ${Math.round(peak / MB)} MB: source ${Math.round(src.byteLength / MB)} MB + output ${Math.round(out.byteLength / MB)} MB`
+    + ` + ${Math.round((peak - src.byteLength - out.byteLength) / MB)} MB; ${seconds.toFixed(0)} s (${(minutes * 60 / seconds).toFixed(1)}x real time)`
+    + `, ${end.codecInfo.spurts} spurts`);
+  process.exit(failed ? 1 : 0);
+}
+
 /* ---------------- 1. golden renders ---------------- */
 
 console.log('\n[1] process() gives the recorded renders');
@@ -378,6 +407,30 @@ for (const [name, extra] of [['demo voice as received', { retime: true }], ['ste
   catch (error) { diff = `threw ${error.message}`; }
   check(`${name}, with ${Object.keys(extra).join(', ')} (which process() ignores there): streamed, and the recorded render`,
     diff === null && sha256(await wavBytes(whole.blob)) === GOLDEN[name][0], diff || '');
+}
+
+// Renders pushed in turn share the codec modules, not their state.
+{
+  const group = ['steam, gate on at -30 dBFS', 'steam, loss 15%, jitter 50 ms, net_split 40 ms', 'celt_22, gate on, loss 15%, jitter 300 ms',
+    'speex, gate on, loss 15%, jitter 300 ms'].map(name => CASES.find(c => c.name === name));
+  const runs = await Promise.all(group.map(c => A.createRender({ sampleRate: c.rate, length: sources.get(c.name).length, numberOfChannels: 1 }, c.opts)));
+  const outs = group.map(() => []);
+  for (let o = 0; o < Math.max(...group.map(c => sources.get(c.name).length)); o += 9600) {
+    for (let k = 0; k < group.length; k++) {
+      const x = sources.get(group[k].name);
+      if (o < x.length) outs[k].push(await runs[k].push(x.subarray(o, Math.min(x.length, o + 9600))));
+    }
+  }
+  const ends = [];
+  for (const r of runs) ends.push(await r.finish());
+  const same = group.map((c, k) => {
+    const parts = [...outs[k], ends[k].samples], got = new Float32Array(parts.reduce((t, y) => t + y.length, 0));
+    parts.reduce((o, y) => { got.set(y, o); return o + y.length; }, 0);
+    const want = renders.get(c.name).samples;
+    return got.length === want.length && Buffer.compare(Buffer.from(got.buffer), Buffer.from(want.buffer, want.byteOffset, want.byteLength)) === 0
+      && isDeepStrictEqual(ends[k].codecInfo, renders.get(c.name).codecInfo);
+  });
+  check('four renders pushed in turn (two Opus, CELT, Speex) each give their own process() render', same.every(Boolean), same.join(' '));
 }
 
 console.log('\n[3] What createRender reports, refuses and leaves alone');
