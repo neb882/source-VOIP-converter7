@@ -22,15 +22,15 @@
   "in_flight": [
     {
       "order": "W3-05-receiver-gain",
-      "state": "building",
+      "state": "last fixes",
       "branch": "claude/w3-05-receiver-gain",
-      "note": "The engine's gain rule in process() and the stream; re-records the hashes of cases with the gain on. Private acceptance by the orchestrator: tests/gain-exact.mjs --takes, 0 of 291,840 samples."
+      "note": "Built; the private acceptance passes on each head (Set H through tests/gain-exact.mjs: 0 of 291,840 samples differ); the accuracy table on all takes reads as before. A second read of the gain function (2026-11-10) settled what the recording cannot see, all READ: every float operation is single precision, one at a time, in the app's order; the per-sample product is a 32-bit multiply that wraps (the app now wraps too; it matters only when maxgain x scale squared passes about 512); the reset writes unity for the first block whatever voice_scale is and the three settings are read only at a reset. Review: an implementation written from the order agreed on 10,000 seeded cases and reproduced all 47 golden hashes; a 30-minute render is as fast as before. The builder is closing the last two low points (the live chain's window of sent flags, four test gaps). Then pull request."
     },
     {
-      "order": "W3-02b-voice-timeline",
-      "state": "building",
-      "branch": "claude/w3-02b-voice-timeline",
-      "note": "steam-sender.js (Steam's chunk rule, seeded clock) and createTimeline in voice-channel.js; new files and one module only. The orchestrator runs the private checks (retiming.mjs --engine)."
+      "order": "W3-13-steam-resampler",
+      "state": "review; merge held for the owner",
+      "branch": "claude/w3-13-steam-resampler",
+      "note": "Built (head c1f9255, CI green, 41 checks): the port equals the native library sample for sample under each of the four kernels (all sixteen reference hashes confirmed natively); the default kernel renders 30 minutes in about 15 s. The orchestrator's private run: Set G's logged packet sizes through the port give the logged count for all 2,372 non-empty packets, the 2756 and 2757 in their order, when the four sections of the one log run as one stream (with each section as a new stream one count differs): Steam's decoder kept its resampler's state across the reconnects between those sections. With a reviewer. The MERGE waits for the owner's yes to a modified LGPL file."
     }
   ],
   "next": [
@@ -149,6 +149,7 @@
     "W3-02a voice-channel: merged 2026-11-10 (pull request 9, main 1ee4968). voice-channel.js is the game's receiver queue as a module, with the log tool and replay; 101 checks; private runs: 0 mismatching ticks of 9,808 on the owner's six log sections and the reference fixture event for event; nothing loads it yet.",
     "The plan after W3-09: merged 2026-11-10 (docs). Orders W3-02 revision 3, W3-11 a and b, W3-12 a and b, W3-13, W3-14; docs/reports/W3-11-plan.md has the order of work.",
     "Row R: tests/REFERENCE_2026.md brought up to date 2026-11-10 (findings 22 to 31, corrections to 2, 4, 5, 8, 10, 11, 12, 14, 15, 16, 18, 19, 21, the Model table in four columns). Left for code orders: comments in constants.js that still say complexity 10 and Steam's capture resampler (W3-11a); tests/accuracy.takes.json still renders Listener B at volume 0.077 (to be re-measured at 0.11 with voice_scale 0.77 when W3-05 has merged).",
-    "W3-12a speex-102: merged 2026-11-10 (pull request 10, main 25dc00e). vendor/speex-1.0.2 matches a native build of the pinned public source bit for bit (packets, floats, 16-bit, with and without a reset); 30 checks; Speex 1.0 and 1.0.2 give identical output at the game's settings; the decoder's reset is partial and part b must reset with request 26, not make a new codec. Nothing loads it yet."
+    "W3-12a speex-102: merged 2026-11-10 (pull request 10, main 25dc00e). vendor/speex-1.0.2 matches a native build of the pinned public source bit for bit (packets, floats, 16-bit, with and without a reset); 30 checks; Speex 1.0 and 1.0.2 give identical output at the game's settings; the decoder's reset is partial and part b must reset with request 26, not make a new codec. Nothing loads it yet.",
+    "W3-02b voice-timeline: merged 2026-11-10 (pull request 11, main f58d9a7). steam-sender.js (Steam's chunk rule, seeded clock) and createTimeline in voice-channel.js; reproduces the plan's reference schedule exactly; a third model agreed on 23,000 seeded cases. Private run (retiming.mjs --engine, 200 seeds, 300 fps): on the speech take 58% of transitions right and a start error of 87 ms (bar 45% and 110 ms; the fitted queue 100 ms, the flat rule 134 ms, none 150 ms); on net_baseline 87 ms against 88 for none; on the tone takes none scores lower (46 against 77 ms on take1_default), which is what a mean error does to an honest random model of a rare shift. W3-02c is not held. Before W3-02c starts its 10d ranges need the planner: the builder measured the spurt after a 900 ms pause 198 to 318 ms early, and 82 to 186 ms dropped, and a 300 ms pause never opens a spurt (it is inside the 0.4 s hold)."
   ]
 }
