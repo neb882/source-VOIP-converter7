@@ -18,7 +18,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HASHES, STREAMS, mulberry32, randomStreams, streamPackets } from '../swresample.verify.mjs';
+import { EDGE_STREAMS, HASHES, STREAMS, mulberry32, randomStreams, streamPackets } from '../swresample.verify.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -66,7 +66,7 @@ try {
     edge.push({ name: `small packets ${k}`, packets: Array.from({ length: 60 }, () => noise(Math.floor(draw() * 201), draw)) });
   }
   const streams = [
-    ...Object.keys(STREAMS).map((name) => ({ name, packets: streamPackets(name) })),
+    ...[...Object.keys(STREAMS), ...Object.keys(EDGE_STREAMS)].map((name) => ({ name, packets: streamPackets(name) })),
     ...randomStreams(50).map((packets, i) => ({ name: `random ${i + 1}`, packets })),
     ...edge,
   ];
@@ -112,10 +112,14 @@ try {
         }
       });
       if (diff) { failed++; console.log(`${kernel} ${s.name}: the port differs, first at ${diff}`); } else portOk++;
+      const h = hash.digest('hex');
       if (STREAMS[s.name]) {
-        const h = hash.digest('hex');
         if (h === HASHES[kernel][s.name]) refsOk++;
         else { failed++; console.log(`${kernel} ${s.name}: the library gives ${h}, the order ${HASHES[kernel][s.name]}`); }
+      }
+      if (EDGE_STREAMS[s.name] && kernel === 'fma3' && h !== EDGE_STREAMS[s.name].hash) {
+        failed++;
+        console.log(`fma3 ${s.name}: the library gives ${h}, the suite records ${EDGE_STREAMS[s.name].hash}`);
       }
     }
     if (off !== raw.length) { failed++; console.log(`${kernel}: output left over`); }

@@ -39,6 +39,15 @@ export const STREAMS = {
   D: { seed: 4, square: true, sizes: [3840, 1440, 1440, 480, -1500, 1440], counts: [7056, 2646, 2646, 882, 2757, 2646] },
 };
 
+// Streams Steam does not send: a first packet too short for the library to
+// mirror the start at once (it waits for 33 inputs) or empty (its flush then
+// adds nothing, so nothing after is late). Hashes from the native library, fma3.
+export const EDGE_STREAMS = {
+  E: { seed: 5, sizes: [0, 480, 1440], counts: [0, 853, 2646], hash: '33e9bc8a3d7ea6a9b886db8c1582b19c1b117258cd550c9effc785d6ae345c61' },
+  F: { seed: 6, sizes: [20, 480, 1440], counts: [0, 908, 2646], hash: '2017e939bb945143c1825422b84931f550883a14e35746d3a38f7a3398250c11' },
+  G: { seed: 7, sizes: [32, 480, 1440], counts: [59, 882, 2646], hash: 'deb4ead3a5867e8ccc82807b8ddbdb997c8dcbbc4682339ec55b865a6406c652' },
+};
+
 export const HASHES = {
   fma3: { A: '69e8e07f7477e544b8270e0cb46a3a5d2174f2e69cf672dd7f7966ded3770fd2',
     B: 'e04a83224d7fc0b116a77b828b840b05e07c55268a5e624dfc4a11f9a2d79790',
@@ -59,7 +68,7 @@ export const HASHES = {
 };
 
 export function streamPackets(name) {
-  const s = STREAMS[name];
+  const s = STREAMS[name] || EDGE_STREAMS[name];
   const draw = mulberry32(s.seed);
   return s.sizes.map((n) => {
     const p = new Int16Array(Math.abs(n));
@@ -168,6 +177,14 @@ async function main() {
   const limits = outputs.fma3.D.reduce((n, v) => n + (v === 32767 || v === -32768), 0);
   check('fma3 stream D: 6833 of its 18633 samples at a 16-bit limit', outputs.fma3.D.length === 18633 && limits === 6833,
     `${limits} of ${outputs.fma3.D.length}`);
+
+  // The start and the flush on first packets Steam does not send.
+  for (const [name, e] of Object.entries(EDGE_STREAMS)) {
+    const parts = run('fma3', streamPackets(name));
+    const counts = parts.map((p) => p.length).join(' ');
+    check(`fma3 stream ${name} (a first packet of ${e.sizes[0]}): the native library's hash and counts`,
+      sha256(parts) === e.hash && counts === e.counts.join(' '), counts);
+  }
 
   // The kernels differ in the last bit of a few samples at full scale.
   for (let a = 0; a < 4; a++) {
