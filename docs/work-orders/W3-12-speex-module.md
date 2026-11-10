@@ -128,7 +128,9 @@ There is nothing private to run.
   tone, so the test is on noise): seeded white noise at -20 dBFS, the gain off, the render's level in the band
   4.3 to 4.9 kHz is within 8 dB of its level from 0.7 to 2.7 kHz (the codec sees that band at 3.1 to 3.6 kHz,
   inside its own), where main's profile is at least 15 dB down there (give both figures in the report; measure on the
-  11025 Hz voice signal or on a render at 11025 Hz, so that the mixer's images are not in the band); **nothing is shifted**: a train of pulses 200 a second (one sample of
+  11025 Hz voice signal or on a render at 11025 Hz, so that the mixer's images are not in the band; these two
+  figures are the planner's estimate and were not tried: **if the check fails on a build that passes
+  everything else, report both figures and stop**, do not tune the band or the bound); **nothing is shifted**: a train of pulses 200 a second (one sample of
   0.5 every 55.125 samples at 11025 Hz, rounded) comes out with its strongest autocorrelation lag between 4.9
   and 5.1 ms; a loud source gives wrapped samples in the render; `createRender` equals
   `process()`.
@@ -145,7 +147,10 @@ There is nothing private to run.
 before the last push). Nothing else. **b:** may touch `constants.js`, `opus-codec.mjs`, `audio.js` (as said),
 `index.html`, `app/console.js`, `app/render.js` (the codec's name in the render's summary, about line 282:
 "Speex 1.0.2"), `live.js` and `live-worker.js` (only where they name the codec or its frame), `sw.js`,
-`README.md` (the profile row; the "Files and licensing" table and its notice line, which name
+`README.md` (the profile row; the "Files and licensing" table and its notice line, **which W3-13 also edits:
+part b's README edit is made after W3-13 has merged, or, if W3-13 is still in review when part b is otherwise
+done, part b merges first and W3-13 merges main in and keeps both changes; the orchestrator says which in the
+brief**; the notice line names
 `vendor/speex/COPYING.speex`; the build commands near line 327, which name `tests/speex/build.mjs` and
 `native.mjs`; the Tests list), `tests/LEGACY_CODECS.md`, `tests/verify.js`, `tests/reference.verify.mjs` (its
 Speex case passes `frameSeconds: .02`: it becomes `160 / 11025`, and the check's title says 14.5 ms frames),
