@@ -7,9 +7,8 @@ W2-02, W3-05 and W3-06 have merged and when no other `audio.js` order is open. *
 (effort high), then `tf-reviewer`. **Branches:** `claude/w3-12a-speex-102`, `claude/w3-12b-speex-profile`, from
 `main`. **Worktrees:** given in the brief. **Time budget:** 1 day for a, half a day for b.
 
-**W3-06's point 5** (the Speex profile gets `quality: 3`, stays at 8000 Hz, and is labelled unverified) was
-written before the module was read. This order replaces it. If W3-06 is built first, its point 5 is built as
-written and W3-12b then overwrites it; the orchestrator may strike it from W3-06's brief.
+*Revised 2026-11-10 after the plan's review (findings 19 to 21; `docs/reports/W3-11-plan.md`, "The review").*
+W3-06 no longer touches the Speex profile (decided 2026-11-10): this order is the only one that does.
 
 ## Why
 
@@ -73,8 +72,8 @@ report's reading point by point.
   - **Hashes from the native build:** the SHA-256 of the packets and of the decoded 16-bit output for the
     signals above, recorded from `native.mjs` (the test holds them as constants; the builder records them once
     and the reviewer re-runs `native.mjs` to confirm them).
-  - **Section 5, point by point:** every packet is 20 bytes; the encoder reports sub-mode 3 and 8000 bit/s
-    (request 19) and complexity 2 (request 17); the decoder reports enhancement on (request 1); the frame is
+  - **Section 5, point by point:** every packet is 20 bytes; the encoder reports sub-mode 3 (request 7, get
+    mode), 8000 bit/s (request 19) and complexity 2 (request 17); the decoder reports enhancement on (request 1); the frame is
     160; the bit-stream's first five bits of every packet say narrowband sub-mode 3.
   - **It is 1.0.2 and not a neighbour:** the packets differ from those of the 1.2.1 module (`vendor/speex`) on
     the speech-like signal, while 1.2.1's decoder still reads them (the bit-stream is the same): the decoded
@@ -125,9 +124,13 @@ There is nothing private to run.
 ### The builder runs
 
 - `pnpm test` passes, with checks that fail when broken (say how): the profile table's expectations; a render's
-  `codecInfo` says 11025, 14.51 ms, 20 bytes, Speex 1.0.2; a 5 kHz sine at 11025 Hz comes through (within 6 dB)
-  and a 3 kHz sine is not shifted (its peak stays at 3 kHz in the render: the proof that nothing is resampled
-  to 8000 and back at the wrong rate); a loud source gives wrapped samples in the render; `createRender` equals
+  `codecInfo` says 11025, 14.51 ms, 20 bytes, Speex 1.0.2; **the band** (a codec at 8 kbit/s does not hold a pure
+  tone, so the test is on noise): seeded white noise at -20 dBFS, the gain off, the render's level in the band
+  4.3 to 4.9 kHz is within 8 dB of its level from 0.7 to 2.7 kHz (the codec sees that band at 3.1 to 3.6 kHz,
+  inside its own), where main's profile is at least 15 dB down there (give both figures in the report), and
+  5.6 to 6.5 kHz is at least 30 dB down; **nothing is shifted**: a train of pulses 200 a second (one sample of
+  0.5 every 55.125 samples at 11025 Hz, rounded) comes out with its strongest autocorrelation lag between 4.9
+  and 5.1 ms; a loud source gives wrapped samples in the render; `createRender` equals
   `process()`.
 - **Golden hashes:** the `speex` cases only, re-recorded in a commit of their own; every other hash unchanged.
 - The browser suite (labels, a render, the live chain with the profile, offline).
@@ -138,11 +141,19 @@ There is nothing private to run.
 ## Files
 
 **a:** may add `tests/speex102/`, `vendor/speex-1.0.2/`, `tests/speex102.verify.mjs`; may touch
-`tests/vendor-opus.mjs`, `package.json`. Nothing else. **b:** may touch `constants.js`, `opus-codec.mjs`,
-`audio.js` (as said), `index.html`, `app/console.js`, `sw.js`, `README.md`, `tests/LEGACY_CODECS.md`,
-`tests/verify.js`, `tests/render-stream.verify.mjs`, `tests/browser.verify.js`, `tests/vendor-opus.mjs`,
-`package.json`, `tests/predictions/PREDICTIONS.md` (a dated note if a hashed file changes); may remove
-`vendor/speex/`, `tests/speex/`, `tests/speex.verify.mjs`. May not touch: `demo.js`, `reference.js`,
+`tests/vendor-opus.mjs`, `package.json` (the `test` script: one line, shared with W3-13 and W3-02b; merge main in
+before the last push). Nothing else. **b:** may touch `constants.js`, `opus-codec.mjs`, `audio.js` (as said),
+`index.html`, `app/console.js`, `app/render.js` (the codec's name in the render's summary, about line 282:
+"Speex 1.0.2"), `live.js` and `live-worker.js` (only where they name the codec or its frame), `sw.js`,
+`README.md` (the profile row; the "Files and licensing" table and its notice line, which name
+`vendor/speex/COPYING.speex`; the build commands near line 327, which name `tests/speex/build.mjs` and
+`native.mjs`; the Tests list), `tests/LEGACY_CODECS.md`, `tests/verify.js`, `tests/reference.verify.mjs` (its
+Speex case passes `frameSeconds: .02`: it becomes `160 / 11025`, and the check's title says 14.5 ms frames),
+`tests/render-stream.verify.mjs`, `tests/browser.verify.js`, `tests/vendor-opus.mjs`, `package.json`,
+`tests/predictions/PREDICTIONS.md` (a dated note if a hashed file changes); may remove `vendor/speex/`,
+`tests/speex/`, `tests/speex.verify.mjs`. Before the last push, `grep -rn "1\.2\.1\|vendor/speex/" --include=*.js
+--include=*.mjs --include=*.html --include=*.md . ` outside `docs/`, `node_modules/` and `tests/REFERENCE_2026.md`
+finds only what the report explains. May not touch: `demo.js`, `reference.js`,
 `tests/REFERENCE_2026.md`, `tests/predictions/predictions.json`, `docs/PROGRESS.json`, the other `vendor/`
 folders.
 
