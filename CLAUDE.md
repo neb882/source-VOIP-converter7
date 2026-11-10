@@ -48,8 +48,10 @@ Each rule's reason is in brackets, so a rule can be dropped once its reason no l
   from the attribution trailer the session's instructions require on each commit.
 - Main is fast-forwarded or merged locally and pushed, never merged with GitHub's button or API. [GitHub signs such a
   merge with the owner's account email.]
-- No leaked engine source: public sources and measurements only. [The repository is public under the owner's name,
-  and its claims rest on being identified from recordings and public packets.]
+- No leaked engine source. Sources are measurements, public documentation, and the game's own shipped files as the
+  owner has them (console help, binaries); nothing of those files is copied into a repository, only what was learnt
+  from them, with where it was read. [The repository is public under the owner's name. The owner allowed reading
+  their own install's files on 2026-11-10; leaked source is someone else's code distributed without permission.]
 - No Valve art, footage or logos. It is a fan project.
 - No uploads and no runtime CDN: everything runs in the browser from this folder. [That is the app's promise.]
 - Deterministic: the same decoded PCM and settings give the same samples (seeded randomness). [The tests and the
