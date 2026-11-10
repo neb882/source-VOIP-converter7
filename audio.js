@@ -1150,11 +1150,13 @@
    *   steamUptime:  `steam` only: seconds the sender's Steam had been running,
    *                 0 to 4,000,000; its float clock sets the hold's real
    *                 length (W3-16). null for the sender's own   [777600]
-   *   onDecoded, onResampled, onGain, swrKernel: tests only, `steam` only:
-   *                 each message's 16-bit samples as given to the
-   *                 resampler; each packet() result; the voice-rate signal
-   *                 after the gain; a resampler kernel in place of the
-   *                 module's default
+   *   onDecoded, onResampled, swrKernel: tests only, `steam` only: each
+   *                 message's 16-bit samples as given to the resampler;
+   *                 each packet() result; a resampler kernel in place of
+   *                 the module's default
+   *   onGain:       tests only, every profile: the voice-rate signal after
+   *                 the gain (the auto-gain's, or voice_scale and the clip
+   *                 with agc off), as it reaches the mixer
    *   agc:          receiver auto-gain (false = unity gain)             [true]
    *   retime:       TF2's early talk-spurt starts (finding 19)          [false]
    *   avgGain:      voice_avggain, mean (0) to peak (1) normalization   [0.5]
@@ -1317,7 +1319,6 @@
         for (let i = 0; i < samples.length; i++) samples[i] *= voiceScale;
         samples = hardClip(samples, INT16_FULL_SCALE);
       }
-      opts.onGain?.(samples);
     } else if (autoGain) {
       samples = resampleSinc(samples, codecRate, codec.voiceRate);
       // With the gate on, the gain knows which blocks were decoded; with
@@ -1330,6 +1331,9 @@
       for (let i = 0; i < samples.length; i++) samples[i] *= voiceScale;
       samples = hardClip(samples, INT16_FULL_SCALE);
     }
+    // The mix point, on every profile (a test hook): the gain's output at
+    // the voice rate, as it reaches the mixer.
+    if (typeof opts.onGain === 'function') opts.onGain(samples);
 
     /* ---- 5) Mixer at 44.1 kHz: rate conversion, room DSP, output ---- */
     samples = codec.mixer === 'linear'
@@ -2318,7 +2322,6 @@
           return hardClip(y, INT16_FULL_SCALE);
         }));
       }
-      if (typeof opts.onGain === 'function') stages.push(sampleStage((x) => { opts.onGain(x); return x; }));
     } else if (autoGain) {
       stages.push(sincStage(codecRate, codec.voiceRate, codecLength));
       // decoded() as process() builds it. The codec stage fills its frame
@@ -2341,6 +2344,8 @@
         return hardClip(y, INT16_FULL_SCALE);
       }));
     }
+    // The mix point, on every profile, as process() has it.
+    if (typeof opts.onGain === 'function') stages.push(sampleStage((x) => { opts.onGain(x); return x; }));
 
     /* ---- 5) Mixer at 44.1 kHz and the output stage ---- */
     stages.push(codec.mixer === 'linear' ? linearStage(codec.voiceRate, mixRate, voiceLength)

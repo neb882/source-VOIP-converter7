@@ -354,9 +354,79 @@ const GOLDEN = {
   "steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)": ["ae1adaa1c2c0358521e7f51c760a80a6ecbc3bfbf792fe7d73106f02dd482369", "6b8a3789a23f3a9878275888868146062fab39c7c8b8f159811b2d23b61d9328"]
 };
 
+// The control of W3-10 (docs/work-orders/W3-10-output-stage.md, "Golden
+// hashes"): the SHA-256 of each case's gain output, the Float32Array that
+// process()'s onGain hook is handed at the mix point (every profile since
+// W3-10's first commit), as little-endian bytes. Recorded with that hook
+// added and nothing else changed, before the output stage was rebuilt, so
+// a later change to the stages after the mix point can show that what
+// reaches the mix did not move. Never re-record them for a change to the
+// output stage; a change before the mix point re-records them in a commit
+// of its own that says why.
+const GAIN_GOLDEN = {
+  "steam": "58c2c5c4a9d2bcfaa3920f0f4ed0a3db6046ac9967dfbfbe1beb288566059512",
+  "steam_48": "67ae552c948f640673b3cc9e5f967228dc96f40010d21300b844a5d1e97b98dc",
+  "celt_22": "21aed940ff7c26e1d4e7042c4352b2dc04319d4e55328d011203cafc96841152",
+  "celt_44": "3ddd31b3aaf82ab940d5cdbed58056ea89819b43097a04bc7c776f03eb342837",
+  "speex": "e53997b91477f7278dc990f977737720b32d6c1979b08b5bba79e71a5d47eb5a",
+  "steam, gate off": "47a1391636a1a677949598d1896c4d98d817c6995564afe8158946f55a8e634e",
+  "steam, gate on at -30 dBFS": "7189011696a829fd20bb67fe9bb909cee0b4bb2e27877b32e41745dbab5fe9a5",
+  "steam, codec bypassed": "14902e758a56117e56e389f2f260f101ed6cdbdd4c36a8c93a95764127c691c2",
+  "steam, high-pass 250 Hz and low-pass 3500 Hz": "a48a816f067b42dc2d1fb46c7d7522324946742d286a99a07fb58ce805fce6a2",
+  "steam, mic gain 4 (capture clipping)": "80d66d33e1f5d49153ef636e84fe2b8c95c57522856c00fa39d96396e05311b9",
+  "steam, auto-gain off": "7793f0856b6cadd6db810bdafeebf9d817a41c277a80e0c6222f432e37f1bffe",
+  "steam, voice_scale 0.5": "e701a59e4d62539721316848e29a9a99222cb19dbcfb98948ca65e2c52fac913",
+  "steam, voice_avggain 0.25": "789ddec205abc69e971be4ad56bc34dbcf40e80f78032e1a54bbf034f7b39cb1",
+  "steam, loss 15%, jitter 50 ms, net_split 40 ms": "d4c36c58acc3ecdee69a41985419aa5c15c5bc02163d5f155fd227bdf6c2dbec",
+  "steam, source at 44100 Hz": "b484bf7e8e0e35f146190dbea87a085c9597cc73ec3842526e937c0c4761d3ef",
+  "steam, source at 96000 Hz": "ff5a5f15c5fbcb5b2212ca8223be0c6b955010cfc981184bb2d36b82bf38d580",
+  "steam, source at 22050 Hz": "98732c1bcae5c82d89367982ce6bcda4f47c503053cfdf72a761965b94c6d9d1",
+  "steam, 1,000,003 samples (a prime) at 48 kHz": "59a59a3dd7747d6a23dfc6ad29564ac91f80f570904241d640c93a71353e02c5",
+  "demo voice as received": "2c27d598935f09f2b919fabd94146d19b2479f080cea0ade3821b5e374383102",
+  "steam, 1 s pushed a sample at a time": "6dcad2dc5ace8809bf2a7be7e3f870e6bf8b44f995c8fbeb0343d1e4ccad4823",
+  "steam, six minutes": "6e8b9dac852070d13f73ec4aadaafb174332c2aaf20e3605ac8df7d0d83d3882",
+  "celt_22, gate on, loss 15%, jitter 300 ms": "eb7d94043f8200262342124bd60b0d620cc82028c9de80df28b836b7b5531146",
+  "celt_44, gate on, loss 15%": "a887ab28283d73ee61018636afe804942bf998c59a6ff75e8ec01f8885a40c6b",
+  "speex, gate on, loss 15%, jitter 300 ms": "52b05aa5284e805ed48158fad683aaf1d0e64b7cd4b704112e7a7b82e46626a3",
+  "steam, jitter 500 ms (late frames play as silence)": "9d4c60bf861872574a4d7336f7eb78f1ae902c095a3a0b1c5d5333ce19ed9d89",
+  "steam, snd_bits 4 (SILK frames)": "df32d452cba5f765a32bb650cf077618c3a8b5ee804f61cfc467e716bf7f3643",
+  "steam_48, loss 10%, jitter 100 ms, snd_bits 10": "60a29df9af7e58794da2e2a0f463a879d3e534cb393ef1fb4adf70c235145940",
+  "steam, source at 24 kHz": "0923ce2fff4d58135bee8981879196c019360e12b0b36f91ff65a4364df4101b",
+  "celt_22, source at 22.05 kHz": "e3ddb3a41b93f0ba38532d993f31784015e7959968a517881dcf372f27349b43",
+  "speex, source at 11.025 kHz": "c6c570174516fa79283235a051ac364c7acc4c78a82eb5b17a1873d27ea4bd0e",
+  "speex, source at 8 kHz": "50d2def8b103ab07721ad239121e696f7f14797548632fbf4425fa30355aff1e",
+  "steam, volume 1, voice_maxgain 3": "461e531f514ea927cf1102f1e50478ae33c0696fc40814c460eee67fa10204b4",
+  "steam, volume 0.3 (a volume whose product rounds)": "92643715eabd05accfc09b983921e388c64f5ae6127c53747a69d059292f0c32",
+  "steam, auto-gain off, voice_scale 3": "2f2373fd6de358832a5ad6178ebce324de299262c3f4b1c2fdd303cca02ac1b2",
+  "steam, dsp_room 1 (no effect)": "92643715eabd05accfc09b983921e388c64f5ae6127c53747a69d059292f0c32",
+  "steam, custom room at mix 0 (no effect)": "92643715eabd05accfc09b983921e388c64f5ae6127c53747a69d059292f0c32",
+  "odd options": "52c76c0135b7667233f516c2f1c2991e44b812b4c4c86f5b4a933120634ba33f",
+  "test profile with a decoder EQ": "9356252def077c6f884a029f57b71d7a09095ad8cf9cafbeced8b8cf6b54a033",
+  "test position with a low-pass": "92643715eabd05accfc09b983921e388c64f5ae6127c53747a69d059292f0c32",
+  "steam, empty source": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "steam, gate off, loss 80%, seed 1 (long runs lost inside a spurt)": "d172def5fdf4f1901269da8cf46391e3aa0a9d7167af16d7d632fd2ff0c6e8c5",
+  "steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)": "2d23678c8e2f9ddcbb2f40622353a822784ee86b70d82cf251c37a85f8eab237",
+  "celt_22, one sample at 22.05 kHz": "7ec2225478271c68195bba12ee36ff65c7e706f0886d0b05a86e8b2d18d7bebb",
+  "speex, 100 samples at 96 kHz": "eae3fbcabcc943196634b7c1dfd48940c62e91f2c42abe4725845d49739891b7",
+  "steam, 192004 samples at 24000 Hz (an output length of 352807.35)": "a82b7c82a2715817377f21d35c03ecb152e2c082f9ad51aa281c4ce5cae3ff00",
+  "steam, 256007 samples at 32000 Hz (an output length of 352809.65)": "24ea514ae6b60a115046b478043e144b0ee8d09bafcccccc3410602388b6d9b9",
+  "steam, 302401 samples at 37800 Hz (an output length of 352801.17)": "a73c7d15d47d6d0b9a85b8fa2919ee11b74f2ade5306e9fa2dda588eead2b9a7",
+  "steam, 88203 samples at 11025 Hz (an output length of 352812.00)": "bd2d74515725195f67c70487fdb5a488f79ca5db15e9a84299386a34be102db8",
+  "steam, silent but for a quarter frame of sine at the end": "7c083cfbf0884b8b9232667bf60221dc226ae42757cd61b4e1fb7afc770f1ef1",
+  "steam_48, silent but for a quarter frame of sine at the end": "7c083cfbf0884b8b9232667bf60221dc226ae42757cd61b4e1fb7afc770f1ef1",
+  "demo voice as received, past full scale": "05a8491b26e4add98f106914427ab6f23bef798c32cb5ba8293c4fa37ba1f1a5"
+};
+
 /* ---------------- helpers ---------------- */
 
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+const f32Bytes = (x) => new Uint8Array(x.buffer, x.byteOffset, x.byteLength);
+// The pieces an onGain hook was handed, joined.
+const joined = (parts) => {
+  const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+  parts.reduce((o, p) => { out.set(p, o); return o + p.length; }, 0);
+  return out;
+};
 // codecInfo as JSON with sorted keys and typed arrays as { Type: [values] }.
 function canonical(value) {
   if (ArrayBuffer.isView(value)) return { [value.constructor.name]: Array.from(value) };
@@ -397,25 +467,34 @@ if (process.argv.includes('--memory')) {
 /* ---------------- 1. golden renders ---------------- */
 
 console.log('\n[1] process() gives the recorded renders');
-const sources = new Map(), renders = new Map();
-const hashLines = [];
+const sources = new Map(), renders = new Map(), gains = new Map();
+const hashLines = [], gainLines = [];
 for (const c of CASES) {
   const samples = c.make();
   sources.set(c.name, samples);
-  const t0 = performance.now();
-  const whole = await A.process(buffer(samples, c.rate), c.opts);
+  const t0 = performance.now(), gained = [];
+  const whole = await A.process(buffer(samples, c.rate), { ...c.opts, onGain: (g) => gained.push(Float32Array.from(g)) });
   const seconds = (performance.now() - t0) / 1000;
   renders.set(c.name, whole);
-  const wav = sha256(await wavBytes(whole.blob)), info = infoHash(whole.codecInfo);
+  gains.set(c.name, joined(gained));
+  const wav = sha256(await wavBytes(whole.blob)), info = infoHash(whole.codecInfo), gain = sha256(f32Bytes(gains.get(c.name)));
   hashLines.push(`  ${JSON.stringify(c.name)}: [${JSON.stringify(wav)}, ${JSON.stringify(info)}],`);
+  gainLines.push(`  ${JSON.stringify(c.name)}: ${JSON.stringify(gain)},`);
   if (printHashes) { console.log(hashLines[hashLines.length - 1]); continue; }
   const golden = GOLDEN[c.name];
   check(`${c.name}: process() gives the recorded WAV and codecInfo`, golden && golden[0] === wav && golden[1] === info,
     golden ? `${(samples.length / c.rate).toFixed(1)} s in ${seconds.toFixed(1)} s, ${whole.codecInfo.spurts ?? 0} spurts`
       : `no recorded hash; this run gives ${wav} ${info}`);
+  check(`${c.name}: the gain's output (onGain, called once) is the recorded one`, gained.length === 1 && GAIN_GOLDEN[c.name] === gain,
+    GAIN_GOLDEN[c.name] ? `${gains.get(c.name).length} samples at the voice rate` : `no recorded hash; this run gives ${gain}`);
 }
-if (printHashes) process.exit(0);
-check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every(name => renders.has(name)));
+if (printHashes) {
+  console.log('\nThe gain\'s output (GAIN_GOLDEN):');
+  for (const line of gainLines) console.log(line);
+  process.exit(0);
+}
+check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every(name => renders.has(name))
+  && Object.keys(GAIN_GOLDEN).length === CASES.length && Object.keys(GAIN_GOLDEN).every(name => renders.has(name)));
 
 // The cases exercise what their names say.
 {
@@ -536,13 +615,20 @@ async function difference(whole, got) {
   if (got.end.realOpus !== whole.realOpus) return 'realOpus differs';
   return null;
 }
-console.log('\n[2] createRender, fed in chunks, gives process()\'s samples (bit for bit), WAV and codecInfo');
+// The same at the mix point: the pieces createRender's onGain is handed,
+// joined, are process()'s gain output, bit for bit.
+const sameBits = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(f32Bytes(a)), Buffer.from(f32Bytes(b))) === 0;
+console.log('\n[2] createRender, fed in chunks, gives process()\'s samples (bit for bit), WAV and codecInfo, and its gain output');
 for (const c of CASES) {
   const whole = renders.get(c.name), samples = sources.get(c.name);
   for (const plan of c.plans) {
-    const t0 = performance.now();
+    const t0 = performance.now(), gained = [];
     let got, diff;
-    try { got = await streamed(c.rate, samples, c.opts, plan); diff = await difference(whole, got); }
+    try {
+      got = await streamed(c.rate, samples, { ...c.opts, onGain: (g) => gained.push(Float32Array.from(g)) }, plan);
+      diff = await difference(whole, got);
+      if (!diff && !sameBits(joined(gained), gains.get(c.name))) diff = 'the gain\'s output (onGain) differs from process()\'s';
+    }
     catch (error) { diff = `threw ${error.message}`; }
     const seconds = (performance.now() - t0) / 1000;
     check(`${c.name}, chunks: ${plan}`, diff === null, diff || `${got.filled} samples in ${got.pushes} pushes, ${seconds.toFixed(1)} s`);
