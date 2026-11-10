@@ -305,7 +305,12 @@ const cvars = {
   'voice_vad':       { help: 'Steam sender voice gate: auto (profile default) / 1 / 0', link: 'vad' },
   // The help follows the profile (gateThresholdHelp, set by updateSignalChain).
   'voice_vad_threshold': { help: 'Gate opening level: 20 ms frame RMS in dBFS (measured -39.5); 120 ms pre-roll, 440 ms hold', link: 'vad_threshold' },
-  'volume':          { help: 'Output volume of the rendered file (0.0 - 1.0)', link: 'volume' },
+  'volume':          { help: "Output volume after the mixer's clip (0.0 - 1.0); 1 is the game's default, at which a loud voice fills the whole range", link: 'volume' },
+  // The app's own setting, not a TF2 variable: a property of the listener's PC.
+  'snd_device_rate': {
+    help: "The listener's sound device: 48000 (usual) or 44100 Hz. The app's own setting, not a TF2 variable: the listener's PC converts the game's 44.1 kHz sound to its device's rate, and the download is at that rate",
+    link: 'device_rate'
+  },
   'dsp_hpf':         { help: 'Optional sender high-pass cutoff (0 = off)', link: 'hp' },
   'dsp_lpf':         { help: 'Optional sender low-pass cutoff (20000 = off)', link: 'lp' },
   'snd_bits':        { help: 'Codec bitrate scale (16 = profile bitrate; vaudio_speex has one bitrate and ignores it)', link: 'bits' },
@@ -494,6 +499,7 @@ function updateSignalChain() {
   const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
   const gain = num(els.gain, 1), bits = num(els.bits, 16), loss = num(els.loss, 0), jitter = num(els.jitter, 0);
   const maxGain = num(els.maxGain, VOICE_ENGINE.autoGain.maxGain), volume = num(els.volume, VOICE_ENGINE.volume);
+  const deviceRate = els.deviceRate ? num(els.deviceRate, VOICE_ENGINE.deviceRate) : VOICE_ENGINE.deviceRate;
   const codecOn = els.warble.value === '1', agcOn = els.agc.value === '1';
   const gateOn = codecOn && (els.vad.value === 'auto' ? !!codec.senderGate : els.vad.value === '1');
   const gateDb = typedGateDb() ?? gateDefaultDb(els.codec.value);
@@ -523,7 +529,8 @@ function updateSignalChain() {
     ['Network', `${packetMs} ms packets · ${loss}% lost${jitter > 0 ? ` · ${jitter} ms jitter` : ''}`, loss > 0 || jitter > 0 ? 'hot' : ''],
     ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · int16 clip` : 'unity gain · int16 clip'}${els.retime && els.retime.value === '1' ? ' · spurts re-timed' : ''}`, ''],
     ['Mixer', `44.1 kHz · ${room}`, ''],
-    ['Output', `volume ${Math.round(volume * 100)}%`, '']
+    // The mixer's 44.1 kHz output, at the listener's device's rate (W3-10).
+    ['Output', `volume ${Math.round(volume * 100)}% · ${+(deviceRate / 1000).toFixed(1)} kHz device`, '']
   ];
   els.chain.replaceChildren(...steps.map(([title, detail, cls]) => {
     const li = document.createElement('li');
@@ -649,6 +656,7 @@ const CONFIG_FIELDS = [
   configControl('vadthr', els.vadThreshold),
   configControl('uptime', els.steamUptime),
   configControl('vol', els.volume),
+  configControl('dev', els.deviceRate),
   configControl('frame', els.frameMs),
   configControl('loss', els.loss),
   configControl('warble', els.warble),
@@ -704,6 +712,11 @@ function applyHashConfig() {
     const cfg = {};
     params.forEach((v, k) => cfg[k] = v);
     const n = applyConfig(cfg);
+    // A link without a device rate (one made before W3-10) gets the usual one.
+    if (n && cfg.dev == null && els.deviceRate) {
+      els.deviceRate.value = String(VOICE_ENGINE.deviceRate);
+      updateSignalChain();
+    }
     if (n) logLine(`exec shared_config.cfg (${n} settings applied)`, 'cmd');
   } catch (e) { /* malformed hash — ignore */ }
 }

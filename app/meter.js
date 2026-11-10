@@ -80,10 +80,12 @@ function meterCell(key, value) {
 
 // Values worth a second look: peaks that clip on 16-bit export or lossy
 // encoding, and a DC offset (libopus 1.1.x comfort noise for a steady tone
-// below ~60 Hz is nearly DC; see README).
+// below ~60 Hz is nearly DC; see README). At volume 1, the game's default, a
+// loud render's peaks between samples pass 0 dBTP, as the game's do: no
+// limiter hides it (W3-10).
 function meterWarning(key, value) {
   if (value === null || value === undefined || !Number.isFinite(value)) return null;
-  if (key === 'truePeak' && value > 0) return { level: 'meter-bad', text: 'Inter-sample peaks above 0 dBTP clip after MP3 decoding or resampling' };
+  if (key === 'truePeak' && value > 0) return { level: 'meter-bad', text: 'Inter-sample peaks above 0 dBTP clip after MP3 decoding or resampling. This is what the game\'s default volume, 1, gives a loud voice; lower volume for an MP3' };
   if (key === 'truePeak' && value > -1) return { level: 'meter-warn', text: 'Less than 1 dB below 0 dBTP: MP3 decoding may clip' };
   if (key === 'samplePeak' && value >= -0.01) return { level: 'meter-bad', text: 'Samples at full scale clip in the 16-bit file' };
   if (key === 'dc' && Math.abs(value) >= 0.005) return { level: 'meter-warn', text: 'DC offset over 0.5% of full scale' };

@@ -115,21 +115,26 @@ async function readRenderedWav(page) {
   });
 }
 
-function checkRenderedTone(wav, source, label) {
+function checkRenderedTone(wav, source, label, deviceRate = 48000) {
   check(wav.riff === 'RIFF' && wav.wave === 'WAVE' && wav.size > 44,
     `${label}: populated PCM WAV`, `${wav.size} bytes`);
   check(wav.format === 1 && wav.channels === 1 && wav.bits === 16 && wav.dataBytes === wav.frames * 2,
     `${label}: mono 16-bit PCM header agrees with payload`);
   // The source is decoded at the file's own rate (filerate.js), whatever the
-  // device's rate (44.1 kHz on CI, 48 kHz locally); the render keeps it.
-  check(wav.rate === source.rate, `${label}: WAV preserves decoded playback rate`, `${wav.rate} Hz`);
-  check(wav.frames === source.length && wav.size === 44 + source.length * 2,
-    `${label}: conversion preserves every decoded input frame`, `${wav.frames} frames`);
+  // audio context's rate (44.1 kHz on CI, 48 kHz locally); since W3-10 the
+  // render is at the listener's sound device's rate (snd_device_rate, 48000
+  // Hz by default), with the source's duration at that rate.
+  check(wav.rate === deviceRate, `${label}: the WAV is at the listener's device's rate`, `${wav.rate} Hz`);
+  const frames = Math.round(source.length * deviceRate / source.rate);
+  check(wav.frames === frames && wav.size === 44 + frames * 2,
+    `${label}: the source's whole duration at that rate`, `${wav.frames} frames`);
   // Separately guard duration so a wrong decoder length cannot validate itself.
   // Chromium may round down by one sample during browser-side resampling.
   check(Math.abs(wav.frames / wav.rate - .5) <= 1 / wav.rate + 1e-9,
     `${label}: half-second fixture retains duration within one sample`);
-  check(wav.rms > .01 && wav.rms < .5, `${label}: audible, bounded samples`);
+  // At volume 1, the game's default since W3-10, the tone the gain clamps
+  // fills the range: its RMS approaches full scale but cannot reach it.
+  check(wav.rms > .01 && wav.rms < 1, `${label}: audible, bounded samples`, `rms ${wav.rms.toFixed(3)}`);
   check(wav.toneHz !== null && Math.abs(wav.toneHz - 440) < 2,
     `${label}: resampling preserves tone pitch`, `${wav.toneHz?.toFixed(2)} Hz`);
 }
@@ -323,8 +328,10 @@ async function verifyNativeRate(browser, base) {
       await load({ name: `render-${rate}.wav`, mimeType: 'audio/wav', buffer: wavTone(.5, rate) });
       await page.locator('#process').click();
       await page.waitForFunction(() => !els.dl.disabled && state.processedBuffer, null, { timeout: 60000 });
+      // Since W3-10 the render is at the device's rate, 48000 Hz by default,
+      // whatever the source's rate, with the source's whole duration.
       const wav = await readRenderedWav(page), length = await page.evaluate(() => state.decodedSource.length);
-      const outRate = Math.max(44100, rate);
+      const outRate = 48000;
       rendered.push(`${rate}: ${wav.rate} Hz ${wav.frames} rms ${wav.rms.toFixed(3)} ${wav.toneHz?.toFixed(1)} Hz`);
       check(length === Math.round(rate / 2) && wav.rate === outRate && wav.frames === Math.round(length * outRate / rate) && wav.rms > .01 && Math.abs(wav.toneHz - 440) < 2,
         `a ${rate} Hz source renders at ${outRate} Hz, its whole length, and is not silent`, rendered.at(-1));
@@ -830,7 +837,10 @@ async function verifyLiveMonitor(page) {
   check(live.pressed === 'true' && live.stats.sent > 0 && live.stats.modes.hybrid > 0,
     'the live monitor runs the microphone through the Steam chain in real time', `${live.stats.sent} of ${live.stats.frames} frames sent, ${live.tx}`);
   // W3-11b: on steam the chain holds back the sender's longest chunk and its
-  // pre-roll (stats.latencyMs, about 207 ms); the page adds its own delays.
+  // pre-roll (stats.latencyMs: 206.9 ms at 44.1 and 48 kHz since W3-10, which
+  // took the output FIR's sample out and put the device stage's wait for one
+  // 44.1 kHz sample in place of the sinc resampler's); the page adds its own
+  // delays.
   const ms = Number(/^(\d+) ms/.exec(live.latency)?.[1]);
   check(ms >= live.stats.latencyMs && ms < live.stats.latencyMs + 400 && live.stats.latencyMs > 190,
     'the live monitor reports its latency: between the chain\'s own figure (what it holds back) and that plus 400 ms', `${live.latency}; the chain ${live.stats.latencyMs.toFixed(1)} ms`);
@@ -893,8 +903,10 @@ async function verifyLiveMonitor(page) {
     // wave, with a correlation peak every 110 samples nearly as high as the
     // true one: one recording in 32 peaked at -330 that way.
     return page.evaluate(async () => {
+      // The take is at the audio context's rate, the live chain's device; the
+      // render of its microphone is made at that rate too (W3-10).
       const dry = state.decodedSource.getChannelData(0), wet = state.processedBuffer, rate = state.processedRate;
-      const render = (await TF2Audio.process(state.decodedSource, renderOptions())).samples;
+      const render = (await TF2Audio.process(state.decodedSource, { ...renderOptions(), deviceRate: rate })).samples;
       const from = Math.round(rate * .4), to = Math.min(wet.length, render.length) - Math.round(rate * .2);
       let size = 1;
       while (size < 2 * (to - from)) size *= 2;
@@ -1043,7 +1055,9 @@ async function verifyBatchAndFormats(browser, base) {
     await page.locator('#batch-run').click();
     await page.waitForFunction(() => /2 rendered/.test(document.getElementById('batch-summary').textContent), null, { timeout: 120000 });
     const statuses = await page.locator('.batch-item .bi-status').allTextContents();
-    check(statuses.every(text => /^Done · 0:01 · −\d+\.\d LUFS · −\d+\.\d dBTP/.test(text)), 'rendered items report loudness and true peak', statuses.join(' | '));
+    // At volume 1, the game's default since W3-10, a loud render's true peak
+    // can pass 0 dBTP (the device stage's interpolation of a clipped voice).
+    check(statuses.every(text => /^Done · 0:01 · −\d+\.\d LUFS · −?\d+\.\d dBTP/.test(text)), 'rendered items report loudness and true peak', statuses.join(' | '));
 
     const zips = {};
     for (const format of ['wav', 'flac', 'mp3']) {
@@ -1233,7 +1247,7 @@ async function main() {
 
     console.log('\n[Browser 2] Accessibility, disclosure, and safe console');
     const controlIds = ['codec', 'listener_position', 'gain', 'voice_scale', 'hp', 'lp', 'env',
-      'c_dur', 'c_dec', 'c_mix', 'agc', 'maxgain', 'avggain', 'volume', 'bits', 'frameMs', 'loss', 'warble_on',
+      'c_dur', 'c_dec', 'c_mix', 'agc', 'maxgain', 'avggain', 'volume', 'device_rate', 'bits', 'frameMs', 'loss', 'warble_on',
       'capture_channel', 'vad', 'vad_threshold', 'steam_uptime', 'jitter'];
     const unlabeled = await page.evaluate((ids) => ids.filter((id) => {
       const element = document.getElementById(id);
@@ -1250,6 +1264,7 @@ async function main() {
     await page.locator('#vad').selectOption('0');
     await page.locator('#vad_threshold').fill('-20');
     await page.locator('#capture_channel').selectOption('mix');
+    await page.locator('#device_rate').selectOption('44100');
     await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
     check(await page.locator('#codec').inputValue() === 'steam', 'Modern preset selects the measured 24 kHz Steam profile');
     check(await page.locator('#lp').inputValue() === '20000' && await page.locator('#hp').inputValue() === '0',
@@ -1257,8 +1272,11 @@ async function main() {
     check(Number(await page.locator('#gain').inputValue()) === 1, 'Modern preset restores unity capture gain');
     check(await page.locator('#bits').inputValue() === '16' && await page.locator('#agc').inputValue() === '1'
       && await page.locator('#maxgain').inputValue() === '10' && await page.locator('#avggain').inputValue() === '0.5'
-      && await page.locator('#volume').inputValue() === '0.5',
-      'preset resets quality, receiver auto-gain and output overrides');
+      && await page.locator('#volume').inputValue() === '1',
+      'preset resets quality, receiver auto-gain and output overrides (volume to the game\'s default, 1)');
+    // A built-in preset leaves the listener's device alone (W3-10).
+    check(await page.locator('#device_rate').inputValue() === '44100', 'a built-in preset keeps the listener\'s sound device');
+    await page.locator('#device_rate').selectOption('48000');
     check(await page.locator('#vad').inputValue() === 'auto' && await page.locator('#vad_threshold').inputValue() === '-40'
       && await page.locator('#capture_channel').inputValue() === 'left',
       'preset restores the measured voice gate (Steam\'s own, -40) and left-channel capture');
@@ -1393,6 +1411,58 @@ async function main() {
       check(hold.month > hold.today && hold.uptimes.join() === '14400,3110400' && /^RangeError: .*uptime/.test(hold.refused),
         '1 s of loud tone then 2 s of silence, one seed: the spurt is longer at "about a month" than at "since today"; a steamUptime of -1 is refused',
         `${hold.today} and ${hold.month} frames; ${hold.refused}`);
+    }
+    // W3-10: the listener's sound device (snd_device_rate, the app's own) and
+    // volume at the game's default, 1.
+    {
+      const chainOutput = () => page.evaluate(() => [...document.querySelectorAll('#signal-chain li')].find(li => li.querySelector('b').textContent === 'Output').textContent);
+      const fresh = await page.evaluate(() => ({ value: document.getElementById('device_rate').value,
+        options: [...document.querySelectorAll('#device_rate option')].map(o => `${o.value}:${o.textContent}`),
+        label: document.querySelector('label[for="device_rate"]').textContent, title: document.querySelector('label[for="device_rate"]').title,
+        sent: renderOptions().deviceRate, help: cvars['snd_device_rate'].help, link: cvars['snd_device_rate'].link }));
+      check(fresh.value === '48000' && fresh.sent === 48000 && fresh.options.join() === '48000:48000 Hz (usual),44100:44100 Hz'
+        && /Listener's sound device/.test(fresh.label) && /snd_device_rate/.test(fresh.label) && fresh.title.length > 40
+        && /not a TF2 variable/.test(fresh.help) && fresh.link === 'device_rate' && (await chainOutput()).includes('48 kHz device'),
+        'the choice "Listener\'s sound device: 48000 Hz (usual) / 44100 Hz" is on the page as snd_device_rate (the app\'s own, not a TF2 variable), sent as deviceRate, shown in the chain strip',
+        JSON.stringify(fresh.options));
+      await page.locator('#console-input').fill('snd_device_rate 44100');
+      await page.locator('#console-input').press('Enter');
+      const set = await page.evaluate(() => ({ value: document.getElementById('device_rate').value, sent: renderOptions().deviceRate, cfg: collectConfig().dev }));
+      check(set.value === '44100' && set.sent === 44100 && set.cfg === '44100' && (await chainOutput()).includes('44.1 kHz device'),
+        'snd_device_rate 44100 in the console sets it, the render is sent 44100, the share link and saved presets carry it as dev', JSON.stringify(set));
+      const restored = await page.evaluate(() => {
+        const out = {};
+        applyConfig({ dev: '48000' }); out.applied = els.deviceRate.value;
+        applyConfig({ dev: '96000' }); out.notOffered = els.deviceRate.value;
+        els.deviceRate.value = '44100';
+        const saved = collectConfig();
+        els.deviceRate.value = '48000';
+        applyConfig(saved); out.savedBack = els.deviceRate.value;
+        // A link without dev (one made before W3-10) gets 48000; one with it keeps it.
+        history.replaceState(null, '', '#codec=steam&vol=0.4'); applyHashConfig(); out.oldLink = els.deviceRate.value; out.oldLinkVol = els.volume.value;
+        history.replaceState(null, '', '#codec=steam&dev=44100'); applyHashConfig(); out.newLink = els.deviceRate.value;
+        history.replaceState(null, '', '#codec=steam&vol=1'); applyHashConfig(); out.again = els.deviceRate.value;
+        history.replaceState(null, '', location.pathname);
+        return out;
+      });
+      check(restored.applied === '48000' && restored.notOffered === '48000' && restored.savedBack === '44100' && restored.oldLink === '48000'
+        && restored.oldLinkVol === '0.4' && restored.newLink === '44100' && restored.again === '48000',
+        'saved settings restore it; a link with dev keeps it, and a link without it gets 48000 (its vol kept); a rate the page does not offer is not taken', JSON.stringify(restored));
+      // The volume control: 1, the game's default, and the sentence beside it.
+      const vol = await page.evaluate(() => ({ engine: VOICE_ENGINE.volume, note: document.getElementById('volume-note').textContent,
+        label: document.querySelector('label[for="volume"]').textContent, inHtml: document.getElementById('volume').getAttribute('value') }));
+      check(vol.engine === 1 && vol.inHtml === '1' && /the game's default/.test(vol.label)
+        && vol.note === 'At 1, the game\'s default, a loud voice fills the whole range, as it does in the game.',
+        'volume defaults to 1, the game\'s default, with the sentence beside it', vol.note);
+      // A render's download is at the chosen rate.
+      await page.locator('#device_rate').selectOption('44100');
+      const src = await page.evaluate(() => { window.__wavBefore = state.lastWav; return { rate: state.decodedSource.sampleRate, length: state.decodedSource.length }; });
+      await page.locator('#process').click();
+      await page.waitForFunction(() => state.lastWav && state.lastWav !== window.__wavBefore && !els.process.disabled && !els.dl.disabled, null, { timeout: 60000 });
+      const at44 = await readRenderedWav(page);
+      check(at44.rate === 44100 && at44.frames === Math.round(src.length * 44100 / src.rate) && await page.evaluate(() => state.processedRate === 44100),
+        'with the device at 44100 Hz the render and its download are at 44100 Hz, the source\'s duration at that rate', `${at44.rate} Hz, ${at44.frames} frames`);
+      await page.locator('#device_rate').selectOption('48000');
     }
     // The live monitor's worker runs no steam render before W3-11b, so only its
     // own scope can show the two modules missing: it is read there once the
