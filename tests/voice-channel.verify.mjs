@@ -945,6 +945,22 @@ function timelineChecks() {
       }
     }
     check('48 made-up message streams at six settings: every output sample equal, with and without advance()', ok === all, first || `${all} runs`);
+    // A tick and a block first start together at tick 1024 (1323 x 1024 = 1024 x 1323), 15.36 s
+    // in: the tick runs first. Channels that start playing on that tick, and long streams.
+    let tie = 0, tieAll = 0, tieFirst = '';
+    const steady = (open, to) => { const m = []; for (let t = open; t <= to; t += 4) m.push({ tick: t, pcm: new Float32Array(t === open ? 7056 : 2646).fill(0.5), source: 0 }); return m; };
+    const tieCases = [[300, steady(1024 - 29, 1100)], [100, steady(1024 - 9, 1100)], [66.67, steady(1024 - 6, 1100)],
+      [300, madeUpMessages(11, 2100)], [100, madeUpMessages(12, 2100)]];
+    for (const [fps, messages] of tieCases) {
+      const opts = { fps, length: 44100 * 33 }, want = referenceTimeline(messages, opts);
+      for (const advanceEvery of [0, 1]) {
+        const got = timelineRun(messages, opts, { advanceEvery }).samples;
+        tieAll++;
+        const at = got.findIndex((v, i) => v !== want[i]);
+        if (at < 0) tie++; else if (!tieFirst) tieFirst = `${fps} fps${advanceEvery ? ', advance() every tick' : ''}: sample ${at}`;
+      }
+    }
+    check('a tick and a block that start together: the tick runs first (channels that start playing on tick 1024; streams to tick 2100; with and without advance() on every tick)', tie === tieAll, tieFirst || `${tieAll} runs`);
   }
   {
     // What a call returns is final up to the last block that starts before the tick.
@@ -1039,6 +1055,46 @@ function timelineChecks() {
       waiting.length > 0 && Math.round(waiting.reduce((a, d) => a + d.ms * 44.1, 0)) === 3520 && playing.length > 0
       && jumps.length === atDrops.length && jumps.every(([i, j], k) => i === atDrops[k][0] && j - atDrops[k][1] >= 1 && j - atDrops[k][1] <= 5),
       `${waiting.length} in the wait, starting at ${start}; in play ${JSON.stringify(atDrops)}, jumps ${JSON.stringify(jumps)}`);
+    // The ramp says which source sample each output sample is (value - 1), so the offsets and
+    // the source map can be read off it exactly, across the skips.
+    const into = samples.findIndex((v) => v - 1 >= 8820);
+    const want = (into - (samples[into] - 1)) / 44.1, sp = info.spurts[0];
+    const centre = Array.from(info.source, (p, i) => [p, samples[882 * i + 441]]).filter(([p]) => p >= 0);
+    check('the offset at 0.2 s into the spurt and the source map are exact across overflow', info.spurts.length === 1 && sp.opened
+      && sp.offsetStartMs === want && centre.length > 120 && centre.slice(0, -6).every(([p, v]) => v === p + 1),
+      `offsetStartMs ${sp.offsetStartMs} ms against ${want}; ${centre.length} slots, ${centre.slice(0, -6).filter(([p, v]) => v !== p + 1).length} not exact`);
+  }
+  {
+    // A spurt whose first message is appended and which, in a pause inside it (no silence
+    // record), is freed and opens a channel again: it was not opened.
+    const msg = (tick, n, source) => ({ tick, pcm: new Float32Array(n).fill(0.25), source });
+    const messages = [];
+    for (let t = 10; t <= 80; t += 4) messages.push(msg(t, t === 10 ? 7056 : 2646, 50000 + 2646 * t));
+    messages.push(msg(84, 2756, -1));
+    messages.push(msg(86, 3528, 400000));                       // appended: the queue still holds sound
+    messages.push(msg(300, 3528, 500000));                      // long after it starved: a new channel
+    const { info } = timelineRun(messages, { fps: 100, length: 44100 * 6 });
+    check('opened: only when a spurt\'s first message opens the channel, not when it opens one later', info.spurts.length === 2
+      && info.spurts[0].opened && !info.spurts[1].opened && info.opens === 2 && info.appended === 1, JSON.stringify(info.spurts.map((s) => s.opened)));
+  }
+  {
+    // A pre-roll before sample 0 is sound, not a record: the first message's source is negative.
+    const r = engineRun({ loud: [[0, 1]], seconds: 3, fps: 300, seed: 4 });
+    const msg = (tick, n, source) => ({ tick, pcm: new Float32Array(n).fill(0.5), source });
+    const hand = [msg(0, 7056, -4410)];
+    for (let t = 4; t <= 120; t += 4) hand.push(msg(t, 1764, -4410 + 7056 + 1764 * (t / 4 - 1)));
+    const h = timelineRun(hand, { fps: 300, length: 44100 * 3 });
+    check('a spurt that starts before sample 0 (its pre-roll) is sound: one spurt from -0.1 s; where its pre-roll is heard after output 0 the source map says -1',
+      r.messages[0].start === -2400 && r.pushed[0].source === -4410 && r.info.spurts.length === 1 && r.info.spurts[0].start === -0.1 && r.info.spurts[0].opened
+      && h.info.spurts.length === 1 && h.info.spurts[0].start === -0.1 && h.samples[441] !== 0 && h.info.source[0] === -1 && h.info.source[10] > 0,
+      `slot 0 plays ${h.samples[441]} and maps to ${h.info.source[0]}; slot 10 to ${h.info.source[10]}`);
+    // The stand-in's messages are spec 4's: zeros, 882 a frame, round(samples x 44100 / 24000)
+    // for a record, and the source at 44.1 kHz.
+    const t = engineRun({ loud: [[0.5, 2.5], [3.5, 5]], seconds: 6, fps: 300, seed: 9 });
+    check('the stand-in pushes spec 4\'s messages: 882 samples a frame, a record of round(samples x 44100 / 24000), the source at 44.1 kHz',
+      t.messages.length === t.pushed.length && t.messages.some((m) => m.silence !== undefined) && t.messages.every((m, k) => (m.silence !== undefined
+        ? t.pushed[k].source === -1 && t.pushed[k].samples === Math.round(m.silence * 44100 / 24000)
+        : t.pushed[k].source === Math.round(m.start * 44100 / 24000) && t.pushed[k].samples === 882 * (m.last - m.first + 1)) && t.pushed[k].tick === m.tick));
   }
   {
     const calls = [];

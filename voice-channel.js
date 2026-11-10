@@ -264,7 +264,7 @@
     const INTO = Math.round(VOICE_CHANNEL.rate * 0.2);                        // 0.2 s into a spurt
 
     const slots = new Int32Array(Math.ceil(length / SLOT)).fill(-1);
-    // Per message: where pcm[0] is in the source (-1: a record), its spurt (-1: none), and how
+    // Per message: where pcm[0] is in the source (null: a record), its spurt (-1: none), and how
     // many of its samples have left the ring (played or dropped). They leave in order, so the
     // next one out is pcm[1 + that]: the channel does not write pcm[0].
     const pSource = [], pSpurt = [], pOut = [];
@@ -293,7 +293,7 @@
           const t = tags[j];
           if (t < 0) continue;                    // underrun padding or silence
           const idx = 1 + pOut[t]++, src = pSource[t], s = pSpurt[t];
-          if (src < 0 || s < 0) continue;         // a silence record's zeros
+          if (src === null || s < 0) continue;    // a silence record's zeros
           const pos = src + idx, out = at + j, sp = spurts[s];
           const off = (out - pos) / PER_MS;
           if (sp.offsetFirst === null) sp.offsetFirst = off;
@@ -331,14 +331,18 @@
       if (finished) throw new Error('push() after finish()');
       const m = message || {};
       const { tick, pcm } = m;
-      const source = typeof m.source === 'number' && Number.isFinite(m.source) ? m.source : -1;
+      // -1 marks a silence record; any other number is where pcm[0] sits, before sample 0 too
+      // (a pre-roll at the very start of the source).
+      const record = m.source === -1;
+      const source = m.source;
+      if (!record && !Number.isFinite(source)) throw new RangeError('push() takes the source position of pcm[0], or -1 for a silence record');
       if (!Number.isInteger(tick) || tick < floor) throw new RangeError('push() takes messages in tick order: a whole tick at or after the last one given');
       if (!(pcm instanceof Float32Array)) throw new TypeError('push() takes the message\'s decoded samples as a Float32Array');
       floor = tick;
       runBefore(TICK * tick);
       const p = pSource.length;
       let s = -1, first = false;
-      if (source >= 0) {
+      if (!record) {
         if (!open) {                              // a spurt's first message
           open = first = true;
           spurts.push({ from: source, start: source / VOICE_CHANNEL.rate, end: source / VOICE_CHANNEL.rate,
@@ -350,7 +354,7 @@
         if (open) s = spurts.length - 1;
         open = false;
       }
-      pSource.push(source); pSpurt.push(s); pOut.push(0);
+      pSource.push(record ? null : source); pSpurt.push(s); pOut.push(0);
       const opensBefore = ch.opens, droppedBefore = ch.dropped;
       ch.add(pcm, p);
       if (ch.opens > opensBefore) { fresh = true; if (first) spurts[s].opened = true; }

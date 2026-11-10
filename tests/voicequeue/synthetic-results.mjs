@@ -24,7 +24,8 @@ const RATE = STEAM_SENDER.rate, OUT = VOICE_CHANNEL.rate, PER_FRAME = OUT * STEA
 const SLOT = OUT * 0.02, MID = SLOT / 2, INTO = 0.2;
 
 // loud: [[from, to)] in seconds, each 1000 in a signal of `seconds` at 24 kHz, 0 elsewhere.
-// Returns the timeline's info (44.1 kHz positions) and the sender's messages.
+// Returns the timeline's info (44.1 kHz positions), the sender's messages and what was pushed
+// to the timeline ({ tick, samples, source } for each message).
 export function engineRun({ loud, seconds, fps, bufferMs, seed }) {
   const n = Math.round(seconds * RATE);
   const signal = new Int16Array(n);
@@ -32,11 +33,15 @@ export function engineRun({ loud, seconds, fps, bufferMs, seed }) {
   const sender = createSender({ seed });
   const messages = [...sender.push(signal), ...sender.finish()];
   const timeline = createTimeline({ fps, bufferMs, length: Math.round(n * OUT / RATE) });
+  const pushed = [];
   for (const m of messages) {
-    if (m.silence !== undefined) timeline.push({ tick: m.tick, pcm: new Float32Array(Math.round(m.silence * OUT / RATE)), source: -1 });
-    else timeline.push({ tick: m.tick, pcm: new Float32Array(PER_FRAME * (m.last - m.first + 1)), source: Math.round(m.start * OUT / RATE) });
+    const x = m.silence !== undefined
+      ? { tick: m.tick, pcm: new Float32Array(Math.round(m.silence * OUT / RATE)), source: -1 }
+      : { tick: m.tick, pcm: new Float32Array(PER_FRAME * (m.last - m.first + 1)), source: Math.round(m.start * OUT / RATE) };
+    timeline.push(x);
+    pushed.push({ tick: x.tick, samples: x.pcm.length, source: x.source });
   }
-  return { info: timeline.finish().info, messages };
+  return { info: timeline.finish().info, messages, pushed };
 }
 
 // spans: [[start, end)] in source seconds. For each, the offset in ms (output less source,
