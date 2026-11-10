@@ -303,8 +303,9 @@ console.log('\n[Speex 1.0.2] Codecs side by side');
 // The speex profile (W3-12b): the module above on the engine's 11025 Hz sound,
 // with no resampling to 8000 Hz, through audio.js.
 // ---------------------------------------------------------------------------
-const engineCode = fs.readFileSync(new URL('../constants.js', import.meta.url), 'utf8') + '\n' +
-  fs.readFileSync(new URL('../audio.js', import.meta.url), 'utf8');
+// Steam's sender and the decoder's resampler load beside audio.js, as on the page.
+const engineCode = ['../constants.js', '../steam-sender.js', '../vendor/swresample/swresample.js', '../audio.js']
+  .map((f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n');
 // audio.js on an opus-codec.mjs whose Speex calls are watched: the samples and
 // packets of each speexRoundTrip a render makes (the 11025 Hz voice signal,
 // before the receiver), and each frame-by-frame stream's restarts, decodes and
@@ -708,8 +709,13 @@ console.log('\n[speex profile] The live chain runs the same codec frame by frame
 
 console.log('\n[Live chain] Every profile: a codec restart per talk spurt, and late frames play silence');
 {
-  // Shared code in audio.js, so Steam and vaudio_celt as well as Speex.
-  for (const codec of ['steam', 'celt_22', 'speex']) {
+  // Shared code in audio.js, so Opus and vaudio_celt as well as Speex. Since
+  // W3-11b the `steam` profile's live chain runs the render's own stages
+  // (Steam's sender and createSteamStream, not createVoiceStream), and
+  // tests/verify.js [10b] proves its encoder and decoder per spurt and its
+  // concealed and late blocks by equality with the render; steam_48 keeps
+  // this frame path.
+  for (const codec of ['steam_48', 'celt_22', 'speex']) {
     const w1 = watchedEngine();
     const run1 = await runLive(w1.A, gateParts, { codec, gate: true });
     check(`${codec}: the live chain restarts the codec for each talk spurt after the first`,

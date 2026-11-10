@@ -858,16 +858,17 @@
   // is the samples given to the sender so far, cursor where the open spurt's
   // next packet will be laid (Infinity when no spurt is open), reach how far
   // before the last sample pushed a message can start (steamReach, or the
-  // live chain's low-latency reach), wait how far behind R the output may
-  // wait for the cursor, in voice-rate samples. R is the render's own bound:
-  // no spurt not yet opened can be laid before it. createRender waits for the
-  // cursor without limit (wait Infinity: min(R, cursor)); the live chain at
-  // most ten frames (STEAM_CONCEAL_MAX), so that a gap of up to ten lost
-  // frames, during which nothing is decoded and the cursor stands still, is
-  // laid exactly as the render lays it.
-  function steamGiveOut(pushed, cursor, reach, lookahead, wait) {
+  // live chain's low-latency reach). R is the render's own bound: no spurt
+  // not yet opened can be laid before it. createRender (bounded false) waits
+  // for the cursor without limit: min(R, cursor). The live chain (bounded
+  // true) waits for it at most ten frames at the voice rate
+  // (STEAM_CONCEAL_MAX), so that a gap of up to ten lost frames, during which
+  // nothing is decoded and the cursor stands still, is laid exactly as the
+  // render lays it: min(R, max(cursor, R - 8820)).
+  const STEAM_WAIT = STEAM_CONCEAL_MAX * STEAM_FRAME * STEAM_VOICE_RATE / STEAM_RATE;
+  function steamGiveOut(pushed, cursor, reach, lookahead, bounded) {
     const R = Math.floor((pushed - reach - lookahead) * STEAM_VOICE_RATE / STEAM_RATE) - 1;
-    return Math.min(R, Math.max(cursor, R - wait));
+    return Math.min(R, Math.max(cursor, bounded ? R - STEAM_WAIT : -Infinity));
   }
 
   function steamModules() {
@@ -1605,7 +1606,6 @@
     // it (up to a frame less a sample is kept from the chunk before).
     const fullReach = steamReach(S), lowReach = steamReach(S) - S.preroll + S.frame - 1;
     const reach = opts.lowLatency ? lowReach : fullReach;
-    const wait = STEAM_CONCEAL_MAX * STEAM_FRAME * STEAM_VOICE_RATE / STEAM_RATE;
 
     /* ---- After the mix point: the live chain's own stages ---- */
     const after = [];
@@ -1665,7 +1665,7 @@
           }
           timeline.add(msg, made, given);
         }
-        const bound = steamGiveOut(pushed, timeline.cursor, reach, lookahead, wait);
+        const bound = steamGiveOut(pushed, timeline.cursor, reach, lookahead, true);
         if (bound > given) given = bound;
       }
       // The 20 ms slots that became final: nothing is laid before given.
@@ -2263,7 +2263,7 @@
         async push(x) {
           given += x.length;
           await feed(sender.push(steamCapture(x)));
-          return timeline.take(steamGiveOut(given, timeline.cursor, steamReach(SteamSender.STEAM_SENDER), stream.lookahead, Infinity));
+          return timeline.take(steamGiveOut(given, timeline.cursor, steamReach(SteamSender.STEAM_SENDER), stream.lookahead, false));
         },
         async flush() {
           await feed(sender.finish());
@@ -2478,7 +2478,8 @@
     streamResampleSinc,
     streamFir,
     streamAutoGain,
-    streamLossMask
+    streamLossMask,
+    steamGiveOut
   };
 
   if (typeof window !== 'undefined') window.TF2Audio = TF2Audio;
