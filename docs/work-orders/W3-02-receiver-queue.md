@@ -24,7 +24,8 @@ changes how a render is computed). Each may push its branch to run CI. Worktrees
 **Private data.** The owner's logs, takes and the fixture built from the logs are private and are not in this
 repository (decided 2026-11-10). A builder has the repository only. So every order lists two kinds of check:
 **the builder runs** (public, in the suites) and **the orchestrator runs privately** (a command and its expected
-output; the builder writes the command's code and proves it on synthetic data).
+output; the builder writes the command's code and proves it on synthetic data). `<takes folder>` is the private
+repository's checkout; the brief gives its path.
 
 ## Why
 
@@ -275,7 +276,7 @@ broken; say how you broke it and what failed.
 
 ### The orchestrator runs privately
 
-- `node tests/voice-channel.verify.mjs --fixture /home/user/tf2-voice-takes/set-G-debug-probe/voice-queue-fixture.json`.
+- `node tests/voice-channel.verify.mjs --fixture <takes folder>/set-G-debug-probe/voice-queue-fixture.json`.
   Expected, mismatching ticks per section (the plan's prototype):
 
   | Section (packets, ticks, opens) | engine | ring + 1 | ring - 1 | wait + 1 | wait - 1 | sample kept | no grace |
@@ -374,7 +375,7 @@ only). May add: `tests/voicequeue/synthetic-results.mjs`. May not touch anything
 
 ### The orchestrator runs privately
 
-`node tests/retiming.mjs --accuracy <results.json> --generative --takes /home/user/tf2-voice-takes --engine`.
+`node tests/retiming.mjs --accuracy <results.json> --generative --takes <takes folder> --engine`.
 Expected from the plan's prototype (100 seeds; a spurt's start taken the same way): the speech take 50% of
 transitions right and a start error near 96 ms ("none": 11% and 150 ms), the Set C baseline 72% and 95 ms (33%
 and 88 ms), the four Set B test-signal takes and sender A worse than leaving them (80 to 114 ms against 29 to 83).
@@ -456,7 +457,7 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
 ### The orchestrator runs privately
 
 Before and after, under the heavy lock: `flock /tmp/tf2ve-heavy.lock env CHROMIUM_EXECUTABLE=... node
-tests/accuracy.mjs --takes /home/user/tf2-voice-takes --only take4_my_own_speech,sender_A,net_baseline --json
+tests/accuracy.mjs --takes <takes folder> --only take4_my_own_speech,sender_A,net_baseline --json
 <scratch>/after.json`. The accuracy suite does not pass the option, so the three rows must be identical to the
 same main's before this branch, to the last digit printed.
 

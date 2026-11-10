@@ -142,7 +142,7 @@ none). May not touch: `voice-channel.js`, `constants.js`, `reference.js`, `tests
 
 ## The orchestrator runs privately
 
-- **The exact check.** `node tests/gain-exact.mjs --takes /home/user/tf2-voice-takes`. The script (the builder
+- **The exact check.** `node tests/gain-exact.mjs --takes <takes folder>`. The script (the builder
   writes it; it loads `audio.js` as `tests/verify.js` does) finds `celt_gain1.wav` and `celt_gain10.wav` under
   the folder (16-bit mono, 22050 Hz, 292,352 samples each), runs
   `TF2Audio.receiverAutoGain(gain1 / 32768, { maxGain: 10, avgGain: 0.5, scale: 1 })`, converts back with
@@ -150,7 +150,7 @@ none). May not touch: `voice-channel.js`, `constants.js`, `reference.js`, `tests
   last 512 and in the last 512, and exits non-zero unless the first is 0. **Expected: 0 of 291,840, and 511 in the
   last packet.** It prints nothing of the recordings but those counts.
 - **The accuracy suite as a guard**, under the heavy lock, before and after on the same main:
-  `node tests/accuracy.mjs --takes /home/user/tf2-voice-takes --json <scratch>/after.json`, all 16 takes.
+  `node tests/accuracy.mjs --takes <takes folder> --json <scratch>/after.json`, all 16 takes.
   Expected, fixed before the run: every row's level figure within **0.03 dB** rms of the baseline and its
   correlation within 0.002; the largest band difference within **0.1 dB** and in the same band; samples at the
   clamp within **0.2 percentage points**; the spurt count and the clock column unchanged. The Set B
