@@ -274,15 +274,47 @@ async function verifyNativeRate(browser, base) {
     check(low.rate === 48000 && low.log.includes('"low-4000.wav" was decoded at the audio device\'s rate, 48,000 Hz, because 4,000 Hz is a rate this browser cannot decode at'),
       'a rate the OfflineAudioContext refuses loads at the device rate and the console says why', `${low.rate} Hz`);
     await page.evaluate(() => {
-      window.__decodeAtRate = OfflineAudioContext.prototype.decodeAudioData;
       OfflineAudioContext.prototype.decodeAudioData = () => Promise.reject(new DOMException('refused by the test', 'EncodingError'));
     });
     const refusedWav = wavTone(.5, 22050);
     await load({ name: 'refused-22050.wav', mimeType: 'audio/wav', buffer: refusedWav });
     const refused = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, length: state.decodedSource.length, log: document.getElementById('console-out').textContent }));
-    await page.evaluate(() => { OfflineAudioContext.prototype.decodeAudioData = window.__decodeAtRate; });
+    await page.evaluate(() => { delete OfflineAudioContext.prototype.decodeAudioData; });
     check(refused.rate === 48000 && Math.abs(refused.length - 24000) <= 1 && refused.log.includes('"refused-22050.wav" was decoded at the audio device\'s rate, 48,000 Hz, because the decode at 22,050 Hz failed'),
       'when the decode at the file\'s rate fails, the file loads at the device rate from its bytes read again', `${refused.rate} Hz, ${refused.length} samples`);
+
+    // Two loads overlapping: a long file, then a short one chosen while the
+    // long one is still being decoded. The newer one must be the source, on
+    // the file-rate path and on the fallback path (a context that refuses
+    // every rate). Both files are made here; the long one is 500 s.
+    const race = (fallback) => page.evaluate(async (fallback) => {
+      const wav = (seconds, rate, name) => {
+        const n = Math.round(seconds * rate), bytes = new Uint8Array(44 + 2 * n), view = new DataView(bytes.buffer);
+        const text = (at, s) => [...s].forEach((c, i) => { bytes[at + i] = c.charCodeAt(0); });
+        text(0, 'RIFF'); view.setUint32(4, 36 + 2 * n, true); text(8, 'WAVEfmt '); view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, rate, true); view.setUint32(28, 2 * rate, true);
+        view.setUint16(32, 2, true); view.setUint16(34, 16, true); text(36, 'data'); view.setUint32(40, 2 * n, true);
+        for (let i = 0; i < n; i++) view.setInt16(44 + 2 * i, Math.round(6000 * Math.sin(2 * Math.PI * 440 * i / rate)), true);
+        return new File([bytes], name, { type: 'audio/wav' });
+      };
+      const long = wav(500, 44100, 'race-long.wav'), short = wav(.2, 22050, 'race-short.wav');
+      const Offline = window.OfflineAudioContext, base = BaseAudioContext.prototype, decode = base.decodeAudioData;
+      if (fallback) window.OfflineAudioContext = class { constructor() { throw new DOMException('refused by the test', 'NotSupportedError'); } };
+      let begun;
+      const decoding = new Promise((resolve) => { begun = resolve; });
+      base.decodeAudioData = function (...args) { begun(); return decode.apply(this, args); };
+      try {
+        const first = loadSourceFile(long);
+        await decoding;
+        await Promise.all([first, loadSourceFile(short)]);
+        return { name: state.sourceName, length: state.decodedSource.length, rate: state.decodedSource.sampleRate };
+      } finally { base.decodeAudioData = decode; window.OfflineAudioContext = Offline; }
+    }, fallback);
+    for (const fallback of [false, true]) {
+      const got = await race(fallback);
+      check(got.name === 'race-short.wav' && got.length === (fallback ? 9600 : 4410),
+        `a file chosen while a longer one is still decoding stays the source (${fallback ? 'device-rate fallback' : 'file-rate path'})`, `${got.name}, ${got.rate} Hz`);
+    }
 
     // Every source rate the page can now meet renders through the default preset.
     await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
