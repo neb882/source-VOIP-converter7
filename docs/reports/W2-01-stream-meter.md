@@ -266,3 +266,81 @@ Run 42721246456 of the `tests` workflow on head f6a7ddf (the report's first comm
 
 The meter file ran from 23:34:01 to 23:34:15 on the runner, about as long as here. The commit that adds this section
 changes only the report.
+
+## Review and fix round
+
+The review (42,000 fuzz cases, no mismatch; the true-peak argument not refuted) proved four test gaps and one slow
+case. Main was merged first (61fcb92, W1-01). This section supersedes what the sections above say about `keep()`,
+B11 and the memory bound.
+
+### R3: the kept pairs, rebuilt in batches (`meter.js`)
+
+The review's built signal (peak 1 first, then 32-sample overshoot blocks whose level rises while their top falls)
+made the list grow and `keep()` quadratic: 978 ns a sample at 20.5 M samples. Its mirror (level falling, top rising)
+was worse on the old code: 8,431 ns a sample at 5.1 M samples. The order's fix (a sorted array, binary search,
+remove the beaten run) is linear for the review's signal, where new pairs go at the end, but not for the mirror,
+where each would go at the front and shift the whole array. So the build differs from the order's wording: new pairs
+collect unsorted, and when they are as many as the staircase holds (at least 32), one sort and sweep rebuilds it (by
+level, highest first, equal levels highest top first; a pair stays if its top is above every top before it and above
+the sample peak). Each dropped pair is beaten on both by one before it or by the peak, so the set kept is the same
+staircase, and `finish()` rebuilds once and takes the largest top at or above `peak * 0.4`, with the same comparison
+as before. The per-push pruning by the peak went into the rebuild's sweep. Each pair now costs a share of one sort
+however the levels and tops arrive.
+
+| Built signal, 1 s pieces | 1.3 M samples | 5.1 M | 20.5 M |
+|---|---|---|---|
+| level rising, top falling | 138 ns a sample | 140 ns | 110 ns |
+| level falling, top rising | 136 ns | 101 ns | 97 ns |
+
+Each result equals `analyze()`. The rebuilds handle 1.9-2.0 pairs per pair found at every length. Speech is
+unchanged: 0.17 s for 2 minutes at 48 kHz in 1 s pieces (`analyze()` 0.23 s).
+
+### The new checks
+
+- **R1, R2:** bursts whose top pair is pair n - 16, pair 0 and pair 3, and a pair at exactly `0.4 * peak` (peak
+  0.5000001192092896, level 0.20000004768371582, both float32), in [Meter 6]'s equality signals, with lines that check
+  their premises (each burst stands 3 dB and more above its samples; the exact pair sets the true peak, which drops
+  when its samples are lowered).
+- **Fuzz ([Meter 8]):** the review's fuzz in the suite: 19 kinds of signal (the review's 18 plus a decoy below the
+  final threshold, without which B2 and R3b below passed it), its 13 rates down to 1 Hz, its lengths and splits,
+  NaN-filled reused buffers and Float64Array cases, `Object.is` on every field and history value. Seed 20261110,
+  1,200 cases, 15.8 M samples, 4.6 s. A failure prints the case and its replay command,
+  `node tests/meter.verify.mjs --fuzz <state> 1`; checked on M8, whose failing case replayed alone with the same
+  difference. On the correct code, 12,000 further cases on four other seeds (1, 777, 31337, 20261109) found no
+  mismatch.
+- **R3:** the built signal, rising and falling, at 4,000 and 16,000 blocks: equal to `analyze()`, and the rebuilds
+  handle fewer than 3 pairs per pair found (1.86-1.98). It counts work instead of timing it, through the analyzer's
+  `pairs` getter (`found`, `handled`, `kept`), added for this check.
+- **R4:** [Meter 7] also runs 10 minutes, and the 60-minute peak may exceed the 10-minute one by 25 MB at most. Two
+  lengths rather than a bound near 40 MB, because what does not grow with the signal (Node, V8's heap, the history
+  built in `finish()`) is in both runs alike and cancels, so a machine with a larger fixed overhead does not fail.
+  Correct runs: 10 minutes 3.6-4.9 MB, 60 minutes 7.4-13.6 MB, differences 3.7-9.4 MB. 25 MB over 50 minutes is
+  0.15 byte a sample. The order's 200 MB bound stays as its own line.
+
+### Breaks, against the final test file
+
+| Break | First failing line |
+|---|---|
+| M8, `levels[k] > threshold` in `finish()` | `the largest true peak at a pair exactly at the threshold: equal in every split (in chunks of 1: stats.truePeak: -3.39, not -2.40)` |
+| M11, `finish()` from `n - TAPS + 1` | `the largest true peak at pair n - 16 ... stats.truePeak: -3.06, not 1.55` |
+| M12, `g > TAPS` | `the largest true peak at pair 0 ... stats.truePeak: -3.39, not -0.78` |
+| M14, `first = TAPS - i` | `the largest true peak at pair 0 ... stats.truePeak: -3.38, not -0.78` |
+| An eighth of each piece kept | `the peak at 60 minutes is within 25 MB of the peak at 10 minutes ... (77.2 MB more ...)` |
+| A quarter of each piece kept | the same line, `147.0 MB more` (its 179 MB peak would still pass the 200 MB bound) |
+| R3a, a rebuild after every pair | the built-signal line: `599.20` to `6277.19 handled each` |
+| R3b, the sweep sorts levels rising | the decoy signal: `stats.truePeak: -6.02, not -3.01` |
+| R3c, the sweep keeps tied tops (`>=`) | nothing fails, as expected: an extra tied pair changes no maximum |
+
+Run alone, [Meter 8]'s fuzz also fails M8 (case 60), M11 (29), M12 (31), M14 (7), R3b and B2 (both case 4, the decoy
+kind). B1-B6, B8-B10 and B12 from the first round still fail as before. B7 and B11 no longer apply: `keep()`'s
+domination test and the per-push pruning they broke are gone.
+
+### Checks this round
+
+- `node tests/meter.verify.mjs`: `50 passed, 0 failed`, 19.7 s (14.9 s after the first round, 2.9 s on main: the
+  file adds about 17 s to `pnpm test`, 5 s of it this round's fuzz).
+- `pnpm test`: exit 0 in 1 m 41 s (main now runs the Speex suite too).
+- `analyze()` on this branch against main's: the 50-signal comparison again, no difference; the analyzer equal to it
+  on all 50 in six splits.
+- Not rerun: the 60-minute comparison with `analyze()` (3.4 GB, heavy lock in use by the orchestrator) and the browser
+  suite (CI runs it). The 60-minute memory child runs in every `pnpm test`.
