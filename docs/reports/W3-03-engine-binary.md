@@ -110,10 +110,11 @@ Numbers only are quoted here; the log itself stays private.
    where `voice_decompressed.wav` begins, and that file begins at a key press. So these look like what Steam sends
    when recording is started again (the engine stops and restarts Steam's recording at every `+voicerecord`):
    inferred, the code does not show what Steam sends. By then the old channel had ended, so the empty packet
-   **assigns a new channel and starts its 30-tick wait** with nothing, or only the silence record, queued. Speech that arrives during that wait is appended behind the record and starts
-   to play when the wait that began at the key press runs out. In the log, speech that arrived 27 ticks after such
-   a key press began to play two ticks later, not 30. This is a restart well under L0 (W3-01's 5(c)), and it will
-   happen to anyone who presses the key shortly before speaking.
+   **assigns a new channel and starts its 30-tick wait** with nothing, or only the silence record, queued. Speech
+   that arrives during that wait is appended behind the record and starts to play when the wait that began at the
+   empty packet runs out. In the log, speech that arrived 27 ticks after one began to play two ticks later, not
+   30. This is a restart well under L0 (W3-01's 5(c)), and if the empty packet is the key press, it happens to
+   anyone who presses the key shortly before speaking.
 2. **The packets Steam hands out are 60 ms**, three frames (2646 samples, 944 of the 1,520), with 20, 40 and 80 ms
    as the other common sizes: the 17.8 messages a second of the Set D demo.
 3. **`voice_decompressed.wav` is whole packets, after the gain.** Its 338,413 samples are exactly the sum of 138
@@ -140,7 +141,7 @@ for the CELT codecs and 2 s for Speex). What is dropped: the old data's head.
 
 | Question | Answer | Confidence |
 | --- | --- | --- |
-| 1. The queue | A 22050-sample ring per speaker (0.5 s at 44.1 kHz). A new channel waits `voice_buffer_ms` before playing, but the wait is counted down by one **frame's** duration once per **tick**, so it lasts about `voice_buffer_ms` x frame rate x 0.015: 100 ms at 67 fps, about 350 ms at 233 fps. A spurt's first packets bring about 150 ms of sound at once, so above about 235 fps the ring overflows at every restart and the level the takes call L0 is the ring's limit, 0.5 s less that burst: about 350 ms. A channel ends on the tick after its ring runs dry; a packet that comes before that is appended. One sample is dropped from every packet. | Code: high. The owner's log agrees in every count (ring, one sample, a wait of 30 ticks); that the wait follows the frame rate is still a prediction until a take at another `fps_max`. |
+| 1. The queue | A 22050-sample ring per speaker (0.5 s at 44.1 kHz). A new channel waits `voice_buffer_ms` before playing, but the wait is counted down by one **frame's** duration once per **tick**, so it lasts about `voice_buffer_ms` x frame rate x 0.015: 100 ms at 67 fps, about 350 ms at 233 fps, 450 ms at 300 fps (30 ticks, which is what the owner's log shows). A spurt's first packets bring about 150 ms of sound at once, so above about 235 fps the ring overflows at every restart and the level the takes call L0 is the ring's limit, 0.5 s less that burst: about 350 ms. A channel ends on the tick after its ring runs dry; a packet that comes before that is appended. One sample is dropped from every packet. | Code: high. The owner's log agrees in every count (ring, one sample, a wait of 30 ticks); that the wait follows the frame rate is still a prediction until a take at another `fps_max`. |
 | 2. Gain and output | The measured law is confirmed constant by constant, including `voice_scale` entering twice. Corrections: a block of zeros drives the gain to the cap (it is not left untouched), and the gain is reset to 1.0 whenever a channel restarts. Steam's decoder, not the engine, makes the 44.1 kHz. | High |
 | 3. The sender | Once per client tick the engine asks Steam for compressed voice (up to 2048 bytes) and sends whatever comes as one message. It adds nothing to the payload and has no end-of-transmission logic of its own for Steam. | High |
 | 4. Debug variables | Above. | High |
