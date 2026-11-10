@@ -137,6 +137,15 @@ code survives this order as it is.
    take and the model alike; the exact-ceiling share is printed beside it. If a registered prediction is scored
    on the exact share, do not change the scoring: stop and report.
 
+### Amendment (2026-11-10): `volume` defaults to 1.0
+
+The owner has decided that the page's default for `volume` is the game's own, **1.0**, in place of the app's
+0.5 ("1.0 with the label"). This order makes the change, because it re-records every golden hash once
+anyway: `volume: 1.0` in `constants.js`'s defaults and wherever a preset or the page carries 0.5 as the default
+(list each place in the report). The output's ceiling at the default is then 32767. Cases that pass `volume`
+explicitly keep their value. The control's words are W4-01's part d; until then the label reads "the game's
+default". The accuracy tools pass each take's own `volume`, so the private table does not move for this.
+
 ## Checks
 
 A render here has no room and no voice channel: every check below is written for that.

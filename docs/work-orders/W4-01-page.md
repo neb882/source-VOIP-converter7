@@ -85,6 +85,19 @@ From the audit, in the order of what it costs a user:
 6. **Part b's step 3 (the first seconds) is built only if the owner's clips are often longer than a
    minute.** Until the owner says so it is not started.
 
+## The owner's answers (2026-11-10): these overrule Decisions 4 and 6
+
+- **The owner's clips are usually music, and often longer than a minute.** So part b's step 3 (the first
+  seconds playable while the rest renders) **is built**, as part of W4-01b. Parallel workers stay out: music is
+  one spurt, so they gain nothing.
+- **`volume` defaults to 1.0, the game's own default, with a label that says so.** The owner: "1.0 with the
+  label". The change of the default itself is made by **W3-10**, which re-records every golden hash anyway
+  (its amendment says so); this order's part d writes the words: "The game's volume setting; it sets the
+  loudest the file can get. 1.0 is the game's default. The recordings behind the model were made at 0.15."
+  Wherever this order says "0.5 is this page's choice", read the sentence above.
+- **The developer console's simulated chat feed keeps its name list** as it is. The owner: "Keep it". Part c
+  still stops the feed being read out by a screen reader.
+
 ## W4-01a: the journey and the defaults
 
 ### What to build
