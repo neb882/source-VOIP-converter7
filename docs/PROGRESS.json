@@ -21,26 +21,24 @@
   },
   "in_flight": [
     {
-      "order": "W2-02-render-stream",
-      "branch": "claude/w2-02-render-stream",
-      "stage": "review (built; CI green on 4005191); the reviewer runs a differential fuzz against process()",
-      "report": "docs/reports/W2-02-render-stream.md",
-      "state": "fixing",
-      "note": "Review done: no defect in createRender (20,656 differential runs against process(), 0 mismatches; 30 minutes at 48 kHz grows 0.5 MiB). Four minor findings with the builder as fixer: three breaks the suite did not catch (the rounding of the output length, the gate's level on a last partial frame, the clip on received voice) and one older bug in process() (an empty source with a linear mixer and a room). The orchestrator has read the audio.js diff: nothing blocks a merge once those are in and CI is green."
-    },
-    {
       "order": "W3-02a-voice-channel",
       "branch": "claude/w3-02a-voice-channel",
       "stage": "building (new files only)",
       "report": "docs/reports/W3-02a-voice-channel.md",
-      "state": "review",
-      "note": "Built (head b3fdaaa, CI green, 68 checks). The orchestrator's private runs, 2026-11-10: the replay of the six log sections has 0 mismatching ticks of 9,808 with every fault mismatching somewhere, and the builder's log tool gives the planner's fixture event for event on all six sections. With a reviewer on the builders' model (mutations, a model of its own to compare against, the log tool under bad input)."
+      "state": "fixing",
+      "note": "Built (head b3fdaaa, CI green, 68 checks). The orchestrator's private runs, 2026-11-10: the replay of the six log sections has 0 mismatching ticks of 9,808 with every fault mismatching somewhere, and the builder's log tool gives the planner's fixture event for event on all six sections. With a reviewer on the builders' model (mutations, a model of its own to compare against, the log tool under bad input). Review done: the module agreed with the reviewer's own model on 6,000 seeds (2.09M operations) with no mismatch; the findings are gaps in the suite (sample content after a ring wrap, starved on an empty pull, the fade's option and edge) and small log-tool issues. With the builder as fixer."
     },
     {
       "order": "W3-11-plan",
-      "state": "plan review",
+      "state": "second plan review",
       "branch": "claude/w3-11-plan",
-      "note": "Planned (branch claude/w3-11-plan, head 1f53b69, not merged): W3-02 revision 3 (the sender as Steam's chunk rule in a module shared by the timeline and the offline render), W3-11 (the app's Steam gate, 16-bit decode, concealment cap, per-packet resampler), W3-12 a and b (Speex 1.0.2 as the module runs it), W3-13 (a port of libswresample's 16-bit path), the order of work, and proposed REFERENCE text. With a plan reviewer on the builders' model. Decisions taken by the orchestrator: W3-02b is built without waiting for the owner's Steam console run; the hold's misfit is scored, not tuned; W3-06's point on Speex is struck in its brief; lost Speex frames give zeros. For the owner: the port carries LGPL source (as LAME already does)."
+      "note": "Revised after the plan's review (28 findings, all taken; head dbc116d, not merged): W3-13 rewritten to libswresample's float path with the CPU kernel as a named setting (fma3 default, not confirmed on Steam) and sixteen native reference hashes; W3-11 split into a (the render) and b (the live chain and the page), steam only, steam_48 left as it is, the library's own 16-bit decode by rebuilding the pinned Opus module; W3-02 revision 3a; W3-12 a and b. Two tools specified so the owner's file-input recording can be dropped in as the reference. With the same plan reviewer for a second read. For the owner before W3-13 merges: a modified LGPL file in the default render's path."
+    },
+    {
+      "order": "W3-12a-speex-102",
+      "state": "building",
+      "branch": "claude/w3-12a-speex-102",
+      "note": "Speex 1.0.2 from the public source as a reproducible module with its native comparison; new files only. The order is on claude/w3-11-plan until the plan merges."
     }
   ],
   "next": [
@@ -155,5 +153,8 @@
       "what": "From the receiver plan (docs/reports/W3-02-plan.md): on the page the modern preset will render the game's timeline by default (fps_max 300, voice_buffer_ms 100) with the source's timeline one setting away; a video source and the engine's own default (process() with no option) keep the source's timeline; the flat 41% rule is retired when that lands. The queue test's fixture built from the owner's logs stays in the private repository; the public suite runs a synthetic log and the orchestrator runs the private replay.",
       "why": "The owner's standard is what the game does, and the queue is now the engine's rule, confirmed on every tick of the logs and by the frame-rate test. Sound leading the picture by up to 0.35 s would be worse than the timing it fixes. The fixture shows when the owner was speaking; nothing is lost by keeping it private."
     }
+  ],
+  "done": [
+    "W2-02 render-stream: merged 2026-11-10 (pull request 8, main 43fd35f, cache v20). TF2Audio.createRender gives process()'s render a chunk at a time; 47 cases, 145 checks; review 20,656 differential runs with no mismatch."
   ]
 }

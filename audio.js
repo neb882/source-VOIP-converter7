@@ -18,6 +18,7 @@
  * Same decoded PCM + settings + pinned runtime gives repeatable output.
  *
  * TF2Audio.process(buffer, opts) -> { samples, sampleRate, blob, codecInfo }
+ * TF2Audio.createRender(source, opts) -> the same render, a chunk at a time
  * TF2Audio.encodeWav(samples, rate) -> 16-bit mono WAV
  */
 
@@ -196,9 +197,10 @@
   }
 
   // Source's software mixer converts voice to the mix rate by linear
-  // interpolation; used for the low-rate legacy profiles.
+  // interpolation; used for the low-rate legacy profiles. Nothing in gives
+  // nothing out, as resampleSinc.
   function resampleLinear(input, inRate, outRate) {
-    if (inRate === outRate) return Float32Array.from(input);
+    if (!input.length || inRate === outRate) return Float32Array.from(input);
     const ratio = inRate / outRate;
     const outLen = Math.max(1, Math.round(input.length / ratio));
     const out = new Float32Array(outLen);
@@ -1032,7 +1034,9 @@
     };
   }
 
-  // receiverAutoGain, a block at a time: whole 128-sample blocks as they fill.
+  // receiverAutoGain, a block at a time: whole 128-sample blocks as they
+  // fill. flush() ends the signal as receiverAutoGain does: the samples of a
+  // last, partial block follow the current ramp.
   function streamAutoGain(options) {
     const block = Math.max(1, Math.round(finiteOr(options.blockSize, 128)));
     const avgGain = Math.max(0, finiteOr(options.avgGain, 0.5));
@@ -1040,7 +1044,17 @@
     const scale = Math.max(0, finiteOr(options.scale, 1));
     let fixed = Math.trunc(scale * 128), step = 0, prevTarget = 1;
     let pending = new Float32Array(0);
-    return (x) => {
+    const flush = () => {
+      const out = new Float32Array(pending.length);
+      for (let j = 0; j < pending.length; j++) {
+        const v = clamp(Math.round(pending[j] * 32768), -32768, 32767);
+        const y = Math.floor(v * (fixed + j * step) / 128);
+        out[j] = (y > 32767 ? 32767 : (y < -32768 ? -32768 : y)) / 32768;
+      }
+      pending = new Float32Array(0);
+      return out;
+    };
+    return Object.assign((x) => {
       const merged = new Float32Array(pending.length + x.length);
       merged.set(pending); merged.set(x, pending.length);
       const whole = Math.floor(merged.length / block) * block;
@@ -1065,7 +1079,7 @@
       }
       pending = merged.slice(whole);
       return out;
-    };
+    }, { flush });
   }
 
   // buildLossMask, a frame at a time, with the same random sequence.
@@ -1260,6 +1274,455 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* A render a piece at a time                                         */
+  /*                                                                    */
+  /* createRender(source, opts) is process() for a source pushed in     */
+  /* chunks of any size: the same samples, WAV bytes and codecInfo,     */
+  /* while each stage keeps only its state. A stage that reads ahead in  */
+  /* process() waits instead and is flushed at the end with the zeros   */
+  /* process() reads as missing. The gate decides a frame once its      */
+  /* pre-roll is measured; the codec restarts at each talk spurt as     */
+  /* roundTrip does; the loss mask is drawn once over all frames.       */
+  /* Rooms and talk-spurt re-timing are not streamed yet.               */
+  /* ------------------------------------------------------------------ */
+
+  const NO_SAMPLES = new Float32Array(0);
+  const passStage = { push: (x) => x, flush: () => NO_SAMPLES };
+
+  // The lengths resampleSinc and resampleLinear give.
+  function sincLength(n, inRate, outRate) {
+    inRate = Math.round(inRate); outRate = Math.round(outRate);
+    if (!n || inRate === outRate) return n;
+    const g = gcd(inRate, outRate);
+    return Math.max(1, Math.round(n * (outRate / g) / (inRate / g)));
+  }
+  const linearLength = (n, inRate, outRate) => (!n || inRate === outRate ? n : Math.max(1, Math.round(n / (inRate / outRate))));
+
+  // Passes at most `length` samples in all.
+  function cutAt(length) {
+    let passed = 0;
+    return (y) => {
+      const keep = Math.max(0, Math.min(y.length, length - passed));
+      passed += keep;
+      return keep < y.length ? y.subarray(0, keep) : y;
+    };
+  }
+
+  // resampleSinc of an inLength-sample signal: the streaming resampler,
+  // given at the end the zeros its last outputs read (resampleSinc skips the
+  // inputs past the end, which adds the same), cut to resampleSinc's length.
+  function sincStage(inRate, outRate, inLength) {
+    inRate = Math.round(inRate); outRate = Math.round(outRate);
+    if (inRate === outRate) return passStage;
+    const g = gcd(inRate, outRate), up = outRate / g, down = inRate / g, { half } = resampleKernel(up, down);
+    const outLength = sincLength(inLength, inRate, outRate), run = streamResampleSinc(inRate, outRate), cut = cutAt(outLength);
+    let fed = 0;
+    return {
+      push(x) { fed += x.length; return cut(run(x)); },
+      // Output i reads the inputs up to (i * down + half) / up.
+      flush() {
+        if (!outLength) return NO_SAMPLES;
+        return cut(run(new Float32Array(Math.max(0, Math.ceil(((outLength - 1) * down + half + 1) / up) - fed))));
+      }
+    };
+  }
+
+  // resampleLinear of an inLength-sample signal, ending as it ends: the last
+  // outputs lean on the last input, not on zeros past it. An empty signal
+  // gives none (outLength 0).
+  function linearStage(inRate, outRate, inLength) {
+    if (inRate === outRate) return passStage;
+    const ratio = inRate / outRate, last = inLength - 1, outLength = linearLength(inLength, inRate, outRate);
+    let buf = NO_SAMPLES, start = 0, total = 0, next = 0;
+    const run = () => {
+      const out = [];
+      for (; next < outLength; next++) {
+        const pos = next * ratio, i0 = Math.min(last, pos | 0), i1 = Math.min(last, i0 + 1);
+        if (i1 >= total) break;
+        const frac = pos - (pos | 0);
+        out.push(buf[i0 - start] * (1 - frac) + buf[i1 - start] * frac);
+      }
+      const keep = Math.max(start, Math.min(last, (next * ratio) | 0));
+      if (keep > start) { buf = buf.slice(keep - start); start = keep; }
+      return Float32Array.from(out);
+    };
+    return {
+      push(x) {
+        const merged = new Float32Array(buf.length + x.length);
+        merged.set(buf); merged.set(x, buf.length);
+        buf = merged; total += x.length;
+        return run();
+      },
+      flush: run
+    };
+  }
+
+  // applyFirZeroPhase of a length-sample signal: a causal FIR with its
+  // delay dropped, given at the end the zeros applyFirZeroPhase reads as
+  // missing. Each sum starts at +0 and takes the taps in applyFirZeroPhase's
+  // order, so the zeros read past either end change nothing, not even the
+  // sign of a zero (streamFir starts at its first term, which gives -0 where
+  // every term is -0).
+  function firStage(taps, length) {
+    const m = taps.length, delay = (m - 1) >> 1, cut = cutAt(length);
+    let history = new Float32Array(m - 1), dropped = 0;
+    const run = (x) => {
+      const merged = new Float32Array(m - 1 + x.length);
+      merged.set(history); merged.set(x, m - 1);
+      const out = new Float32Array(x.length);
+      for (let i = 0; i < x.length; i++) {
+        let acc = 0;
+        for (let k = 0, p = i + m - 1; k < m; k++, p--) acc += taps[k] * merged[p];
+        out[i] = acc;
+      }
+      history = merged.slice(x.length);
+      const d = Math.min(delay - dropped, out.length);
+      dropped += d;
+      return cut(d ? out.subarray(d) : out);
+    };
+    return { push: run, flush: () => run(new Float32Array(delay)) };
+  }
+
+  const biquadStage = (c) => ({ push: streamBiquad(c), flush: () => NO_SAMPLES });
+  const sampleStage = (f) => ({ push: f, flush: () => NO_SAMPLES });
+
+  // The voice gate and the codec a frame at a time, as roundTrip,
+  // celtRoundTrip and speexRoundTrip run them over a length-sample signal at
+  // the codec rate. Frame f is final once frame f + preroll is measured (no
+  // later frame's pre-roll reaches it), so the input held is a few frames.
+  // Decoded frame f lands at f * size - lookahead; gated and late frames
+  // leave zeros. kind: 'opus' | 'celt' | 'speex'.
+  function codecStage(voice, kind, length, gate, makeLossMask) {
+    const size = voice.frameSize, lookahead = voice.lookahead;
+    const frames = Math.ceil((length + lookahead) / size);
+    const lossMask = makeLossMask(frames);
+    const frameLog = new Uint8Array(frames), frameBytes = new Uint16Array(frames);
+    const modes = kind === 'speex' ? { silk: 0, hybrid: 0, celt: 0, speex: 0 } : { silk: 0, hybrid: 0, celt: 0 };
+    const preroll = gate ? gate.preroll : 0, hold = gate ? gate.hold : 0, input = new Float32Array(size);
+    let encodedBytes = 0, lostFrames = 0, underrunFrames = 0, gatedFrames = 0, dtxFrames = 0, spurts = 0, open = false;
+    let held = new Float32Array(8 * size), heldStart = 0, heldLength = 0, received = 0;
+    let measured = 0, loudest = -Infinity, next = 0;
+
+    async function code(f) {
+      const dest = f * size - lookahead, begin = Math.max(0, -dest), span = Math.max(0, Math.min(size, length - dest) - begin);
+      // Sent: some frame from f - hold to f + preroll is loud.
+      if (gate && loudest < f - hold) { gatedFrames++; open = false; return new Float32Array(span); }
+      if (!open) {
+        if (spurts > 0) await voice.restart();
+        spurts++;
+        open = true;
+      }
+      input.fill(0);
+      const start = f * size;
+      if (start < length) input.set(held.subarray(start - heldStart, Math.min(length, start + size) - heldStart));
+      const encoded = voice.encode(input);
+      encodedBytes += encoded.bytes;
+      frameBytes[f] = encoded.bytes;
+      if (kind === 'opus') {
+        modes[encoded.mode]++;
+        if (encoded.dtx) dtxFrames++;
+        frameLog[f] = encoded.dtx ? FRAME_CODES.dtx : FRAME_CODES[encoded.mode];
+      } else {
+        modes[kind]++;
+        frameLog[f] = FRAME_CODES[kind];
+      }
+      const miss = lossMask ? lossMask[f] : 0;
+      if (miss === 1) { lostFrames++; frameLog[f] = FRAME_CODES.lost; }
+      else if (miss === 2) { underrunFrames++; frameLog[f] = FRAME_CODES.late; }
+      let out = new Float32Array(span);
+      if (miss !== 2) {
+        const decoded = miss === 1 ? voice.conceal() : voice.decode(encoded.packet);
+        if (kind === 'opus' && decoded.length !== size) throw new Error('Unexpected Opus frame length');
+        out.set(decoded.subarray(begin, begin + span));
+      }
+      if ((f & 31) === 31) await microYield();
+      return out;
+    }
+
+    async function advance() {
+      const parts = [];
+      while (measured < frames) {
+        const start = measured * size, end = Math.min(length, start + size);
+        if (end > received) break;
+        if (gate) {
+          let energy = 0;
+          for (let i = start; i < end; i++) { const v = held[i - heldStart]; energy += v * v; }
+          if (Math.sqrt(energy / size) > gate.threshold) loudest = measured;
+        }
+        measured++;
+        while (next < frames && (next + preroll < measured || measured === frames)) parts.push(await code(next++));
+      }
+      const drop = Math.min(heldLength, next * size - heldStart);
+      if (drop > 0) { held.copyWithin(0, drop, heldLength); heldLength -= drop; heldStart += drop; }
+      return joinSamples(parts);
+    }
+
+    return {
+      async push(x) {
+        if (heldLength + x.length > held.length) {
+          const grown = new Float32Array(Math.max(2 * held.length, heldLength + x.length));
+          grown.set(held.subarray(0, heldLength));
+          held = grown;
+        }
+        held.set(x, heldLength);
+        heldLength += x.length;
+        received += x.length;
+        return advance();
+      },
+      async flush() {
+        if (received !== length) throw new Error(`createRender: the codec got ${received} of ${length} samples`);
+        return advance();
+      },
+      // The counts roundTrip, celtRoundTrip and speexRoundTrip report.
+      counts() {
+        return { lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames, spurts, encodedBytes, modes, frameLog, frameBytes };
+      }
+    };
+  }
+
+  function joinSamples(parts) {
+    if (parts.length === 1) return parts[0];
+    const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+    let offset = 0;
+    for (const p of parts) { out.set(p, offset); offset += p.length; }
+    return out;
+  }
+
+  /**
+   * process() a piece at a time, for sources too long to hold several
+   * copies of. source = { sampleRate, length, numberOfChannels: 1 } (the
+   * mono capture signal; no samples); opts are process()'s. Resolves to
+   * { outputLength, sampleRate, push(chunk), finish(), free() }:
+   *   push(chunk)  float PCM of the source in order, any size; resolves to
+   *                the output samples that became final (maybe none)
+   *   finish()     after exactly `length` samples were pushed; resolves to
+   *                { samples, codecInfo, realOpus }, samples the rest of
+   *                the output
+   *   free()       releases the codec (finish() does too)
+   * Concatenated, the output is process()'s samples and codecInfo is its
+   * codecInfo. A room (dspRoom, listenerPos, customEnv) and retime are
+   * rejected with a RangeError: not streamed yet. Each push and finish
+   * must resolve before the next call.
+   */
+  async function createRender(source, opts = {}) {
+    if (!source || !Number.isFinite(source.sampleRate) || source.sampleRate <= 0 ||
+        !Number.isInteger(source.length) || source.length < 0 || source.numberOfChannels !== 1) {
+      throw new TypeError('TF2Audio.createRender requires a mono source: { sampleRate, length, numberOfChannels: 1 }.');
+    }
+    // process()'s settings, resolved as it resolves them.
+    const codecKey = Object.hasOwn(CODEC_PROFILES, opts.codec) ? opts.codec : 'steam';
+    const codec = CODEC_PROFILES[codecKey];
+    const engine = VOICE_ENGINE;
+    const room = resolveRoom(opts);
+    const listenerCfg = opts.listenerPos ? LISTENER_POSITIONS[opts.listenerPos] : null;
+
+    const codecRate    = codec.codecRate;
+    const micGain      = clamp(finiteOr(opts.micGain, 1), 0, 20);
+    const hp           = clamp(finiteOr(opts.hp, 0), 0, codecRate * 0.45);
+    const lp           = clamp(finiteOr(opts.lp, codecRate / 2), 100, codecRate / 2);
+    const bits         = clamp(finiteOr(opts.bits, 16), 2, 32);
+    const lossPct      = clamp(finiteOr(opts.lossPct, 0), 0, 100);
+    const jitterMs     = clamp(finiteOr(opts.jitterMs, 0), 0, 500);
+    const enableCodec  = opts.enableWarble !== false;
+    const autoGain     = opts.agc !== false;
+    const gateSpec     = codec.senderGate || DEFAULT_SENDER_GATE;
+    const gateOn       = opts.gate == null ? !!codec.senderGate : !!opts.gate;
+    const gateDb       = clamp(finiteOr(opts.gateThresholdDb, gateSpec.thresholdDb), -90, 0);
+    const avgGain      = clamp(finiteOr(opts.avgGain, engine.autoGain.avgGain), 0, 2);
+    const maxGain      = clamp(finiteOr(opts.maxGain, engine.autoGain.maxGain), 1, 100);
+    const voiceScale   = clamp(finiteOr(opts.voiceScale, 1), 0, 4);
+    const volume       = clamp(finiteOr(opts.volume, engine.volume), 0, 1);
+    const rand         = mulberry32(finiteOr(opts.seed, 0xC0FFEE) >>> 0);
+    const received     = opts.received && opts.received.frameLog ? opts.received : null;
+
+    const srcRate = source.sampleRate, length = source.length;
+    const mixRate = engine.mixRate;
+    const playbackRate = Math.max(mixRate, Math.round(srcRate));
+    const frameMs = 20;
+    const framesPerPacket = clamp(Math.round(finiteOr(opts.frameMs, frameMs) / frameMs), 1, 10);
+    const report = (f) => { if (typeof opts.onProgress === 'function') opts.onProgress(f); };
+
+    // What process() would do that is not streamed yet. A room setting that
+    // resolves to no effect (dsp_room 1, a custom room at mix 0) streams.
+    if (room.chain && room.chain.length && room.mix > 0) {
+      const setting = opts.listenerPos && LISTENER_POSITIONS[opts.listenerPos] ? `listenerPos "${opts.listenerPos}"` : `dspRoom ${opts.dspRoom}`;
+      throw new RangeError(`TF2Audio.createRender does not stream a room yet (${setting}); use TF2Audio.process.`);
+    }
+    if (opts.retime && enableCodec && !received) {
+      throw new RangeError('TF2Audio.createRender does not stream talk-spurt re-timing yet (retime); use TF2Audio.process.');
+    }
+
+    // Each stage's whole length, as process()'s stages give them.
+    const codecLength = sincLength(length, srcRate, codecRate);
+    const voiceLength = sincLength(codecLength, codecRate, codec.voiceRate);
+    const mixLength = codec.mixer === 'linear' ? linearLength(voiceLength, codec.voiceRate, mixRate)
+      : sincLength(voiceLength, codec.voiceRate, mixRate);
+    const outLength = Math.round(length * playbackRate / srcRate);
+
+    /* ---- 1-2) Sender: resample to the codec rate; capture filters ---- */
+    const stages = [sincStage(srcRate, codecRate, length)];
+    if (hp > 10 && !received) stages.push(biquadStage(biquadCoefs('highpass', codecRate, hp, 0.707)));
+    if (lp < codecRate * 0.45 && !received) {
+      stages.push(biquadStage(biquadCoefs('lowpass', codecRate, lp, 0.707)), biquadStage(biquadCoefs('lowpass', codecRate, lp, 0.707)));
+    }
+    const captureEq = enableCodec && !received ? profileEq(codec, 'captureEq') : null;
+    if (captureEq) stages.push(firStage(captureEq, codecLength));
+
+    /* ---- 3) Gate, encode, lose packets, decode ---- */
+    let voice = null, kind = null, coder = null, gate = null, gateOpts = null, bitrate = 0, packetBytes = 0;
+    if (enableCodec && !received) {
+      const opus = await loadOpusModule();
+      bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
+      const codecFrameMs = codec.frameSize ? 1000 * codec.frameSize / codecRate : frameMs;
+      // As process() passes the gate and roundTrip reads it.
+      gateOpts = gateOn ? { thresholdDb: gateDb, prerollFrames: Math.round(gateSpec.prerollMs / codecFrameMs),
+        holdFrames: Math.round(gateSpec.holdMs / codecFrameMs) } : null;
+      gate = gateOpts ? { threshold: 10 ** (Number(gateOpts.thresholdDb) / 20),
+        preroll: Math.max(0, Math.round(Number(gateOpts.prerollFrames) || 0)),
+        hold: Math.max(0, Math.round(Number(gateOpts.holdFrames) || 0)) } : null;
+      if (codec.engine === 'celt011') {
+        kind = 'celt';
+        packetBytes = Math.max(8, Math.round(codec.packetBytes * bits / 16));
+        voice = await opus.createCeltStream(codecRate, { frameSize: codec.frameSize, complexity: codec.complexity, packetBytes });
+      } else if (codec.engine === 'speex') {
+        kind = 'speex';
+        voice = await opus.createSpeexStream(codecRate, { bitrate: codec.bitrate * bits / 16 });
+      } else {
+        kind = 'opus';
+        voice = await opus.createVoiceStream(codecRate, bitrate, { application: codec.application, signal: codec.signal,
+          runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
+      }
+      coder = codecStage(voice, kind, codecLength, gate,
+        count => buildLossMask(count, framesPerPacket, lossPct, rand, jitterMs));
+      stages.push(coder);
+      const eq = profileEq(codec);
+      if (eq) stages.push(firStage(eq, codecLength));
+    }
+
+    /* ---- 4) Receiver voice channel: auto-gain + int16 clamp ---- */
+    stages.push(sincStage(codecRate, codec.voiceRate, codecLength));
+    if (autoGain) {
+      const run = streamAutoGain({ blockSize: engine.autoGain.blockSize, avgGain, maxGain, scale: voiceScale });
+      stages.push({ push: run, flush: run.flush });
+    } else {
+      stages.push(sampleStage((x) => {
+        const y = new Float32Array(x);
+        for (let i = 0; i < y.length; i++) y[i] *= voiceScale;
+        return hardClip(y, INT16_FULL_SCALE);
+      }));
+    }
+
+    /* ---- 5) Mixer at 44.1 kHz and the output stage ---- */
+    stages.push(codec.mixer === 'linear' ? linearStage(codec.voiceRate, mixRate, voiceLength)
+      : sincStage(codec.voiceRate, mixRate, voiceLength));
+    if (listenerCfg && listenerCfg.extraLpf) stages.push(biquadStage(biquadCoefs('lowpass', mixRate, listenerCfg.extraLpf, 0.8)));
+    if (engine.outputFir) stages.push(firStage(engine.outputFir, mixLength));
+    if (volume !== 1) {
+      stages.push(sampleStage((x) => {
+        const y = new Float32Array(x);
+        for (let i = 0; i < y.length; i++) y[i] *= volume;
+        return y;
+      }));
+    }
+
+    /* ---- 6) Output rate, cut or padded to process()'s length ---- */
+    stages.push(sincStage(mixRate, playbackRate, mixLength));
+    let emitted = 0;
+    const finalSamples = (y) => {
+      y = softLimit(y, 0.98);
+      for (let i = 0; i < y.length; i++) {
+        if (!Number.isFinite(y[i])) throw new Error(`DSP produced a non-finite sample at index ${emitted + i}.`);
+      }
+      emitted += y.length;
+      return y;
+    };
+    const cut = cutAt(outLength);
+    stages.push({ push: (y) => finalSamples(cut(y)), flush: () => finalSamples(new Float32Array(outLength - emitted)) });
+
+    async function through(k, x) {
+      for (; k < stages.length; k++) x = await stages[k].push(x);
+      return x;
+    }
+
+    let pushed = 0, state = 'open', busy = false;
+    const release = () => { if (voice) voice.free(); voice = null; };
+    async function guarded(run) {
+      if (busy) throw new Error('TF2Audio.createRender: push() or finish() called before the previous call resolved.');
+      if (state !== 'open') throw new Error(`TF2Audio.createRender: this render has ${state}.`);
+      busy = true;
+      try { return await run(); }
+      catch (error) { if (state === 'open') state = 'failed'; throw error; }
+      finally { busy = false; if (state !== 'open') release(); }
+    }
+
+    return {
+      outputLength: outLength,
+      sampleRate: playbackRate,
+      push: (chunk) => guarded(async () => {
+        if (pushed + chunk.length > length) {
+          throw new RangeError(`TF2Audio.createRender: ${pushed + chunk.length} samples pushed to a ${length}-sample source.`);
+        }
+        /* ---- 1) Sender capture: capture gain, int16 clip ---- */
+        const x = new Float32Array(chunk);
+        for (let i = 0; i < x.length; i++) {
+          if (!Number.isFinite(x[i])) throw new TypeError(`Source PCM contains a non-finite sample (at ${pushed + i}).`);
+        }
+        if (micGain !== 1 && !received) {
+          for (let i = 0; i < x.length; i++) x[i] *= micGain;
+        }
+        pushed += x.length;
+        const out = await through(0, hardClip(x, INT16_FULL_SCALE));
+        if (length) report(pushed / length);
+        return out;
+      }),
+      finish: () => guarded(async () => {
+        if (pushed !== length) throw new RangeError(`TF2Audio.createRender: finish() after ${pushed} of ${length} samples.`);
+        const parts = [];
+        for (let k = 0; k < stages.length; k++) parts.push(await through(k + 1, await stages[k].flush()));
+        let codecInfo = { backend: 'bypass', sampleRate: codecRate, frameMs };
+        if (received) codecInfo = receivedCodecInfo(received, codecRate);
+        else if (coder) codecInfo = { ...codecResultInfo(kind, voice, codec, coder.counts(), gate, gateOpts, bitrate, packetBytes, codecRate), framesPerPacket };
+        release();
+        state = 'finished';
+        report(1);
+        return { samples: joinSamples(parts), realOpus: enableCodec,
+          codecInfo: { ...codecInfo, codec: codecKey, autoGain, voiceRate: codec.voiceRate } };
+      }),
+      // During a push, the codec is released once that push has finished.
+      free() { if (state === 'open') state = 'been freed'; if (!busy) release(); }
+    };
+  }
+
+  // The info roundTrip, celtRoundTrip and speexRoundTrip return, from a
+  // codec stage's counts and the settings process() gives them.
+  function codecResultInfo(kind, voice, codec, counts, gate, gateOpts, bitrate, packetBytes, sampleRate) {
+    const { lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames, spurts, encodedBytes, modes, frameLog, frameBytes } = counts;
+    const gateInfo = { gate: gate ? Number(gateOpts.thresholdDb) : null, prerollFrames: gate ? gate.preroll : 0, holdFrames: gate ? gate.hold : 0 };
+    const size = voice.frameSize;
+    if (kind === 'celt') {
+      return { backend: 'celt', version: voice.version, runtime: 'celt-0.11', sampleRate, bitrate: Math.round(packetBytes * 8 * sampleRate / size),
+        application: 'celt', signal: 'auto', complexity: codec.complexity ?? 10, vbr: false, dtx: false,
+        frameSamples: size, frameMs: 1000 * size / sampleRate, packetBytes,
+        lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts, ...gateInfo,
+        encodedBytes, modes, plc: 'celt', frameLog, frameBytes };
+    }
+    if (kind === 'speex') {
+      return { backend: 'speex', version: voice.version, runtime: 'speex-1.2.1', sampleRate,
+        bitrate: voice.bitrate, quality: voice.quality, application: 'speex', signal: 'auto', complexity: voice.complexity,
+        vbr: false, dtx: false, enhancement: voice.enhancement, frameSamples: size, frameMs: 1000 * size / sampleRate,
+        packetBytes: Math.ceil(voice.bitrate * size / sampleRate / 8),
+        lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts, ...gateInfo,
+        encodedBytes, modes, plc: 'speex', frameLog, frameBytes };
+    }
+    // Opus, with the defaults roundTrip and its encoder settings give.
+    return { backend: 'libopus', version: voice.version, runtime: codec.encoder?.runtime ?? '1.6.1', sampleRate, bitrate,
+      application: codec.application ?? 'voip', signal: codec.signal ?? 'auto', complexity: codec.encoder?.complexity ?? 10,
+      vbr: !!codec.encoder?.vbr, dtx: !!codec.encoder?.dtx, frameSamples: size, frameMs: 20,
+      lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames, spurts, ...gateInfo,
+      encodedBytes, modes, plc: 'opus', frameLog, frameBytes };
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Public surface                                                     */
   /* ------------------------------------------------------------------ */
 
@@ -1283,6 +1746,7 @@
     runDspChain,
     realOpusRoundTrip,
     createLiveChain,
+    createRender,
     streamResampleSinc,
     streamFir,
     streamAutoGain,
