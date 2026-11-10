@@ -52,7 +52,15 @@ The fitted filter agrees with it within 0.1 dB up to 13 kHz, is 1.1 dB too brigh
 
 ## Not in this order
 
-The room and water DSP a voice passes through in the game (not in any take, a later choice). Surround speaker
+The room and water DSP a voice passes through in the game (not in any take): that is W3-17
+(`docs/work-orders/W3-17-room-effects.md`). Its part c comes after this order and changes only this stage's
+entry. So that it can, this order writes the entry as one function of the sample and the channel's volume
+(255 here): `trunc(single(s x volume) / 256)`, the product rounded to single precision once (at volume 255 this
+is `trunc(s x 255 / 256)` exactly). **For a 22050 or 11025 Hz voice the entry is made at the voice's own
+rate, before the mixer's upsampling by two (W3-07 section 1), and this order owns that placement**; the
+upsampling is a function of its own, applied to the entered buffer. With a room, part c calls the same entry
+twice, with two shares of the volume, upsamples each buffer by the same function, and hands the sum to this
+order's clip unchanged. Surround speaker
 configurations. The `volume` of the listener beyond what the page already offers.
 
 ## Files
