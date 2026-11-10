@@ -238,9 +238,10 @@ ruled on it, and the order was revised and **cut in two** (branch `claude/w3-pla
 The notes: N1 (the render's own expression, one shared function), N2 (the three changes `steamTimeline` may
 take; a render keeps its own), N7 (3f is a smoke test, [10b] the proof), N9, N10 (`constants.js` named in
 PREDICTIONS), N11 (what W3-10 re-records; the mix point one stage boundary), N14 and N15 are in W3-11b. N3, N4,
-N5, N6, N8, N12 and N13 are in W3-11c. Of the first version's 18 mutations, 10 stay with W3-11b; it now lists
-17, among them the review's on the cursor, the low-latency reach, the block plan, `contentDelay` and the page's
-default.
+N5, N6, N8, N12 and N13 are in W3-11c. Of the first version's 18 mutations, nine stay with W3-11b as they were and
+one ("given out past the reach") in a new form; the other eight are the key's and wait with W3-11c. W3-11b now
+lists 18, among them the review's on the cursor, the low-latency reach, the block plan, `contentDelay` and the
+page's default.
 
 **Two things go beyond the review and the rulings:**
 
