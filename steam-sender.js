@@ -45,9 +45,11 @@
     // encoder cuts frames of 480 samples, 20 ms (W3-09 §2 and §3, read).
     rate: 24000,
     frame: 480,
-    // Samples: how far the capture moves at a time on the owner's PC, 31.25 ms. Shown, not
-    // read: every packet of the Set D demo and all but 39 of Set G's fit chunks of whole
-    // steps (W3-09 §2).
+    // Samples: how far the capture moves at a time, 31.25 ms: one 32nd of the one-second
+    // looping capture buffer Steam asks Windows for (W3-16 second read). The number is not in
+    // Steam's code; that Windows moves the read position in 32nds of the buffer is inferred.
+    // Every packet of the Set D demo and all but 39 of Set G's fit chunks of whole steps
+    // (W3-09 §2).
     grid: 750,
     // Samples of past sound sent in front of the chunk that opens the gate; 2400 zeros when
     // nothing was kept (W3-09 §1, read: the constants 0x960 and 0x12c0).
@@ -73,9 +75,9 @@
     // step up to 24.3 days, so the seed spreads the reads over the float's grid (chosen).
     phaseSpan: 0.25,
     // Seconds Steam had been running when the render begins, by default: 9 days, where a
-    // float of seconds moves in steps of 1/16 s. Fitted to Set D's spurt ends (the W3-16
-    // order, "The hold, by how long Steam has run"); a Steam under a day and a half old is
-    // the other range that fits.
+    // float of seconds moves in steps of 1/16 s. Set D's spurt ends tested on the demo's own
+    // chunks single out a Steam of 6.1 to 12.1 days (W3-16 second read); 9 days is the
+    // middle of that range.
     uptime: 777600,
     // Seconds from Steam's read to the game's relay of the message: arbitrary, it only sets
     // the phase against the game's ticks (the order's table).

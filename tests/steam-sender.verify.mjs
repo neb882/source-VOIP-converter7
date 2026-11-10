@@ -371,6 +371,13 @@ console.log('The float arithmetic (the W3-16 order\'s table; uptime 0, a hand cl
     endsOn(0.343, [0.719], { uptime: 777600 }) === 0 && endsOn(0.282, [0.718], { uptime: 777600 }) === -1);
   check('with uptime 0 the same reads go the other way: 0.343 then 0.719 (376 ms) does not end it; 0.282 then 0.718 (436 ms) does',
     endsOn(0.343, [0.719]) === -1 && endsOn(0.282, [0.718]) === 0);
+  // One narrowing of the sum in doubles: uptime 777600 and time 0.03125 + 1e-9 is a hair above
+  // the tie between 777600 and 777600.0625, so "now" is 777600.0625 (narrowing each first would
+  // give 777600). Its limit is 777600.4375: a read at 0.42 (777600.4375) does not end the
+  // spurt, one at 0.47 (777600.5) does.
+  check('"now" is narrowed once, from the sum in doubles: uptime 777600, the active read at 0.03125 + 1e-9: a read at 0.42 does not end the spurt, one at 0.47 does',
+    f32(777600 + (0.03125 + 1e-9)) === 777600.0625 && endsOn(0.03125 + 1e-9, [0.42], { uptime: 777600 }) === -1
+    && endsOn(0.03125 + 1e-9, [0.42, 0.47], { uptime: 777600 }) === 1);
 }
 
 console.log('An empty read (the W3-16 order, item 2)');
@@ -394,10 +401,26 @@ console.log('An empty read (the W3-16 order, item 2)');
   {
     // 1440 + 2400 of pre-roll is 8 frames, nothing kept; 1440 more is 3, nothing kept.
     const sig = new Int16Array(2880); sig.fill(1000, 0, 1440);
-    const p = go([{ time: 1, samples: 1440 }, { time: 1.2, samples: 1440 }, { time: 1.5, samples: 0 }], sig);
+    const p = go([{ time: 1, since: 1, samples: 1440 }, { time: 1.2, since: 1.2, samples: 1440 }, { time: 1.5, since: 1.5, samples: 0 }], sig);
     const m = p[1][1] || {};
     check('hanging with the hold passed and nothing kept: the end marker alone, returned with the chunk before',
       p[0].length === 1 && p[1].length === 2 && m.end && m.last === m.first - 1 && m.pcm.length === 0 && m.first === 11, fmt(m));
+    // The marker's tick is the empty read's own: max(last + 1, ceil((since + 0.002) / 0.015))
+    // with its since, 1.5 (the chunk before was read at 1.2).
+    const before = p[1][0] || {}, want = Math.max(before.tick + 1, Math.ceil((1.5 + 0.002) / 0.015));
+    check('the end marker of an empty read is ticked from that read\'s since (1.5), not from the chunk before\'s (1.2)',
+      m.tick === want && want === 101 && before.tick === 81, `${before.tick} then ${m.tick}`);
+  }
+  {
+    // An empty read in the silent state changes nothing: two quiet chunks, an empty read, then an
+    // onset, whose pre-roll is the quiet chunks' 1500 samples, not 2400 zeros.
+    const sig = new Int16Array(3000); sig.fill(5, 0, 1500); sig.fill(1000, 1500, 2250);
+    let i = 0;
+    const list = [{ time: 1, samples: 750 }, { time: 1.05, samples: 750 }, { time: 1.1, samples: 0 }, { time: 1.15, samples: 750 }];
+    const s = createSender({ clock: { next: () => (i < list.length ? list[i++] : { time: 2, samples: 750 }) }, uptime: 0 });
+    const out = s.push(sig.subarray(0, 2250)), sp = s.info().spurts[0] || {}, o = out[0] || { pcm: new Int16Array(0) };
+    check('silent, an empty read keeps the past sound: the onset after it gets the two quiet chunks (1500 samples) as its pre-roll',
+      sp.preroll === 1500 && sp.start === 0 && o.pcm.subarray(0, 1500).every((v) => v === 5), JSON.stringify(sp));
   }
   {
     // 750 + 2400 is 6 frames and 270 kept; 750 more is 2 frames and 60 kept.

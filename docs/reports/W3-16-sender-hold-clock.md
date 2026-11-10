@@ -52,7 +52,7 @@ then `r = r + (0.0480 + (0.0637 - 0.0480) A())` with the bracket. The constants 
 
 Seed 1's first reads, as the module gives them: 0 at 0.018701, 1500 at 0.078105, 1500 at 0.132631, 1500 at
 0.193900, 750 at 0.250731, 1500 at 0.298772, 1500 at 0.356728, 750 at 0.407854, 1500 at 0.469505, 1500 at
-0.518744; each `time` is `since` + 0.1247624. The SHA-256 of the first 100,000 reads in the order's layout is
+0.518744; each `time` is `since` + 0.12476268 (the order writes 0.124762, truncated). The SHA-256 of the first 100,000 reads in the order's layout is
 `480ce9b772e19e23d619af099a1292030b62278d75916efb8ae4cf882a843502`, the order's.
 
 ### The sender (items 2 to 4)

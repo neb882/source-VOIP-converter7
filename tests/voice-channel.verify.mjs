@@ -1213,6 +1213,10 @@ function timelineChecks() {
       check('--engine --uptime: the sender runs with that uptime (36 days gives other engine columns than the default; 777600 the default\'s), and the Engine line names it',
         r5 && rm && rn && r5.engine.join() !== rm.engine.join() && r5.engine.join() === rn.engine.join()
         && /up 3110400 s/.test(month.stdout) && /up the default 777600 s/.test(dflt.stdout), `default ${r5 && r5.engine.join(', ')}; 3110400 ${rm && rm.engine.join(', ')}`);
+      // --uptime 0 is a value, not "left out": it reaches the sender as 0.
+      const zero = runIt('--engine', '--seeds', '5', '--uptime', '0'), r0 = row(zero);
+      check('--engine --uptime 0 reaches the sender as 0, not as the default (other engine columns), and the Engine line names it',
+        r0 && r5 && r0.engine.join() !== r5.engine.join() && /up 0 s/.test(zero.stdout), `0: ${r0 && r0.engine.join(', ')}; default ${r5 && r5.engine.join(', ')}`);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
