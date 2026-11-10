@@ -22,7 +22,7 @@ the resampler turned out to be an open-source library whose output counts match 
 | 2. The batches | One chunk is one packet. The encoder cuts 480-sample frames from the chunk plus what was left over from the last one and keeps the remainder (under 20 ms). So 62.5 ms gives 3 frames, now and then 4; 31.25 ms gives 1 or 2. Every packet starts with a sample-rate record. | Read: high. All 20 spurts of the demo and 2,326 packets of Set G fit chunks of whole multiples of 750 samples. |
 | 3. The encoder | libopus **1.1.4** (the version string is in the public Linux build). `opus_encoder_init(24000, 1, VOIP)`, then three settings only: bit rate **32000**, signal **voice**, DTX **on**. Everything else is the library's default: complexity 9 (the same packets as the app's 10), VBR on, **constrained** VBR, no FEC, 20 ms frames. No high-pass, gain control or noise suppression of Steam's own runs before it (`voice_preprocess` is 0). The capture is opened through DirectSound at 24 kHz mono 16-bit, so the resampling from the device's rate is Windows's, not Steam's. | Read: high. Version: read in the Linux build, inferred for Windows. |
 | 4. The decoder | Per frame: an end marker resets the decoder; a sequence number ahead of the expected one conceals up to **10** lost frames; one behind resets without concealing. A silence record becomes that many zero samples. Then 24 kHz to the game's 44.1 kHz with **FFmpeg's libswresample (8.1.2) at its default settings** (32 taps, 147 phases, Kaiser window), called once per packet. No gain or filter is applied to decoded sound (`voice_autogain` is 0). | Read: high. The open-source library, called the same way, gives the logs' sample counts exactly (7056, 2646, 882, and 2756 or 2757 for a silence record). |
-| 5. Speex | The owner's `vaudio_speex` module: narrowband mode, the engine's quality 3 mapped to Speex quality **4** (20 bytes per 160-sample frame), constant bit rate, enhancement on. **No resampling:** the 11025 Hz samples go into the 8 kHz codec as they are, so a frame is 14.5 ms and the band reaches 5.5 kHz. The library inside is the old floating-point **Speex 1.0.x**, not 1.2. | Read: high. The release: inferred from the mode structure's layout. |
+| 5. Speex | The owner's `vaudio_speex` module: narrowband mode, the engine's quality 3 mapped to Speex quality **4** (20 bytes per 160-sample frame), constant bit rate, enhancement on. **No resampling:** the 11025 Hz samples go into the 8 kHz codec as they are, so a frame is 14.5 ms and the band reaches 5.5 kHz. The library inside is the floating-point **Speex 1.0.2**, not 1.2. Decoded samples are truncated to 16 bits with no clamp. A current TF2 cannot run it: asked for `vaudio_speex` it ends up on `vaudio_celt` (section 6). | Read: high. The release: four lines of code set beside Xiph's public sources. |
 
 **The largest finding for the owner:** Steam has console variables that would give a sample-exact test of the whole
 Steam path with no virtual cable: `mic_inputfile` (Steam reads a 24 kHz mono WAV instead of the microphone),
@@ -40,6 +40,7 @@ Steam path with no virtual cable: `mic_inputfile` (Steam reads a 24 kHz mono WAV
 | `libswresample-6.dll` | `bins_codecs_win64.zip`, public | `2ed49e82c7cab6b197b5229759c4d4e1a9eaa74fa5a8303680b34436de74d399` | the resampler's defaults and version |
 | `linux64/steamclient.so` | `bins_sdk_ubuntu12.zip`, public (the same file as SteamCMD's) | `3e32119f473cb9c2615e1b282da8498b9986378e8b71537a4aed9f77e7b797e0` | the libopus version string |
 | `vaudio_speex.dll` (linked 2026-05-20) | the owner's, from a Source game install | `70d6643250a2010e79b79d727f9256a60f29317e5e2ad257d0721081afa9227f` | section 5 |
+| `engine.dll` (the file W3-03 read) | the owner's TF2 install | `4802a74ce0abb1175851d00e37fc88609085a96238aa52ac0eb224ae4a08ec80` | section 6 |
 
 - The owner's library has image base `0x138000000`; addresses below are virtual addresses in it. It keeps assertion
   texts with source file names (`p2pvoice.cpp`, `clientaudio.cpp`, `voiceencoder_opus.cpp`, `voice_decoder.cpp`,
@@ -67,7 +68,7 @@ Steam path with no virtual cable: `mic_inputfile` (Steam reads a 24 kHz mono WAV
 | Zhenyang Li, "Reversing Steam Voice Codec", 2021 (`zhenyangli.me/posts/reversing-steam-voice-codec/`) | Read from the 32-bit Windows client: 8-byte SteamID, typed records, CRC32 at the end; type 11 is the sample rate (24000), types 5 and 6 are Opus ("OPUS" and "OPUS PLC"), 1 to 4 legacy or SILK, 0 a sample count; the Opus class sets a field to 32000; a built-in test expects 24000 Hz mono. | A careful public write-up of the same kind of reading as this one | Agrees with finding 11 and with `demo.js`. Extended here: the 32000 is the bit rate; type 0 is the silence record; type 6 differs from 5 only in carrying sequence numbers. |
 | `steam-audio-codec`, a Rust crate by demos.tf (`docs.rs/steam-audio-codec`) | A decoder for these packets: record types 0, 6 and 11; inside type 6, a 16-bit length, `0xFFFF` resets the decoder and the expected sequence number, a sequence number behind the expected one resets, one ahead conceals the gap. | Open source, written against real TF2 demos | Agrees with `demo.js`. Two differences from Steam's own decoder, read here: Steam conceals at most 10 frames, and a silence record is played as zeros (the crate only counts it). |
 | `CS2VoiceData` (a Go example) | Every Counter-Strike 2 demo it met was 24000 Hz mono. | Open source, small | Agrees. |
-| Xiph's Speex repository (`gitlab.xiph.org/xiph/speex`, tags `Speex-1.0` to `Speex-1.2.1`) | The narrowband mode's structure and the control requests of each release. | The codec's own source | Dates the library inside `vaudio_speex` (section 5): 1.0 to 1.0.3, where the app's profile runs 1.2.1. |
+| Xiph's Speex repository (`gitlab.xiph.org/xiph/speex`, tags `Speex-1.0` to `Speex-1.2.1`) | The narrowband mode's structure and the control requests of each release. | The codec's own source | Dates the library inside `vaudio_speex` (section 5): 1.0.2, where the app's profile runs 1.2.1. |
 | FFmpeg's libswresample (the distribution's 6.1.1, run here; Valve ships 8.1.2) | The resampler's defaults and what its flush does. | The library itself | Gives the logs' decoded sample counts exactly (section 4). |
 | The game's own `find voice` output (already in the project) | The receiver's variables. | The game itself | Nothing new for Steam's side. |
 
@@ -93,9 +94,9 @@ Refused: `github.com` (reported in the brief; not retried). Needed from it: noth
 
 ### The capture (read)
 
-- The recorder is created for **24000 Hz** (`mov ecx, 0x5dc0` at `0x1380d5b51`) and opens a DirectSound capture
+- The recorder is created for **24000 Hz** (the constant `0x5dc0` passed at `0x1380d5b51`) and opens a DirectSound capture
   buffer of one second as PCM, **1 channel, 16 bits**, at that rate (the format block is built at `0x1380dedad`:
-  format tag and channels `0x10001`, block size and bits `0x100002`). So the conversion from the device's own rate
+  PCM, one channel, two bytes a sample). So the conversion from the device's own rate
   and channel count to 24 kHz mono happens **inside Windows**, before Steam sees a sample. The capture roll-off of
   findings 14 and 16 (-6.5 dB at 11.75 kHz) is therefore Windows's capture resampler (or the virtual cable's), not
   Steam code. Inferred from that: it can differ between Windows versions and devices.
@@ -144,9 +145,9 @@ active    = mean_pct >= voice_minavg              # 1.0
 Four states: silent, active, hanging, ended.
 
 - **Silent, and the chunk is not active:** the chunk is appended to a buffer of past sound, which is then cut to
-  its **last 2400 samples** (`0x960`; `cmp r8d, 0x960` at `0x1380d62e2`). Nothing is sent.
-- **Silent, and the chunk is active:** if that buffer is empty, 2400 zeros are put in it (the 4800 zero bytes come
-  from `mov r8d, 0x12c0` at `0x1380d5ff7`). The chunk is appended, and **buffer plus chunk** is what goes to the
+  its **last 2400 samples** (the constant `0x960`, compared at `0x1380d62e2`). Nothing is sent.
+- **Silent, and the chunk is active:** if that buffer is empty, 2400 zeros are put in it (4800 zero bytes, the constant
+  `0x12c0` at `0x1380d5ff7`). The chunk is appended, and **buffer plus chunk** is what goes to the
   encoder. The buffer is emptied. State: active.
 - **Active or hanging, and the chunk is active:** the chunk goes to the encoder; the time of this call is noted.
 - **Active, and the chunk is not active:** state becomes hanging; the chunk still goes to the encoder.
@@ -174,7 +175,7 @@ What follows from it:
 - **A pause is closed if it is shorter than the hold.** Finding 12's "560 ms" (hold plus pre-roll) is not a rule of
   the code: a new active chunk during the hang simply continues the spurt, and one after the end starts a new
   spurt with whatever pre-roll the buffer holds.
-- **The clock is a 32-bit float of seconds since Steam started** (`cvtsd2ss` at `0x1380d72d0`). After about 4.6
+- **The clock is a 32-bit float of seconds since Steam started** (the time is narrowed from a double at `0x1380d72d0`). After about 4.6
   hours it resolves 2 ms, after 36 hours 16 ms, after 3 days 31 ms. On a Steam that has been running for days the
   hold is quantised that coarsely. (Read; its effect on a take was not measured.)
 
@@ -213,7 +214,7 @@ then one of
 ```
 
 `CheckMicrophone` (`0x1380d0c90`, once per frame of Steam's own loop) copies that payload into a queue. The queue
-holds at most **8192 bytes** (`cmp dword [rdi+0x24], 0x2000`); the oldest chunk is dropped beyond that (about 2 s of
+holds at most **8192 bytes** (the constant `0x2000`, compared at `0x1380d0e54`); the oldest chunk is dropped beyond that (about 2 s of
 voice: the reason for "at worst four times a second"). `GetVoice` (`0x1380cfdd0`) writes the SteamID, then **every
 queued chunk that fits** in the caller's buffer, then the CRC32. The engine asks every 15 ms with a 2048-byte
 buffer, so it nearly always gets one chunk per message. (Shown: all 1,816 messages of the demo hold exactly one
@@ -261,18 +262,18 @@ Read from the class `VoiceEncoder_OPUS` (its virtual table is at `0x13919b510`):
   (the same class with a flag that adds them), 3 raw samples, anything else SILK at 16 kHz. Its default text is `4`
   (SILK), so something sets it to 6 for the packets we see; where was not read. The demo's packets are type 6.
 - **Set-up** (`Init`, `0x1380e32d0`): `opus_encoder_init(state, 24000, 1, 2048)`: 2048 is `OPUS_APPLICATION_VOIP`
-  (`mov r9d, 0x800`). Then exactly three requests:
+  (the constant `0x800` at `0x1380e3302`). Then exactly three requests:
 
   | Request | Value | Where |
   | --- | --- | --- |
-  | 4002, bit rate | **32000**, set in both constructors (`mov dword [rbx+0x10], 0x7d00`, bytes `C7 43 10 00 7D 00 00`, at `0x1380e3063` and `0x1380e30d3`) | `0x1380e335d` |
+  | 4002, bit rate | **32000**, set in both constructors (the constant `0x7d00`, stored at `0x1380e3063` and `0x1380e30d3`) | `0x1380e335d` |
   | 4024, signal | 3001, `OPUS_SIGNAL_VOICE` | `0x1380e336f` |
   | 4016, DTX | 1 | `0x1380e3383` |
 
 - **Never set:** complexity, VBR, the VBR constraint, in-band FEC, expected loss, bandwidth, frame duration. The
   library's defaults therefore hold, and this build's `opus_encoder_init` (`0x138bb16e0`) writes them as the
-  open-source 1.1 does: **complexity 9** (`mov qword [rdi+0x2c], 9`), VBR on and **constrained** (`[rdi+0x88]` and
-  `[rdi+0x8c]` both 1), no FEC, bit depth 24, bandwidth automatic up to what 24 kHz allows.
+  open-source 1.1 does: **complexity 9** (stored at `0x138bb1867`), VBR on and **constrained** (both flags set to 1 at
+  `0x138bb18d3` and `0x138bb18dd`), no FEC, bit depth 24, bandwidth automatic up to what 24 kHz allows.
 - **Frames:** always 480 samples, 20 ms. The output buffer allows up to 32767 bytes a frame.
 - **A fresh encoder state per spurt:** the reset at each end marker, and at a key press after the capture had
   stopped.
@@ -438,8 +439,9 @@ To the app:
   library, or a port of its 16-bit path, has to run with the three calls of section 4; short of that, its response
   above 10.5 kHz and its images to 13.5 kHz are what to match.
 - **`CODEC_PROFILES.speex`** (`constants.js`) has the codec at 8000 Hz with a resampler on each side. The module
-  does not resample: the codec should be handed the 11025 Hz sound directly (section 5). The library is Speex 1.0
-  to 1.0.3, where the profile runs 1.2.1; quality 4, 20 bytes, constant bit rate and enhancement are right.
+  does not resample: the codec should be handed the 11025 Hz sound directly (section 5). The library is Speex
+  1.0.2, where the profile runs 1.2.1, and decoded samples wrap instead of clipping; quality 4, 20 bytes, constant
+  bit rate and enhancement are right.
 - **The gate** in the app works on 20 ms frames with a 6-frame pre-roll and a 22-frame hold; Steam's is the chunk
   rule of section 1.
 - Opus: decode to 16-bit as Steam does (rounded and clipped) before the resampler.
@@ -495,40 +497,161 @@ tested (the code registers them without a hidden or cheat flag).
 
 Read from the `vaudio_speex.dll` the owner supplied (32-bit x86, linked 2026-05-20, SHA-256
 `70d6643250a2010e79b79d727f9256a60f29317e5e2ad257d0721081afa9227f`, image base `0x10000000`; its build path ends
-`engine\voice_codecs\speex\Retail`). It holds two classes, a generic frame wrapper (`VoiceCodec_Frame`, the same
-one W3-03 read around CELT) and `VoiceEncoder_Speex` (virtual table at `0x100281ec`), with the Speex library linked
-in. All of this is **read**.
+`engine\voice_codecs\speex\Retail`). No recording of Speex can be made from a current game (section 6), so this
+reading is the reference for the `speex` profile. It is written to be built from. All of it is **read** unless
+marked.
 
-| The app's profile assumes | The module | |
+### What is in the module
+
+Two classes and the Speex library, statically linked:
+
+- `VoiceEncoder_Speex` (virtual table at `0x100281ec`): the codec proper. Its methods, in the table's order after
+  the destructor: `Init` (`0x10012040`), release, `EncodeFrame` (`0x10011f10`), `DecodeFrame` (`0x10011ea0`),
+  `ResetState` (`0x10012170`).
+- `VoiceCodec_Frame` (virtual table at `0x100281a4`): the generic wrapper that turns a frame codec into the
+  engine's `IVoiceCodec` (the same wrapper W3-03 read around CELT): `Init` (`0x10011d10`), `Compress`
+  (`0x10011a70`), `Decompress` (`0x10011c80`), `ResetState`.
+
+### The library: Speex 1.0.2
+
+The narrowband mode structure, read at the address the mode object points to (`0x10036f88`), is: 160, 40, 10,
+**640**, 17, 144, 0.9, 0.6, 0.01, 1.0001, **0.0**, eight sub-modes, default sub-mode 5, quality map 1, 8, 2, 3, 3,
+4, 4, 5, 5, 6, 7. Set beside Xiph's public repository (`gitlab.xiph.org/xiph/speex`):
+
+| Evidence in the module | Releases whose source has it |
+| --- | --- |
+| The structure above, with a buffer size after the LPC order and a pre-emphasis field | 1.0rc3, 1.0, 1.0.2, 1.0.3, 1.0.4, 1.0.5 and 1.1; gone by 1.1.12; different again in 1.2.1 |
+| The encoder's control function handles requests 3, 4, 6 to 9, 12 to 19, 24 to 26, 29 to 35 and 100 to 102; the decoder's 0, 1, 3, 7, 9, 19, 20, 22, 24 to 26 and 100 to 103. Neither handles 39 (look-ahead) nor 36 and 37 | exactly the lists of 1.0rc3, 1.0, 1.0.2 and 1.0.3; 1.0.4 adds 39, 1.1 adds 36 and 37 |
+| A forced pitch gain above the top of its 4-bit range is set to **15** (the encoder, `0x10002d0d`) | 1.0.2 and later; 1.0 sets it to 0 |
+| The excitation gain's index is `floor(3.5 x log(gain))`, with **no half added** before the floor (`0x10002d5a`) | 1.0 and 1.0.2; 1.0.3 adds 0.5 |
+
+Only **1.0.2** (tag `Speex-1.0.2`, 2003-09-24) passes all four. A release 1.0.1 came between 1.0 and 1.0.2 and has
+no tag in the repository, so it cannot be told apart from here: **fetch `Speex-1.0.2`**. Confidence: high that it
+is 1.0.1 or 1.0.2 and not 1.0, 1.0.3 or later (each excluded by a line of code read in the module); the last two
+rows change the bits the encoder writes, so the neighbours would not give the same packets. It is the
+floating-point library (1.0 has no fixed-point build). No version string is in the file.
+
+### Set-up (`VoiceEncoder_Speex::Init`)
+
+In order:
+
+1. A Speex bit buffer is initialised; one encoder and one decoder are created, both from the **narrowband** mode
+   (frames of 160 samples).
+2. The frame's size in bytes of sound is reported as 320 (160 samples of 16 bits).
+3. The engine's quality argument is mapped: **1 gives Speex quality 0, 2 gives 2, 3 gives 4, 4 gives 6, 5 gives 8;
+   anything else 0.** The engine passes 3 for `vaudio_speex` (W3-03), so **quality 4**.
+4. The bytes per coded frame are taken from a table indexed by the Speex quality (`0x10028204`): 6, 6, 15, 15,
+   **20**, 20, 28, 28, 38, 38, 38. Quality 4 selects sub-mode 3 through the quality map, Speex's 8 kbit/s mode:
+   160 bits, exactly 20 bytes.
+5. The requests, every one the module ever makes besides the reset:
+
+   | On | Request | Value | Effect |
+   | --- | --- | --- | --- |
+   | encoder | 4, set quality | 4 | sub-mode 3, constant bit rate |
+   | decoder | 4 | 4 | none: the 1.0.2 decoder does not know request 4 and only prints a warning |
+   | decoder | 0, set enhancement | 1 | the perceptual enhancement is **on** |
+   | decoder | 24, set sampling rate | 8000 | stored; no effect on the sound |
+   | encoder | 24, set sampling rate | 8000 | stored; only used for bit-rate arithmetic |
+
+   Never set: VBR, VAD, DTX, ABR, complexity. The library's defaults hold: all off, **complexity 2**.
+6. `Init` fails only if either object could not be created. The wrapper's `Init` then stores 160 samples and 20
+   bytes as its frame sizes (and refuses sizes above 2048).
+
+`ResetState`: request 26 (reset state) on the encoder and on the decoder.
+
+### A frame in, a frame out
+
+- **`EncodeFrame`:** the 160 16-bit samples are converted to floats **with their integer values** (no division by
+  32768: Speex 1.0 works on floats in the 16-bit range). The bit buffer is reset, `speex_encode` is called with the
+  floats, and the bit buffer is written out as exactly 20 bytes.
+- **`DecodeFrame`:** the 20 bytes are loaded into the bit buffer, `speex_decode` fills 160 floats, and each float
+  is converted to an integer **by truncation toward zero** and stored as 16 bits with **no clamp** (`0x10011ee0`):
+  a decoded value of 32768 or more, or below -32768, keeps only its low 16 bits and so wraps to the other end of
+  the range. Speex 1.0.2's decoder does not limit its output (the public source copies the frame out as it is), so
+  this happens whenever the decoded wave overshoots full scale, which loud input does. A model has to wrap, not
+  clip.
+- There is no concealment path: `DecodeFrame` always reads 20 bytes.
+
+### The wrapper (what `createSpeexStream` has to copy)
+
+- **`Compress(samples, count, out, room, final)`:** it keeps the samples that did not fill a frame. While what
+  is kept plus what came makes 160 or more, and 20 bytes of room remain, it builds one frame (kept samples first)
+  and encodes it; the frames go into the packet **back to back, with nothing before, between or after them**. What
+  is left (under 160) is kept for the next call. On the final call a kept remainder is **padded with zeros** to a
+  frame and encoded. It returns the bytes written.
+- **`Decompress`:** every whole 20 bytes of the packet becomes 160 samples, in order.
+- **No resampling anywhere.** The engine runs `vaudio_speex` at **11025 Hz** (W3-03: capture, gain and playback),
+  and the module hands those samples to the narrowband codec as they are. So, in real time:
+
+  | | As the codec believes | As it runs in the game |
+  | --- | --- | --- |
+  | Sample rate | 8000 Hz | 11025 Hz |
+  | Frame | 20 ms | **14.51 ms** (160 samples) |
+  | Bit rate | 8000 bit/s | **11025 bit/s** (20 bytes a frame) |
+  | Band | to 4 kHz | to 5.5 kHz |
+  | Pitch search, 17 to 144 samples | 56 to 471 Hz | 77 to 649 Hz |
+
+- **Packets:** the engine's recorder hands the wrapper what it captured each 15 ms tick: 165 samples at 11025 Hz.
+  So nearly every packet is one frame (20 bytes) and about one in thirty holds two (40 bytes); 68.9 frames a
+  second. (Inferred from the two readings; no log of Speex exists.)
+
+### Against the app's profile (`CODEC_PROFILES.speex`, `tests/LEGACY_CODECS.md`)
+
+| The profile assumes | The module | |
 | --- | --- | --- |
-| Narrowband, 8 kHz | The mode object passed to both `speex_encoder_init` and `speex_decoder_init` (`0x10036d40`) is named `narrowband`: frames of 160 samples, sub-frames of 40, LPC order 10. Both sides are then told the sampling rate is **8000** (request 24, `mov dword [ebp-4], 0x1f40` at `0x10012121`). | Confirmed |
-| Quality 4 | The engine's argument is mapped by a switch (`0x1001208e`): 1 gives Speex quality 0, 2 gives 2, **3 gives 4**, 4 gives 6, 5 gives 8, anything else 0. The engine asks for 3 (W3-03). The quality is set with request 4 on the encoder. | Confirmed |
-| 160-sample frames in 20-byte packets | A table of bytes per frame by Speex quality (`0x10028204`): 6, 6, 15, 15, **20**, 20, 28, 28, 38, 38, 38. Each frame is written into exactly that many bytes. Quality 4 is Speex's 8 kbit/s sub-mode, 160 bits. | Confirmed |
-| Constant bit rate, no VAD, no DTX | The only requests the module ever makes are quality (4), sampling rate (24), enhancement (0, decoder) and reset (26). VBR, VAD, DTX and complexity are never touched: the library's defaults (off, off, off, complexity 2). | Confirmed |
-| Enhancement on | `speex_decoder_ctl(decoder, 0, &1)` at `0x10012119`: the perceptual enhancement is switched on. | Confirmed |
-| The receiver at 11025 Hz | The engine's business (W3-03: 11025 Hz for capture, gain and playback). **The module does not resample.** `EncodeFrame` (`0x10011f10`) turns 160 16-bit samples into floats and encodes them; `DecodeFrame` (`0x10011ea0`) decodes 160 floats and stores them as 16-bit. So the codec is handed 11025 Hz sound and told it is 8000 Hz. | **Corrects the picture:** nothing is converted to 8 kHz |
-| Speex 1.2.1 | The mode structure (read at the address the mode object points to) is 160, 40, 10, **640**, 17, 144, 0.9, 0.6, 0.01, 1.0001, **0.0**, the sub-modes, 5, and the quality map 1, 8, 2, 3, 3, 4, 4, ...: a buffer size after the LPC order and a pre-emphasis field at the end. Xiph's public repository has exactly that initialiser in releases 1.0 to 1.0.5 and in 1.1; by 1.1.12 the buffer size and pre-emphasis are gone and the constants differ, and 1.2.1 is different again. The encoder's control function handles requests 3 to 35 and 100 to 102 and not 36, 37 or 39; the public sources add 36 and 37 in 1.1 and 39 in 1.0.4. So the library is **Speex 1.0 to 1.0.3** (2003), floating point. No version string is in the file. | **Corrects** (the layout and the request list are read; the release is inferred from them, high confidence) |
+| Narrowband | narrowband | Confirmed |
+| Quality 4, 20-byte packets, 160-sample frames | the same, for the engine's quality 3 | Confirmed |
+| Constant bit rate, no VAD, no DTX | never set, so the defaults | Confirmed |
+| Enhancement on | set to 1 | Confirmed |
+| The receiver at 11025 Hz | the engine's rate | Confirmed |
+| The codec at 8000 Hz, with a resampler each side | **no resampler: the codec is fed the 11025 Hz samples** | **Corrected** |
+| Speex 1.2.1 | **Speex 1.0.2** (or 1.0.1) | **Corrected** |
+| (not modelled) | float to 16-bit by truncation, wrapping beyond full scale | New |
+| (not modelled) | complexity 2, the default | To check against what the profile passes |
 
-What follows:
+The bit-stream is the same in 1.0.2 and 1.2.1 (version 4), so either decodes the other's packets; the encoder's
+choices and the decoder's enhancement differ between them (not compared in sound here).
 
-- **Everything is scaled by 11025/8000 = 1.378.** A frame of 160 samples lasts **14.51 ms**, not 20; 20 bytes a frame
-  is **11.025 kbit/s** in real time, not 8; the codec's 4 kHz band reaches 5.5 kHz; its pitch range of 17 to 144
-  samples covers 77 to 649 Hz instead of 56 to 471 Hz. A model that resamples to 8 kHz, encodes, and resamples
-  back gets the band, the frame length and the pitch range wrong. The right model feeds the 11025 Hz samples to
-  the narrowband codec as they are and plays its output at 11025 Hz.
-- **Packets** (the wrapper's `Compress`, `0x10011a70`): every whole frame the engine's recorder has in hand on a
-  tick, back to back, with nothing added; the remainder waits; a final call pads the last frame with zeros. At
-  11025 Hz a 15 ms tick brings 165 samples, so nearly every packet is one frame (20 bytes) and about one in
-  thirty holds two. `Decompress` decodes each 20 bytes to 160 samples.
-- **Samples in and out:** to float with no scaling; back by truncation toward zero with **no clamp** (`cvttss2si`
-  then a 16-bit store at `0x10011ee0`), so a decoded sample beyond full scale wraps round. Speex 1.0's decoder does
-  not clip its float output (its public source copies the frame out as it is).
-- **Reset** (`0x10012170`): request 26 on both sides.
-- **Against 1.2.1:** the bit-stream is the same (version 4), so the packets decode either way. What differs is the
-  encoder's search and, more audibly, the decoder: 1.0's enhancement is the older post-filter, and 1.2 has a
-  high-pass on the decoder's output that 1.0 does not have (from memory of the two sources; not compared in sound
-  here). Speex 1.0.3 is open source; its tag is in Xiph's repository (`gitlab.xiph.org/xiph/speex`, tags
-  `Speex-1.0` to `Speex-1.0.3`, reachable from this machine), so the profile could run the real thing.
-- **Is this the module of TF2's Speex years?** It is a 2026 build from the engine's own source folder for the
-  module, so the settings above are the code's; the Speex library inside could in principle have been changed
-  since, but its old layout says it was not. Which game it came from is not known.
+## 6. What a current TF2 does when asked for `vaudio_speex`
+
+Asked by the orchestrator after the owner's run: a current game set to `sv_voicecodec vaudio_speex` did not run
+Speex; its recording is 22050 Hz in 512-sample packets and matches `vaudio_celt`. Read from the owner's TF2
+`engine.dll` (SHA-256 `4802a74ce0abb1175851d00e37fc88609085a96238aa52ac0eb224ae4a08ec80`, the file W3-03 read):
+
+- **The server does not change the name** (`0x18013d970`): when a map starts it copies `sv_voicecodec`'s text into
+  its voice-init message as it stands, with a rate of 11025 for `vaudio_speex`, 0 for `steam` and 22050 for
+  anything else. The variable has no change callback, so setting it during a map does nothing until the next map.
+- **The client's handler for that message does not change it either** (`0x1801fbbf0`): it calls `Voice_Init` with
+  the codec and the rate from the message and ignores the result.
+- **`Voice_Init` has no substitute** (`0x1800599f0`): for `vaudio_speex` it tries to load a module of that name,
+  and when that fails it prints `Unable to load voice codec 'vaudio_speex'. Voice disabled. (module 0, iface 0,
+  codec 0)` (an ordinary console message, not a developer one), shuts voice down and reports failure. That is
+  W3-03's reading, and it is right as far as it goes.
+- **The substitution is one step further out** (`0x180058c50`, a function W3-03 did not follow). It runs only
+  when voice is not initialised and `voice_enable` is on. It reads the *local* `sv_voicecodec`, calls `Voice_Init`
+  with it, and **if that fails, or the text is empty, it calls `Voice_Init("vaudio_celt")` at 22050 Hz**. Its
+  callers are the first and fourth entries of the engine's voice-tweak interface (a table of six functions at
+  `0x1804631d8`: the microphone test and the voice controls of the options, which the game's client module also
+  calls) and one function of the tools interface. So when the Speex module cannot be loaded, voice comes back as
+  **`vaudio_celt`, 22050 Hz, 512-sample frames in 64-byte packets**, with no message saying so. Every client does
+  the same, and the server only relays bytes, so everyone hears everyone.
+
+**Would TF2 do what HL2DM did?** The 64-bit game has no `vaudio_speex` module, so: yes, **high confidence** that
+whenever voice works at all under `sv_voicecodec vaudio_speex` it is `vaudio_celt`, by the path above. Medium
+confidence that it needs nothing from the player: the fall-back is reached through the voice-tweak interface, and
+when the client module calls that during ordinary play is in `client.dll`, which was not read (the owner's 64-bit
+run, where voice simply worked, says it is called).
+
+**What TF2's binary does not explain** is a 32-bit game that has a loadable `vaudio_speex` module and still runs
+CELT. By this code a module that loads would be used, at 11025 Hz. Three things to tell apart, in order of
+cheapness: the variable was set after the map had started (the name is taken at map start); the module was not
+where that game looks or failed one of its three steps (the console line's three numbers say which: module
+loaded, interface found, codec initialised); or that game's engine differs from TF2's, which only its own
+`engine.dll` would show.
+
+**The check the owner could run in TF2:** `con_logfile speexcheck.log; sv_voicecodec vaudio_speex`, then load a
+map (`map itemtest`), then `voice_loopback 1; voice_showincoming 1` and speak. Predicted: the log has the `Unable
+to load voice codec 'vaudio_speex'` line once, at the map load; the `incoming samples` lines say **512** (CELT at
+22050 Hz; Speex would say 160); if nothing is printed at all, voice is off, and opening Options, Voice once (the
+microphone test) should bring it back as CELT. In the 32-bit game with the module in place, the same run shows
+whether that line appears and with which three numbers.
