@@ -291,6 +291,69 @@ check('and decodes with CELT 0.11 into one talk spurt', legacyAudio.samples.leng
   } finally { fs.rmSync(out, { recursive: true, force: true }); }
 }
 
+// vaudio_celt_high: the 44100 Hz CELT mode with 1024-sample frames and
+// 128-byte packets, fed 22050 Hz sound (W3-03). Before W3-06 the reader cut
+// such a demo's voice into 120-byte packets of 256 samples at 44100 Hz, and
+// none of it came out as sound.
+const lag = (a, b, from, to) => {
+  let best = from, r = -Infinity;
+  for (let l = from; l <= to; l++) {
+    let dot = 0, ea = 0, eb = 0;
+    for (let i = 2048; i < a.length - 2048; i++) { dot += a[i] * b[i + l]; ea += a[i] ** 2; eb += b[i + l] ** 2; }
+    if (dot / Math.sqrt(ea * eb) > r) { r = dot / Math.sqrt(ea * eb); best = l; }
+  }
+  return { lag: best, r };
+};
+{
+  const high = await createCodec(44100, 1024, { packetBytes: 128, complexity: 5 });
+  const tone = Float32Array.from({ length: 1024 * 12 }, (_, i) => .3 * Math.sin(2 * Math.PI * 440 * i / 22050));
+  const packets = Array.from({ length: 12 }, (_, k) => high.encode(tone.subarray(1024 * k, 1024 * (k + 1))));
+  const lookahead = high.lookahead;
+  high.free();
+  const parsedHigh = D.parse(demoFile([
+    { tick: 10, messages: [msg.voiceInit('vaudio_celt_high', 5)] },
+    { tick: 20, messages: [msg.voice(4, join(packets.slice(0, 6)))] },
+    { tick: 21, messages: [msg.voice(4, join(packets.slice(6)))] }
+  ]));
+  const hs = parsedHigh.speakers[0];
+  check('A vaudio_celt_high demo gives its 128-byte packets, at 22050 Hz', hs && hs.codec === 'vaudio_celt_high' && hs.rate === 22050
+    && hs.frames === 12 && hs.packets.every(p => p.data.length === 128), hs ? `${hs.frames} packets` : 'no speaker');
+  const made = [];
+  const audio = await D.decode(parsedHigh, hs, { celt: (r, f, b) => { made.push([r, f, b]); return createCodec(r, f, { packetBytes: b }); } });
+  const { lag: at, r } = lag(tone, audio.samples, 0, 200);
+  check('and decodes with the 44100 Hz mode into the tone it was made from, at 22050 Hz', made.join() === '44100,1024,128' && audio.rate === 22050
+    && audio.samples.length === 12 * 1024 && audio.frameSamples === 1024 && Math.abs(audio.frameSeconds - 1024 / 22050) < 1e-12
+    && at === lookahead && r > .99, `codec ${made.join(' ')}, delay ${at} samples, r ${r.toFixed(4)}`);
+}
+
+// With the pitch filter compiled in (the game's build, W3-08), a vaudio_celt
+// packet whose filter flag is set decodes. The build bundled before refused
+// every such packet (CELT_CORRUPTED_DATA), so a real vaudio_celt demo of a
+// pitched voice did not decode.
+{
+  const { filterFlag } = await import('./celt011/build.mjs');
+  const enc = await createCodec(22050, 512, { packetBytes: 64, complexity: 5 });
+  const voiced = Float32Array.from({ length: 512 * 24 }, (_, i) => {
+    let v = 0;
+    for (let h = 1; h <= 9; h++) v += Math.sin(2 * Math.PI * 200 * h * i / 22050 + h) / h;
+    return .15 * v;
+  });
+  const packets = Array.from({ length: 24 }, (_, k) => enc.encode(voiced.subarray(512 * k, 512 * (k + 1))));
+  const lookahead = enc.lookahead;
+  enc.free();
+  const flagged = packets.filter(filterFlag).length;
+  const parsedPitched = D.parse(demoFile([
+    { tick: 10, messages: [msg.voiceInit('vaudio_celt', 5)] },
+    { tick: 20, messages: [msg.voice(4, join(packets))] }
+  ]));
+  const ps = parsedPitched.speakers[0];
+  const audio = await D.decode(parsedPitched, ps, { celt: (r, f, b) => createCodec(r, f, { packetBytes: b }) });
+  const { lag: at, r } = lag(voiced, audio.samples, 0, 200);
+  check('A vaudio_celt demo of a pitched voice, its packets made with the pitch filter on, decodes into that voice',
+    flagged >= 20 && ps.frames === 24 && audio.samples.length === 24 * 512 && at === lookahead && r > .98,
+    `${flagged} of 24 packets with the filter flag, delay ${at} samples, r ${r.toFixed(4)}`);
+}
+
 // A demo recorded with `record` keeps voice messages without their payloads.
 const client = D.parse(demoFile([{ tick: 5, messages: [msg.voiceInit('steam'), msg.voice(1, new Uint8Array(0))] }]));
 check('A client demo has voice messages but no speakers', client.voice.length === 1 && client.speakers.length === 0);

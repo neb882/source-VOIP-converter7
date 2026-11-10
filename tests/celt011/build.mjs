@@ -81,7 +81,7 @@ export function testSignals() {
     voiced[i] = clamp(t < 1.3 ? 0.25 * v * syllable : t < 1.8 ? 0.2 * noise * syllable : t < 2.1 ? 0 : 1.6 * v * syllable);
   }
   // A steady 200 Hz tone with eight overtones after 4 frames of silence, 24
-  // frames of 1024: a silent start, where the reset after creation shows.
+  // frames of 1024.
   const tone = new Int16Array(24 * 1024);
   for (let i = 4 * 1024; i < tone.length; i++) {
     let v = 0;
@@ -131,6 +131,33 @@ export async function wasmStream({ mode, signal, restartAt, lossEvery }, dir = p
     codec.free();
   }
   return Buffer.concat(chunks);
+}
+// Whether a mono packet has the pitch post-filter flag set, read as
+// celt_decode reads it (libcelt/celt.c; libcelt/entdec.c, the range
+// decoder): after the first byte, which the encoder's default signalling
+// fills with the mode's frame size, the range coder's first symbol is the
+// silence flag and its second the filter flag. A decoder built without the
+// filter refuses a packet with the flag set (CELT_CORRUPTED_DATA).
+export function filterFlag(packet) {
+  const BOT = 2 ** 23;
+  let offs = 1, rng = 128, rem = packet[offs++] ?? 0, val = rng - 1 - (rem >> 1);
+  const normalize = () => {
+    while (rng <= BOT) {
+      rng = rng * 256;
+      const sym = ((rem << 8) | (rem = packet[offs++] ?? 0)) >> 1;
+      val = ((val * 256) + (255 & ~sym)) % 2 ** 31;
+    }
+  };
+  const bit = (logp) => {
+    const s = Math.floor(rng / 2 ** logp), one = val < s;
+    if (!one) val -= s;
+    rng = one ? s : rng - s;
+    normalize();
+    return one;
+  };
+  normalize();
+  if (bit(15)) return false;                 // silence: nothing else is read
+  return (packet.length - 1) * 8 >= 17 && bit(1);
 }
 // The SHA-256 of a stream's packets and of its 16-bit output.
 export function digest(stream, { mode }) {

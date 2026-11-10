@@ -2,7 +2,7 @@
 // Two pinned libopus builds: 1.1.5, the release Steam's voice packets match
 // (tests/REFERENCE_2026.md), and 1.6.1 from libopus-wasm for a video's audio
 // track and as roundTrip's default. Source's engine codecs run their own
-// libraries: CELT 0.11 and Speex 1.2.1.
+// libraries: CELT 0.11 (the game's build, pitch filter in) and Speex 1.2.1.
 const RUNTIMES = {
   '1.6.1': () => import('./vendor/libopus/index.mjs'),
   '1.1.5': () => import('./vendor/libopus-1.1/index.mjs')
@@ -186,10 +186,13 @@ export async function roundTrip(samples, sampleRate, bitrate, options = {}) {
 // custom mode, one frameSize-sample frame per fixed packetBytes packet, the
 // same gate, loss and delay handling as roundTrip. Frames are
 // frameSize / sampleRate long (23.2 ms for vaudio_celt), not 20 ms.
+// options.modeRate, when given, is the rate the CELT mode is created with
+// in place of sampleRate: vaudio_celt_high is the 44100 Hz mode fed 22050 Hz
+// sound. Frame times, the bitrate and the delay stay at sampleRate.
 export async function celtRoundTrip(samples, sampleRate, options = {}) {
   const frameSize = options.frameSize ?? 512, packetBytes = options.packetBytes ?? 64;
   const { createCodec, version } = await loadCelt();
-  const codec = await createCodec(sampleRate, frameSize, { packetBytes, complexity: options.complexity ?? 10 });
+  const codec = await createCodec(options.modeRate ?? sampleRate, frameSize, { packetBytes, complexity: options.complexity ?? 10 });
   try {
     const lookahead = codec.lookahead;
     const frames = Math.ceil((samples.length + lookahead) / frameSize);
@@ -234,6 +237,7 @@ export async function celtRoundTrip(samples, sampleRate, options = {}) {
     return { samples: output, info: { backend: 'celt', version, runtime: 'celt-0.11', sampleRate, bitrate,
       application: 'celt', signal: 'auto', complexity: options.complexity ?? 10, vbr: false, dtx: false,
       frameSamples: frameSize, frameMs: 1000 * frameSize / sampleRate, packetBytes,
+      ...(options.modeRate != null ? { modeRate: options.modeRate } : {}),
       lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts,
       gate: gate ? Number(options.gate.thresholdDb) : null,
       prerollFrames: gate ? gate.preroll : 0, holdFrames: gate ? gate.hold : 0,
@@ -244,11 +248,12 @@ export async function celtRoundTrip(samples, sampleRate, options = {}) {
 }
 
 // One CELT frame at a time with celtRoundTrip's settings, for the live
-// monitor; the same interface as createVoiceStream.
+// monitor; the same interface as createVoiceStream. options.modeRate as
+// for celtRoundTrip.
 export async function createCeltStream(sampleRate, options = {}) {
   const frameSize = options.frameSize ?? 512;
   const { createCodec, version } = await loadCelt();
-  const codec = await createCodec(sampleRate, frameSize, { packetBytes: options.packetBytes ?? 64, complexity: options.complexity ?? 10 });
+  const codec = await createCodec(options.modeRate ?? sampleRate, frameSize, { packetBytes: options.packetBytes ?? 64, complexity: options.complexity ?? 10 });
   return {
     frameSize, version, lookahead: codec.lookahead,
     async restart() { codec.restart(); },

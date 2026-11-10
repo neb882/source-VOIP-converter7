@@ -196,8 +196,11 @@
     return (~crc) >>> 0;
   }
 
-  // Legacy engine codecs send fixed-size packets back to back.
-  const LEGACY = { vaudio_celt: { rate: 22050, frame: 512, bytes: 64 }, vaudio_celt_high: { rate: 44100, frame: 256, bytes: 120 } };
+  // Legacy engine codecs send fixed-size packets back to back. rate is the
+  // speaker's sound rate; vaudio_celt_high's CELT mode is created at modeRate
+  // (the 44100 Hz mode, fed 22050 Hz sound: W3-03).
+  const LEGACY = { vaudio_celt: { rate: 22050, frame: 512, bytes: 64 },
+    vaudio_celt_high: { rate: 22050, modeRate: 44100, frame: 1024, bytes: 128 } };
 
   // Per speaker, the packets in order. Steam payload: u64 SteamID, typed
   // sections, u32 CRC32 of everything before it; section 6 holds Opus frames
@@ -318,7 +321,7 @@
       }
       if (decoder) decoder.free();
     } else {
-      const codec = await codecs.celt(spec.rate, spec.frame, spec.bytes);
+      const codec = await codecs.celt(spec.modeRate ?? spec.rate, spec.frame, spec.bytes);
       for (const p of speaker.packets) {
         // A gap of more than four frames starts a new talk spurt at its tick.
         if (lastTick === null || at(p.tick) > pos + spec.frame * 4) {

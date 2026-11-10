@@ -311,7 +311,7 @@ async function main() {
   console.log('\n[5] Real codec modes per profile');
   {
     const src = musicLike(1, SR, 3);
-    const expect = { steam: ['hybrid', 32000], steam_48: ['hybrid', 64000], celt_22: ['celt', 22050], celt_44: ['celt', 165375], speex: ['speex', 8000] };
+    const expect = { steam: ['hybrid', 32000], steam_48: ['hybrid', 64000], celt_22: ['celt', 22050], celt_44: ['celt', 22050], speex: ['speex', 8000] };
     for (const [codec, [mode, bitrate]] of Object.entries(expect)) {
       const r = await TF2Audio.process(mkBuffer(src, SR), { codec });
       const m = r.codecInfo.modes;
@@ -323,8 +323,19 @@ async function main() {
       const name = { celt: 'CELT 0.11', speex: 'Speex 1.2.1', libopus: `libopus runs in ${mode} mode` }[engine];
       check(`${codec}: ${name} at ${bitrate / 1000} kbps`,
         r.codecInfo.backend === engine && r.codecInfo.bitrate === bitrate && m[mode] / total > 0.8, JSON.stringify(m));
-      const release = { celt: 'CELT 0.11 (celt-0.11.0)', speex: 'Speex 1.2.1', libopus: 'libopus 1.1.5' }[engine];
+      const release = { celt: 'CELT 0.11 (celt-0.11.0, pitch filter in)', speex: 'Speex 1.2.1', libopus: 'libopus 1.1.5' }[engine];
       check(`${codec}: encodes and decodes with ${release}`, r.codecInfo.version === release, r.codecInfo.version);
+      // The game's module never sets the complexity, so the library's
+      // default, 5, applies (W3-03); vaudio_celt_high's mode is the 44100 Hz
+      // one, run on 22050 Hz sound, and vaudio_celt's has no mode rate of its own.
+      if (engine === 'celt') {
+        check(`${codec}: complexity 5 reaches the codec`, r.codecInfo.complexity === 5, String(r.codecInfo.complexity));
+        const modeRate = { celt_22: undefined, celt_44: 44100 }[codec];
+        check(`${codec}: ${modeRate ? `the ${modeRate} Hz mode on ${r.codecInfo.sampleRate} Hz sound, ${r.codecInfo.packetBytes}-byte packets of ${r.codecInfo.frameMs.toFixed(1)} ms` : 'no mode rate of its own'}`,
+          r.codecInfo.modeRate === modeRate && ('modeRate' in r.codecInfo) === !!modeRate && r.codecInfo.sampleRate === 22050
+          && r.codecInfo.packetBytes === { celt_22: 64, celt_44: 128 }[codec] && r.codecInfo.frameSamples === { celt_22: 512, celt_44: 1024 }[codec],
+          JSON.stringify({ modeRate: r.codecInfo.modeRate, sampleRate: r.codecInfo.sampleRate, packetBytes: r.codecInfo.packetBytes, frameSamples: r.codecInfo.frameSamples }));
+      }
       check(`${codec}: finite output`, !hasBadValues(r.samples) && r.samples.length === Math.round(src.length * r.sampleRate / SR));
     }
     const wide = whiteNoise(1, SR, 0.15, 7);

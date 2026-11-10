@@ -171,7 +171,7 @@ add('steam, six minutes', 48000, at48(360, 6), {}, ['one second']);
 // page would never send, and tiny sources.
 for (const [name, rate, opts, plan] of [
   ['celt_22, gate on, loss 15%, jitter 300 ms', 48000, { codec: 'celt_22', gate: true, lossPct: 15, jitterMs: 300 }, 'uneven'],
-  ['celt_44, gate on, loss 5%', 48000, { codec: 'celt_44', gate: true, lossPct: 5 }, '960'],
+  ['celt_44, gate on, loss 15%', 48000, { codec: 'celt_44', gate: true, lossPct: 15 }, '960'],
   ['speex, gate on, loss 15%, jitter 300 ms', 48000, { codec: 'speex', gate: true, lossPct: 15, jitterMs: 300 }, 'uneven'],
   ['steam, jitter 500 ms (late frames play as silence)', 48000, { jitterMs: 500 }, '960'],
   ['steam, snd_bits 4 (SILK frames)', 48000, { bits: 4 }, 'uneven'],
@@ -354,16 +354,23 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
     `snd_bits 4: ${JSON.stringify(info('steam, snd_bits 4 (SILK frames)').modes)}`);
   const T = 32767 / 32768, loud = sources.get('steam, mic gain 4 (capture clipping)').filter(v => Math.abs(v * 4) > T).length;
   check('mic gain 4 clips the capture', loud > 1000, `${loud} samples`);
-  for (const name of ['steam, loss 15%, jitter 50 ms, net_split 40 ms', 'celt_22, gate on, loss 15%, jitter 300 ms', 'celt_44, gate on, loss 5%',
+  for (const name of ['steam, loss 15%, jitter 50 ms, net_split 40 ms', 'celt_22, gate on, loss 15%, jitter 300 ms', 'celt_44, gate on, loss 15%',
     'speex, gate on, loss 15%, jitter 300 ms', 'steam_48, loss 10%, jitter 100 ms, snd_bits 10']) {
     check(`${name}: frames are lost`, info(name).lostFrames > 0, `${info(name).lostFrames} lost, ${info(name).underrunFrames} late`);
   }
   for (const name of ['steam, jitter 500 ms (late frames play as silence)', 'celt_22, gate on, loss 15%, jitter 300 ms', 'speex, gate on, loss 15%, jitter 300 ms']) {
     check(`${name}: some frames arrive too late and play as silence`, info(name).underrunFrames > 0, `${info(name).underrunFrames} late`);
   }
-  for (const name of ['celt_22, gate on, loss 15%, jitter 300 ms', 'celt_44, gate on, loss 5%', 'speex, gate on, loss 15%, jitter 300 ms']) {
+  for (const name of ['celt_22, gate on, loss 15%, jitter 300 ms', 'celt_44, gate on, loss 15%', 'speex, gate on, loss 15%, jitter 300 ms']) {
     check(`${name}: the gate opens and closes on the codec's own frames`, info(name).spurts > 1 && info(name).gatedFrames > 0);
   }
+  // vaudio_celt_high is the 44100 Hz mode on 22050 Hz sound: its codecInfo
+  // says so (and section 2 holds createRender's to it); vaudio_celt has no
+  // mode rate of its own.
+  check('the celt_44 cases report the 44100 Hz mode on 22050 Hz sound, and the celt_22 cases no mode rate',
+    ['celt_44', 'celt_44, gate on, loss 15%'].every(name => info(name).modeRate === 44100 && info(name).sampleRate === 22050 && info(name).frameSamples === 1024)
+    && ['celt_22', 'celt_22, gate on, loss 15%, jitter 300 ms', 'celt_22, source at 22.05 kHz'].every(name => !('modeRate' in info(name))),
+    `celt_44: ${info('celt_44').modeRate} Hz mode, ${info('celt_44').sampleRate} Hz sound`);
   check('the gate-off case sends every frame as one spurt', info('steam, gate off').spurts === 1 && info('steam, gate off').gatedFrames === 0);
   check('the six-minute case has many spurts', info('steam, six minutes').spurts > 50, `${info('steam, six minutes').spurts}`);
   check('the received case is the demo\'s frames', info('demo voice as received').backend === 'demo'
