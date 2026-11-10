@@ -893,10 +893,16 @@ export async function main() {
         got.push(...o);
         for (let i = 0; i < n; i++) want.push(wet ? gainAt(k++) : 4096);
       }
-      check('the water switched at block starts with no fade, its instance frozen while dry: full gain only for the first 4,413 samples it ever runs, 1640 at once on a later dive',
+      // Asked mid-block, a switch waits for the next block's start: out of the water after 100 samples of a block.
+      const p1 = path.process(new Int32Array(100).fill(4096), new Int32Array(100));
+      path.setWater(false);
+      const p2 = path.process(new Int32Array(924).fill(4096), new Int32Array(924));
+      const late = [...p1, ...p2];
+      check('the water switched at block starts with no fade, its instance frozen while dry: full gain only for the first 4,413 samples it ever runs, 1640 at once on a later dive; a switch asked mid-block waits for the next block',
         same(got, want) && got[1024 + 4096 + 1024 + 316] === 4096 && got[1024 + 4096 + 1024 + 317] === 4095 &&
         got.slice(-3072).every((v) => v === 1640) && got[1024 + 4096 + 1024 + 6144 - 1] === 1640 &&
-        got[1024 + 4096 + 1024 + 6144] === 4096, `first difference at ${firstDiff(got, want)}`);
+        got[1024 + 4096 + 1024 + 6144] === 4096 && late.slice(0, 512).every((v) => v === 1640) &&
+        late.slice(512).every((v) => v === 4096), `first difference at ${firstDiff(got, want)}`);
       // The same with preset 14 itself, on the noise: expected from one instance of 14, made fresh and stepped
       // only on the wet blocks (the module's instance, the rule read).
       const p14 = R.createRoomPath({ waterDraw: drawOf(5) });
