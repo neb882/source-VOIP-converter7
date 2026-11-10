@@ -178,7 +178,7 @@ A fixed RES (256–16384 samples at the file's rate) uses one window length ever
 Only the visible range is analysed, at the display's full pixel resolution. The range button sets how many dB the colours (or the dB waveform) span. TALL, or dragging the bottom-right corner, makes the view taller. Hovering reads out time, level, and in SPEC the frequency with its nearest note, the level and the analysis window.
 
 **Lanes** under WAVE and SPEC:
-- **Codec lane:** what the voice path did with each 20 ms frame, in playback time. It shows SILK, Hybrid or CELT coding, Speex coding in a colour of its own, DTX (comfort noise), not sent (gate closed), lost (concealed) and late (played as silence).
+- **Codec lane:** what the voice path did with each codec frame (20 ms for Opus, 23.2 or 46.4 ms for CELT, 14.5 ms for Speex), in playback time. It shows SILK, Hybrid or CELT coding, Speex coding in a colour of its own, DTX (comfort noise), not sent (gate closed), lost (concealed, or zeros under Speex) and late (played as silence).
   - Zoomed out, a pixel shows the most common frame type, with a red or orange strip on top for the share lost or late.
   - Hovering gives the frame's packet size and bitrate.
   - The legend under the view counts each type.

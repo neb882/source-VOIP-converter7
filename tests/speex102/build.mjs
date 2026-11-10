@@ -4,7 +4,7 @@
 //   node tests/speex102/build.mjs [speex-1.0.2-checkout] [musl-1.2.5-checkout]
 //
 // Builds the Speex-1.0.2 tag of Xiph's repository, the library's sources
-// unchanged, as tests/speex/build.mjs builds 1.2.1: git, clang with the wasm32
+// unchanged, as the other codec builds are: git, clang with the wasm32
 // target and wasm-ld; the small C library of tests/libopus11 (with the few
 // additions in ./libc.c) and musl's libm are compiled in, so the module has no
 // imports. Checkouts not given are cloned at the pinned commits; the script

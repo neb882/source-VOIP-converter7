@@ -706,6 +706,25 @@ async function verifySpeexPage(page) {
     `${seen.chain} / ${seen.option}`);
   const texts = [...seen.legend, ...seen.legendTitles, sVoice, seen.status, seen.chain, seen.option];
   check(texts.every(t => !/CELT|Opus|SILK/.test(t)), 'nothing on the page calls a speex render CELT, Opus or SILK', texts.filter(t => /CELT|Opus|SILK/.test(t)).join(' / '));
+  // A packet is net_split's whole frames of 14.51 ms; the engine sends one
+  // packet per 15 ms tick, so at most 66.7 a second.
+  const network = async () => page.evaluate(() => [...document.querySelectorAll('#signal-chain li')].find(li => li.querySelector('b').textContent === 'Network').textContent);
+  const net20 = await network();
+  await page.locator('#frameMs').fill('40');
+  await page.locator('#frameMs').dispatchEvent('change');
+  const net40 = await network();
+  await page.locator('#frameMs').fill('20');
+  await page.locator('#frameMs').dispatchEvent('change');
+  check(net20.startsWith('Network14.5 ms packets') && net40.startsWith('Network29 ms packets'),
+    'the chain strip gives a speex packet as net_split\'s whole 14.51 ms frames', `${net20} / ${net40}`);
+  await page.locator('#console-input').fill('net_graph 2');
+  await page.locator('#console-input').press('Enter');
+  // The overlay refreshes every 500 ms; give it a few rounds to show this render.
+  await page.waitForFunction(() => /^67 /.test(document.getElementById('ng-in').textContent), null, { timeout: 4000 }).catch(() => {});
+  const ng = await page.locator('#ng-in').textContent();
+  await page.locator('#console-input').fill('net_graph 0');
+  await page.locator('#console-input').press('Enter');
+  check(ng.startsWith('67 '), 'net_graph gives the engine\'s speex packet rate, one per 15 ms tick (67 a second, not 69 frames)', ng);
   const hex = await page.evaluate(() => {
     const canvas = document.getElementById('visualizer'), rect = canvas.getBoundingClientRect(), scale = canvas.width / rect.width;
     const L = vizLayout(rect.width, rect.height);
@@ -751,12 +770,15 @@ async function verifyCeltPage(page) {
     seen[codec] = await page.evaluate((from) => {
       const chain = [...document.querySelectorAll('#signal-chain li')].find(li => li.querySelector('b').textContent === 'Codec');
       const info = state.lastCodecInfo;
-      return { chain: chain ? chain.textContent : '', sVoice: document.getElementById('console-out').textContent.slice(from).split('\n').find(l => l.includes('S_Voice')) || '',
+      const network = [...document.querySelectorAll('#signal-chain li')].find(li => li.querySelector('b').textContent === 'Network').textContent;
+      return { network, chain: chain ? chain.textContent : '', sVoice: document.getElementById('console-out').textContent.slice(from).split('\n').find(l => l.includes('S_Voice')) || '',
         info: { backend: info.backend, version: info.version, sampleRate: info.sampleRate, modeRate: info.modeRate ?? null, frameSamples: info.frameSamples,
           packetBytes: info.packetBytes, complexity: info.complexity, bitrate: info.bitrate, celt: info.modes.celt, frames: info.frames } };
     }, consoleBefore);
   }
   const [a, b] = [seen.celt_22, seen.celt_44];
+  check(a.network.startsWith('Network23.2 ms packets') && b.network.startsWith('Network46.4 ms packets'),
+    'the chain strip gives a CELT packet as one frame of the profile: 23.2 and 46.4 ms', `${a.network} / ${b.network}`);
   check(a.chain.includes('CELT 0.11 22.05 kHz · 64-byte packets of 23.2 ms') && b.chain.includes('CELT 0.11 44.1 kHz mode on 22.05 kHz sound · 128-byte packets of 46.4 ms'),
     'the chain strip describes vaudio_celt, and vaudio_celt_high as the 44.1 kHz mode on 22.05 kHz sound', `${a.chain} / ${b.chain}`);
   check(a.info.backend === 'celt' && a.info.sampleRate === 22050 && a.info.modeRate === null && a.info.frameSamples === 512 && a.info.packetBytes === 64

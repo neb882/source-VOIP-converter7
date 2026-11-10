@@ -297,6 +297,16 @@ export function speexInput(frame) {
   return out;
 }
 
+// How many decoded samples wrapped: the float is past full scale and its
+// 16-bit sample is on the other side of zero.
+export function countWrapped(floats, samples) {
+  let n = 0;
+  for (let i = 0; i < floats.length; i++) {
+    if ((floats[i] >= 32768 && samples[i] < 0) || (floats[i] <= -32769 && samples[i] >= 0)) n++;
+  }
+  return n;
+}
+
 // The codec and its frame wrapper, as the module holds them. reset() is a new
 // talk spurt: the module's ResetState (request 26 on the encoder and the
 // decoder), never a new codec. In 1.0.2 that reset is partial on the decoder
@@ -316,9 +326,7 @@ async function openSpeex(sampleRate) {
     encode: (samples) => codec.encode(samples),
     decode(bytes) {
       const floats = codec.decodeFloats(bytes), samples = speex.toInt16(floats);
-      for (let i = 0; i < floats.length; i++) {
-        if ((floats[i] >= 32768 && samples[i] < 0) || (floats[i] <= -32769 && samples[i] >= 0)) wrapped++;
-      }
+      wrapped += countWrapped(floats, samples);
       return samples;
     }
   };

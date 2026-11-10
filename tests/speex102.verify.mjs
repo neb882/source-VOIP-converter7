@@ -52,8 +52,8 @@ function peakLag(a, b, from, to, margin) {
   return { lag: best, r };
 }
 // Voiced sound with its harmonics from the second up to 3.4 kHz (of the codec's
-// 8 kHz), as tests/speex.verify.mjs makes for timing: nothing low enough for a
-// high-pass filter to turn its phase.
+// 8 kHz, as it believes), for timing: nothing low enough for a high-pass filter
+// to turn its phase.
 function voiceBand(length) {
   const x = new Int16Array(length);
   let phase = 0;
@@ -143,10 +143,14 @@ console.log('\n[Speex 1.0.2] Section 5, point by point');
 console.log('\n[Speex 1.0.2] It is 1.0.2 and not a neighbour');
 {
   // The Speex 1.2.1 module the profile ran before W3-12b (vendor/speex, since
-  // removed), at its quality 4 (the same sub-mode), on the speech-like signal
-  // taken in as floats at full scale 1: the SHA-256 of its packets back to
-  // back, recorded from that module before it was removed. A 1.2.1 build
-  // behind this module's interface would give these packets.
+  // removed): the SHA-256 of its packets back to back on the speech-like
+  // signal, recorded before it was removed. To reproduce it, take
+  // vendor/speex/index.mjs and speex-1.2.1.wasm.mjs from main at b492111 (the
+  // last commit that has them: `git show b492111:vendor/speex/index.mjs`),
+  // make createCodec(4) (quality 4, the same sub-mode as the module's), and
+  // encode testSignals().speech (tests/speex102/native.mjs) 160 samples at a
+  // time, each 16-bit sample / 32768 as a float. A 1.2.1 build behind this
+  // module's interface would give these packets.
   const SPEEX_121_SPEECH_PACKETS = '4de57d83ef2dc9e6c30e84233ec44b3b68a2588509efbb21c2efa43618525f80';
   const own = await code(signals.speech);
   const hash = crypto.createHash('sha256');
@@ -496,8 +500,10 @@ console.log('\n[speex profile] Decoded samples wrap: the count at the decoder\'s
   const r = await A.process(buffer(loud, 48000), { codec: 'speex', agc: false, volume: 1 });
   check('a loud source gives wrapped samples in the render (counted at the decoder\'s output)', r.codecInfo.wrappedSamples > 0,
     `${r.codecInfo.wrappedSamples} samples wrapped`);
-  // createRender, pushed in uneven pieces, gives process()'s samples and count.
-  const piecewise = await A.createRender({ sampleRate: 48000, length: loud.length, numberOfChannels: 1 }, { codec: 'speex', agc: false, volume: 1 });
+  // createRender, pushed in uneven pieces, gives process()'s samples and
+  // codecInfo, at a snd_bits other than 16 (which changes nothing).
+  const at4 = await A.process(buffer(loud, 48000), { codec: 'speex', agc: false, volume: 1, bits: 4 });
+  const piecewise = await A.createRender({ sampleRate: 48000, length: loud.length, numberOfChannels: 1 }, { codec: 'speex', agc: false, volume: 1, bits: 4 });
   const parts = [];
   for (let o = 0, k = 0; o < loud.length; k++) {
     const size = 3000 + 777 * (k % 5);
@@ -508,8 +514,17 @@ console.log('\n[speex profile] Decoded samples wrap: the count at the decoder\'s
   parts.push(end.samples);
   const pieces = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
   parts.reduce((o, p) => { pieces.set(p, o); return o + p.length; }, 0);
-  check('createRender gives that render too, its samples and its count', same(pieces, r.samples) && end.codecInfo.wrappedSamples === r.codecInfo.wrappedSamples,
-    `${end.codecInfo.wrappedSamples} wrapped; ${pieces.length} samples`);
+  const infoDiffers = Object.keys(at4.codecInfo).filter(k => JSON.stringify(at4.codecInfo[k]) !== JSON.stringify(end.codecInfo[k]));
+  check('createRender at snd_bits 4 gives that render too: its samples, its count and the rest of its codecInfo',
+    same(pieces, r.samples) && same(at4.samples, r.samples) && end.codecInfo.wrappedSamples === r.codecInfo.wrappedSamples
+    && infoDiffers.length === 0 && end.codecInfo.bitrate === 11025,
+    `${end.codecInfo.wrappedSamples} wrapped; ${pieces.length} samples${infoDiffers.length ? `; codecInfo differs: ${infoDiffers.join(', ')}` : ''}`);
+  // The count's edges, on made-up decoder floats through the module's toInt16:
+  // 32768 is the first float that wraps, -32769 the first below.
+  const edges = Float32Array.of(32767.9, 32768, 32768.5, -32768.5, -32769, -32769.5, 1000, -1000);
+  const counted = opus.countWrapped(edges, toInt16(edges));
+  check('the count takes a float of 32768 or more, or -32769 or less, whose 16-bit sample crossed zero', counted === 4,
+    `${counted} of 32767.9, 32768, 32768.5, -32768.5, -32769, -32769.5, 1000, -1000 (4 expected)`);
   // Part a's own speech-like signal as the module gets it: its 16-bit samples
   // at 11025 Hz, each / 32768, the microphone gain at 1 and no filter, so that
   // only the new rounding stands before the codec. Through the profile's

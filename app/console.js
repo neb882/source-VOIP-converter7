@@ -305,9 +305,9 @@ const cvars = {
   'dsp_hpf':         { help: 'Optional sender high-pass cutoff (0 = off)', link: 'hp' },
   'dsp_lpf':         { help: 'Optional sender low-pass cutoff (20000 = off)', link: 'lp' },
   'snd_bits':        { help: 'Codec bitrate scale (16 = profile bitrate; vaudio_speex has one bitrate and ignores it)', link: 'bits' },
-  'net_fakeloss':    { help: 'Voice frames lost %, in bursts of ~2.2 frames concealed by the codec (TF2 net_fakeloss 5/10/15 on a listen server lost ~22/45/64%)', link: 'loss' },
+  'net_fakeloss':    { help: 'Voice frames lost %, in bursts of ~2.2 frames, concealed by the codec (vaudio_speex: played as zeros) (TF2 net_fakeloss 5/10/15 on a listen server lost ~22/45/64%)', link: 'loss' },
   'net_fakejitter':  { help: 'Network jitter in ms: late voice frames, 3.2% at 50 ms, one in ten played as silence', link: 'jitter' },
-  'net_split':       { help: 'Packet grouping in ms (whole 20 ms frames)', link: 'frameMs' },
+  'net_split':       { help: 'Codec frames per packet, in steps of 20 ms: 20 is one frame, 40 two (a frame is 20 ms for Opus, 23.2 or 46.4 ms for CELT, 14.5 ms for Speex)', link: 'frameMs' },
   'snd_codec':       { help: 'Run the codec (0 = bypass; filters and receiver remain)', link: 'warble_on' },
   'sv_voicecodec':   {
     help: 'Voice codec (celt_22 / celt_44 / steam / steam_48 / speex)',
@@ -468,7 +468,10 @@ function updateSignalChain() {
   const channelLabel = stereoIn ? ({ left: 'left ch · ', right: 'right ch · ', mix: 'L+R mix · ' })[els.captureChannel.value] || '' : '';
   const kbps = Math.round(Math.max(6000, codec.bitrate * bits / 16) / 1000);
   const mode = codec.application === 'lowdelay' ? 'CELT' : codec.codecRate <= 8000 ? 'SILK' : 'SILK/CELT hybrid';
-  const packetMs = Math.max(20, Math.round(num(els.frameMs, 20) / 20) * 20);
+  // net_split picks whole codec frames per packet, as audio.js counts them;
+  // a packet lasts that many of the profile's own frames.
+  const framesPerPacket = Math.min(10, Math.max(1, Math.round(num(els.frameMs, 20) / 20)));
+  const packetMs = +(framesPerPacket * (codec.frameSize ? 1000 * codec.frameSize / codec.codecRate : 20)).toFixed(1);
   const room = els.position.value === 'manual'
     ? `dsp_room ${els.env.value}`
     : (LISTENER_POSITIONS[els.position.value] || LISTENER_POSITIONS.open).label;
