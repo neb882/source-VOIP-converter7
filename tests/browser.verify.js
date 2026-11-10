@@ -951,13 +951,15 @@ async function verifyLiveMonitor(page) {
   await page.locator('#codec').selectOption('speex');
   await page.waitForFunction(() => TF2Live.stats && TF2Live.stats.codec === 'speex' && TF2Live.stats.sent > 20, null, { timeout: 15000 });
   const mode = await page.locator('#live-mode').textContent();
-  const consoleFrom = (await page.locator('#console-out').textContent()).length;
+  // The console keeps a bounded number of lines, so a length taken now can
+  // point into later text once older lines go: mark the place with a line.
+  await page.evaluate(() => logLine('test: the speex take starts here', 'sys'));
+  const consoleFrom = 'test: the speex take starts here';
   await page.locator('#live-record').click();
   await page.waitForTimeout(1500);
   await page.locator('#live-record').click();
-  await page.waitForFunction((n) => document.getElementById('console-out').textContent.length > n
-    && document.getElementById('console-out').textContent.slice(n).includes('S_Voice'), consoleFrom, { timeout: 20000 });
-  const speexTake = await page.evaluate((n) => ({ console: document.getElementById('console-out').textContent.slice(n).split('\n').filter(l => l.includes('S_Voice')).join(' | '),
+  await page.waitForFunction((n) => document.getElementById('console-out').textContent.split(n).pop().includes('S_Voice'), consoleFrom, { timeout: 20000 });
+  const speexTake = await page.evaluate((n) => ({ console: document.getElementById('console-out').textContent.split(n).pop().split('\n').filter(l => l.includes('S_Voice')).join(' | '),
     status: document.getElementById('source-status').textContent,
     legend: [...document.querySelectorAll('#viz-legend .lg-item')].filter(e => e.querySelector('.lg-box')).map(e => e.textContent) }), consoleFrom);
   check(mode === 'Speex' && /S_Voice: Speex 1\.0\.2, 11\.025 kbps CBR, 14\.5 ms, a lost frame plays as zeros \(Speex 100%\)/.test(speexTake.console)

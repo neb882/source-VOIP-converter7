@@ -137,7 +137,9 @@ ends that much short of its microphone. README's Record bullet says so.
 
 ## The checks
 
-All in `tests/verify.js` [10b], "Live chain, steam: the render's own stages (W3-11b)", 46 checks, unless named.
+All in `tests/verify.js` [10b], "Live chain, steam: the render's own stages (W3-11b)", 46 checks at the build and 50
+after the fix round (see "Fix round" for what changed: the 48 kHz equality at two plans and with no seed, the settings
+cases on 8 s, the 30-lost case at four plans, and the new cases), unless named.
 Expected values come from `createRender` on the same input at its mix point (`onGain`), from the order (the give-out
 rule, the reaches, ten frames), or from a dry run of `steam-sender.js` in the test's own realm; never from the live
 chain's output. The block plans: 128, 480, 4,096, a seeded uneven plan (1 to 5,000), single samples, the whole
@@ -389,7 +391,7 @@ renamed it "shorter pre-roll") (`desktop-live.png`,
 `node tests/render-stream.verify.mjs --hashes` on `fdf6d31` (a checkout in the scratch folder) and on this branch, once
 after the engine's first commit and again on the final tree (`5aadf1b`'s code): **all 51 cases identical**, WAV and
 `codecInfo` hashes alike (`steam` with the codec on, gate on and off, `steam_48`, CELT, Speex, the codec bypassed, a
-demo's received voice). No expectation was re-recorded. The suite's own run (in `pnpm test`, 270 checks) passes against
+demo's received voice). No expectation was re-recorded. After the fix round, on the final tree: again all 51 identical. The suite's own run (in `pnpm test`, 270 checks) passes against
 the recorded hashes.
 `tests/steam-sender.verify.mjs` and `tests/opus.verify.mjs` pass untouched.
 
@@ -400,7 +402,8 @@ the recorded hashes.
 | `pnpm test`, under the lock | pass (`tests/verify.js` 295 checks, 0 failed; 626 s in all, of which [10b]'s steam section is about 4 minutes) |
 | `pnpm test:vendor`, under the lock | pass |
 | the browser suite, under the lock (`CHROMIUM_EXECUTABLE` set) | pass, 238 checks |
-| CI (`tests` workflow) | pass on `5aadf1b` (the last code change, run 42890081492) and on `434ebcf` (run 42890497723); the commits after it change only this report. The two failing runs before `5aadf1b` were the browser checks fixed there (the gate text against a profile with no gate; the 3f take race) |
+| After the fix round, under the lock | `pnpm test` pass, 601 s (`tests/verify.js` 299 checks, 0 failed; [10b]'s `steam` section 99 s alone, about 240 before); `pnpm test:vendor` pass; the browser suite pass, 240 checks (the speex take's console check now finds its place by a marker line, not a length: the console keeps 600 lines, and the fix round's checks pushed older ones out, so a length pointed into later text) |
+| CI (`tests` workflow) at the build | pass on `5aadf1b` (the last code change, run 42890081492) and on `434ebcf` (run 42890497723); the commits after it change only this report. The two failing runs before `5aadf1b` were the browser checks fixed there (the gate text against a profile with no gate; the 3f take race) |
 
 ## Review
 
