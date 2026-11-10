@@ -660,7 +660,7 @@
           default: return new MdyProc(p, label, draw);
         }
       });
-      // A one-, two- or three-processor chain gets a direct path; the units' own calls stay monomorphic.
+      // A one-, two- or three-processor chain gets a direct path, without a loop.
       const u = this.units;
       this.next = u.length === 1 ? (x) => u[0].next(x)
         : u.length === 2 ? (x) => u[1].next(u[0].next(x))
@@ -750,10 +750,11 @@
       this.key = null; this.inst = null;          // now
       this.prevKey = null; this.prevInst = null;  // before (during a fade: the outgoing instance)
       this.fading = false; this.xf = 0;
-      this.request = NO_REQUEST; this.requestInst = null;
-      if (opts.preset !== undefined && opts.preset !== null && opts.preset !== 0) {
-        const r = this.resolve(opts.preset);
-        if (r === null) throw new Error(`TF2Room: the table holds no preset ${opts.preset}`);
+      this.request = NO_REQUEST;
+      // Made with a number the table does not hold, the slot keeps what it had, which at its start is nothing
+      // (Decision 11).
+      const r = opts.preset === undefined ? null : this.resolve(opts.preset);
+      if (r && r.inst) {
         this.key = r.key; this.inst = r.inst;
         if (this.onTake) this.onTake(r.key, r.preset);
         for (let i = 0, n = opts.preroll | 0; i < n; i++) this.inst.next(0);
@@ -774,14 +775,14 @@
     // number the table does not hold leaves the slot as it is (Decision 11), and so drops an earlier request.
     set(p) {
       const r = this.resolve(p);
-      if (r === null) { this.request = NO_REQUEST; this.requestInst = null; return false; }
-      this.request = r; this.requestInst = r.inst;
+      if (r === null) { this.request = NO_REQUEST; return false; }
+      this.request = r;
       return true;
     }
 
     take() {
       const r = this.request;
-      this.request = NO_REQUEST; this.requestInst = null;
+      this.request = NO_REQUEST;
       if (r.key === this.key) return;             // the same number as now: no change
       this.prevKey = this.key; this.prevInst = this.inst;
       this.key = r.key; this.inst = r.inst;
@@ -874,7 +875,8 @@
   // entries. The room slot (0.2 s) on the room buffer, its output added to the direct buffer, then the water
   // slot (0.1 s, preset 14) on the sum if under water. Returns the sum before the clip.
   //   room, water: what the path is made with: no fade at its start. Made under water, the water slot is started
-  //     44,100 samples of silence before the first sample (its amplifier then rests on 1640).
+  //     44,100 samples of silence before the first sample (its amplifier then rests on 1640). A room number the
+  //     table does not hold gives no room (Decision 11).
   //   seed: the render's; the room slot draws from mulberry32((seed ^ 0x524F4F4D) >>> 0), the water slot from
   //     mulberry32((seed ^ 0x57415452) >>> 0). roomDraw, waterDraw: draw functions (lo, hi) in their place.
   class RoomPath {

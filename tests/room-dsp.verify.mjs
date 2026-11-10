@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import vm from 'node:vm';
 
 const require = createRequire(import.meta.url);
@@ -128,7 +129,7 @@ export async function main() {
     if (ok) passed++; else failed.push(name);
     console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${name}${detail && !ok ? `   [${detail}]` : ''}`);
   }
-  const same = (a, b) => { try { assert.deepStrictEqual(a, b); return true; } catch { return false; } };
+  const same = (a, b) => isDeepStrictEqual(a, b);
   const firstDiff = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) return i; return -1; };
   const section = (name) => { const on = !only || name.includes(only); if (on) console.log(`\n${name}`); return on; };
   const HDR = [0.2, 0.7, 0, 0, 80, 0.5];
@@ -255,6 +256,13 @@ export async function main() {
       if (sha(y) !== c.hash) bad.push(name);
     }
     check('those cases\' outputs are the model\'s', bad.length === 0, bad.join('; '));
+    // Quality does nothing inside a delay (R2 difference 8): reference.out gives the two cases one hash.
+    const q2 = L.synthetic['quality 2 in a delay'], q0 = L.synthetic['quality 0 in a delay'];
+    const yq2 = run(R.createInstance({ h: q2.h, p: q2.p }, upper), NOISE.slice(0, 8820), 8820);
+    const yq0 = run(R.createInstance({ h: q0.h, p: q0.p }, upper), NOISE.slice(0, 8820), 8820);
+    check('quality 2 and quality 0 in a delay give the same samples, one filter section in the loop',
+      q2.p[0][1][7] === 2 && q0.p[0][1][7] === 0 && same(Array.from(yq2), Array.from(yq0)) &&
+      REF.rows.get('synthetic: quality 2 in a delay').hash === REF.rows.get('synthetic: quality 0 in a delay').hash);
     // A value of exactly 0 is never clamped, though 0 is below some minimums (R2 0).
     const zero = R.clampParams(2, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     check('a value of exactly 0 is never clamped (the reverb\'s count and cutoff stay 0)', zero[2] === 0 && zero[5] === 0);
@@ -369,6 +377,15 @@ export async function main() {
     check('its fade (model): 662 calls, step 6497681, weights 6, 12, 18, ... 4089, 4095, 4095',
       r16.values.length === 662 && r16.step === 6497681 && same(r16.values.slice(0, 3), [6, 12, 18]) &&
       same(r16.values.slice(-3), [4089, 4095, 4095]));
+    {
+      const ap = R.createInstance(one([9, [1, 500, 0, 1, 0, 0, 0, 0, 2, 0.01, 15, 1]]), lower);
+      const got = Array.from({ length: 23000 }, (_, t) => ap.next(t));
+      const Wf = [0, ...r16.values.slice(0, -1)];          // sample 22051 + k: weight Wf[k], k = 0 .. 661
+      const want = got.map((_, t) => (t < 22050 ? 0 : t <= 22050 ? t - 22050
+        : t <= 22712 ? (t - 22050) + ((221 * Wf[t - 22051]) >> 12) : t - 21829));
+      check('the modulating delay\'s tap fade, sample by sample: weight 0 on the first faded sample, then 6, 12, ... 4089, 4095, the new tap alone from the 663rd',
+        same(got, want), `first difference at ${firstDiff(got, want)}`);
+    }
     check('fed an impulse, drawing the lower bound: 16384 at 0, 6552 at 22050, the third echo 2620 at 43879 (AM 5)',
       mdOut[0] === 16384 && mdOut[22050] === 6552 && mdOut[43879] === 2620);
     // AM 5's hashes, 44100 samples from a fresh instance, under "upper" and "lower".
@@ -611,6 +628,19 @@ export async function main() {
     check('the model\'s 0.2 s ramp: step 486957; 0, 0, 1, 1, 2, ...; 2048 at the 4,411th call; 4095 at the last; done at the 8,821st',
       room.step === 486957 && same(room.values.slice(0, 5), [0, 0, 1, 1, 2]) && room.values[4410] === 2048 &&
       room.values.length === 8821 && room.values[8819] === 4095);
+    const valuesOf = (seconds, a, b) => {
+      const r = new R.Ramp(seconds, a, b), v = [];
+      for (let k = 0; k < 10000; k++) { v.push(r.next()); if (r.done) break; }
+      return v;
+    };
+    check('ramps of 0, 1, 2 and 3 samples: the model\'s values (AM 1: a step the 12.20 form cannot hold is done at once, at its start)',
+      same(valuesOf(0, 0, 4096), L.ramps['0 samples'].values) && same(valuesOf(1.5 / 44100, 0, 4096), L.ramps['1 sample'].values) &&
+      same(valuesOf(2.5 / 44100, 0, 4096), L.ramps['2 samples'].values) && same(valuesOf(3.5 / 44100, 0, 4096), L.ramps['3 samples'].values) &&
+      same(valuesOf(1.5 / 44100, 4096, 1639), L.ramps['1 sample, 4096 to 1639'].values) && same(L.ramps['0 samples'].values, [0]));
+    check('the room slot\'s, the water slot\'s, the glide\'s and the tap fade\'s ramps, call by call, are the model\'s',
+      same(valuesOf(0.2, 0, 4096), room.values) && same(valuesOf(0.1, 0, 4096), water.values) &&
+      same(valuesOf(Math.fround(80) * Math.fround(0.001), 4096, 1639), L.ramps['preset 14 amplifier'].values) &&
+      same(valuesOf(Math.fround(15) * Math.fround(0.001), 0, 4096), L.ramps['preset 16 tap fade'].values));
     check('the model\'s 0.1 s ramp: step 973915; 0, 1, 2, ...; done at the 4,411th call',
       water.step === 973915 && same(water.values.slice(0, 3), [0, 1, 2]) && water.values.length === 4411);
     // As "The slot's ramp" assumes: sample 0 weight 0, sample k the k-th call's value, new alone after the done call.
@@ -668,6 +698,10 @@ export async function main() {
     sl.set(17); sl.set(137);
     sl.process(inp.subarray(1000), out2.subarray(1000));
     check('set(17) then set(137) before the block: the slot keeps 6, as the engine keeps what it had', same(out2, refOut));
+    const p137 = R.createRoomPath({ room: 137 }), s40 = R.createSlot({ preset: 40 });
+    check('made with 137 (a path) or 40 (a slot): no room; the slot passes its input, the shares are 0/256',
+      p137.state().room.preset === null && same(p137.shares(), { room: 0, direct: 256 }) &&
+      same(Array.from(s40.process(inp.subarray(0, 2000))), Array.from(inp.subarray(0, 2000))));
     check('a slot made with a preset starts with the fade over: the instance alone from sample 0',
       same(Array.from(R.createSlot({ preset: 6, draw: upper }).process(inp.subarray(0, 3000))),
         Array.from(run(R.createInstance(6, upper), Array.from(inp.subarray(0, 3000))))));

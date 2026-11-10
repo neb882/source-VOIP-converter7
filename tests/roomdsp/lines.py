@@ -19,7 +19,8 @@ What it writes, each from the model (dspmodel.py) or the reference's own functio
   draws      the first 60,000 samples of each modulating case fed zeros, with a draw that records
              (sample, low, high) and returns the high bound: when and between what the model draws
   ramps      the model's LinRamp, call by call until done: the room slot's (0.2 s) and the water slot's (0.1 s)
-             0 to 4096, preset 14's amplifier glide (4096 to 1639 over 80 ms) and preset 16's tap fade (15 ms)
+             0 to 4096, preset 14's amplifier glide (4096 to 1639 over 80 ms), preset 16's tap fade (15 ms), and
+             ramps of 0 to 3 samples (AM 1: a step the 12.20 form cannot hold is done at once, at its start)
   entry      for each share a voice can have, the 16-bit samples where reference.entry differs from the exact
              trunc(s x 255 x share / 65536), with its value
   shares     model.voice_shares at distance 12 and 11 for every header of the table and a few more
@@ -32,6 +33,7 @@ The built-integer form, per processor (the app's describe() gives the same):
   step, lo the draw's lower bound (the upper is the line's D).
 """
 import sys, os, json, hashlib, struct, collections
+sys.dont_write_bytecode = True          # no __pycache__ beside the model
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import numpy as np
 import dspmodel as M
@@ -121,6 +123,7 @@ EXTRA = collections.OrderedDict([
     ('delay: feedback 0.8, the gain cut', [[1, z(0, 20, 0.8, 1)]]),
     ('modulating delay: ALLPASS, mix 0.7', [[9, z(1, 40, 0.5, 1, 0, 0, 0, 0, 12, 0.3, 4, 0.7)]]),
     ('modulating delay: FLINEAR, mix 1', [[9, z(4, 40, 0.5, 1, 0, 2500, 0, 0, 12, 0.3, 4, 1)]]),
+    ('modulating delay: glide 0 (a ramp of zero length)', [[9, z(0, 40, 0.5, 1, 0, 0, 0, 0, 12, 0.3, 0, 1)]]),
     ('reverb: 3-D with a loop filter and random taps', [[2, z(0, 0, 6, 0, 2, 4000, 1, 10, 3, 8, 32, 10, 0.9, -0.9, 0.4)]]),
     ('reverb: 3-D, push-apart moves the largest down', [[2, z(0, 0, 3, 0.8, 1, 0, 0, 0, 0, 30, 29, 12, 0, 0, 0)]]),
     ('reverb: 3-D, two equal sizes (the sort leaves them in place)', [[2, z(0, 0, 3, 0, 1, 0, 0, 0, 0, 20, 20, 10, 0.5, 0.8, 0.3)]]),
@@ -179,12 +182,16 @@ def main(table_path, out_path):
     mods += [('synthetic: ' + k, R.synth(k)) for k in ('amplifier, random gain', 'modulating delay, mix 0.5',
                                                      'modulating delay, mix 0.3, low-pass')]
     mods += [('extra: ' + k, preset(EXTRA[k])) for k in ('modulating delay: ALLPASS, mix 0.7', 'reverb: 3-D with a loop filter and random taps',
-                                                         'reverb: random taps, depth clamped to 0.99', 'reverb: random taps, depth clamped to 0.01')]
+                                                         'reverb: random taps, depth clamped to 0.99', 'reverb: random taps, depth clamped to 0.01',
+                                                         'modulating delay: glide 0 (a ramp of zero length)')]
     out['draws'] = collections.OrderedDict((name, draws_of(ps)) for name, ps in mods)
     out['ramps'] = collections.OrderedDict([
         ('room slot 0.2 s', ramp_values(0.2, 0, 0x1000)), ('water slot 0.1 s', ramp_values(0.1, 0, 0x1000)),
         ('preset 14 amplifier', ramp_values(f32(80) * f32(0.001), 4096, 1639)),
-        ('preset 16 tap fade', ramp_values(f32(15) * f32(0.001), 0, 0x1000))])
+        ('preset 16 tap fade', ramp_values(f32(15) * f32(0.001), 0, 0x1000)),
+        ('0 samples', ramp_values(0.0, 0, 0x1000)), ('1 sample', ramp_values(1.5 / 44100, 0, 0x1000)),
+        ('2 samples', ramp_values(2.5 / 44100, 0, 0x1000)), ('3 samples', ramp_values(3.5 / 44100, 0, 0x1000)),
+        ('1 sample, 4096 to 1639', ramp_values(1.5 / 44100, 4096, 1639))])
     ent = collections.OrderedDict()
     for share in (0, 5, 23, 24, 26, 38, 41, 51, 72, 128, 183, 204, 214, 217, 229, 231, 232, 250, 255, 256):
         diff = []
