@@ -142,7 +142,16 @@ As the order expected, the suite does not see this change: it decodes with its o
   SBR, not seen in a browser.
 - WebM and Matroska still decode at the device rate (see the table).
 - Firefox and Safari were not run.
-- The CI run uses Playwright's own Chromium, not the preinstalled 153 build. Whether it decodes AAC there is seen
-  in the CI result below.
+- CI runs Playwright's own Chromium, not the preinstalled 153 build. There too the M4A and ADTS AAC checks pass,
+  so that build decodes AAC.
 
-CI_RESULT
+## CI
+
+The `tests` workflow passed on `155395e` (run 42732198446; 51 file-rate checks, 207 browser checks) and on
+`fb40d19`, the commit with the browser checks. It failed on `413b9ef`, the commit that changed the page before the
+browser suite was updated: the old Browser 5 check read `state.decodeCtx.sampleRate`, which is now null because
+nothing falls back to the device context. The next commit rewrote that check.
+
+Before the final push I scanned `git diff origin/main...HEAD` and the commit messages for recordings, personal
+details, real SteamIDs and model names. Nothing was found apart from the commit trailers; the fixtures carry only
+ffmpeg's encoder tags.
