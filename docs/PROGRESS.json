@@ -24,8 +24,14 @@
     {
       "order": "W3-04-native-rate-decode",
       "branch": "claude/w3-04-native-rate-decode",
-      "stage": "building",
+      "stage": "review (built; CI green on cc22f32)",
       "report": "docs/reports/W3-04-native-rate-decode.md"
+    },
+    {
+      "order": "W3-02-plan",
+      "branch": "claude/w3-02-plan",
+      "stage": "planning on the stronger model: the receiver's queue as the engine runs it, the gain corrections, the CELT settings, and the text for REFERENCE",
+      "report": "docs/reports/W3-02-plan.md"
     }
   ],
   "next": [
