@@ -16,7 +16,8 @@ from `main` at `59d2f64`. New files only, and one addition to the `test` line of
   `entry`, R2's and W3-15's pinned lines, AM 2's and AM 3's pinned numbers and AM 5's fourteen hashes. No
   difference from the reference had to be settled, and nothing in the reports was found wrong.
 - `tests/room-dsp.verify.mjs` has 122 checks and is in `pnpm test`. It adds 11 s on this machine (10.9 s inside
-  `pnpm test`; the order's limit is 30). Every expected value comes from the reference's recorded outputs, the
+  `pnpm test`; the order's limit is 30). `pnpm test` passed here on `da54c10` (the suite then had 119 checks); CI
+  on GitHub passed on `296fed2`, which has every check (122, in 9.5 s there), the browser suite included. Every expected value comes from the reference's recorded outputs, the
   order or the reports, or `tests/roomdsp/lines.json`, which `lines.py` reads out of the model's own instances.
 - **Breaks**: 60 mutations, each made in a scratch copy and run against the whole suite: the order's 21 rows as
   30 mutations (several rows name two) and 30 of the builder's own. All are caught but four, and none of those
