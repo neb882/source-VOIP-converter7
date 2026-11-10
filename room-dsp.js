@@ -1,4 +1,4 @@
-/* TF2 Voice Emulator, room-dsp.js: the engine's room effects on a voice (order W3-17, part a).
+/* TF2 Voice Emulator, room-dsp.js: the engine's room effects on a voice (order W3-17, parts a and b).
  *
  * The arithmetic is the engine's as read from its binary, not an approximation of it:
  *   docs/reports/W3-17-room-dsp-second-read.md (R2; it wins where the first read differs),
@@ -15,7 +15,8 @@
  *
  * What is built: the processors NULL, DLY (kinds PLAIN 0, ALLPASS 1, LOWPASS 2, FLINEAR 4), DFR, RVA (plain and
  * from three dimensions, random taps), AMP and MDY; a preset as a plain chain; the slot with its cross-fade; the
- * voice's shares and entry; the room path (room slot, then the water instance) with the tail's end. Refused by name
+ * voice's shares and entry; the room path (room slot, then the water instance) with the tail's end; the automatic
+ * room's build from two templates by its shape and classes (R2 e1, e2), and its named cases. Refused by name
  * when a preset asks for one: FLT and the other processor types, the delay kinds DLINEAR 3, LOWPASS_4TAP 5 and
  * PLAIN_4TAP 6 (so a reverb's tap factor), a one-shot duration and a header's own fade time.
  *
@@ -23,7 +24,7 @@
  * under Node and handed over with setTable or a `table` option).
  *
  * TF2Room.entry(s, share), shares(header), createInstance(preset, draw), createSlot(opts),
- * createRoomPath(opts): see each below.
+ * createRoomPath(opts), buildAutomatic(measures or case key), ROOM_CASES: see each below.
  */
 (function (root) {
   'use strict';
@@ -1016,6 +1017,232 @@
 
   function createRoomPath(opts) { return new RoomPath(opts); }
 
+  // ---------------------------------------------------------------- the automatic room (order part b)
+
+  // dsp_room 1: the engine measures the space around the listener (R2 e4: not built here; the app has no map),
+  // names its shape (R2 e2), classes its measures (R2 e1) and builds a preset from the shape's two templates A
+  // ("small, bright") and B ("huge, dull"): a whole copy of B if the size class is above 1, else of A, then chosen
+  // parameters blended between A and B by a class (R2 e1; differences 10 to 13).
+
+  // The shapes by the engine's number (R2 e1, e2): the name, the variable that holds the pair's first template,
+  // and that variable's default (W3-15 section 4). Shapes 7 and 8, 4 and 9, 6 and 10 share a pair.
+  const SHAPES = [
+    ['room', 'adsp_room_min', 102], ['duct', 'adsp_duct_min', 106], ['hall', 'adsp_hall_min', 110],
+    ['tunnel', 'adsp_tunnel_min', 114], ['street', 'adsp_street_min', 118], ['alley', 'adsp_alley_min', 122],
+    ['courtyard', 'adsp_courtyard_min', 126], ['open space', 'adsp_openspace_min', 130],
+    ['open wall', 'adsp_openwall_min', 130], ['open street', 'adsp_openstreet_min', 118],
+    ['open courtyard', 'adsp_opencourtyard_min', 126],
+  ].map(([name, variable, base], number) => ({ number, name, variable, base }));
+
+  // The measures as the engine has them (R2 e1: whole units, inches to this code), checked:
+  // { sky, width, length, height, reflectivity, openSides }. Open sides (the horizontal rays that met nothing or
+  // sky, R2 e4) count only under the sky. Diffusion is not a measure: this build of the engine never measures it,
+  // so its class is always 0 and the "diffuse" pairs (104/105 ... 132/133) are never chosen (R2 e4, difference 10).
+  function measuresOf(m) {
+    if (!m || typeof m !== 'object') {
+      throw new Error('TF2Room: the automatic room needs measures { sky, width, length, height, reflectivity, openSides }');
+    }
+    const out = { sky: !!m.sky, width: m.width, length: m.length, height: m.height, reflectivity: m.reflectivity,
+      openSides: m.openSides === undefined || m.openSides === null ? 0 : m.openSides };
+    for (const k of ['width', 'length', 'height']) {
+      if (!Number.isInteger(out[k]) || out[k] < 0 || out[k] > 0x7FFFFFFF) {
+        throw new Error(`TF2Room: the automatic room's ${k} is ${m[k]}; the engine measures whole units, 0 or more`);
+      }
+    }
+    if (typeof out.reflectivity !== 'number' || !(out.reflectivity >= 0 && out.reflectivity <= 1)) {
+      throw new Error(`TF2Room: the automatic room's reflectivity is ${m.reflectivity}; it is a mean of values from 0 to 1`);
+    }
+    if (!Number.isInteger(out.openSides) || out.openSides < 0 || out.openSides > 4) {
+      throw new Error(`TF2Room: the automatic room's open sides are ${m.openSides}; 0 to 4`);
+    }
+    return out;
+  }
+
+  // The shape (R2 e2, 0x180032040). Indoors a space more than three times as high as it is long is a shaft: height
+  // and length swap for the test only. Under the sky n open sides (1 to 4) give shape 11 - n.
+  function shapeOf(m) {
+    const W = m.width;
+    let L = m.length;
+    if (!m.sky) {
+      if (m.height > 3 * L) L = m.height;
+      if (L > 4 * W && W <= 48) return 1;                       // duct
+      if (L > 2.5 * W && W > 48 && W <= 96) return 2;           // hall
+      if (L > 4 * W && W > 96) return 3;                        // tunnel
+      return 0;                                                 // room
+    }
+    if (m.openSides > 0) return 11 - m.openSides;
+    if (L <= 2.5 * W) return 6;                                 // courtyard
+    return W <= 144 ? 5 : 4;                                    // alley, street
+  }
+
+  // The classes (R2 e1, 0x180032320; difference 13), each "over the lower limit, up to the upper".
+  function classesOf(shape, m) {
+    const W = m.width, L = m.length, H = m.height;
+    const width = W > 576 ? 4 : W > 288 ? 3 : W > 144 ? 2 : W > 72 ? 1 : 0;
+    const length = L > 1152 ? 4 : L > 576 ? 3 : L > 288 ? 2 : L > 144 ? 1 : 0;
+    const height = H > 384 ? 4 : H > 216 ? 3 : H > 128 ? 2 : H > 48 ? 1 : 0;
+    // The reflectivity is a single. Above 0.04 is tested as a double, at most 0.5 as a single, and above 0.8 as a
+    // double against the double 0.8, so a reflectivity of exactly 0.8, the single 0.800000012, is class 3 (the
+    // model's code, which the second read of the binary confirmed: W3-17a second read, row 20, 0x1800324c1 to
+    // 0x18003254c). R2 e1's "2 for 0.5 < R <= 0.8" holds for every other value.
+    const R = fround(m.reflectivity);
+    const reflectivity = (R > 0.04 && R <= fround(0.5)) ? 1 : (R > fround(0.5) && R <= 0.8) ? 2 : R > 0.8 ? 3 : 0;
+    let size;
+    if (shape === 6 || shape === 10) size = L > 1200 ? 4 : L > 480 ? 3 : L > 240 ? 2 : L > 120 ? 1 : 0;  // courtyards
+    else if (shape === 4 || shape === 5) size = width;          // street, alley
+    else size = (width + length) >> 1;                          // the mean, truncated
+    return { size, width, length, height, reflectivity, diffusion: 0 };
+  }
+
+  // A value written negative in a template is replaced by the measure (R2 e1): a reverb's width, depth or height by
+  // the measure in feet, a delay's time or taps by the measure / 6 in ms; the arithmetic as the model has it (a
+  // double product, the clamp, then a single).
+  const feet = (units) => fround(Math.min(Math.max(fround(units) * (1 / 12), 6), 500));
+  const sixth = (units) => fround(Math.min(Math.max(units * (1 / 6), 14), 500));
+
+  // What is blended, per processor type, for its first and its second processor (R2 e1; difference 12 for which
+  // are squared, 11 for the cutoffs blended from the dull template B toward A): [value index, class, squared,
+  // from B, divisor, the measure that replaces a negative template value].
+  const SQ = true, DULL = true;
+  const BLEND = [
+    [TYPE.DFR, [[0, 'size'], [1, 'size'], [2, 'size'], [3, 'size']]],
+    [TYPE.RVA, [[3, 'size'], [1, 'size', SQ], [0, 'size', SQ], [4, 'size'], [2, 'size'], [7, 'size'], [8, 'size'],
+      [9, 'width', SQ, false, 5, (m) => feet(m.width)], [10, 'length', SQ, false, 5, (m) => feet(m.length)],
+      [11, 'height', SQ, false, 5, (m) => feet(m.height)], [12, 'width'], [13, 'length'], [14, 'height'],
+      // The cutoff from the dull end by quarters of the reflectivity class (0 to 3): never all the way to A's.
+      [5, 'reflectivity', false, DULL, 4]]],
+    [TYPE.DLY, [[1, 'length', SQ, false, 5, (m) => sixth(m.length)], [2, 'length'], [3, 'length'],
+      [8, 'length', SQ, false, 5, (m) => sixth(m.width)], [9, 'length', SQ, false, 5, (m) => sixth(m.length)],
+      [10, 'length', SQ, false, 5, (m) => sixth(m.length)], [5, 'length', false, DULL], [6, 'length', false, DULL]]],
+    // FLT on the size class (R2 e1; the model too). AMP on the size class and MDY on the length class are R2 e1's
+    // and not the model's (its build predates its AMP and MDY); no template of the table holds either.
+    [TYPE.FLT, [0, 1, 2, 3, 4].map((i) => [i, 'size'])],
+    [TYPE.AMP, [0, 1, 2, 3, 4, 5, 6, 7].map((i) => [i, 'size'])],
+    [TYPE.MDY, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => [i, 'length'])],
+  ];
+
+  // from + (to - from) x (class / divisor), the factor applied twice when squared: singles, step by step, as
+  // R2 e1 reads it and the model computes it.
+  function blendValue(from, to, cls, divisor, squared) {
+    const t = fround(fround(cls) / fround(divisor));
+    let d = fround(fround(to - from) * t);
+    if (squared) d = fround(d * t);
+    return fround(from + d);
+  }
+
+  // The index in a preset's processors of the n-th processor of a type, or -1.
+  function nthOfType(preset, type, n) {
+    for (let i = 0, k = 0; i < preset.p.length; i++) if (preset.p[i][0] === type && k++ === n) return i;
+    return -1;
+  }
+
+  function deepFreeze(o) {
+    if (o && typeof o === 'object' && !Object.isFrozen(o)) {
+      Object.freeze(o);
+      for (const k of Object.keys(o)) deepFreeze(o[k]);
+    }
+    return o;
+  }
+
+  // The named cases (order part b, items 3 and 5). The app has no map, so a case is a set of measures that the
+  // shape rules name the way its label says; no case sits on a threshold of a class or of the reflectivity
+  // (`vent`'s width of 48 is the widest a duct can be, an integer test). Units are inches; the 14 examples are
+  // examples, not measured spots. The two marked `measured` have their classes from a recording; their measures in
+  // units are stand-ins that give those classes, since a take shows classes, not units.
+  const caseRow = (key, label, sky, width, length, height, reflectivity, openSides, more) =>
+    Object.assign({ key, label, measures: { sky, width, length, height, reflectivity, openSides } }, more || {});
+  const ROOM_CASES = deepFreeze([
+    caseRow('closet', 'Very small room', false, 120, 140, 100, 0.3, 0),
+    caseRow('small_room', 'Small room', false, 200, 260, 120, 0.4, 0),
+    caseRow('room', 'Room', false, 300, 400, 160, 0.4, 0),
+    caseRow('large_room', 'Large room', false, 500, 700, 220, 0.4, 0),
+    caseRow('great_hall', 'Great hall', false, 700, 1300, 400, 0.4, 0),
+    caseRow('vent', 'Vent or duct', false, 48, 400, 64, 0.4, 0),
+    caseRow('corridor', 'Corridor', false, 80, 400, 120, 0.4, 0),
+    caseRow('long_corridor', 'Long corridor', false, 90, 1200, 120, 0.4, 0),
+    caseRow('tunnel', 'Tunnel', false, 200, 1000, 150, 0.3, 0),
+    caseRow('big_tunnel', 'Big tunnel', false, 280, 1400, 250, 0.4, 0),
+    caseRow('alley', 'Alley, walls all round', true, 120, 600, 4800, 0.4, 0),
+    caseRow('street', 'Street, walls all round', true, 300, 1300, 4800, 0.4, 0),
+    caseRow('courtyard', 'Courtyard', true, 500, 700, 4800, 0.4, 0),
+    caseRow('open', 'Open ground (a guess)', true, 2, 2, 4800, 0.08, 4, {
+      note: 'A guess between two readings of how the engine measures under the sky: a level ray that meets the sky ' +
+        'gives a distance of 1 (spans of 2: these measures, a copy of preset 130) or keeps 4800 (spans of 9600: size ' +
+        'class 4, a copy of preset 131). Both give 5/256 to the room and the same level, which cannot be heard.',
+    }),
+    caseRow('set_c_room', 'Spawn-sized room (as recorded, Set C)', false, 300, 400, 160, 0.9, 0, {
+      measured: true, set: 'Set C',
+      note: 'Fitted to the owner\'s Set C: size class 2 is certain (only it has the comb lines the take shows); ' +
+        'reflectivity class 3 fits best, 2 nearly as well. The measures in units are stand-ins that give those classes.',
+    }),
+    caseRow('set_d_street', 'Street (as recorded, Set D)', true, 300, 1000, 4800, 0.4, 0, {
+      measured: true, set: 'Set D',
+      note: 'Fitted to the owner\'s Set D, PC A: the street with width and length class 3 (echoes at 68, 120 and ' +
+        '308 ms). The take does not fix the reflectivity class; class 1 is taken. The measures in units are stand-ins.',
+    }),
+  ]);
+
+  // Places from the owner's log (order part b, item 4), when it comes: one row each, of the same shape as a case,
+  // with the map and spot in words and the measures the engine printed:
+  //   { key, label, map, spot, measures: { sky, width, length, height, reflectivity, openSides }, shape }
+  // (`shape`: the name the engine printed, to check the build against). Nothing else is needed to add one.
+  const ROOM_PLACES = deepFreeze([]);
+
+  // A named case or place by its key, or null.
+  function roomCase(key) {
+    return ROOM_CASES.find((r) => r.key === key) || ROOM_PLACES.find((r) => r.key === key) || null;
+  }
+
+  // buildAutomatic(measures, { table }): the engine's automatic room for these measures (R2 e1, e2). `measures`
+  // is { sky, width, length, height, reflectivity, openSides }, or a row of ROOM_CASES or ROOM_PLACES, or its key.
+  // Returns { preset, shape, shapeNumber, variable, classes, pair, copy, measures, key }: `preset` is of the table's
+  // form ({ name, h, p }, its values singles, frozen), ready for createInstance, createSlot, createRoomPath and
+  // setRoom; `pair` the two templates [A, B]; `copy` the one copied whole. The measuring itself (R2 e3, e4) is not
+  // built.
+  function buildAutomatic(arg, opts = {}) {
+    let row = null;
+    if (typeof arg === 'string') {
+      row = roomCase(arg);
+      if (!row) throw new Error(`TF2Room: no automatic room case or place is called "${arg}"`);
+    } else if (arg && typeof arg === 'object' && arg.measures) {
+      row = arg;
+    }
+    const m = measuresOf(row ? row.measures : arg);
+    const shapeNumber = shapeOf(m);
+    const shape = SHAPES[shapeNumber];
+    const classes = classesOf(shapeNumber, m);
+    // The pair from the shape's variable, + 2 if the diffusion class is above 1 (R2 e1): it never is (R2 e4).
+    const base = shape.base + (classes.diffusion > 1 ? 2 : 0);
+    const table = opts.table || null;
+    const A = presetOf(base, table), B = presetOf(base + 1, table);
+    if (!A || !B) throw new Error(`TF2Room: the table holds no templates ${base} and ${base + 1} for the automatic ${shape.name}`);
+    for (const [n, t] of [[base, A], [base + 1, B]]) {
+      if (!Array.isArray(t.h) || !Array.isArray(t.p) || !t.p.every((q) => Array.isArray(q) && Array.isArray(q[1]))) {
+        throw new Error(`TF2Room: template ${n} is not a preset ({h: [6 values], p: [[type, [values]], ...]})`);
+      }
+    }
+    // A whole copy of B if the size class is above 1, else of A: header, processors, every value not blended.
+    const copy = classes.size > 1 ? base + 1 : base;
+    const src = copy === base ? A : B;
+    const preset = { name: `automatic ${shape.name}`, h: f32array(src.h, 6),
+      p: src.p.map(([type, values]) => [type, f32array(values, 16)]) };
+    // Then the first and the second processor of each type, where the copy, A and B all have one.
+    for (let n = 0; n < 2; n++) {
+      for (const [type, rules] of BLEND) {
+        const io = nthOfType(preset, type, n), ia = nthOfType(A, type, n), ib = nthOfType(B, type, n);
+        if (io < 0 || ia < 0 || ib < 0) continue;
+        const va = f32array(A.p[ia][1], 16), vb = f32array(B.p[ib][1], 16), out = preset.p[io][1];
+        for (const [i, cls, squared, fromDull, divisor, measure] of rules) {
+          if (measure && (va[i] < 0 || vb[i] < 0)) out[i] = measure(m);
+          else out[i] = fromDull ? blendValue(vb[i], va[i], classes[cls], divisor || 5, squared)
+            : blendValue(va[i], vb[i], classes[cls], divisor || 5, squared);
+        }
+      }
+    }
+    return { preset: deepFreeze(preset), shape: shape.name, shapeNumber, variable: shape.variable, classes,
+      pair: [base, base + 1], copy, measures: m, key: row ? row.key : null };
+  }
+
   const api = {
     // the readings and the constants
     SR, BLOCK, ROOM_FADE, WATER_PRESET, WATER_PREROLL, ROOM_SEED_XOR, WATER_SEED_XOR,
@@ -1027,6 +1254,8 @@
     // the parts
     entry, shares, createInstance, createSlot, createRoomPath, checkPreset: (p) => checkPreset(p, labelOf(p)),
     clampParams, filterCoefs, computeCoefs, Ramp, mulberry32, seededDraw,
+    // the automatic room (part b)
+    buildAutomatic, roomCase, ROOM_CASES, ROOM_PLACES, SHAPES: deepFreeze(SHAPES.map((s) => Object.assign({}, s))),
   };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.TF2Room = api;
