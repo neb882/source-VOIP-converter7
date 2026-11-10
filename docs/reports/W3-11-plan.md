@@ -1,8 +1,10 @@
 # W3-11: the plan after W3-07, W3-08 and W3-09
 
-A plan, 2026-11-10, revised the same day after its review by a builder ("The review", at the end). No app code
+A plan, 2026-11-10, revised the same day after its review by a builder and again after a second read ("The
+review" and "The second read", at the end). No app code
 changed. It revised `docs/work-orders/W3-02-receiver-queue.md` (revision 3, then 3a), wrote three orders
-(`W3-11-steam-gate.md` in two parts, `W3-12-speex-module.md` in two parts, `W3-13-steam-resampler.md`) and
+(`W3-11-steam-gate.md` in two parts, `W3-12-speex-module.md` in two parts, `W3-13-steam-resampler.md`), one
+investigation (`W3-14-steam-file-input.md`) and
 proposes text for `tests/REFERENCE_2026.md` (not applied). Sources: the reports on main, the app's code, and
 public open source (FFmpeg's libswresample at the tags `n6.1.1` and `n8.1.2`, read and, for 6.1.1, run as this
 machine's distribution ships it; libopus 1.1.5; Xiph's Speex tags). No binary was opened and no private data
@@ -17,7 +19,7 @@ Everything not yet built. "Audio" marks the orders that change `audio.js`: they 
 | 0 | W2-02 | the render stream (with the fixer) | merges first | yes | records them | |
 | 1 | W3-02a | the channel, the log replay (in review) | | no | | 1 day |
 | 1 | W3-12a | Speex 1.0.2 built and checked | now | no | | 1 day |
-| 2 | W3-13 | the decoder's resampler, a module | now (a builder free) | no | | 1.5 days |
+| 2 | W3-13 | the decoder's resampler, a module | now (a builder free) | no | | 1 day |
 | 2 | W3-02b | `steam-sender.js` and the timeline stage | W3-02a | no | | 1 day |
 | 3 | W3-05 | the gain as the engine's rule | W2-02 | yes | every case with the gain on | half a day |
 | 4 | W3-06 | the CELT settings and rebuild | W3-05 | yes | the two CELT cases | 1 day |
@@ -31,12 +33,15 @@ Everything not yet built. "Audio" marks the orders that change `audio.js`: they 
 | 10 | W3-02e | the page: lane marks, the real-take words | W3-02d | no | | half a day |
 | 11 | W3-02g | a demo's own packets | W3-02f | yes | adds cases | half a day |
 | 12 | W3-10 | the output stage | W3-02g and W3-02e | yes | re-records all, once | 1 day |
+| beside | W3-14 | the Steam path against the owner's file-input recording: an investigation on the stronger model, run by the orchestrator | when the recording exists, and W3-13's module and W3-11a's Opus rebuild exist (or scratch builds of them); nothing waits for it | no | may change W3-13's default kernel, and then the `steam` cases once | 4 hours |
 
 **Side by side** (two builders at most). The four module orders (W3-02a, W3-12a, W3-13, W3-02b) touch no app
 file and share only the `test` line of `package.json` (a trivial merge): any two of them at once. From W2-02's
 merge one builder walks the audio column. **W3-02d runs alone:** it shares page files with W3-11b before it and
 `app/source.js` with W3-02g after it. W3-02e runs beside W3-02f or W3-02g. **W3-10 runs beside nothing:** it
-touches `app/`, `batch.js`, `sw.js` and the tests.
+touches `app/`, `batch.js`, `sw.js` and the tests. **One real conflict among the module orders:** W3-13 and
+W3-12b both edit README's "Files and licensing" paragraph and table. W3-12b's README edit is made after W3-13
+has merged; if W3-13 is still in review then, W3-12b merges first and W3-13 merges main in and keeps both.
 
 **The golden hashes** move five times before W3-10 (the gain; CELT; Speex; `steam`; then all). Each order
 re-records only the cases its change reaches, in a commit of its own, after showing the others did not move:
@@ -85,11 +90,11 @@ are recorded, there is none.
 12. **Complexity becomes 9** for `steam`, though it changes no packet.
 13. **Speex in two parts**, so the build starts now and only the switch waits for `audio.js`.
 14. **Private checks with no known answer** are recorded by the orchestrator on the first run, each with an
-    acceptable range and its reason. **The owner's file-input recording**, if it comes, drops into two
-    commands (`tests/swresample/from-recording.mjs`, then `tests/steam-exact.mjs`): the first tells the
-    resampler's kernel and recovers the decoder's 24 kHz output from the recording alone; the second says
-    whether the app's encoder and 16-bit decoder give those samples. Both are proved on synthetic recordings
-    by their builders, and nothing assumes the recording exists.
+    acceptable range and its reason. **The owner's file-input recording**, if it comes, is an
+    investigation of its own, W3-14, on the stronger model, by a forward method (encode the known clip, decode,
+    resample under each kernel, compare with the recording). No builder's order holds a tool for it or waits
+    for it. The first revision put two tools into W3-13 and W3-11a that recovered the 24 kHz samples backward
+    from the recording; the second read prototyped that and it does not work (below).
 
 ## Decisions left to the orchestrator and the owner
 
@@ -115,7 +120,7 @@ W3-06's Speex point is struck; lost Speex frames give zeros.
 3. **"Clipped" is a soft clip.** W3-09 says the 16-bit decoder "rounds each sample to 16 bits and clips". In
    libopus 1.1.5's public source the float build's 16-bit decoder runs its soft clipper first, with memory in
    the decoder (confirmed by the review). Whether Steam's build is a float build was not read; the file-input
-   recording decides if its clip passes full scale. Finding 2's "energy at 12 to 19.5 kHz, reproduced by
+   recording decides (W3-14) if its clip passes full scale. Finding 2's "energy at 12 to 19.5 kHz, reproduced by
    clipping" should be measured again with the soft clipper and the resampler's images both in the model.
 4. **The hold against the mean frame time.** 7 frames of 55.85 ms are 391 ms, under the 0.4 s hold, so a steady
    clock ends every spurt on the 8th chunk; the demo has the 7th in half. The real frame times vary more than
@@ -159,19 +164,19 @@ Not applied. It follows the numbering of the text proposed in `docs/reports/W3-0
 > - **The hold** is 0.4 s of Steam's clock after the last active chunk was read. The first chunk read later is the last: its final frame is padded with zeros, the end marker follows, the encoder is reset and the sequence number returns to 0. The next chunk goes out as its length only: the silence record (1500 samples 17 times and 750 twice in the demo).
 > - **One chunk is one message.** Frames of 480 samples are cut from the chunk plus what the last one left over, so a 1500-sample chunk gives 3 frames and now and then 4, a 750-sample one 1 or 2: the logged 65, 14, 11 and 10% of 60, 40, 80 and 20 ms packets follow with nothing fitted.
 > - **The key.** Steam goes on capturing for 0.5 s after the key is released. A spurt still open then gets no end marker; the next key press sends the marker alone (the empty packet of finding 25).
-- **The queue.** Steam keeps at most 8192 bytes of voice for the game to collect (about 2 s) and drops the oldest beyond that.
-- **The clock** the hold is measured on is a 32-bit float of seconds; on a Steam that has run for days it moves in steps of 16 to 31 ms (read; that it counts from Steam's start is assumed, and its effect was not measured).
+> - **The queue.** Steam keeps at most 8192 bytes of voice for the game to collect (about 2 s) and drops the oldest beyond that.
+> - **The clock** the hold is measured on is a 32-bit float of seconds; on a Steam that has run for days it moves in steps of 16 to 31 ms (read; that it counts from Steam's start is assumed, and its effect was not measured).
 > - **The encoder** is libopus 1.1.x; the public Linux build of the client carries the string `libopus 1.1.4`, and the Windows build is inferred to be the same. Its settings, read: 24000 Hz, mono, VOIP, then bit rate 32000, signal voice and DTX, and nothing else, so complexity is the library's 9 and VBR is constrained. The pinned 1.1.5 gives identical packets at complexity 8, 9 and 10 (19,428 frames).
 > - **The capture** is opened through DirectSound at 24 kHz mono 16-bit, so the conversion from the device's rate is Windows's, not Steam's.
 >
 > ### 29. Steam's decoder: 16 bits, at most 10 concealed frames, and FFmpeg's resampler once per packet
 >
-> Read (W3-09). An end marker resets the decoder. A sequence number ahead of the expected one conceals the gap, at most 10 frames of it; one behind resets without concealing. A silence record becomes that many zeros. Decoded sound is 16-bit: in libopus's public source the 16-bit decoder of a float build softens peaks past full scale before it rounds (whether Steam's build is one was not read). Then each packet goes, by itself, through FFmpeg's libswresample at its default settings (32 taps, 147 phases, Kaiser window) from 24000 to 44100 Hz. For a rate change that library works in 32-bit float, and on x86 the order of its sum is chosen by the processor's features, so two PCs can differ in the last bit of a few samples in ten thousand; which kernel Steam's build runs is not known. The public library, called the same way, returns the logs' counts exactly: 7056 samples for 3840, 2646 for 1440, 882 for 480, and 2757 or 2756 for a silence record of 1500.
+> Read (W3-09). An end marker resets the decoder. A sequence number ahead of the expected one conceals the gap, at most 10 frames of it; one behind resets without concealing. A silence record becomes that many zeros. Decoded sound is 16-bit: in libopus's public source the 16-bit decoder of a float build softens peaks past full scale before it rounds (whether Steam's build is one was not read). Then each packet goes, by itself, through FFmpeg's libswresample at its default settings (32 taps, 147 phases, Kaiser window) from 24000 to 44100 Hz. For a rate change that library works in 32-bit float, and on x86 the order of its sum is chosen by the processor's features, so two PCs can differ in the last bit of up to a few samples in ten thousand at full scale, and fewer at speech level (none or one in 55,000 at -24 dBFS); which kernel Steam's build runs is not known. The public library, called the same way, returns the logs' counts exactly: 7056 samples for 3840, 2646 for 1440, 882 for 480, and 2757 or 2756 for a silence record of 1500.
 >
 > - **Its response:** flat to 10 kHz, -0.7 dB at 11 kHz, -2.4 at 11.5, -4.0 at 11.75, -6.0 at 12 kHz. Just above 12 kHz it leaves a mirror of what lies just below: 6 dB down at 12 kHz, 12 dB at 12.5 kHz, 22 dB at 13 kHz, over 65 dB above 14 kHz.
 > - **A speaker's first packet** is finished by mirroring its last 16 input samples; they stay in the stream, so everything after is 0.67 ms late. Once per speaker per session. Not seen in a recording.
 > - A silence record is dropped, not played, when more than 0.2 s is already waiting in that decoder's output; in the game's use the output is taken at once.
-- Nothing else touches decoded sound: `voice_autogain` is 0.
+> - Nothing else touches decoded sound: `voice_autogain` is 0.
 >
 > ### 30. From the voice channel to the speakers
 >
@@ -179,7 +184,7 @@ Not applied. It follows the numbering of the text proposed in `docs/reports/W3-0
 >
 > ### 31. The engine codecs, read and matched
 >
-> `vaudio_celt` and `vaudio_celt_high` are the public CELT 0.11 source built with its pitch pre-filter and post-filter compiled in, at complexity 5, with 16-bit entry points; the module resets the encoder after creating it, and again at each start of recording (W3-03, W3-08). A decoder built without the filter refuses real `vaudio_celt` packets that use it, which is why a demo's pitched CELT voice did not decode in the app before the rebuild. `vaudio_celt_high` is the 44100 Hz, 1024-sample, 128-byte mode fed 22050 Hz sound. With that build the app's method reproduces the game's decoded output (Set H) at 292,351 of 292,352 samples and 292,789 of 292,864, the rest one step apart. `vaudio_speex` is Speex 1.0.2 or 1.0.1 (the two cannot be told apart in the module; 1.0.2 is the one with a public tag), narrowband, quality 4, enhancement on, fed the engine's 11025 Hz sound with no resampling: a frame is 14.51 ms, the rate 11.025 kbit/s, the band 5.5 kHz, and decoded samples wrap past full scale (W3-09, read from the owner's module). It cannot be recorded: a current game asked for it runs `vaudio_celt`.
+> `vaudio_celt` and `vaudio_celt_high` are the public CELT 0.11 source built with its pitch pre-filter and post-filter compiled in, at complexity 5, with 16-bit entry points; the module resets the encoder after creating it, and again at each start of recording (W3-03, W3-08). A decoder built without the filter refuses real `vaudio_celt` packets that use it: the app's bundled build is such a one until W3-06 rebuilds it, so until then a demo's pitched CELT voice does not decode in the app. (When this text is written into the reference, say which it is on that day.) `vaudio_celt_high` is the 44100 Hz, 1024-sample, 128-byte mode fed 22050 Hz sound. With that build the app's method reproduces the game's decoded output (Set H) at 292,351 of 292,352 samples and 292,789 of 292,864, the rest one step apart. `vaudio_speex` is Speex 1.0.2 or 1.0.1 (the two cannot be told apart in the module; 1.0.2 is the one with a public tag), narrowband, quality 4, enhancement on, fed the engine's 11025 Hz sound with no resampling: a frame is 14.51 ms, the rate 11.025 kbit/s, the band 5.5 kHz, and decoded samples wrap past full scale (W3-09, read from the owner's module). It cannot be recorded: a current game asked for it runs `vaudio_celt`.
 
 **Finding 2**, last bullet of the Set A list: after "It is reproduced by clipping the decoded voice at 44.1 kHz" add: "To be looked at again below 13.5 kHz: the decoder's resampler mirrors the top of the band there (finding 29), which would be coherent with the source, and the decoder's own 16-bit step may soften peaks before any clip. Not measured yet." In the first list, "The sender has no gain control or noise suppression": add "(confirmed in the client: none runs before the gate, finding 28)".
 
@@ -249,6 +254,34 @@ the resampler against the native library and the public sources. Its 28 findings
 
 I disagree with none. Two things go beyond the review: the `sse` kernel (decision 7), and storing the bank in
 the script (browsers do not share one `Math.sin`).
+
+## The second read
+
+The same reviewer read revision `dbc116d`. It reproduced all sixteen resampler hashes natively, the bank's hash
+from the order's text alone, the pre-roll and hold ranges and the -40 unit, and closed findings 7 to 28 of the
+first read. Its 17 new findings, and what was done:
+
+| # | Finding | What was done |
+| --- | --- | --- |
+| 1 | The tool that was to tell the kernel from a recording does not work as specified: the exact inverse leaves wrong inputs, and at speech level the kernels barely differ | Accepted (the orchestrator's decision): struck from W3-13; the question is W3-14, an investigation by the forward method, with a match defined on 200,000 outputs above -6 dBFS and clipped outputs left out |
+| 2 | The bank's hash is of its 18,816 bytes, not of the base64 text | Accepted; said so, with the note that the sign of `s` matters |
+| 3 | The kernels differ on stream A at full scale only | Accepted; said so, and no check asks for a difference on a quiet signal |
+| 4 | The tool was open research inside a builder's order | Accepted: W3-13 is the resampler alone, 1 day |
+| 5 | The Opus rebuild: no checkable reproduction step, a clone from a host the machine cannot reach, no native script allowed | Accepted: first the recorded hash with the old export list, stop if not; a checkout from `gitlab.xiph.org` passed to the script; `tests/libopus11/native.mjs` allowed, with its flags |
+| 6 | The kernel check named no source and counted in the render | Accepted: a loud source, counted at the resampler's output through a hook |
+| 7 | The -36 dBFS sine passes by 0.07% | Accepted: -35.8, with the reason |
+| 8 | `steam-exact.mjs` should compare forward | Accepted by removal: the tool and its private check left W3-11a; W3-14 has the forward method |
+| 9 | The live sender's input was not said to be rounded | Accepted: W3-11b point 1 and its check |
+| 10 | A typed threshold reaches the real-take check as an RMS level | Accepted: said in the control's help and under "not changed" |
+| 11 | W3-02c pointed at W3-11a's point 4 for the laying | Accepted: point 8 |
+| 12 | W3-12b's band check is untried | Accepted: "if it fails, report both figures and stop" |
+| 13 | W3-13 and W3-12b both edit README's licensing table | Accepted: W3-12b's README edit after W3-13 merges, or the stated order if W3-13 is still in review; in both orders and under "Side by side" |
+| 14 | The golden-hash table is right | Nothing to do |
+| 15 | Three bullets of the proposed text had lost their quote marks | Accepted: restored |
+| 16 | "A few samples in ten thousand" holds at full scale only | Accepted: "up to a few at full scale, fewer at speech level" |
+| 17 | Finding 31's sentence on pitched CELT packets was true only after W3-06 | Accepted: worded to be true before and after |
+
+I disagree with none, and changed nothing beyond these findings and the new order.
 
 ## The scan
 
