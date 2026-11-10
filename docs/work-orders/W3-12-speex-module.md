@@ -83,8 +83,8 @@ report's reading point by point.
     than 60,000 between neighbours where the float output passed 32767), and the 16-bit output equals
     `(trunc(x) << 16) >> 16` of the floats sample for sample. With a clamp in its place the check fails.
   - **The framer:** 165 samples a call (what the engine hands over each 15 ms tick at 11025 Hz) gives one
-    20-byte packet on most calls and a 40-byte one about once in 32 (5 samples kept more each call: the 32nd
-    call has 160 kept); 68.9 frames a second; the final call pads; `decompress` of the joined packets equals
+    20-byte packet on most calls and a 40-byte one about once in 32 (5 more samples are kept each call: the 32nd
+    call starts with 155 kept and so has 320); 68.9 frames a second; the final call pads; `decompress` of the joined packets equals
     frame-by-frame decoding.
   - Reset: after `reset()` the same input gives the same packets as a new codec.
 - `pnpm test` and CI pass on the pushed branch.
