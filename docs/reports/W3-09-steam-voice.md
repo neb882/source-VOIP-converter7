@@ -628,16 +628,20 @@ Speex; its recording is 22050 Hz in 512-sample packets and matches `vaudio_celt`
   codec 0)` (an ordinary console message, not a developer one), shuts voice down and reports failure. That is
   W3-03's reading, and it is right as far as it goes.
 - **The substitution is one step further out** (`0x180058c50`, a function W3-03 did not follow). It runs only
-  when voice is not initialised and `voice_enable` is on. It reads the *local* `sv_voicecodec`, calls `Voice_Init`
-  with it, and **if that fails, or the text is empty, it calls `Voice_Init("vaudio_celt")` at 22050 Hz**. Its
-  callers are the first and fourth entries of the engine's voice-tweak interface (a table of six functions at
-  `0x1804631d8`: the microphone test and the voice controls of the options, which the game's client module also
-  calls) and one function of the tools interface. So when the Speex module cannot be loaded, voice comes back as
-  **`vaudio_celt`, 22050 Hz, 512-sample frames in 64-byte packets**, with no message saying so. Every client does
-  the same, and the server only relays bytes, so everyone hears everyone.
+  when voice is not initialised and a variable that looks like `voice_enable` is on. It looks up the *local*
+  `sv_voicecodec` by name, calls `Voice_Init` with its text, and **if that fails, or the text is empty, it calls
+  `Voice_Init("vaudio_celt")` at 22050 Hz**. Its callers are the first and fourth entries of a table of six
+  functions at `0x1804631d8` (inferred from what they do: the engine's voice-tweak interface, which is the
+  microphone test and the voice controls of the options) and one function of the tools interface. So on the
+  machine whose own `sv_voicecodec` says `vaudio_speex` (a listen server's host, which is the owner's set-up),
+  voice comes back as **`vaudio_celt`, 22050 Hz, 512-sample frames in 64-byte packets**, with no message saying
+  so. Inferred from the same reading: a client of somebody else's server has its own `sv_voicecodec` (default
+  `steam`; the variable is not sent to clients), so there the same step would bring voice back on the Steam
+  codec, and host and client would not understand each other. Not tested.
 
 **Would TF2 do what HL2DM did?** The 64-bit game has no `vaudio_speex` module, so: yes, **high confidence** that
-whenever voice works at all under `sv_voicecodec vaudio_speex` it is `vaudio_celt`, by the path above. Medium
+on a listen server's host, whenever voice works at all under `sv_voicecodec vaudio_speex`, it is `vaudio_celt`, by
+the path above. Medium
 confidence that it needs nothing from the player: the fall-back is reached through the voice-tweak interface, and
 when the client module calls that during ordinary play is in `client.dll`, which was not read (the owner's 64-bit
 run, where voice simply worked, says it is called).
