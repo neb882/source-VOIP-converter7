@@ -98,7 +98,9 @@ async function measureInPage({ takeUrl, sourceUrl, settings, takeChannelName, ta
   }
   const opts = { ...renderOptions(), ...settings };
   const rendered = await TF2Audio.process(source, opts);
-  if (rendered.sampleRate !== rate) throw new Error(`rendered at ${rendered.sampleRate} Hz`);
+  // The render is at the listener's device's rate (W3-10; 48000 Hz by
+  // default, the takes' rate): the take is compared at the render's rate.
+  if (rendered.sampleRate !== rate) throw new Error(`rendered at ${rendered.sampleRate} Hz, not the takes' ${rate} Hz (snd_device_rate)`);
   // The take is lined up against a render (see track()); a lossless one
   // when the take has random loss or jitter, whose concealment differs.
   const random = opts.lossPct > 0 || opts.jitterMs > 0;
@@ -131,7 +133,10 @@ async function predictInPage({ sourceUrl, segmentsUrl, settings }) {
   const segments = (await (await fetch(segmentsUrl)).json()).segments;
   const opts = { ...renderOptions(), ...settings };
   const rendered = await TF2Audio.process(source, opts);
-  const sim = rendered.samples.subarray(0, Math.round(source.duration * rate));
+  // Measured at the render's own rate (the device's, W3-10), which the takes
+  // it is scored against share: 48000 Hz.
+  if (rendered.sampleRate !== rate) throw new Error(`rendered at ${rendered.sampleRate} Hz, not the takes' ${rate} Hz (snd_device_rate)`);
+  const sim = rendered.samples.subarray(0, Math.round(source.duration * rendered.sampleRate));
   // The clamp by its plateau (clampLevel), not a percentile.
   const ceiling = TF2Reference.clampLevel(sim);
   let near = 0;
@@ -160,6 +165,7 @@ async function takeStatsInPage({ takeUrl, sourceUrl, segmentsUrl, settings }) {
   const take = takeChannel(takeBuffer, 'mix');
   const opts = { ...renderOptions(), ...settings };
   const rendered = await TF2Audio.process(source, opts);
+  if (rendered.sampleRate !== rate) throw new Error(`rendered at ${rendered.sampleRate} Hz, not the take's ${rate} Hz (snd_device_rate)`);
   const captured = TF2Audio.bufferToMono(source, opts.captureChannel);
   const trackOptions = { ...takeTrackOptions(opts), reference: { samples: rendered.samples, rate, frames: rendered.codecInfo.frameLog, frameSeconds: (rendered.codecInfo.frameMs || 20) / 1000 } };
   const timeline = TF2Reference.track(take, rate, captured, rate, trackOptions);
@@ -400,7 +406,9 @@ async function simulateInPage({ sourceUrl, ambienceUrl, settings }) {
   const cut = windows.map(w => w.e).sort((x, y) => x - y)[Math.floor(windows.length * .3)];
   const quiet = windows.filter(w => w.e > 0 && w.e <= cut).map(w => a.subarray(w.at, w.at + step));
   if (!quiet.length) throw new Error('the ambience take is silent');
-  const rendered = (await TF2Audio.process(source, { ...renderOptions(), ...settings })).samples;
+  const render = await TF2Audio.process(source, { ...renderOptions(), ...settings });
+  if (render.sampleRate !== rate) throw new Error(`rendered at ${render.sampleRate} Hz, not ${rate} Hz (snd_device_rate)`);
+  const rendered = render.samples;
   const n = rendered.length + lead, x = new Float32Array(n);
   x.set(rendered, lead);
   for (let i = 0, q = 0; i < n; i += step, q++) {
