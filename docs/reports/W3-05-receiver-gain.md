@@ -1,28 +1,54 @@
 # W3-05 report: the receiver's gain, as the engine computes it
 
-Branch `claude/w3-05-receiver-gain`, from `main` at `c8a11ec` (W2-02 merged), with `origin/main` merged in once
-(`d01e830`: W3-02a, the plans, the reference; one conflict, the `test` line, both suites kept).
+Branch `claude/w3-05-receiver-gain`, from `main` at `c8a11ec` (W2-02 merged), with `origin/main` merged in twice
+(`d01e830`: W3-02a, the plans, the reference; `559f72f`: W3-12a. Each time the one conflict was the `test` line, and
+every suite was kept, `tests/speex102.verify.mjs` included).
 
-**Status: one question open (below).** One check outside this order's files moves with the change:
-`tests/opus.verify.mjs`, "Receiver mute is exact silence". `pnpm test` stops there, so CI fails on this branch until
-the question is answered. Every other suite passes.
+**Status: done.** The orchestrator's private acceptance passed on `9bef10c`: Set H through
+`tests/gain-exact.mjs` gives 0 of 291,840 samples different before the last 512, and 511 of 512 in the last.
+`pnpm test`, the browser suite and CI pass.
 
-## The question
+## The orchestrator's answers (after the first hand-back)
 
-`tests/opus.verify.mjs` line 106 renders a signal at `voice_scale 0` and expects every output sample to be 0. Under
-spec point 3 (every render starts from a reset, so the first block has `fixed = 128` whatever `voice_scale` is), the
-first 128 voice-rate samples pass at unity. They are no longer silent. The order allows `tests/verify.js` for the gain's
-moved expectations but does not list `tests/opus.verify.mjs`, so I have not touched it. The change I would make,
-tried in a scratch copy, where the suite then passes (119 checks):
-
-```js
-// A render starts with a reset gain, at unity for its first 128 voice-rate samples whatever voice_scale is (W3-05).
-const unmutedAt = muted.samples.findLastIndex(v => v !== 0);
-check('Receiver mute is exact silence after the first block', unmutedAt >= 0 && unmutedAt < Math.round(0.01 * muted.sampleRate));
-```
-
-No other suite has a check that moves. To find that out, I ran each suite after it in a scratch copy, with that one
-check made non-stopping.
+1. **`tests/opus.verify.mjs` (the question): authorised, and changed.** That file is now in this order's files. Its
+   check "Receiver mute is exact silence" (a render at `voice_scale 0` all zeros) is now "Receiver mute is exact
+   silence after the first block". The reason is spec point 3: every render starts from a reset, and the first 128
+   voice-rate samples pass at unity. That first block at unity is the engine's reset as W3-03 read it: the gain is
+   set to 1.0 when a channel is assigned, and `voice_scale` first enters at the end of the first block. It was read
+   from the binary, not measured: no take at a scale other than 1 shows it.
+2. **One 32-bit rounding per float operation (reading 5 changed).** The box rounded the denominator once; the
+   orchestrator gave that as shorthand. The rule now rounds every operation, as compiled single-precision code does.
+   In the denominator that is the product `(peak - mean) x avggain`, then the sum with `mean`. In the step it is the
+   difference, the quotient by 127 and the product by 128. The division `32767 / den`, the `min` with the cap and
+   each `x scale` were already single operations, each rounded. This is inferred from how single-precision code
+   compiles. Set H cannot tell: at `voice_avggain 0.5` the product is exact in 32 bits, so the two readings agree.
+   `audio.js` and the transcription (`tests/gain-exact.mjs`) both changed.
+   - **No golden hash moved.** Every case is at an `avggain` whose product is exact (0.5, or 0.25): render-stream
+     passes, 145 checks, on the recorded hashes.
+   - **A new check** at `voice_avggain 0.3` pins a case where the readings differ. The input is a block with integer
+     mean 2993 and peak 14861, then two blocks of 1000. Rounded per operation, `den` is 6553.400390625; rounded once,
+     6553.39990234375. That puts the target either side of 5, so `fixed` is 639 or 640. Sample 256 is 4992 per
+     operation and 5000 rounded once.
+   - **The break, proved:** with the single rounding put back
+     (`const den = f32(mean + (peak - mean) * avgGain);`), `tests/gain.verify.mjs` fails:
+     ```
+       FAIL  den rounds the product, then the sum: at voice_avggain 0.3 sample 256 is 4992 (rounded once, 5000)   [5000]
+     55 gain checks passed, 1 failed
+     ```
+     `gain-exact --synthetic` still passes under that break, as it should: it runs at 0.5.
+   - **The case for `den` in doubles** (section 1b) was found under the single rounding, and under per-operation
+     rounding it gave the doubles' result. It was found again: mean 10895, peak 14646, `avggain` 0.7, `voice_scale`
+     0.7; sample 256 is 1179, and 1187 in doubles. With `den` in doubles, three checks fail: that case, the
+     `current` case and the 0.3 case.
+   - **Joining the step's roundings into one** changes nothing and is not caught. Multiplying by 128 is exact in 32
+     bits, so `f32(f32(q) x 128)` and `f32(q x 128)` are the same number.
+3. **The 32-bit product (reading 4) cannot overflow inside the app's limits.** The gain is at most
+   `voice_maxgain 100 x voice_scale 4 x 128 = 51,200`, and 51,200 x 32,768 = 1.68 x 10^9, under 2^31. A comment where
+   the product is formed says so. Nothing else was built for it.
+4. **`sw.js`: authorised.** `CACHE` is now `v21` (`5e59419`), after merging `origin/main`.
+5. **`VOICE_ENGINE.autoGain.blockSize`** (in `constants.js`, not this order's file) is no longer read. W3-11a's builder
+   will remove it.
+6. **The REFERENCE note and the PREDICTIONS figure are the orchestrator's;** the placeholder stays.
 
 ## Commits
 
@@ -33,13 +59,29 @@ check made non-stopping.
   chain).
 - `d01e830` A merge of `origin/main`.
 - `921e7b7` The `PREDICTIONS.md` paragraph.
-- This report.
+- `9bef10c` this report (the first hand-back).
+- `559f72f` a merge of `origin/main` (W3-12a).
+- `1d63731` one 32-bit rounding per float operation, with its check; the `tests/opus.verify.mjs` change.
+- `5e59419` `sw.js`: `CACHE` `v21`.
+- This section of the report.
+
+## Files changed
+
+- `audio.js`: the gain rule and its call sites.
+- `tests/verify.js`: the two moved expectations.
+- `tests/render-stream.verify.mjs`: the golden hashes, re-recorded, and their comment.
+- `tests/opus.verify.mjs`: not in the order's list; authorised by the orchestrator. Its "Receiver mute is exact
+  silence" check moves with the reset (spec point 3), now "... after the first block".
+- `tests/predictions/PREDICTIONS.md`: the paragraph.
+- `package.json`: the `test` line.
+- `sw.js`: `CACHE` `v21`; authorised by the orchestrator, because `audio.js` changed.
+- New: `tests/gain.verify.mjs`, `tests/gain-exact.mjs`, this report.
 
 ## What was built
 
 **One helper**, `gainRule(options)` in `audio.js`, holds the rule in the engine's variables (`current`, `next`,
 `fixed`, `step`, `pos`, `sum`, `peak`). It does each step as the order's box writes it: the integer block mean, the
-32-bit floats, the step `trunc(f32(f32(next - current) / 127 * 128))`, a block with `den = 0` going to the cap, and
+32-bit floats with one rounding per operation, the step `trunc(f32(f32(f32(next - current) / 127) * 128))`, a block with `den = 0` going to the cap, and
 `voice_scale` in both `current` and `next`. Samples come in as `clamp(round(x * 32768))` and go out as `y / 32768`.
 `receiverAutoGain`, `streamAutoGain` and the new `TF2Audio.createGain` all run it:
 
@@ -100,7 +142,9 @@ comparisons with the literal transcription.
 | B3c the hold leaves `fixed` where the block began | the held block (10); spec 4's transcription; the live chain |
 | B4 the first block at `trunc(scale x 128)` (no reset to unity) | 28 transcription checks; the reset check; `tests/verify.js`: the `voice_scale 0` check. `--synthetic` passes: it is at scale 1, as Set H is |
 | B5 `voice_scale` once (`current = next`) | 28 transcription checks; zeros to the cap at 0.5 and 2; the reset check |
-| B6a `den` in doubles | the `current` and `den` float cases |
+| B6a `den` in doubles (re-run after answer 2) | the `current` and `den` float cases, and the 0.3 case |
+| R1 `den` rounded once, as the box wrote it (after answer 2) | the 0.3 case (5000, not 4992); `--synthetic` passes, at 0.5 |
+| R3 the step's three roundings joined into one (after answer 2) | nothing: the product by 128 is exact in 32 bits |
 | B6c `t` in doubles | the `t` float case (step 6, not 5) |
 | B6e `current` in doubles | the `current` and `den` float cases |
 | B6f `next` in doubles | the `next` float case |
@@ -124,7 +168,7 @@ settings are exact in 32 bits. A search found four short cases where one roundin
 are now section 1b. Second, nothing caught B12: every block that was not decoded in the tests started and ended on
 block edges. Third, nothing checked the live chain's `decoded`.
 
-## `tests/gain.verify.mjs` (in `pnpm test`, 55 checks, about 5 s)
+## `tests/gain.verify.mjs` (in `pnpm test`, 56 checks, about 5 s)
 
 1. The transcription (`engineGain`, kept in `tests/gain-exact.mjs` and imported) against `receiverAutoGain`,
    `streamAutoGain` in pieces of 1, 7, 128 and 1,000 (flushed), and `createGain().process` in packets of 882 and
@@ -185,16 +229,11 @@ Unlike Set H, the synthetic signal can see the divisor: with 128, 210 of its sam
 3. **The settings are 32-bit floats.** `voice_scale`, `voice_avggain` and `voice_maxgain` are cvars, so the helper
    rounds them with `Math.fround` before use. That changes nothing at the values the page offers that are exact in 32
    bits. At `voice_scale 0.7` it does (B6g).
-4. **`>> 7` is `Math.floor(product / 128)` in `audio.js`.** That is exact for any product, so it gives the same result
-   as an arithmetic shift wherever the product fits in 32 bits. The app allows `voice_maxgain` up to 100 and
-   `voice_scale` up to 4, where the engine's 32-bit product could overflow; what the engine does there was not read.
-   The test's transcription uses `>> 7` literally. Its settings stay far inside 32 bits (gain up to 5,120 times 32,768),
-   so the two agree there.
-5. **A doubt about rounding, for the orchestrator, who has Set H's script.** The box rounds
-   `mean + (peak - mean) * avggain` to 32 bits once, at the end. Compiled 32-bit code may round the product first, then
-   the sum. The two agree whenever the product is exact in 32 bits, which holds for `voice_avggain` 0, 0.25, 0.5, 1
-   and the default 0.5. They can differ for a value like 0.3. I followed the box. Set H, at 0.5, cannot tell the two
-   apart. The same holds, less likely, for `t * scale` against `f32(t) * scale`.
+4. **`>> 7` is `Math.floor(product / 128)` in `audio.js`.** That is exact for any product, so it is the arithmetic
+   shift wherever the product fits in 32 bits, and inside the app's limits it always does (answer 3 above). The test's
+   transcription uses `>> 7` literally.
+5. **One rounding per float operation** (changed on the orchestrator's answer 2; it was the box's single rounding of
+   the denominator).
 6. **The gate's silences check needed a quieter tail than the order's words suggest.** "The second burst's first
    block starts from the gain the first burst's tail left (not from the cap, not from 1)" cannot be seen with the
    default threshold and cap. Anything under the gate's -39.5 dBFS decodes (about 8 dB down through Opus) to a target
@@ -221,27 +260,28 @@ Unlike Set H, the synthetic signal can see the divisor: with 128, 210 of its sam
 
 ## What was not done
 
-- `tests/opus.verify.mjs`, the question above.
-- **B6b** (the two roundings inside the step) is not caught. Removing them changed no output in 3 x 10^7 targeted cases
-  (two block levels, `voice_scale` 1). I think they cannot matter. `next - current` is a difference of two floats. If
-  it is exactly `127k/128` the step is exactly `k`. If it is the float just below that, multiplying by `128/127` gives
-  just under `k`, which rounds to the float below `k`, never up to `k`. I have not proved this for every binade. The
-  roundings are kept, as the box writes them.
-- `sw.js`: not in this order's files, so `CACHE` is not bumped. `audio.js` changed, so it needs `v20` to `v21`.
+- **The roundings inside the step** are not caught when broken (B6b; R3 joins them into one). Removing them changed
+  no output in 3 x 10^7 targeted cases (two block levels, `voice_scale` 1). The product by 128 is exact in 32 bits,
+  so rounding it changes nothing. For the difference and the quotient by 127 I argue they cannot matter, but I have
+  not proved it for every binade: if `next - current` is exactly `127k/128`, the step is exactly `k`; if it is the
+  float just below that, the quotient times 128 is just under `k` and rounds to the float below `k`, never up to `k`.
+  The roundings are kept, one per operation.
 - `tests/REFERENCE_2026.md` is not in the order's files. Proposed text for it, if the orchestrator wants one: "W3-05
   (2026-11-10): the app's receiver gain is the engine's rule (W3-03 section 2), checked against a literal
   transcription in `tests/gain.verify.mjs` and, privately, against Set H with `tests/gain-exact.mjs`. On the source's
   timeline an all-zero block the gate did not send holds the gain, which stands in for the engine not running."
 - The accuracy guard (the orchestrator's private run) was not run: it needs the takes.
+- `VOICE_ENGINE.autoGain.blockSize` stays in `constants.js` (not this order's file) and is no longer read.
 
 ## Commands run
 
-- `node tests/gain.verify.mjs`: 55 passed. `node tests/gain-exact.mjs --synthetic`: ok.
-- `pnpm test` (under the heavy lock): `tests/verify.js` 211 passed, `gain.verify` 55, `gain-exact --synthetic` ok,
-  then `tests/opus.verify.mjs` stops at "Receiver mute is exact silence". Each later suite, run on its own in a scratch
-  copy: speex, reference, formats, filerate, meter, video, demo and voice-channel pass; render-stream passes (145).
+On the final head, after the second merge of `origin/main` and the rounding change:
+
+- `pnpm test` (under the heavy lock): every suite passes. The counts: `tests/verify.js` 211, `gain.verify` 56,
+  `gain-exact --synthetic` ok, opus 119, speex 63, speex 1.0.2 30, reference 41, formats 66, filerate 53, meter 50,
+  video 45, demo 31, render-stream 145 (on the recorded hashes), voice channel 101.
 - Browser suite (`CHROMIUM_EXECUTABLE=... node tests/browser.verify.js`, under the lock): 215 passed.
-- CI: see the hand-back. It fails at `opus.verify` until the question is answered.
+- CI on the pushed head: see the hand-back.
 
 Every signal in the tests is synthetic. No file reads the private takes but `gain-exact.mjs --takes`, and it prints
 only counts.
