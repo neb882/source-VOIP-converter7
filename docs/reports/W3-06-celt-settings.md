@@ -4,10 +4,12 @@ Branch `claude/w3-06-celt-settings`, from `main` at `1e6db07`, with `origin/main
 Built to the order and its two amendments: the codec's rebuild from `docs/reports/W3-08-celt-encoder.md` ("Changes")
 is in; Speex is untouched.
 
-**Status: built; the orchestrator's private Set H check is still to run.** `pnpm test`, the browser suite and CI
-pass. The figures this branch's texts quote for Set H (1 of 292,352 and 75 of 292,864 samples one step off) are
-W3-08's, measured with the investigator's build; this branch's build gives the same samples as that build on every
-synthetic signal tried (below), but only the private check can confirm them on the takes.
+**Status: done, with the review's fix round.** `pnpm test`, the browser suite and CI pass.
+
+**The orchestrator's private run** on `b41a218`, with the branch's own `vendor/celt-0.11`: `vaudio_celt` 292,351 of
+292,352 samples identical to the game's recording, `vaudio_celt_high` 292,789 of 292,864, and a third recording
+(another game, the same module) 145,919 of 145,920. Every remaining difference is one step. The review rebuilt the
+module byte for byte and confirmed that its export list is the only difference from W3-08's build.
 
 ## Commits
 
@@ -16,7 +18,8 @@ synthetic signal tried (below), but only the private check can confirm them on t
 - `4a7a836` The profiles, `modeRate` through the three call sites and `codecResultInfo`, `demo.js`, the page, the
   docs, the new checks.
 - `9829dc8` The six CELT golden hashes of `tests/render-stream.verify.mjs`, re-recorded in a commit of their own.
-- The report, and the merge of `origin/main`.
+- `6c02a0f` this report; `b41a218` and `6fc2b35` merges of `origin/main` (docs only).
+- `c4bae3d` the review's fix round (below).
 
 ## The build
 
@@ -164,13 +167,8 @@ which failed the suite's "frames are lost" check, so it is now `celt_44, gate on
 
 ## Left alone, and found in passing
 
-- Two files outside this order's list describe `celt_44` as it was. `tests/gain.verify.mjs` ([5], the key-up
-  gap check) says `celt_44` with the codec bypassed runs at 44.1 kHz with 256-sample frames; it now runs at
-  22.05 kHz with the linear mixer. The check still passes (gap 10,237 samples, the first block flat within 2%), but
-  its premise ("no resampler ringing") no longer holds as written. `tests/reference.verify.mjs` says 5.8 ms frames
-  for `vaudio_celt_high` (its check passes its own frame grid, so it is unaffected). Neither was changed.
-- `reference.js` (not on the list) has a comment with 5.8 ms frames for `vaudio_celt_high`; it reads the frame grid
-  from the render's `codecInfo`, so its behaviour follows the profile.
+- The stale `celt_44` texts in `tests/gain.verify.mjs`, `tests/reference.verify.mjs` and `reference.js` were
+  closed in the fix round (above).
 - `tests/REFERENCE_2026.md` (the orchestrator's) already describes the result; its table row for the app
   ("`celt_22`: the same mode, built without the pitch filter, complexity 10…") will be out of date on merge.
 
@@ -183,13 +181,69 @@ unchanged, and a float input that is already a 16-bit value / 32768 is coded as 
 creation, so nothing has to be added. Expected, as the amendment says: 292,351 of 292,352 (`vaudio_celt`) and
 292,789 of 292,864 (`vaudio_celt_high`).
 
+## The review's fix round
+
+The review (`tf-reviewer`) found nothing wrong in the order's code and five things to close:
+
+1. **The live chain's gate for `celt_44` was not checked.** Making `createLiveChain` count its gate frames at the
+   mode rate (the review's M13) passed every suite. New check in `tests/verify.js`: on a gated `celt_44` burst
+   signal the live chain sends the frames `process()` sends (99), and `process()`'s pre-roll and hold are 3 and 9
+   frames. M13 now fails: `celt_44 live chain: its gate counts 46.4 ms frames (pre-roll 3, hold 9) and sends the
+   frames process() sends [live 132 sent; process() 99 of 173, pre-roll 3, hold 9]`.
+2. **`index.mjs` took any packet.** A packet whose first byte declares a shorter frame decoded to 64 to 512 samples
+   with the rest of the frame left from the previous one, and a 1276-byte packet was copied one byte past the
+   buffer. Now `decode()` refuses a packet longer than its buffer before copying it (`RangeError`), and one whose
+   first byte gives another frame size or channel count than this mode's packets before the decoder takes it in.
+   The mode's first byte is read once at creation from a throwaway encoder (the encoder's signalling writes the
+   frame size and channel count there). A decode that gives fewer samples than the frame also throws, as a
+   backstop. The module's bytes do not change, and `index.mjs` is in no recorded hash. The check
+   (`tests/opus.verify.mjs`, both modes): three such packets are refused and the frames after them decode exactly
+   as if they had not come; a 1276-byte packet with this mode's first byte is refused.
+3. **A decode error lost the whole demo.** In `demo.js`'s CELT branch a packet the decoder refuses now plays as one
+   frame of silence and is counted in what `decode` returns, `undecodable` (beside `concealed`). Its frame keeps
+   code 3 in the frame log: it was sent as a CELT frame. The page's demo summary is in `app/source.js`, not on the
+   order's list, so it is left alone. The check (`tests/demo.verify.mjs`): a stream of 12 packets with the 7th's
+   first byte corrupted decodes; that frame is silent, the count is 1, the frames before it are as in the clean
+   stream, and the frames after it are what the decoder gives the other packets alone (they cannot equal the clean
+   stream's, which decoded the 7th).
+4. **The reset between talk spurts was not pinned.** Removing `codec.restart()` from `demo.js` (M23) passed every
+   suite. The choice is the app's: whether the game's receiver resets its decoder between spurts was not read. This
+   is now said in `demo.js`'s comment, and a check pins it: a two-spurt demo's second spurt equals its packets
+   decoded by a new decoder.
+5. **Stale text about `celt_44`**, authorised for this order although the files were not on its list:
+   - `tests/gain.verify.mjs` [5]: the comment said `celt_44` runs at the device's 44.1 kHz with 256-sample frames
+     and no resampler. It now runs at 22.05 kHz with 1024-sample frames (eight gain blocks), and the gap of 40
+     calls of 256 samples is five whole frames. The "517 celt_44 frames" in 3 s is now 65.
+   - `tests/reference.verify.mjs`: the CELT render was read on a hard-coded 256/44100 grid. It takes the frame from
+     the render's `codecInfo` (1024/22050). The check could not fail: with the frame log read on 20 ms frames it
+     still passed. It now also checks where the windows fall (from 6 s, where the unsent stretch ends, to the end);
+     read on 20 ms frames they fall from 1.5 to 10 s and the check fails.
+   - `reference.js`: the comment only, `256/44100` to `1024/22050`. No code in that file changed.
+
+**No golden hash moved** in the fix round: render-stream passes on the hashes of `9829dc8` (146 checks). Points 2
+and 3 change only what happens to a packet the encoder never makes.
+
+| Break (fix round) | What failed |
+| --- | --- |
+| M13: the live chain's gate frames at the mode rate | verify: `celt_44 live chain … [live 132 sent; process() 99 of 173, pre-roll 3, hold 9]` |
+| `index.mjs` without the first-byte check | opus: `CELT 22050/512: packets declaring a shorter frame are refused … and leave the decoder as it was`; demo: the refused-packet case, `6 of 11 other frames as expected` |
+| `index.mjs` without the size check | opus: the same check, `a 1276-byte packet is refused ()` (it decoded) |
+| `index.mjs` without the decoded-length check | **nothing failed**: the first-byte check refuses every such packet first; it is a backstop |
+| `demo.js` without the try/catch | demo: `Error: CELT 0.11 packet is not of this mode` |
+| `demo.js` silence not counted | demo: the refused-packet case, `0 undecodable` |
+| M23: no restart between spurts | demo: `A vaudio_celt demo's second talk spurt is decoded by a new decoder` |
+| `reference.js` reads every frame log on 20 ms frames | reference: `Real take against a CELT render … (14 windows from 1.5 to 10 s, …)` |
+| the test's own grid back at 256/44100 | **nothing failed**: the test makes its log on the grid it passes, so any grid is self-consistent; the grid now comes from the render |
+
 ## Runs
 
-- `pnpm test`: passes (the counts above), on the head before the merge and again after it.
+- `pnpm test`: passes, on the head before the first merge, after it, and after the fix round (verify 216, opus
+  139, demo 36, the rest as above).
 - Browser suite, `CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux*/chrome | head -1) flock
-  /tmp/tf2ve-heavy.lock node tests/browser.verify.js`: `221 browser checks passed`, exit 0.
+  /tmp/tf2ve-heavy.lock node tests/browser.verify.js`: `221 browser checks passed`, exit 0, each time.
 - `pnpm test:vendor`: every build matches its recorded hash.
 - CI (`tests`): run 42766318560 on `8cd406a` failed, as expected (the rebuilt codec before its hashes were
-  re-recorded); run 42768649277 on `9829dc8` passed. The final head's run is in the hand-back.
+  re-recorded); run 42768649277 on `9829dc8` and run 42770701252 on `b41a218` passed. The fix round's head is in
+  the hand-back.
 - The diff and commit messages were scanned for recordings, personal details, SteamIDs and model names: none (the
   trailer aside).
