@@ -584,7 +584,8 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
      settings as they stand at that moment: either `createGain`'s `reset(settings)` gains that argument (this
      order may add it; with none it keeps what it has, so W3-05's checks do not move), or the wrapper makes a
      new gain at each `reset()`. In a file render the settings do not change, so the two give the same samples;
-     the form is what the live chain needs (W3-11b). Two things follow from the reset and are checked: **the
+     the form is the engine's, and is what a channel that runs live will need (the live chain keeps W3-05's
+     gain until then: W3-11b). Two things follow from the reset and are checked: **the
      first 128 samples a new channel is given pass at unity whatever `voice_scale` is**, and an appended spurt
      gets no reset. A queue underrun never reaches the gain (the padding is made after it). With `agc: false`
      the object multiplies by `voice_scale`, rounds and clips to 16 bits, as stage 4 does now.
