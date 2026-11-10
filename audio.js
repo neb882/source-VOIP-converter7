@@ -19,6 +19,7 @@
  *
  * TF2Audio.process(buffer, opts) -> { samples, sampleRate, blob, codecInfo }
  * TF2Audio.createRender(source, opts) -> the same render, a chunk at a time
+ * TF2Audio.createGain({ avgGain, maxGain, scale }) -> one channel's auto-gain
  * TF2Audio.encodeWav(samples, rate) -> 16-bit mono WAV
  */
 
@@ -320,47 +321,114 @@
   /* ------------------------------------------------------------------ */
   /* Receiver auto-gain (Source voice channel)                          */
   /*                                                                    */
-  /* Identified from the 2026 test-signal takes (tests/REFERENCE_2026). */
-  /* The decoded voice is int16. Each 128-sample block sets a target    */
-  /*   T = min(maxGain, 32767 / (mean + avgGain * (peak - mean)))       */
-  /* so voice_avggain 0 drives the block mean to full scale and 1 the   */
-  /* block peak; the default 0.5 overdrives a sine by 1.22x. Over the   */
-  /* following block the gain starts at s*s*T_prev and steps toward s*T */
-  /* in 1/128 fixed-point increments truncated toward zero, with        */
-  /* s = voice_scale, and every sample is clamped to int16. At s = 1 the */
-  /* gain ramps from the previous target and the sub-step remainder     */
-  /* jumps at the block edge; other scales give the recorded sawtooth.  */
-  /* All-zero blocks (no voice data) leave the state untouched.         */
+  /* The engine's rule, read from its binary (docs/reports/W3-03-       */
+  /* engine-binary.md, section 2) and verified sample for sample        */
+  /* against the game's own decoded voice (Set H: 0 of 291,840 samples  */
+  /* differ). Decoded voice is int16. Per sample x:                     */
+  /*   sum += |x|; peak = max(peak, |x|)                                */
+  /*   y = clamp(floor((fixed + pos * step) * x / 128), int16)          */
+  /* and at the end of each 128-sample block, in 32-bit floats:         */
+  /*   current = next * scale; fixed = trunc(current * 128)             */
+  /*   mean = floor(sum / 128)                    (integer division)    */
+  /*   next = min(maxgain, 32767 / (mean + (peak - mean) * avggain))    */
+  /*          * scale                 (a block of zeros: the cap)       */
+  /*   step = trunc((next - current) / 127 * 128)                       */
+  /* so voice_scale enters twice: a block starts at s*s*T_prev and      */
+  /* ramps toward s*T. A reset (a channel assigned to a speaker) sets   */
+  /* current = next = 1, fixed = 128, step = pos = sum = peak = 0, so   */
+  /* the first block is at unity whatever voice_scale is.               */
   /* ------------------------------------------------------------------ */
 
-  function receiverAutoGain(samples, options = {}) {
-    const block = Math.max(1, Math.round(finiteOr(options.blockSize, 128)));
-    const avgGain = Math.max(0, finiteOr(options.avgGain, 0.5));
-    const maxGain = Math.max(0, finiteOr(options.maxGain, 10));
-    const scale = Math.max(0, finiteOr(options.scale, 1));
-    const out = new Float32Array(samples.length);
-    let fixed = Math.trunc(scale * 128), step = 0, prevTarget = 1;
-    for (let start = 0; start < samples.length; start += block) {
-      const end = Math.min(samples.length, start + block);
-      let total = 0, peak = 0;
-      for (let i = start, j = 0; i < end; i++, j++) {
-        const x = clamp(Math.round(samples[i] * 32768), -32768, 32767);
-        const a = x < 0 ? -x : x;
-        total += a;
+  const GAIN_BLOCK = 128;   // VOICE_ENGINE.autoGain.blockSize; the ramp divides by GAIN_BLOCK - 1
+
+  // The rule's state and its sample loop, shared by receiverAutoGain,
+  // streamAutoGain and createGain. options: { avgGain, maxGain, scale,
+  // decoded }. decoded(m), when given, says whether sample m of the signal
+  // (counted from the first sample run) was decoded; see receiverAutoGain.
+  function gainRule(options = {}) {
+    const f32 = Math.fround;
+    const avgGain = f32(Math.max(0, finiteOr(options.avgGain, 0.5)));
+    const maxGain = f32(Math.max(0, finiteOr(options.maxGain, 10)));
+    const scale = f32(Math.max(0, finiteOr(options.scale, 1)));
+    const decoded = typeof options.decoded === 'function' ? options.decoded : null;
+    let current, next, fixed, step, pos, sum, peak;
+    let index = 0;   // the next sample's place in the signal, for decoded()
+    function reset() { current = next = 1; fixed = 128; step = 0; pos = 0; sum = 0; peak = 0; }
+    reset();
+    // x[i] for i in [0, x.length) into out[at + i].
+    function run(x, out, at = 0) {
+      for (let i = 0; i < x.length; i++) {
+        const v = clamp(Math.round(x[i] * 32768), -32768, 32767);
+        const a = v < 0 ? -v : v;
+        sum += a;
         if (a > peak) peak = a;
-        const y = Math.floor(x * (fixed + j * step) / 128);
-        out[i] = (y > 32767 ? 32767 : (y < -32768 ? -32768 : y)) / 32768;
+        const y = Math.floor((fixed + pos * step) * v / 128);
+        out[at + i] = (y > 32767 ? 32767 : (y < -32768 ? -32768 : y)) / 32768;
+        index++;
+        if (++pos < GAIN_BLOCK) continue;
+        if (peak === 0 && decoded && !decoded(index - GAIN_BLOCK)) {
+          // Nothing arrived: the engine would not have run. The gain holds
+          // where the ramp reached it. This stands in for the gaps on the
+          // source's timeline, which the engine's gain never sees; its
+          // blocks run over the decoded samples end to end, the app's over
+          // the timeline, so it is an approximation of that timeline only.
+          fixed += GAIN_BLOCK * step;
+          step = 0;
+        } else {
+          current = f32(next * scale);
+          fixed = Math.trunc(current * 128);
+          const mean = Math.floor(sum / GAIN_BLOCK);
+          const den = f32(mean + (peak - mean) * avgGain);
+          let t = den > 0 ? f32(32767 / den) : Infinity;
+          if (t > maxGain) t = maxGain;
+          next = f32(t * scale);
+          step = Math.trunc(f32(f32(next - current) / (GAIN_BLOCK - 1) * 128));
+        }
+        pos = 0; sum = 0; peak = 0;
       }
-      if (end - start < block) break;
-      if (peak === 0) { fixed += block * step; step = 0; continue; }
-      const mean = total / block;
-      const target = Math.min(maxGain, 32767 / (mean + avgGain * (peak - mean)));
-      const current = prevTarget * scale;
-      fixed = Math.trunc(current * scale * 128);
-      step = Math.trunc((target - current) / block * scale * 128);
-      prevTarget = target;
+      return out;
     }
-    return out;
+    return { run, reset, state: () => ({ current, next, fixed, step, pos, sum, peak }) };
+  }
+
+  // The gain over a whole signal, from a reset (every render starts with a
+  // channel being assigned). Samples are floats, run as int16
+  // (round(x * 32768), clamped) and returned as y / 32768. A last, partial
+  // block follows the current ramp and makes no update.
+  // options.decoded(m): whether voice-rate sample m was decoded. Without it
+  // every sample was, and every block is run by the rule, a block of zeros
+  // included (its target is the cap). With it, an all-zero block whose
+  // first sample was not decoded is skipped (the gain held, see gainRule).
+  function receiverAutoGain(samples, options = {}) {
+    return gainRule(options).run(samples, new Float32Array(samples.length));
+  }
+
+  // TF2Audio.createGain({ avgGain, maxGain, scale }): the gain of one voice
+  // channel, fed decoded samples in pieces of any size. process(pcm)
+  // returns as many samples at once (a sample's gain is known when it
+  // arrives; a block's update happens when its 128th sample does, across
+  // calls); reset() is a channel being assigned; state() copies the rule's
+  // seven variables, for tests.
+  function createGain(options = {}) {
+    const rule = gainRule({ avgGain: options.avgGain, maxGain: options.maxGain, scale: options.scale });
+    return {
+      process: (pcm) => rule.run(pcm, new Float32Array(pcm.length)),
+      reset: rule.reset,
+      state: rule.state
+    };
+  }
+
+  // The gain's decoded() when a gate holds frames back (Steam on the
+  // source's timeline, a demo's received voice): voice-rate sample m is
+  // codec sample c = floor(m * codecRate / voiceRate), in frame
+  // floor((c + lookahead) / frameSamples), and was decoded when that
+  // frame's code is not 0 (gated: nothing sent). The log is read when the
+  // gain asks, so a stream may fill it as it goes.
+  function decodedFromFrames(frameLog, frameSamples, lookahead, codecRate, voiceRate) {
+    return (m) => {
+      const f = Math.floor((Math.floor(m * codecRate / voiceRate) + lookahead) / frameSamples);
+      return f >= 0 && f < frameLog.length && frameLog[f] !== 0;
+    };
   }
 
   /* ------------------------------------------------------------------ */
@@ -862,8 +930,11 @@
     /* ---- 4) Receiver voice channel: auto-gain + int16 clamp ---- */
     samples = resampleSinc(samples, codecRate, codec.voiceRate);
     if (autoGain) {
-      samples = receiverAutoGain(samples, { blockSize: engine.autoGain.blockSize,
-        avgGain, maxGain, scale: voiceScale });
+      // With the gate on, the gain knows which blocks were decoded; with
+      // no gate (or the codec bypassed) every block was.
+      const decoded = received || (enableCodec && gateOn)
+        ? decodedFromFrames(codecInfo.frameLog, codecInfo.frameSamples, codecInfo.lookahead || 0, codecRate, codec.voiceRate) : undefined;
+      samples = receiverAutoGain(samples, { avgGain, maxGain, scale: voiceScale, decoded });
     } else {
       for (let i = 0; i < samples.length; i++) samples[i] *= voiceScale;
       samples = hardClip(samples, INT16_FULL_SCALE);
@@ -1034,52 +1105,13 @@
     };
   }
 
-  // receiverAutoGain, a block at a time: whole 128-sample blocks as they
-  // fill. flush() ends the signal as receiverAutoGain does: the samples of a
-  // last, partial block follow the current ramp.
-  function streamAutoGain(options) {
-    const block = Math.max(1, Math.round(finiteOr(options.blockSize, 128)));
-    const avgGain = Math.max(0, finiteOr(options.avgGain, 0.5));
-    const maxGain = Math.max(0, finiteOr(options.maxGain, 10));
-    const scale = Math.max(0, finiteOr(options.scale, 1));
-    let fixed = Math.trunc(scale * 128), step = 0, prevTarget = 1;
-    let pending = new Float32Array(0);
-    const flush = () => {
-      const out = new Float32Array(pending.length);
-      for (let j = 0; j < pending.length; j++) {
-        const v = clamp(Math.round(pending[j] * 32768), -32768, 32767);
-        const y = Math.floor(v * (fixed + j * step) / 128);
-        out[j] = (y > 32767 ? 32767 : (y < -32768 ? -32768 : y)) / 32768;
-      }
-      pending = new Float32Array(0);
-      return out;
-    };
-    return Object.assign((x) => {
-      const merged = new Float32Array(pending.length + x.length);
-      merged.set(pending); merged.set(x, pending.length);
-      const whole = Math.floor(merged.length / block) * block;
-      const out = new Float32Array(whole);
-      for (let start = 0; start < whole; start += block) {
-        let total = 0, peak = 0;
-        for (let i = start, j = 0; i < start + block; i++, j++) {
-          const v = clamp(Math.round(merged[i] * 32768), -32768, 32767);
-          const a = v < 0 ? -v : v;
-          total += a;
-          if (a > peak) peak = a;
-          const y = Math.floor(v * (fixed + j * step) / 128);
-          out[i] = (y > 32767 ? 32767 : (y < -32768 ? -32768 : y)) / 32768;
-        }
-        if (peak === 0) { fixed += block * step; step = 0; continue; }
-        const mean = total / block;
-        const target = Math.min(maxGain, 32767 / (mean + avgGain * (peak - mean)));
-        const current = prevTarget * scale;
-        fixed = Math.trunc(current * scale * 128);
-        step = Math.trunc((target - current) / block * scale * 128);
-        prevTarget = target;
-      }
-      pending = merged.slice(whole);
-      return out;
-    }, { flush });
+  // receiverAutoGain a piece at a time: each sample comes out as it goes in,
+  // and the state (and options.decoded's count) carries across calls.
+  // flush() ends the signal and gives nothing more: a last, partial block
+  // has already followed the current ramp, as receiverAutoGain ends.
+  function streamAutoGain(options = {}) {
+    const rule = gainRule(options);
+    return Object.assign((x) => rule.run(x, new Float32Array(x.length)), { flush: () => new Float32Array(0) });
   }
 
   // buildLossMask, a frame at a time, with the same random sequence.
@@ -1146,7 +1178,19 @@
     const after = [];
     if (decoderEq) after.push(streamFir(decoderEq));
     after.push(streamResampleSinc(codecRate, codec.voiceRate));
-    if (autoGain) after.push(streamAutoGain({ blockSize: engine.autoGain.blockSize, avgGain, maxGain, scale: voiceScale }));
+    // The gain's decoded(): whether the frame a voice-rate sample came from
+    // was sent, from the sent flags of the last 64 frames (no lookahead is
+    // trimmed here: frame f's decoded samples are f * frameSize onward,
+    // after the decoder EQ's delay). Frames not sent are the gate's, or
+    // push-to-talk's with the key up: in both nothing reaches the receiver.
+    const sentFlags = new Uint8Array(64);
+    let framesCoded = 0;
+    const decoderDelay = decoderEq ? (decoderEq.length - 1) >> 1 : 0;
+    const decoded = (m) => {
+      const f = Math.floor(Math.max(0, Math.floor(m * codecRate / codec.voiceRate) - decoderDelay) / frameSize);
+      return f < framesCoded - sentFlags.length || f >= framesCoded ? true : sentFlags[f % sentFlags.length] === 1;
+    };
+    if (autoGain) after.push(streamAutoGain({ avgGain, maxGain, scale: voiceScale, decoded }));
     else after.push((x) => hardClip(x.map(v => v * voiceScale), INT16_FULL_SCALE));
     after.push(codec.mixer === 'linear' ? streamResampleLinear(codec.voiceRate, mixRate) : streamResampleSinc(codec.voiceRate, mixRate));
     if (listenerCfg && listenerCfg.extraLpf) after.push(streamBiquad(biquadCoefs('lowpass', mixRate, listenerCfg.extraLpf, 0.8)));
@@ -1196,6 +1240,7 @@
 
     async function codecFrame(frame, sent) {
       stats.frames++;
+      sentFlags[framesCoded++ % sentFlags.length] = sent ? 1 : 0;
       if (!voice) { stats.gateOpen = sent; codes.push(sent ? 2 : 0); return sent ? frame : new Float32Array(frame.length); }
       if (!sent) { open = false; stats.gateOpen = false; codes.push(0); return new Float32Array(frameSize); }
       if (!open) {
@@ -1602,7 +1647,17 @@
     /* ---- 4) Receiver voice channel: auto-gain + int16 clamp ---- */
     stages.push(sincStage(codecRate, codec.voiceRate, codecLength));
     if (autoGain) {
-      const run = streamAutoGain({ blockSize: engine.autoGain.blockSize, avgGain, maxGain, scale: voiceScale });
+      // decoded() as process() builds it. The codec stage fills its frame
+      // log as it goes, and a frame is logged before any voice-rate sample
+      // it makes reaches the gain (the stages between only wait).
+      let decoded;
+      if (received) {
+        const info = receivedCodecInfo(received, codecRate);
+        decoded = decodedFromFrames(info.frameLog, info.frameSamples, info.lookahead, codecRate, codec.voiceRate);
+      } else if (coder && gate) {
+        decoded = decodedFromFrames(coder.counts().frameLog, voice.frameSize, voice.lookahead, codecRate, codec.voiceRate);
+      }
+      const run = streamAutoGain({ avgGain, maxGain, scale: voiceScale, decoded });
       stages.push({ push: run, flush: run.flush });
     } else {
       stages.push(sampleStage((x) => {
@@ -1739,6 +1794,7 @@
     softLimit,
     hardClip,
     receiverAutoGain,
+    createGain,
     biquadCoefs,
     applyBiquad,
     mulberry32,
