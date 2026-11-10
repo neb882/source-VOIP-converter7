@@ -177,7 +177,8 @@ What follows from it:
   spurt with whatever pre-roll the buffer holds.
 - **The clock is a 32-bit float of seconds since Steam started** (the time is narrowed from a double at `0x1380d72d0`). After about 4.6
   hours it resolves 2 ms, after 36 hours 16 ms, after 3 days 31 ms. On a Steam that has been running for days the
-  hold is quantised that coarsely. (Read; its effect on a take was not measured.)
+  hold is quantised that coarsely. (The narrowing is read; that the clock counts from Steam's start is assumed, as
+  Valve's timer usually does; its effect on a take was not measured.)
 
 ### Key down and key up (read)
 
@@ -467,6 +468,9 @@ To the receiver plan's sender model (`docs/reports/W3-02-plan.md`):
 | Windows's capture resampler exactly | `mic_outputfile`: Steam writes what it captured at 24 kHz; play the test signal through the cable once |
 | The first-packet flush of the resampler (40 samples, once per speaker) in a recording | `voice_recordtofile 1` with `voice_maxgain 1` on the first key press after the game starts, with a known input |
 | What sets `voice_quality` to 6 | Not needed for the model |
+| Why a 32-bit game with a `vaudio_speex` module still ran CELT | The console line `Unable to load voice codec ...` at map load and its three numbers (section 6); failing that, that game's `engine.dll` |
+| Speex 1.0.1 or 1.0.2 | Cannot be told from the module; 1.0.1 has no tag in Xiph's repository. Build `Speex-1.0.2` |
+| Whether a remote client under `vaudio_speex` falls back to the Steam codec | Two PCs, one hosting with `sv_voicecodec vaudio_speex`: `voice_showincoming` on each |
 | The friends' chat settings in the screenshot | Not in this path (inferred); a take with them all switched off would prove it |
 
 ### What the owner could run
