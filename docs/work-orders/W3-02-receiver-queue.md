@@ -204,7 +204,8 @@ May not touch: `audio.js`, `constants.js`, `opus-codec.mjs`, `index.html`, `sw.j
   - `waitTicks`: 7, 10, 30 at 66.67, 100, 300; 15 at 300 with `bufferMs` 50; the limits (1 at 5 fps: frames are
     capped at 0.1 s).
   - **By hand, 300 fps:** a packet of 7056 on tick 0, then 2646 every 4 ticks: the channel plays from tick 29,
-    `count` is 22050 from the sixth packet on, and `dropped` at the first pull is `7055 + 7 x 2645 - 22050 = 3520`.
+    `count` is 22050 from the seventh packet (tick 24) on, and `dropped` at the first pull is
+    `7055 + 7 x 2645 - 22050 = 3520`.
   - **By hand, 67 fps:** the same packets: plays from tick 6 with 9700 queued, nothing dropped.
   - Fade: a queue of exactly 4410 constant samples pulled to the end ramps linearly to 0 over its last 4410
     samples (sample with `r` behind it is `r / 4409`), and a queue of 8820 leaves its first 4410 untouched.
@@ -212,15 +213,18 @@ May not touch: `audio.js`, `constants.js`, `opus-codec.mjs`, `index.html`, `sw.j
     a `tick` then frees the channel; an `add` before that tick keeps it, with no wait.
   - Sender: over 2,000 spurts of 3 s, the shares of 1, 2, 3 and 4-frame packets are within 0.03 of what the
     committed model gives today (record them in the test from the first run and say them in the report; the plan's
-    prototype gave 0.02, 0.24, 0.64, 0.09); every frame is sent once and in order; no packet arrives before its
+    prototype gave 0.02, 0.26, 0.64, 0.08, and 0.34, 0.53, 0.12 for 3, 4 and 5 ticks between packets); every frame is sent once and in order; no packet arrives before its
     last frame ends; two seeds differ and one seed repeats.
-  - Timeline: a source with silences of 300, 500 and 1200 ms between 2 s spurts, at 300 fps: the first spurt's
-    `offsetStartMs` is within 60 ms of 0, the spurt after 300 ms is early by 180 to 260 ms and not `opened`, the
-    one after 500 ms is `opened`; at 67 fps every spurt but the first is `opened` and none is early; `pushFrame`
+  - Timeline: a source with silences of 300, 500 and 1200 ms between 2 s spurts, at 300 fps: over 50 seeds the first
+    spurt's `offsetStartMs` is within 60 ms of 0, the spurt after 300 ms is early by 200 to 270 ms and not
+    `opened`, the ones after 500 and 1200 ms are `opened` and lose 40 to 140 ms to overflow; at 67 fps every spurt
+    is `opened`, none starts more than 60 ms from the source and nothing is dropped (the plan's prototype: +13 to
+    +55 ms, -259 to -210 ms, 40 to 136 ms; at 67 fps -32 to +52 ms); `pushFrame`
     in any grouping of calls gives the same samples as one pass (push the frames one at a time, then compare with
     a run that calls `finish()` only after all: `===`).
-  - The 400 ppm: over a 60 s spurt at 300 fps, `offsetEndMs - offsetStartMs` (taken after the first second) is
-    between -26 and -20 ms (one sample for each of about 17.9 packets a second).
+  - The 400 ppm: over a 60 s spurt at 67 fps (no overflow), the offset at the spurt's end less the offset one
+    second in is between -25 and -23 ms (one sample for each of about 17.9 packets a second: 405 ppm, the accuracy
+    suite's "clock"); at 300 fps it is that or lower (later overflows add to it; the prototype gave -44 to -24).
 - `pnpm test` passes; CI passes on the pushed branch.
 - The orchestrator runs `node tests/retiming.mjs --accuracy <results.json> --generative --takes <folder> --engine`
   and the build report quotes its section 2. Expected from the plan's prototype (100 seeds): the speech take 50% of
