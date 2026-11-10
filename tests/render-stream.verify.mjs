@@ -284,7 +284,11 @@ add('demo voice as received, past full scale', 24000, () => {
 // (gated under either gate), and the test profile with a decoder EQ (a copy
 // of steam kept on the frame path, which moves only by complexity 9; 9 and
 // 10 give the same packets). steam_48, the CELT and Speex cases, the codec
-// bypassed and the received voice did not move.
+// bypassed and the received voice did not move. W3-11a also added
+// 'steam_48, silent but for a quarter frame of sine at the end', the frame
+// gate's partial last frame (W2-02's F2) on a profile that keeps the frame
+// gate; its hashes were made by origin/main's audio.js (35e278e) and the
+// branch's alike.
 const GOLDEN = {
   "steam": ["e5027a6410753f497514606cfc8a99c17ef73b2c057795db294b22f69ef91813", "969569596d7fd4b2c2e19c4daef83a34fd80babbf410386a5302978d63d7e8af"],
   "steam_48": ["abc36ae7f3f7794aea98c7abc3cc3cd68e631ea299dc6b08e1d4a05caba5ce91", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
@@ -333,6 +337,7 @@ const GOLDEN = {
   "steam, 302401 samples at 37800 Hz (an output length of 352801.17)": ["c25d231240dff6efc74febc245470839430af75b086fdc8e5f5b696f07e71d5e", "3a6b32f428fc4080b7f59e9dd463efb61c8bc9f192a84cded499088f2b87388c"],
   "steam, 88203 samples at 11025 Hz (an output length of 352812.00)": ["63b690b515bc1cca3868cbbd8b0f71122d20c87fc55056cfae14495b1400687f", "dae0ff7b0b761f58f7a3b5da154bb50773db75ddbd1603be1696dfe514839ebd"],
   "steam, silent but for a quarter frame of sine at the end": ["0e7551d1a6a29d2465b83e4719334870fb0135c31f2d4e921511bfdde1841712", "f61926fa97594bbe474b528c52ee7b4bd88e05ac8e7c9867dc9f25922e748e3f"],
+  "steam_48, silent but for a quarter frame of sine at the end": ["0e7551d1a6a29d2465b83e4719334870fb0135c31f2d4e921511bfdde1841712", "a2ab787d46a1cdf2a53b25fdb56752994849a33fc9af2ebe979bfcd5fa32ecb1"],
   "demo voice as received, past full scale": ["defc7e4cbbcb1c4c82b0e31bbee7949ecc9fcae3ab06c472e8868d65cbc822f3", "e6a7ce0f09e5683c1726bbea1d2500d2aaebf930359a22246c73eeb4a1325eb6"]
 };
 
