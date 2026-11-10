@@ -22,8 +22,10 @@ const fixture = (name) => new Uint8Array(fs.readFileSync(new URL(`./video/${name
 console.log('\n[Video] Remuxing the render into the source video');
 const rate = 48000, n = Math.round(rate * 1.5);
 // A chirp stands in for the voice, so content and timing are checkable. Its
-// samples are whole 16-bit values over 32768, as a render's are (W3-10).
-const voice = Float32Array.from({ length: n }, (_, i) => Math.round(8192 * Math.sin(2 * Math.PI * (200 * i / rate + 600 * (i / rate) ** 2))) / 32768);
+// samples are whole 16-bit values over 32768, as a render's are (W3-10), and
+// loud: the old MOV writer, round(s x 32767), wrote any value of 16384 or
+// more one unit low (below that it rounded back to the value itself).
+const voice = Float32Array.from({ length: n }, (_, i) => Math.round(30000 * Math.sin(2 * Math.PI * (200 * i / rate + 600 * (i / rate) ** 2))) / 32768);
 const bytesOf = (movie, s) => movie.u8.subarray(s.offset, s.offset + s.size);
 const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 const leadingEmpty = (movie, track) => {
@@ -71,9 +73,9 @@ for (const [name, container] of [['h264_aac.mp4', 'mp4'], ['h264_aac_fragmented.
     // The MOV's PCM holds the render's integers exactly (round(s x 32768),
     // as toInt16 writes the WAV); until W3-10 it wrote round(s x 32767).
     const ints = Int16Array.from({ length: all.length / 2 }, (_, i) => view.getInt16(i * 2, true));
-    const positives = voice.filter(v => v > 0).length;
+    const oldWriter = voice.filter(v => Math.round(v * 32767) !== v * 32768).length;
     check(`${name}: the PCM holds each of the render's 16-bit values as itself`,
-      ints.length === n && ints.every((v, i) => v === voice[i] * 32768) && positives > n / 3, `${n} samples, ${positives} positive`);
+      ints.length === n && ints.every((v, i) => v === voice[i] * 32768) && oldWriter > n / 10, `${n} samples; the old writer would change ${oldWriter}`);
   } else {
     const decoder = await createDecoder({ sampleRate: 48000, channels: 1 });
     const parts = audio[0].samples.map(s => decoder.decodeFloat(bytesOf(b, s), { frameSize: 960 }));

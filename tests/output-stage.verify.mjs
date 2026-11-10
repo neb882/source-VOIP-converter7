@@ -283,15 +283,18 @@ const device = (x, R = 48000) => { const d = A.createDeviceStage(R); return [...
     `${inside} of ${flat.length} outputs`);
   const rnd = lcg(5), x = Int32Array.from({ length: 3000 }, () => Math.round((rnd() * 2 - 1) * 32767));
   check('a 44100 Hz device returns its input unchanged', same(device(x, 44100), x));
-  // The rule by hand at the other rates the option takes.
-  for (const R of [88200, 96000, 192000]) {
-    const g = (a, b) => (b ? g(b, a % b) : a), N = 44100 / g(44100, R), D = R / g(44100, R), y = device(x, R);
+  // The rule by hand (whole numbers: n N stays under 2^53 here) at the other
+  // rates the option takes, and over a long run at two whose D is large,
+  // where a position accumulated in floats drifts.
+  const long = Int32Array.from({ length: 200000 }, () => Math.round((rnd() * 2 - 1) * 32767));
+  for (const [R, input] of [[88200, x], [96000, x], [192000, x], [44101, long], [191999, long]]) {
+    const g = (a, b) => (b ? g(b, a % b) : a), N = 44100 / g(44100, R), D = R / g(44100, R), y = device(input, R);
     let bad = 0;
     for (let n = 0; n < y.length; n++) {
-      const k = Math.floor(n * N / D), r = n * N - k * D, num = (x[k] ?? 0) * (D - r) + (x[k + 1] ?? 0) * r;
+      const k = Math.floor(n * N / D), r = n * N - k * D, num = (input[k] ?? 0) * (D - r) + (input[k + 1] ?? 0) * r;
       if (y[n] !== roundEven(num / D)) bad++;
     }
-    check(`${R} Hz: every output is roundEven((x[k] (D - r) + x[k + 1] r) / D)`, bad === 0 && y.length > x.length * R / 44100 - 2, `${bad} of ${y.length} differ`);
+    check(`${R} Hz: every output is roundEven((x[k] (D - r) + x[k + 1] r) / D)`, bad === 0 && y.length > input.length * R / 44100 - 2, `${bad} of ${y.length} differ`);
   }
 }
 
@@ -300,7 +303,11 @@ const device = (x, R = 48000) => { const d = A.createDeviceStage(R); return [...
 console.log('\n[8] The positions in whole numbers, against BigInt');
 {
   const rnd = lcg(7);
-  for (const R of [48000, 88200, 96000, 192000]) {
+  // The order's four rates, and two the option takes whose D is large
+  // (44101 and 191999: N 44100 and D 44101; N 44100 and D 191999). At the
+  // first four D is small and n N stays under 2^53, so a position kept in
+  // floats would still come out right there; at the last two it would not.
+  for (const R of [48000, 88200, 96000, 192000, 44101, 191999]) {
     const g = (a, b) => (b ? g(b, a % b) : a), N = BigInt(44100 / g(44100, R)), D = BigInt(R / g(44100, R));
     const ns = [0, 1, 79, 80, 160, 160000000, 2 ** 40, 2 ** 40 - 1];
     for (let i = 0; i < 2000; i++) ns.push(Math.floor(rnd() * 2 ** 40));
