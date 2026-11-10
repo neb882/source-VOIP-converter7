@@ -258,7 +258,8 @@ async function main() {
     silentThenTone.set(tone(440, 0.5, R, 0.3), onsetAt);
     const onset = TF2Audio.receiverAutoGain(silentThenTone, {});
     check('digital silence stays silent', peakAbs(onset.subarray(0, onsetAt)) === 0);
-    check('silent blocks hold the gain instead of arming maximum gain', peakAbs(onset.subarray(onsetAt, onsetAt + 128)) < 0.31,
+    // A decoded block of zeros has mean and peak 0, so its target is the cap (W3-03, Set H): 0.3 x 10 clips.
+    check('decoded silent blocks send the gain to its cap', peakAbs(onset.subarray(onsetAt, onsetAt + 128)) > 0.99,
       peakAbs(onset.subarray(onsetAt, onsetAt + 128)).toFixed(3));
     // Level step at a block edge: the old gain covers the next block, the ramp the one after, then the new target holds.
     const stepIn = new Float32Array(128 * 40);
@@ -279,7 +280,10 @@ async function main() {
     const flat = TF2Audio.receiverAutoGain(loudSine, { scale: 0.5 });
     const flatDb = 20 * Math.log10(rms(flat, R / 2));
     check('voice_scale 0.5 on a loud sine truncates the step to zero (take: -13.4 dB rms)', Math.abs(flatDb + 13.3) < 0.2, `${flatDb.toFixed(2)} dB`);
-    check('voice_scale 0 mutes exactly', peakAbs(TF2Audio.receiverAutoGain(tone(440, .2, R, .2), { scale: 0 })) === 0);
+    // The first block after a reset is at unity whatever voice_scale is (fixed = 128).
+    const t0 = tone(440, .2, R, .2), muted = TF2Audio.receiverAutoGain(t0, { scale: 0 });
+    check('voice_scale 0 mutes exactly after the first block, which is at unity',
+      peakAbs(muted.subarray(128)) === 0 && muted.subarray(0, 128).every((v, i) => v === Math.round(t0[i] * 32768) / 32768));
   }
 
   console.log('\n[4] Measured signature: dense music through the Steam path');
