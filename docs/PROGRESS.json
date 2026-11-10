@@ -23,12 +23,6 @@
       "report": "docs/reports/W2-02-render-stream.md"
     },
     {
-      "order": "W3-02/05/06 plan review",
-      "branch": "(main)",
-      "stage": "the three orders are being read by a builders'-model agent before any build",
-      "report": "docs/reports/W3-02-plan.md"
-    },
-    {
       "order": "W3-07-mixer-output",
       "branch": "claude/w3-07-mixer-output",
       "stage": "investigating (the stronger model; no app code)",
@@ -45,11 +39,16 @@
       "branch": "claude/w3-09-steam-voice",
       "stage": "investigating (the stronger model; public writing and Valve's public files; no app code)",
       "report": "docs/reports/W3-09-steam-voice.md"
+    },
+    {
+      "order": "W3-02a-voice-channel",
+      "branch": "claude/w3-02a-voice-channel",
+      "stage": "building (new files only)",
+      "report": "docs/reports/W3-02a-voice-channel.md"
     }
   ],
   "next": [
-    "From W3-03: (1) W3-02, rewritten from the engine's rule: the receiver's queue as the engine runs it, with the listener's frame rate and voice_buffer_ms as its inputs (a plan first: it changes how renders are computed; after W2-02 merges, since it is in audio.js); (2) the gain's four small corrections, with the accuracy suite before and after; (3) the CELT profiles' settings; (4) tests/REFERENCE_2026.md brought up to date: findings 10, 15 and 21 corrected, the new findings written in with where each was read.",
-    "The owner's priority (2026-11-10): when phrases start, on the modern preset. W3-01 investigates whether voice_retime should run the receiver's queue model; a build order follows if the evidence supports it. The long-render queue is held after the two orders now running (W2-01, W2-02): W2-03 to W2-06 start only when the owner says so.",
+    "The receiver, in the plan's order (docs/reports/W3-02-plan.md, revision 2, read by a builders'-model agent before any build): W3-02a (the channel and the log replay; in flight) then W3-02b (the sender model and the timeline stage), both new files only; after W2-02 merges, one at a time in audio.js: W3-05 (the gain as the engine's rule, accepted by the exact Set H check), W3-06 (the CELT settings as read; W3-08 finds why the app's CELT is not the game's), W3-02c (the render and the stream run the channel behind an option), W3-02f (the flat rule retired), W3-02g (a demo's own packets); W3-02d (page controls and the default) and W3-02e (lane marks, real-take wording) beside them. The orchestrator runs each order's private checks against the owner's logs and takes. tests/REFERENCE_2026.md is brought up to date from the plan's proposed text once W3-07, W3-08 and W3-09 report. The long-render queue (W2-03 to W2-06) is held.",
     "W2, the long renders (docs/reports/W1-03-long-renders-plan.md; the plan was reviewed by the orchestrator on 2026-11-09 and four orders amended). In order: W2-01 stream-meter (in flight; meter.js only); W2-02 render-stream (next; audio.js); then W2-03 long-render-page beside W2-04 stream-rooms-retime; then W2-05 long-views beside W2-06 video-from-file.",
     "With the takes reachable: a baseline run of tests/accuracy.mjs and tests/retiming.mjs on main (in progress on 2026-11-09), then the model questions it raises, each as an order for the stronger model (docs/PIPELINE.md, 'Which model does what'). The predictions dry run can be repeated too.",
     "After W2-03 has been live for a while: an order that makes process() a thin wrapper over the stream, so there is one render path, proved by the golden hashes W2-02 records.",
