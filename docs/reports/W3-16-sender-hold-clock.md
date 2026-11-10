@@ -285,13 +285,12 @@ loss 15%, jitter 300 ms`, `celt_44, gate on, loss 15%`, `speex, gate on, loss 15
 ## What the orchestrator runs privately
 
 The adapted copies are in the planner's scratch, `agents/w3-16-plan/sd/` (`run-new.mjs`, `tail-new.mjs`). The
-builder has not seen the takes. With `<checkout>` this branch's worktree (`/home/user/wt/w3-16-sender-hold-clock`)
-and `<takes>` the private repository:
+builder has not seen the takes. With `<checkout>` a checkout of this branch and `<takes>` the private repository:
 
 1. **Set D's demo.** Copy `run-new.mjs` and `tail-new.mjs` over `checks/sender-demo/run.mjs` and `tail.mjs` in the
    private repository (or make the order's two edits there: the hand clock returns `{ time: n * 0.015625, samples:
    750 * k }` with `uptime: 0`; the seeded runs pass `uptime`), then
-   `sh checks/sender-demo/reproduce.sh /home/user/wt/w3-16-sender-hold-clock <takes>`. Bars: hand clock 18 and 18
+   `sh checks/sender-demo/reproduce.sh <checkout> <takes>`. Bars: hand clock 18 and 18
    with the table row for row; the test signal 20, 19 and the same column; seeds 1 to 200 at the default at least
    185 (expected 194) and 200; the 440 ms pause split in at least 30 seeds (expected 42); `tail.mjs` 468 to 477 ms
    (expected 472.6). The module's interface is the order's: `createSender({ clock: { next }, uptime })`, `next()`
