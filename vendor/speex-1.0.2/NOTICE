@@ -1,0 +1,91 @@
+Notices for speex-1.0.2.wasm.mjs
+
+The module is compiled from Speex 1.0.2 (https://gitlab.xiph.org/xiph/speex.git, tag Speex-1.0.2, commit
+4a6fa8d6fd1283df196ebd9a67fb1514618406ba). That tree's COPYING (COPYING.speex here) has the licence terms but names
+no copyright holder; the holders are named in the source files. Their notices are quoted below as they stand in the
+files compiled (the libspeex_la_SOURCES of libspeex/Makefile.am and the headers they include). The musl functions are
+under COPYRIGHT.musl.
+
+1. Every file compiled except lpc.c, lsp.c and lsp.h (items 2 and 3) carries one of these lines:
+
+    Copyright (C) 2002 Jean-Marc Valin
+
+   and libspeex/cb_search.h:
+
+    Copyright (C) 2002 Jean-Marc Valin & David Rowe
+
+   Most files are under the terms of COPYING.speex. libspeex/gain_table.c, gain_table_lbr.c, high_lsp_tables.c and
+   lsp_tables_nb.c are under these terms instead (quoted from gain_table.c):
+
+       Redistribution and use in source and binary forms, with or without
+       modification, are permitted provided that the following conditions are
+       met:
+    
+       1. Redistributions of source code must retain the above copyright notice,
+       this list of conditions and the following disclaimer.
+    
+       2. Redistributions in binary form must reproduce the above copyright
+       notice, this list of conditions and the following disclaimer in the
+       documentation and/or other materials provided with the distribution.
+    
+       3. The name of the author may not be used to endorse or promote products
+       derived from this software without specific prior written permission.
+    
+       THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+       IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+       OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+       DISCLAIMED. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT,
+       INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+       (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+       SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+       HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+       STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+       ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+       POSSIBILITY OF SUCH DAMAGE.
+
+2. libspeex/lsp.c begins (the rest of its header is the terms of COPYING.speex):
+
+    /*---------------------------------------------------------------------------*\
+    Original copyright
+    	FILE........: AKSLSPD.C
+    	TYPE........: Turbo C
+    	COMPANY.....: Voicetronix
+    	AUTHOR......: David Rowe
+    	DATE CREATED: 24/2/93
+    
+    Modified by Jean-Marc Valin
+
+   and libspeex/lsp.h:
+
+    /*---------------------------------------------------------------------------*\
+    Original Copyright
+    	FILE........: AK2LSPD.H
+    	TYPE........: Turbo C header file
+    	COMPANY.....: Voicetronix
+    	AUTHOR......: James Whitehall
+    	DATE CREATED: 21/11/95
+    
+    Modified by Jean-Marc Valin
+
+3. libspeex/lpc.c begins as follows. Its terms permit use only if this notice is kept:
+
+    /*
+      Copyright 1992, 1993, 1994 by Jutta Degener and Carsten Bormann,
+      Technische Universitaet Berlin
+    
+      Any use of this software is permitted provided that this notice is not
+      removed and that neither the authors nor the Technische Universitaet Berlin
+      are deemed to have made any representations as to the suitability of this
+      software for any purpose nor are held responsible for any defects of
+      this software.  THERE IS ABSOLUTELY NO WARRANTY FOR THIS SOFTWARE.
+    
+      As a matter of courtesy, the authors request to be informed about uses
+      this software has found, about bugs in this software, and about any
+      improvements that may be of general interest.
+    
+      Berlin, 28.11.1994
+      Jutta Degener
+      Carsten Bormann
+    
+    
+       Code slightly modified by Jean-Marc Valin

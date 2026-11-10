@@ -71,8 +71,8 @@ export async function createCodec() {
     decodeFloats: decodeInto,
     decode(bytes) { return toInt16(decodeInto(bytes)); },
     reset() { if (codec) x.sx_reset(codec); },
-    encoderCtl(request) { return x.sx_encoder_get(codec, request); },
-    decoderCtl(request) { return x.sx_decoder_get(codec, request); },
+    encoderCtl(request) { if (!codec) throw new Error('This Speex codec has been freed'); return x.sx_encoder_get(codec, request); },
+    decoderCtl(request) { if (!codec) throw new Error('This Speex codec has been freed'); return x.sx_decoder_get(codec, request); },
     free() {
       if (!codec) return;
       x.sx_destroy(codec);

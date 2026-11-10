@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { createCodec, createFramer, toInt16, frameSize, packetBytes, version } from '../vendor/speex-1.0.2/index.mjs';
 import { createCodec as createCodec121 } from '../vendor/speex/index.mjs';
-import { testSignals, wasmStream, digest } from './speex102/native.mjs';
+import { testSignals, testRuns, wasmStream, digest, RESET_AT } from './speex102/native.mjs';
 
 let passed = 0;
 function check(name, ok, detail = '') {
@@ -69,8 +69,9 @@ console.log('[Speex 1.0.2] The WebAssembly build agrees with a native build (tes
 {
   // Recorded once from `node tests/speex102/native.mjs`: the pinned sources built
   // natively with gcc 13.3 and glibc on x86-64 (SSE2, no contraction, no
-  // fast-math); a new codec per signal. SHA-256 of the packets, of the decoded
-  // floats and of the 16-bit output the module makes of them.
+  // fast-math); a new codec per signal, and the speech-like signal again with
+  // reset() before frame 138. SHA-256 of the packets, of the decoded floats and
+  // of the 16-bit output the module makes of them.
   const NATIVE = {
     speech: [276, '6892b0435185a87350f4e25113d5555c105db884c74f76e530f6b0dc5b093daf',
       'e1a5ce6e673baa0c163e044ecb6539daafb30d1227e6fe2622db56783647de5f', 'dd3443590a45aa5c7ace86858f9e0a0183567b264a5904735a0dfd90e2159e21'],
@@ -79,23 +80,31 @@ console.log('[Speex 1.0.2] The WebAssembly build agrees with a native build (tes
     silence: [40, 'd584f088de8f8f1e50cb2f09cdd9b38ea531deaac3ebc1b535e68aea56aed0e1',
       'c65206769723a13afe80c0d925531639ceef9c2eb97eee3b1b542739ec40597f', '59ec91dcb7dc65b5f928091cb0e25c26729a0a4453ebe7d8244fc1ceae7d9712'],
     noise: [100, 'c06f01fbebf29af8d7535a0d2d42c59c49eccd719f08c44b592057c6f301b1a7',
-      '08d9358482294a39c536ede86eec919f8e4c42f48ee2f3adf4e5fec7acccc7f2', 'b3e57a538ac7ab3344111b6c4ae845d3124c24786d1090e676bf0266c4c18903']
+      '08d9358482294a39c536ede86eec919f8e4c42f48ee2f3adf4e5fec7acccc7f2', 'b3e57a538ac7ab3344111b6c4ae845d3124c24786d1090e676bf0266c4c18903'],
+    speechReset: [276, 'c105432d886f024fdd2d7ecbab934f5f5eabc89ff44f91fe9ba8a656b810de66',
+      '74f0b71c19f806d24846999ac794bb3a33f540b2774b9552d114e4f6124f4266', '57172332a339ebdb3f2bf5d70342aa6f1472ce109866f14c0f13aa180f3c1594']
   };
-  for (const [name, signal] of Object.entries(signals)) {
+  const label = (name) => (name === 'speechReset' ? `speech with reset() before frame ${RESET_AT}` : name);
+  for (const { name, signal, resetAt } of testRuns()) {
     const [count, packets, floats, samples] = NATIVE[name];
-    const wasm = digest(await wasmStream(signal));
-    check(`${name}: packets, decoded floats and 16-bit output match the native build bit for bit`,
+    const wasm = digest(await wasmStream(signal, resetAt));
+    check(`${label(name)}: packets, decoded floats and 16-bit output match the native build bit for bit`,
       wasm.frames === count && wasm.packets === packets && wasm.floats === floats && wasm.samples === samples,
       `${wasm.frames} frames`);
   }
   // wasmStream converts the floats itself; the codec's own decode() must give
-  // the 16-bit output of the native build, which converts with a C cast.
-  for (const [name, signal] of Object.entries(signals)) {
+  // the 16-bit output of the native build, which converts with a C cast. The
+  // reset case pins what request 26 leaves of the decoder: a new decoder in
+  // its place, or no decoder reset, gives other sound.
+  for (const { name, signal, resetAt } of testRuns()) {
     const codec = await createCodec(), hash = crypto.createHash('sha256');
-    for (const frame of frames(signal)) hash.update(new Uint8Array(codec.decode(codec.encode(frame)).buffer));
+    frames(signal).forEach((frame, f) => {
+      if (f === resetAt) codec.reset();
+      hash.update(new Uint8Array(codec.decode(codec.encode(frame)).buffer));
+    });
     codec.free();
     const got = hash.digest('hex');
-    check(`${name}: decode() gives the native build's 16-bit output`, got === NATIVE[name][3], got.slice(0, 16));
+    check(`${label(name)}: decode() gives the native build's 16-bit output`, got === NATIVE[name][3], got.slice(0, 16));
   }
 }
 
@@ -268,6 +277,40 @@ console.log('\n[Speex 1.0.2] Reset and delay');
   const { lag, r } = peakLag(x, floats, 0, 300, 2000);
   check('the encoder and decoder together delay the sound by 80 samples (7.26 ms at 11025 Hz)', lag === 80 && r > 0.9,
     `peak at ${lag}, r ${r.toFixed(3)}`);
+}
+
+console.log('\n[Speex 1.0.2] Codecs side by side');
+{
+  // The module's memory grows as codecs are made (about a page each), which
+  // detaches every view of it made before. A codec made first, used while many
+  // others are made, must give what it gives alone.
+  const parts = frames(signals.speech), alone = await createCodec(), solo = [];
+  for (const frame of parts) { const p = alone.encode(frame); solo.push([p, alone.decode(p)]); }
+  alone.free();
+  const first = await createCodec(), others = [];
+  let wrong = -1, failure = '';
+  for (let f = 0; f < parts.length && wrong < 0; f++) {
+    try {
+      if (f % 10 === 0) for (let k = 0; k < 4; k++) others.push(await createCodec());
+      const p = first.encode(parts[f]), d = first.decode(p);
+      if (!sameBytes(p, solo[f][0]) || !sameBytes(d, solo[f][1])) wrong = f;
+    } catch (error) {
+      wrong = f;
+      failure = `: ${error.message}`;
+    }
+  }
+  // And two codecs interleaved frame by frame, each on its own signal.
+  const a = await createCodec(), b = await createCodec();
+  let interleaved = true;
+  parts.forEach((frame, f) => {
+    const pa = a.encode(frame), pb = b.encode(parts[parts.length - 1 - f]);
+    const da = a.decode(pa);
+    b.decode(pb);
+    if (!sameBytes(pa, solo[f][0]) || !sameBytes(da, solo[f][1])) interleaved = false;
+  });
+  for (const c of [first, a, b, ...others]) c.free();
+  check('a codec gives what it gives alone while other codecs are made and used beside it', wrong < 0 && interleaved,
+    `${others.length} codecs made during the run${wrong >= 0 ? `; wrong at frame ${wrong}${failure}` : ''}${interleaved ? '' : '; interleaved differs'}`);
 }
 
 console.log(`\n${passed} Speex 1.0.2 checks passed`);

@@ -56,12 +56,14 @@ export function testSignals() {
 }
 
 // A signal through the WebAssembly module, framed as native.c writes it: per
-// frame the packet, the decoded floats and the 16-bit output.
-export async function wasmStream(signal) {
+// frame the packet, the decoded floats and the 16-bit output. With `resetAt`,
+// the codec is reset before that frame, as native.c does with its argument.
+export async function wasmStream(signal, resetAt = -1) {
   const codec = await createCodec();
   const chunks = [];
   try {
     for (let f = 0; (f + 1) * 160 <= signal.length; f++) {
+      if (f === resetAt) codec.reset();
       const packet = codec.encode(signal.subarray(f * 160, (f + 1) * 160));
       const floats = codec.decodeFloats(packet);
       const samples = Int16Array.from(floats, v => (Math.trunc(v) << 16) >> 16);
@@ -71,6 +73,15 @@ export async function wasmStream(signal) {
     codec.free();
   }
   return Buffer.concat(chunks);
+}
+// The runs compared: each test signal through a new codec, and the speech-like
+// signal again with a reset before its frame 138 (the game resets with request
+// 26, which in 1.0.2 leaves part of the decoder's state as it was).
+export const RESET_AT = 138;
+export function testRuns() {
+  const signals = testSignals();
+  return [...Object.entries(signals).map(([name, signal]) => ({ name, signal, resetAt: -1 })),
+    { name: 'speechReset', signal: signals.speech, resetAt: RESET_AT }];
 }
 export const FRAME_BYTES = 20 + 640 + 320;
 
@@ -117,16 +128,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     run('cc', ['-O2', '-ffp-contract=off', '-fno-fast-math', ...x86, '-w', `-I${path.join(src, 'libspeex')}`, ...DEFINES,
       ...sourceFiles(src), path.join(here, 'api.c'), path.join(here, 'native.c'), '-lm', '-o', binary]);
     const compiler = run('cc', ['--version']).split('\n')[0];
-    const signals = testSignals();
-    const frames = Object.values(signals).reduce((n, s) => n + s.length / 160, 0);
+    const runs = testRuns();
+    const frames = runs.reduce((n, r) => n + r.signal.length / 160, 0);
     console.log(`Native: ${compiler}, ${os.arch()}, -O2 -ffp-contract=off -fno-fast-math ${x86.join(' ')}. ` +
-      `${frames} frames of test signal.`);
+      `${frames} frames of test signal (${runs.map(r => r.name).join(', ')}).`);
     let same = true;
-    for (const [name, signal] of Object.entries(signals)) {
-      const result = spawnSync(binary, [], { input: Buffer.from(signal.buffer), maxBuffer: 1 << 26 });
+    for (const { name, signal, resetAt } of runs) {
+      const result = spawnSync(binary, resetAt >= 0 ? [String(resetAt)] : [], { input: Buffer.from(signal.buffer), maxBuffer: 1 << 26 });
       if (result.status !== 0) throw new Error(`The native build failed on ${name} (status ${result.status})`);
       const stderr = result.stderr.toString().trim();
-      const native = result.stdout, wasm = await wasmStream(signal);
+      const native = result.stdout, wasm = await wasmStream(signal, resetAt);
       const n = digest(native), w = digest(wasm), match = native.equals(wasm);
       same &&= match;
       console.log(`${name}: ${n.frames} frames; packets ${n.packets}, floats ${n.floats}, 16-bit ${n.samples}` +

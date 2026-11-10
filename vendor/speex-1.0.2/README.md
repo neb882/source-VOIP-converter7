@@ -23,7 +23,9 @@ native build of the same source and against that reading, point by point (`tests
     integer request, for the tests.
   - `createFramer(codec)` is the module's wrapper: `compress(samples, final)` keeps what does not fill a frame, writes
     whole frames back to back and pads with zeros on the final call; `decompress(bytes)` decodes every whole 20 bytes.
-- `COPYING.speex`: Speex licence (BSD), from the 1.0.2 tree. `COPYRIGHT.musl`: musl licence (MIT).
+- `COPYING.speex`: Speex licence (BSD), from the 1.0.2 tree. It names no copyright holder, so `NOTICE` quotes the
+  notices of the compiled source files: Jean-Marc Valin's, David Rowe's, Voicetronix's origin of the LSP code, and the
+  Jutta Degener and Carsten Bormann notice in `lpc.c`, which must be kept. `COPYRIGHT.musl`: musl licence (MIT).
 
 **The set-up**, in the module's order: an encoder and a decoder from the narrowband mode; request 4 (quality) with 4
 on the encoder; request 4 with 4 on the decoder, which 1.0.2's decoder does not know (it returns -1 and prints a
@@ -53,5 +55,5 @@ Built with Ubuntu clang 18.1.3, `speex-1.0.2.wasm.mjs` has SHA-256
 `e585e8d9e7d429468f5874f7526ecba19fc946fdf1b2289343f5365477047aca` (the WebAssembly inside it:
 `00c191f2dab9d02722587b4a52b3f6570458b351ca28437271961ffbda7d396e`, 133 735 bytes). `pnpm test:vendor` checks it. On
 the four test signals of `tests/speex102/native.mjs` (speech-like, a full-scale square wave, silence and white noise at
--6 dBFS, 516 frames), its packets, decoded floats and 16-bit output are bit-identical to a native gcc 13.3 build of
+-6 dBFS, 516 frames), and on the speech-like signal again with `reset()` before frame 138, its packets, decoded floats and 16-bit output are bit-identical to a native gcc 13.3 build of
 the same sources on x86-64 (SSE2, no contraction, no fast-math).
