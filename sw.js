@@ -13,7 +13,7 @@
  */
 
 const CACHE_PREFIX = 'tf2ve-';
-const CACHE = `${CACHE_PREFIX}v21`;
+const CACHE = `${CACHE_PREFIX}v23`;
 const ASSETS = [
   './',
   './index.html',
@@ -28,8 +28,8 @@ const ASSETS = [
   './vendor/libopus-1.1/libopus-1.1.5.wasm.mjs',
   './vendor/celt-0.11/index.mjs',
   './vendor/celt-0.11/celt-0.11.wasm.mjs',
-  './vendor/speex/index.mjs',
-  './vendor/speex/speex-1.2.1.wasm.mjs',
+  './vendor/speex-1.0.2/index.mjs',
+  './vendor/speex-1.0.2/speex-1.0.2.wasm.mjs',
   './vendor/lame/index.mjs',
   './vendor/lame/lame-3.100.wasm.mjs',
   './flac.js',

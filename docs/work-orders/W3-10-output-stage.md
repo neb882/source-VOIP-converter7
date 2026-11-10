@@ -1,7 +1,10 @@
 # W3-10: the output stage as the game's listener gets it
 
-**Depends on:** W3-07's report (`docs/reports/W3-07-mixer-output.md`), and the receiver's orders W3-02c, W3-05 and
-W3-06 being merged (each re-records golden hashes; this one re-records all of them once more, so it goes last).
+**Depends on:** W3-07's report (`docs/reports/W3-07-mixer-output.md`), and every other order that moves a
+golden hash being merged: W3-05 (merged), W3-06, W3-12b, W3-11a and W3-11b, W3-02c, W3-02f and W3-02g (each
+re-records or adds hashes; this one re-records all of them once more, so it goes last, and runs beside
+nothing: it touches `app/`, `batch.js`, `sw.js` and the tests). *(Brought up to date 2026-11-10,
+`docs/reports/W3-plan-maintenance.md`.)*
 **Kind:** code. Builder, then reviewer.
 
 ## Why
@@ -15,7 +18,11 @@ The fitted filter agrees with it within 0.1 dB up to 13 kHz, is 1.1 dB too brigh
 
 ## What to build
 
-1. **The mix stage, as read.** After the receiver's gain: the voice enters the mix at 255/256, truncated toward
+1. **The mix stage, as read.** What reaches it: since W3-05 the gain's output is whole 16-bit values (the
+   engine's rule, clamped), on the source's timeline and from the voice channel alike, and for `steam` what
+   the gain was given was 16-bit too (W3-11a). The `celt_44` profile's voice is at 22050 Hz since W3-06
+   (`modeRate` 44100 is only the codec's mode), so nothing here may take a profile's rate from its name. After
+   the receiver's gain: the voice enters the mix at 255/256, truncated toward
    zero (integer arithmetic on 16-bit values); clip at ±32767; multiply by `volume`; round to 16 bits. Replace the
    current order of operations only where it differs, and say in the report where it did.
 2. **The device stage.** `engine.outputFir` goes. In its place `engine.deviceRate`, default 48000: the 44100 Hz

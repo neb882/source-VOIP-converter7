@@ -75,13 +75,13 @@ The quick presets reset every control. The live chain strip under the controls s
 | --- | --- | --- | --- |
 | Modern / `steam` | libopus 1.1.5: Opus 24 kHz, 32 kbps VBR with DTX, VOIP, voice hint (SILK/CELT hybrid) | auto-gain at 44.1 kHz | **Measured** against 2026 TF2 recordings and Steam's own packets |
 | `steam_48` | libopus 1.1.5: Opus 48 kHz, 64 kbps VBR with DTX | auto-gain at 44.1 kHz | Experimental |
-| `celt_22` (vaudio_celt) | **CELT 0.11**, 22050 Hz, 512-sample frames (23.2 ms), 64-byte packets (22.05 kbps), complexity 10 | auto-gain at 22.05 kHz, linear-interpolation mixer | Codec real; receiver modeled |
-| `celt_44` (vaudio_celt_high) | CELT 0.11, 44100 Hz, 256-sample frames, 120-byte packets (one public source; unconfirmed) | auto-gain at 44.1 kHz | Modeled |
-| `speex` (vaudio_speex) | **Speex 1.2.1** narrowband, 8 kHz, 20 ms frames; quality 4: 8 kbps constant bitrate in 20-byte packets, no VAD or DTX, complexity 2, decoder enhancement on (assumed settings) | auto-gain at 11.025 kHz, linear-interpolation mixer | Codec real; settings unconfirmed |
+| `celt_22` (vaudio_celt) | **CELT 0.11** with its pitch filter, 22050 Hz, 512-sample frames (23.2 ms), 64-byte packets (22.05 kbps), complexity 5: read from the game's module, packet size and rate confirmed by a take | auto-gain at 22.05 kHz, linear-interpolation mixer | Codec gives the game's decoded samples but for 1 of 292,352, one step off; receiver modeled |
+| `celt_44` (vaudio_celt_high) | **CELT 0.11** with its pitch filter, the 44100 Hz mode with 1024-sample frames and 128-byte packets, run on 22050 Hz sound: 46.4 ms frames, 22.05 kbps, nothing above about 10 kHz. Complexity 5. Read from the game's module, packet size and rate confirmed by a take | auto-gain at 22.05 kHz, linear-interpolation mixer | Codec gives the game's decoded samples but for 75 of 292,864, each one step off; receiver modeled |
+| `speex` (vaudio_speex) | **Speex 1.0.2** narrowband, as the game's module runs it: quality 4 (the engine's 3), 20 bytes a frame at constant bit rate, enhancement on, complexity 2. The module does not resample, so the 8 kHz codec is fed 11025 Hz sound: 160-sample frames of 14.51 ms, 11.025 kbit/s, a band to 5.5 kHz. Decoded samples wrap past full scale. A lost frame plays as zeros. `snd_bits` does not change it | auto-gain at 11.025 kHz, linear-interpolation mixer | Codec and settings read from the module; not recorded |
 
-Every profile runs a real codec; nothing is a hand-made approximation. The Steam profiles use **libopus 1.1.5**, built to WebAssembly by `tests/libopus11/build.mjs`. The CELT profiles use **CELT 0.11** in Source's custom mode, the tree the public CS:GO voice decoders use, built by `tests/celt011/build.mjs`. `speex` uses **Speex 1.2.1**, the Xiph release, built the same way by `tests/speex/build.mjs`.
+Every profile runs a real codec; nothing is a hand-made approximation. The Steam profiles use **libopus 1.1.5**, built to WebAssembly by `tests/libopus11/build.mjs`. The CELT profiles use **CELT 0.11** in Source's custom mode, built by `tests/celt011/build.mjs` from the source the game's own module was built from, and built the same way: with the pitch pre-filter and post-filter compiled in, reset after creation, 16-bit samples in and out. `speex` uses **Speex 1.0.2**, the library inside the game's `vaudio_speex` module, built the same way by `tests/speex102/build.mjs` and set up and framed as the module does.
 
-The Speex settings are assumptions. Source's Speex quality is not public, and current TF2 cannot load the codec, so it cannot be recorded. Quality 4, the 8 kbps mode, keeps the bitrate the profile had when it ran Opus SILK as a stand-in, and it is the middle of GoldSrc's five voice qualities. The rest are the library's defaults. `snd_bits` picks the quality whose bitrate is nearest the scaled one.
+The Speex profile is read from a `vaudio_speex` module the owner supplied (from another Source game; TF2 ships none). It cannot be recorded: a current TF2 asked for `vaudio_speex` runs `vaudio_celt` instead. The module's reading cannot tell Speex 1.0.1 from 1.0.2, and it does not matter for the sound: native builds of 1.0 and 1.0.2 give identical packets and decoded frames at these settings. Loud speech wraps often, which is heard as crackle on peaks. What the game plays for a lost Speex frame was not read; the profile plays zeros. [tests/LEGACY_CODECS.md](tests/LEGACY_CODECS.md#vaudio_speex) has the details.
 
 The status line and console report the modes the encoder actually chose (SILK / hybrid / CELT, from each packet's TOC byte). Speex frames have their own code in the frame log, so the codec lane and the mode counts show them as Speex. [tests/LEGACY_CODECS.md](tests/LEGACY_CODECS.md) collects what public sources say about the legacy codecs and which takes would settle the rest.
 
@@ -178,7 +178,7 @@ A fixed RES (256–16384 samples at the file's rate) uses one window length ever
 Only the visible range is analysed, at the display's full pixel resolution. The range button sets how many dB the colours (or the dB waveform) span. TALL, or dragging the bottom-right corner, makes the view taller. Hovering reads out time, level, and in SPEC the frequency with its nearest note, the level and the analysis window.
 
 **Lanes** under WAVE and SPEC:
-- **Codec lane:** what the voice path did with each 20 ms frame, in playback time. It shows SILK, Hybrid or CELT coding, Speex coding in a colour of its own, DTX (comfort noise), not sent (gate closed), lost (concealed) and late (played as silence).
+- **Codec lane:** what the voice path did with each codec frame (20 ms for Opus, 23.2 or 46.4 ms for CELT, 14.5 ms for Speex), in playback time. It shows SILK, Hybrid or CELT coding, Speex coding in a colour of its own, DTX (comfort noise), not sent (gate closed), lost (concealed, or zeros under Speex) and late (played as silence).
   - Zoomed out, a pixel shows the most common frame type, with a red or orange strip on top for the share lost or late.
   - Hovering gives the frame's packet size and bitrate.
   - The legend under the view counts each type.
@@ -268,15 +268,14 @@ pnpm test:all
 
 - **`tests/verify.js`:** resampler passband/stopband/alignment, the profile FIR, and the auto-gain law. Also the live chain: each streaming stage (resamplers, FIR, auto-gain, loss model) equals its offline counterpart sample for sample, and the whole chain reproduces a render. The law checks cover the measured sine overdrive at `voice_avggain` 0.5 and 0.25, the cap, the int16 clamp, silence hold, step timing and the `voice_scale` sawtooth and truncation. Also the voice gate (threshold, pre-roll, hold, talk spurts, DTX comfort noise on steady tones, send/skip accounting), stereo capture, real codec modes per profile, all room presets 0–29, the measured loss bursts and late-frame jitter with PLC, option robustness and WAV structure.
 - **`tests/opus.verify.mjs`:** frame timing and boundary pulses, exact lengths, bitrates and packet sizes, TOC mode reporting, native concealment, silence, mute, determinism, the sender gate inside the round trip (pre-roll, hold, talk spurts), opt-in DTX, the per-frame log behind the codec lane, leveling and cap behavior, output-volume linearity, pre-encoder filtering, and codec-failure reporting. Also the libopus 1.1.5 build: its packets are bit-identical to a native build of the release, and its DTX differs from 1.6.1's as Steam's does.
-- **`tests/speex.verify.mjs`:** the `speex` profile's Speex 1.2.1.
-  - the settings: 8 kHz, 160-sample frames, 80 samples of delay, quality 4, complexity 2, enhancement on
-  - 20-byte packets a frame by default, and the nearest quality for other `snd_bits`
-  - the decoded voice correlates with its source; white noise comes out band-limited under 4 kHz
-  - a render keeps the source timeline: the codec's delay is trimmed exactly, and pulses at 2 kHz come out within one sample at 48 kHz
-  - a lost frame is Speex's own concealment, logged as lost, and a late one plays silence
-  - determinism, and a fresh codec for each talk spurt when the gate is on
-  - the live chain runs Speex and reproduces the render
-  - packets and decoded output, concealment included, are bit-identical to a native build of the same sources (`tests/speex/native.mjs`)
+- **`tests/speex102.verify.mjs`:** the game's Speex module and the `speex` profile that runs it.
+  - the module's packets, decoded floats and 16-bit output are bit-identical to a native build of the same source (`tests/speex102/native.mjs`), with and without a reset mid-way
+  - its settings, point by point as read from the game's module: 20-byte packets of sub-mode 3, complexity 2, enhancement on, 160-sample frames; not the packets of Speex 1.2.1
+  - decoded samples wrap past full scale; the frame wrapper; the reset; the 80-sample delay
+  - the profile: 11025 Hz sound, 14.51 ms frames, 20 bytes, 11025 bit/s, whatever `snd_bits` says; the float sound rounded to 16 bits at the codec
+  - white noise keeps its band to 5.5 kHz; pulses 200 a second keep their period; the delay is trimmed to within a sample
+  - a loud source wraps; a new talk spurt resets the codec, not a new one; a lost frame plays as zeros and the decoder never sees it
+  - the live chain runs the same codec and reproduces the render
 - **`tests/reference.verify.mjs`:** alignment, clock drift, polarity, fractional delay, clip-signature and level-tracking metrics. Also the in-page real-take check. A take made from a render (delayed, clock-skewed, quieter) is lined up with its source to within 10 µs and 0.2 ppm, and compares as identical. Short excerpts are found, and unrelated audio is rejected.
 - **`tests/demo.verify.mjs`:** TF2 demos (`demo.js`) on a synthetic SourceTV demo written bit by bit. It has two Steam speakers, a lost frame, a DTX frame, end-of-transmission markers, messages that leave the stream off byte alignment, a payload that fails its CRC, and a `vaudio_celt` demo. The checks:
   - every packet comes out byte for byte, with its sequence number
@@ -324,17 +323,17 @@ pnpm test:all
 
 These tests establish implementation behavior; the accuracy claims rest on the paired comparison above. CI runs Node 22 and Chromium.
 
-`pnpm vendor:opus` copies the pinned 1.6.1 runtime and notices verbatim. `pnpm build:opus11` rebuilds the libopus 1.1.5 module from the tagged sources, `pnpm build:celt` the CELT 0.11 module from its pinned commit, and `node tests/speex/build.mjs` the Speex 1.2.1 module from its release tag (`node tests/speex/native.mjs` compares it with a native build of the same sources). `pnpm build:lame` rebuilds the LAME 3.100 module from the release tarball, checked against its SHA-256. They need clang with the wasm32 target and wasm-ld. `pnpm test:vendor` checks the 1.6.1 files against the installed dependency and the libopus 1.1.5, CELT 0.11 and Speex 1.2.1 modules against their recorded hashes. The runtimes and licenses are required distribution files.
+`pnpm vendor:opus` copies the pinned 1.6.1 runtime and notices verbatim. `pnpm build:opus11` rebuilds the libopus 1.1.5 module from the tagged sources, `pnpm build:celt` the CELT 0.11 module from its pinned commit, and `node tests/speex102/build.mjs` the Speex 1.0.2 module from its release tag (`node tests/speex102/native.mjs` compares it with a native build of the same sources). `pnpm build:lame` rebuilds the LAME 3.100 module from the release tarball, checked against its SHA-256. They need clang with the wasm32 target and wasm-ld. `pnpm test:vendor` checks the 1.6.1 files against the installed dependency and the libopus 1.1.5, CELT 0.11 and Speex 1.0.2 modules against their recorded hashes. The runtimes and licenses are required distribution files.
 
 ## Files and licensing
 
 | File | Role |
 | --- | --- |
 | `audio.js` | DSP and orchestration |
-| `opus-codec.mjs` | packets, modes and delay; picks the libopus runtime; the CELT 0.11 and Speex 1.2.1 round trips |
+| `opus-codec.mjs` | packets, modes and delay; picks the libopus runtime; the CELT 0.11 and Speex 1.0.2 round trips |
 | `vendor/libopus-1.1/` | libopus 1.1.5 WebAssembly for the Steam profile |
 | `vendor/celt-0.11/` | CELT 0.11 WebAssembly for the vaudio_celt profiles |
-| `vendor/speex/` | Speex 1.2.1 WebAssembly for the vaudio_speex profile |
+| `vendor/speex-1.0.2/` | Speex 1.0.2 WebAssembly for the vaudio_speex profile |
 | `vendor/libopus/` | libopus 1.6.1 (libopus-wasm) for a video's audio track |
 | `vendor/lame/` | LAME 3.100 WebAssembly, the MP3 encoder |
 | `vendor/swresample/` | libswresample's 24000 to 44100 Hz step, ported to JavaScript: the resampler of Steam's voice decoder (not loaded yet) |
@@ -353,4 +352,4 @@ These tests establish implementation behavior; the accuracy claims rest on the p
 
 Tests and local tooling are under `tests/`.
 
-Application code: MIT. Codec notices: `vendor/libopus/LICENSE`, `COPYING.opus` and `THIRD_PARTY_NOTICES.md`, `vendor/libopus-1.1/COPYING.opus` (libopus, BSD), `vendor/celt-0.11/COPYING.celt` (CELT, BSD), `vendor/speex/COPYING.speex` (Speex, BSD) and `COPYRIGHT.musl` (musl libm, MIT). The MP3 encoder is LAME 3.100, unmodified, under the GNU LGPL version 2 (`vendor/lame/COPYING.lame`). It is a separate module that loads only when an MP3 is saved and can be rebuilt or replaced with `tests/lame/build.mjs`; see `vendor/lame/README.md`. The resampler of Steam's voice decoder, `vendor/swresample/swresample.js`, is a modified part of FFmpeg: libswresample's 24000 to 44100 Hz path, translated to JavaScript from FFmpeg 8.1.2, under the GNU LGPL version 2.1 or later (`vendor/swresample/COPYING.LGPLv2.1`). It is one replaceable file with FFmpeg's notices kept, and it is its own source; see `vendor/swresample/README.md`. `tests/swresample/bank.mjs`, which computes its filter bank, is a translation of the same code and under the same licence. TF2, Source and Steam are Valve trademarks. This independent tool is not affiliated with Valve.
+Application code: MIT. Codec notices: `vendor/libopus/LICENSE`, `COPYING.opus` and `THIRD_PARTY_NOTICES.md`, `vendor/libopus-1.1/COPYING.opus` (libopus, BSD), `vendor/celt-0.11/COPYING.celt` (CELT, BSD), `vendor/speex-1.0.2/COPYING.speex` and `NOTICE` (Speex, BSD) and `COPYRIGHT.musl` (musl libm, MIT). The MP3 encoder is LAME 3.100, unmodified, under the GNU LGPL version 2 (`vendor/lame/COPYING.lame`). It is a separate module that loads only when an MP3 is saved and can be rebuilt or replaced with `tests/lame/build.mjs`; see `vendor/lame/README.md`. The resampler of Steam's voice decoder, `vendor/swresample/swresample.js`, is a modified part of FFmpeg: libswresample's 24000 to 44100 Hz path, translated to JavaScript from FFmpeg 8.1.2, under the GNU LGPL version 2.1 or later (`vendor/swresample/COPYING.LGPLv2.1`). It is one replaceable file with FFmpeg's notices kept, and it is its own source; see `vendor/swresample/README.md`. `tests/swresample/bank.mjs`, which computes its filter bank, is a translation of the same code and under the same licence. TF2, Source and Steam are Valve trademarks. This independent tool is not affiliated with Valve.

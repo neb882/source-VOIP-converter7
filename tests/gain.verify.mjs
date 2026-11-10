@@ -384,10 +384,14 @@ console.log('\n[4] The gate\'s silences: process(), the Steam profile');
 console.log('\n[5] The live chain: frames not sent hold the gain');
 {
   // Push-to-talk with the key up sends nothing, so the gain must not run on
-  // those frames. celt_44 with the codec bypassed: the codec and voice
-  // rates are the device's (44.1 kHz) and frames are 256 samples (two
-  // blocks), so the gap's zeros meet the gain on block edges with no
-  // resampler ringing. At voice_scale 0.5 a steady tone's gain saws from
+  // those frames. celt_44 with the codec bypassed: the codec and voice rate
+  // is 22.05 kHz and a frame is 1024 samples (eight gain blocks, 2048
+  // samples of the device's 44.1 kHz), so the gap of 40 calls of 256 samples
+  // is five whole frames and its zeros meet the gain on block edges. (Before
+  // W3-06 the profile ran at the device's rate with 256-sample frames and no
+  // resampler; the input resampler and the linear mixer now sit around the
+  // gain, and the first block after the gap is still flat within 2%.) At
+  // voice_scale 0.5 a steady tone's gain saws from
   // s^2 x T up to s x T in each block. Held, the first block after the gap
   // is flat at where the last ramp ended (s x T); run as decoded zeros, the
   // gap would leave it ramping from s^2 x cap toward s x cap.
@@ -414,7 +418,7 @@ console.log('\n[5] The live chain: frames not sent hold the gain');
   chain.free();
 
   // The flags last as long as one call needs: 20 ms blocks and 3 s blocks
-  // (a call that codes 150 Steam frames or 517 celt_44 frames before the
+  // (a call that codes 150 Steam frames or 65 celt_44 frames before the
   // gain sees any of them) give the same samples. A noise floor with four
   // tone bursts, so the gate opens and closes.
   const live = async (codecOpts, block, src) => {

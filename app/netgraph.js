@@ -27,7 +27,11 @@ function updateNetGraph() {
       // Averages over the render; frames held back by the voice gate send nothing.
       const seconds = info.frames * info.frameMs / 1000;
       const sent = info.frames - (info.gatedFrames || 0);
-      const pps = (sent / seconds / (info.framesPerPacket || 1)).toFixed(0);
+      // vaudio_speex: the engine sends one packet per 15 ms tick, holding the
+      // frames that tick completed (two in about one packet of thirty), so its
+      // packet rate is at most 66.7 a second while its frames run at 68.9.
+      const frameRate = sent / seconds / (info.framesPerPacket || 1);
+      const pps = (info.backend === 'speex' ? Math.min(frameRate, 1000 / 15) : frameRate).toFixed(0);
       const kps = (info.encodedBytes / seconds / 1024).toFixed(2);
       els.ngIn.textContent = `${pps} ${kps}`;
       els.ngOut.textContent = `${pps} ${kps}`;

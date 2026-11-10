@@ -93,6 +93,170 @@ check('Encoder mode per packet is reported from the TOC byte',
   const app = await A.process(buffer(x, rate), { ...base, codec: 'celt_22' });
   check('The celt_22 profile renders through CELT 0.11', app.realOpus && app.codecInfo.backend === 'celt' && app.codecInfo.frames > 0);
 }
+// vaudio_celt_high: the 44100 Hz mode (1024-sample frames, 128-byte packets)
+// fed 22050 Hz sound, as the engine runs it (W3-03). options.modeRate is the
+// mode's rate; everything else stays at the sound's rate.
+{
+  const r22 = 22050, n = r22 * 2;
+  const sine = (f) => Float32Array.from({ length: n }, (_, i) => .25 * Math.sin(2 * Math.PI * f * i / r22));
+  const high = { frameSize: 1024, packetBytes: 128, complexity: 5, modeRate: 44100 };
+  const { samples, info } = await opus.celtRoundTrip(sine(1000), r22, high);
+  check(`vaudio_celt_high: 128-byte packets of ${info.frameMs.toFixed(2)} ms at a reported ${info.bitrate} bps, the ${info.modeRate} Hz mode`,
+    info.packetBytes === 128 && info.encodedBytes === info.frames * 128 && info.frameBytes.every(b => b === 128)
+    && Math.abs(info.frameMs - 46.44) < .01 && info.bitrate === 22050 && info.modeRate === 44100 && info.sampleRate === r22
+    && info.frameSamples === 1024 && samples.length === n);
+  // Level out against level in over the middle second: the mode's 20 kHz
+  // band edge falls at 10 kHz of real sound. 9 kHz is measured on noise (the
+  // band 8.8-9.2 kHz), which the pitch filter leaves alone: on a steady 9 kHz
+  // sine the filter, at complexity 5 as in the game, moves the level by
+  // +3.4 dB (+0.2 dB at complexity 4, where it is off).
+  const middle = (v) => v.subarray(r22 / 2, r22 / 2 + r22);
+  const levelDb = (x, out) => 10 * Math.log10(energy(middle(out)) / energy(middle(x)));
+  let seed = 7;
+  const white = Float32Array.from({ length: n }, () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32 - .5) * .5);
+  const band = (v, lo, hi) => { let y = v; for (let k = 0; k < 3; k++) y = A.applyBiquad(A.applyBiquad(y, A.biquadCoefs('lowpass', r22, hi, .707)), A.biquadCoefs('highpass', r22, lo, .707)); return y; };
+  const noisy = (await opus.celtRoundTrip(white, r22, high)).samples;
+  const at9 = levelDb(band(white, 8800, 9200), band(noisy, 8800, 9200));
+  const at105 = levelDb(sine(10500), (await opus.celtRoundTrip(sine(10500), r22, high)).samples);
+  check(`vaudio_celt_high passes 9 kHz (${at9.toFixed(2)} dB on noise) and leaves nothing at 10.5 kHz (${at105.toFixed(1)} dB)`,
+    Math.abs(at9) < 1 && at105 < -40);
+  // Without modeRate the mode is created at the sample rate, as before, and
+  // the info has no modeRate; with modeRate equal to the sample rate the
+  // samples are the same.
+  const tone = sine(440), plain = await opus.celtRoundTrip(tone, r22, { frameSize: 512, packetBytes: 64, complexity: 5 });
+  const same = await opus.celtRoundTrip(tone, r22, { frameSize: 512, packetBytes: 64, complexity: 5, modeRate: r22 });
+  check('Without modeRate the info has none, and modeRate equal to the sample rate changes no sample',
+    !('modeRate' in plain.info) && same.info.modeRate === r22 && plain.samples.every((v, i) => v === same.samples[i]));
+  const stream = await opus.createCeltStream(r22, high), packet = stream.encode(tone.subarray(0, 1024));
+  stream.free();
+  check('createCeltStream takes the same modeRate', packet.bytes === 128 && stream.frameSize === 1024);
+}
+// The bundled CELT is the game's build (docs/reports/W3-08-celt-encoder.md):
+// the pitch pre-filter and post-filter compiled in, request 8 after
+// creation, 16-bit in and out.
+{
+  const { testRuns, wasmStream, digest, testSignals, filterFlag, MODES } = await import('./celt011/build.mjs');
+  const { createCodec, toInt16 } = await import('../vendor/celt-0.11/index.mjs');
+  // Recorded once from `node tests/celt011/build.mjs --native`: the pinned
+  // source built natively with gcc 13.3 and glibc on x86-64 (SSE2, no
+  // contraction, no fast-math) with the same defines, OPUS_BUILD among them,
+  // making index.mjs's calls; a new codec per run, complexity 5. Frames,
+  // then the SHA-256 of the packets and of the 16-bit output.
+  const NATIVE = {
+    'celt voiced': [130, '97313388ea3ee01d68e18d2328aeaf1c8c041d88c6036a36d31a2f621c2952ce', 'cac63fbeaebc40d2567e2261e28fa4832ae81b7a5dc513cb8a6e226f3b2b3d88'],
+    'celt tone': [48, 'f5fbac62fcdd5b0b25b29ebddb4be9187b809078aef77a6e5e7be6277b448580', 'e2b37ec16b43e215b0e898e4d0c24a29efc4e28579cdbc56dc6984ea6a42dd58'],
+    'celt noise': [44, '8c885803956ca498a9b22851052c0f425f378658c5ff4d91d537b2652a376398', '7ccd1b09790303cf7fc01680d4fa4796553f684026a3697f30d2ccad005b35e9'],
+    'celt voiced, restart and loss': [130, '39d4b145ccddfd3aa2f03ddcd8b1006f4f1126c2d525de129a03712252766f84', '0c47058d28fdfb09cf16a96e006880aed5ebdb17aac3484571d35403f52f6f20'],
+    'high voiced': [65, '74c8c88927b3741608d8a21c88f0347d864eb3a8b94cb2b7c04c87c1971c4624', '9d66b7312e73be8b996b3013634d2f6f57598708e9c5b4eb9107483c093575b1'],
+    'high tone': [24, '1c34b1d0f8c837ed3071b0537c9e9d84fe7dff2e90f69a52e3f7ed4e67c828ed', '07f8e5cc4ab0c4bb4bbcee1cce16a0d5530335c2e53ca544f8175bf68455f0f5'],
+    'high noise': [22, 'f4f4dc244140f05f5047e9366bb1e1e7fc759c12555100d40d2bfd9601d7adc1', '2e02864b0429239993cef9551729a753e81d55c63852f6a4d5b35f3d03a4a456'],
+    'high voiced, restart and loss': [65, 'ee0c0330c528e13d0c6a77188678d72a7ce06dd1dedb39c18b0eb75fb47340d6', '111c78f70d67974e02008dfc80f6ee4e82c864a3514950a33ba3f7e875757d6b']
+  };
+  for (const r of testRuns()) {
+    const stream = await wasmStream(r), got = digest(stream, r), [frames, packets, samples] = NATIVE[r.name];
+    const per = r.mode.bytes + 2 * r.mode.frame, flagged = Array.from({ length: got.frames }, (_, f) => filterFlag(stream.subarray(f * per, f * per + r.mode.bytes))).filter(Boolean).length;
+    check(`CELT ${r.name}: packets and 16-bit output match the native build bit for bit (${got.frames} frames, ${flagged} with the pitch filter on)`,
+      got.frames === frames && got.packets === packets && got.samples === samples);
+  }
+  // The pitched signals do use the filter, and noise does not.
+  const flags = async (mode, signal) => {
+    const codec = await createCodec(mode.rate, mode.frame, { packetBytes: mode.bytes, complexity: 5 }), out = [];
+    for (let f = 0; (f + 1) * mode.frame <= signal.length; f++) out.push(filterFlag(codec.encode(Float32Array.from(signal.subarray(f * mode.frame, (f + 1) * mode.frame), v => v / 32768))));
+    codec.free();
+    return out.filter(Boolean).length / out.length;
+  };
+  const signals = testSignals();
+  for (const [name, mode] of Object.entries(MODES)) {
+    const voiced = await flags(mode, signals.voiced), noise = await flags(mode, signals.noise);
+    check(`CELT ${name}: the pitch filter is on in ${(100 * voiced).toFixed(0)}% of the speech-like signal's packets, ${(100 * noise).toFixed(0)}% of noise's`,
+      voiced > .5 && noise === 0);
+  }
+  // A harmonic tone (200 Hz and eight overtones) at 22050 Hz: with the pitch
+  // filter the encoder follows it about 6 dB better than the build without
+  // it, at the same packet size. Measured once on both builds: 19.45 and
+  // 25.67 dB for vaudio_celt, 23.35 and 29.08 dB for vaudio_celt_high.
+  // Complexity 4 and below turn the filter off (19.62 and 23.60 dB); 5 and
+  // above are one encoder.
+  const r22 = 22050, n = 2 * r22;
+  const harmonic = Float32Array.from({ length: n }, (_, i) => { let v = 0; for (let h = 1; h <= 9; h++) v += Math.sin(2 * Math.PI * 200 * h * i / r22 + h) / h; return .15 * v; });
+  const snr = async (opts) => {
+    const out = (await opus.celtRoundTrip(harmonic, r22, opts)).samples;
+    let e = 0, s = 0;
+    for (let i = r22 / 2; i < n - r22 / 2; i++) { e += (out[i] - harmonic[i]) ** 2; s += harmonic[i] ** 2; }
+    return 10 * Math.log10(s / e);
+  };
+  const low = await snr({ frameSize: 512, packetBytes: 64, complexity: 5 }), lowOff = await snr({ frameSize: 512, packetBytes: 64, complexity: 4 });
+  const hi = await snr({ frameSize: 1024, packetBytes: 128, complexity: 5, modeRate: 44100 }), hi10 = await snr({ frameSize: 1024, packetBytes: 128, complexity: 10, modeRate: 44100 });
+  check(`CELT with the pitch filter follows a harmonic tone at ${low.toFixed(2)} dB (vaudio_celt) and ${hi.toFixed(2)} dB (vaudio_celt_high); at complexity 4, ${lowOff.toFixed(2)} dB`,
+    low > 22.5 && hi > 26 && lowOff < 21 && hi10 === hi);
+  // Request 8 after creation (the game's module sends it): in a float build
+  // it sets the encoder's tonal average to 1 where creation left 256, which
+  // changes the first packets of sound. Shown here on the module's own
+  // exports; the native hashes above pin index.mjs's use of it.
+  {
+    const b64 = (await import('../vendor/celt-0.11/celt-0.11.wasm.mjs')).default;
+    const x = (await WebAssembly.instantiate(Buffer.from(b64, 'base64'), {})).instance.exports;
+    const mode = x.cc_mode_create(22050, 512), pcm = x.malloc(1024), pkt = x.malloc(64);
+    const code = (reset) => {
+      const enc = x.cc_encoder_create(mode), out = [];
+      x.cc_encoder_set(enc, 2, 5);
+      if (reset) x.cc_encoder_set(enc, 8, 0);
+      for (let f = 0; f < 16; f++) {
+        new Int16Array(x.memory.buffer, pcm, 512).set(signals.voiced.subarray(f * 512, (f + 1) * 512));
+        if (x.celt_encode(enc, pcm, 512, pkt, 64) !== 64) throw new Error('encode failed');
+        out.push(Buffer.from(new Uint8Array(x.memory.buffer, pkt, 64)).toString('hex'));
+      }
+      x.celt_encoder_destroy(enc);
+      return out;
+    };
+    const withReset = code(true), without = code(false), differ = withReset.map((p, f) => p !== without[f] ? f : -1).filter(f => f >= 0);
+    check(`CELT: with and without request 8 the speech-like signal's first packets differ (packets ${differ.join(', ')} of 16)`,
+      differ.length > 0 && differ.length < 16);
+    x.free(pcm); x.free(pkt); x.celt_mode_destroy(mode);
+  }
+  // 16-bit in: a float input is rounded to the nearest 16-bit sample, ties
+  // to even, and clamped, as the library's own conversion does.
+  check('CELT input rounding: ties go to the even sample, and full scale clamps',
+    [[2.5, 2], [3.5, 4], [-2.5, -2], [-3.5, -4], [2.4999, 2], [-0.5, 0], [40000, 32767], [-40000, -32768]].every(([v, want]) => toInt16(v / 32768) === want));
+  {
+    const ties = Float32Array.from({ length: 512 }, (_, i) => (Math.round(8000 * Math.sin(2 * Math.PI * 200 * i / r22)) + .5) / 32768);
+    const even = Float32Array.from(ties, v => toInt16(v) / 32768);
+    const a = await createCodec(r22, 512, { packetBytes: 64, complexity: 5 }), b = await createCodec(r22, 512, { packetBytes: 64, complexity: 5 });
+    const pa = a.encode(ties), pb = b.encode(even), out = a.decode(pa);
+    a.free(); b.free();
+    check('CELT encodes a frame of half-step ties as the same frame rounded to even, and decodes to whole 16-bit steps',
+      pa.every((v, i) => v === pb[i]) && out.every(v => Number.isInteger(v * 32768)));
+  }
+  // A packet that is not this mode's (a demo is a file from anywhere): one
+  // whose first byte declares a shorter frame is refused before the decoder
+  // touches its state, so the frames after it decode as if it had not come;
+  // one longer than the packet buffer is refused before it is copied.
+  for (const [rate, frame, bytes] of [[22050, 512, 64], [44100, 1024, 128]]) {
+    const enc = await createCodec(rate, frame, { packetBytes: bytes, complexity: 5 });
+    const voiced = signals.voiced, packets = [];
+    for (let f = 0; f < 6; f++) packets.push(enc.encode(Float32Array.from(voiced.subarray(f * frame + 8192, (f + 1) * frame + 8192), v => v / 32768)));
+    enc.free();
+    const clean = await createCodec(rate, frame, { packetBytes: bytes }), hit = await createCodec(rate, frame, { packetBytes: bytes });
+    const want = packets.map(p => clean.decode(p)), refused = [];
+    const got = [];
+    packets.forEach((p, f) => {
+      if (f === 3) for (const lm of [0, 1, 2]) {
+        const bad = p.slice();
+        bad[0] = (bad[0] & ~0x18) | (lm << 3);
+        try { hit.decode(bad); } catch (error) { refused.push(/not of this mode/.test(error.message)); }
+      }
+      got.push(hit.decode(p));
+    });
+    let oversize = '';
+    const long = new Uint8Array(1276);
+    long.set(packets[5]);   // this mode's first byte, so only its length is wrong
+    try { hit.decode(long); } catch (error) { oversize = error.name; }
+    const after = hit.decode(packets[5]);
+    clean.free(); hit.free();
+    check(`CELT ${rate}/${frame}: packets declaring a shorter frame are refused (${refused.length} of 3) and leave the decoder as it was; a 1276-byte packet is refused (${oversize})`,
+      refused.length === 3 && refused.every(Boolean) && got.every((o, f) => o.every((v, i) => v === want[f][i])) && oversize === 'RangeError' && after.length === frame);
+  }
+}
 const lost = await A.process(buffer(x, rate), { ...base, lossPct: 100 });
 check('100% loss reaches native decoder PLC', lost.codecInfo.plc === 'opus' && lost.codecInfo.lostFrames === lost.codecInfo.frames);
 check('No voice leaks through 100% loss from stream start', energy(lost.samples) < 1e-12);

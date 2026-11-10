@@ -25,16 +25,43 @@ that is known to the sample. That one recording can settle all three.
 
 - `voice_decompressed.wav` holds **whole packets as decoded**, taken before the channel drops its one sample
   per packet (W3-03's report, "For the recording session", point 3). There is no drop to model.
-- At `voice_maxgain 1` the gain is **exactly unity** (`fixed` 128, `step` 0). The one way out is a 128-sample
-  block whose mean and peak sum past 65,534, which is near-constant negative full scale.
+- At `voice_maxgain 1` the gain is **exactly unity** (`fixed` 128, `step` 0), from the first sample: the reset
+  that a new channel brings leaves it at unity for the first block too, whatever the settings (W3-05's second
+  read). The one way out is a 128-sample block whose mean and peak sum past 65,534, which is near-constant
+  negative full scale.
 - The file is capped at 1 MiB: about 11.9 s, about 525,000 samples. Each key press starts it again.
 - With a file as the microphone Steam's chunks have no grid: a chunk is the time since the last frame times
   24000. A spurt's frames are still 480 samples from the spurt's own start, so only that start is unknown.
 - The clip loops in real time: 5.000 s (120,000 samples at 24 kHz) for the continuous clip, 5.600 s for the one
   with silences. So the recording holds about two loops, and where in the clip a spurt began is not known.
 - The owner's clips peak at about -3.8 and -2.2 dBFS.
-- The recording does not begin a decoder's life, so the resampler's phase at its first sample is unknown (147
-  possibilities) and the first-packet flush is probably not in it.
+- **Where the file starts.** Under the Steam codec the file is read by Steam, not by the engine: `mic_inputfile`
+  skips exactly 44 bytes when the file begins with `RIFF` and looks at no header field (W3-09), so the clip's
+  sample 0 is the first sample Steam plays. The two samples that the engine's own file reader skips (W3-08)
+  belong to `voice_inputfromfile` under the engine codecs and are **not** in this path: expect no fixed offset
+  of that kind. A clip saved with a longer header (extra chunks before the data) would play its extra header
+  bytes as sound and shift everything by half their count; check the clip's header is 44 bytes before
+  anything else. Where in the loop a spurt began is searched in any case (step 2).
+- **The resampler's state is carried in.** Steam keeps one resampler as long as the speaker's decoder, across
+  channel reassignments and reconnects (finding 29). If Steam has decoded this speaker before in the same
+  Steam run, the recording's first packet is not a stream's first: the phase at its first sample is unknown
+  (147 possibilities), the 16-sample lateness is already in, and there is no flush in the file. If it has not
+  (Steam freshly started, the first key press), the recording begins a stream: phase 0, the start mirrored,
+  and the first packet's flush in the file.
+- **The recommendation: search the phase always, and ask the owner for a fresh start as well.** The search
+  (step 1) costs nothing and does not depend on how the run was made, so the method never assumes a fresh
+  stream. A fresh start is still worth asking for, because it is the only way the first-packet flush gets
+  into a recording (W3-09 lists it as never seen). The owner's steps, in full: *"(1) Quit Steam
+  completely and start it again before the run. (2) Do not open the game's voice options or its microphone
+  test before the first recording (that also brings voice up, and a decoder with it). (3) Note Steam's
+  console line `loaded voice input file ...`. (4) Make the first recording with the very first key press
+  after loading the map, and note which recording was the first. (5) After each key press, once the file is
+  written (about half a second after release), copy `voice_decompressed.wav` from the game's folder aside
+  before pressing again: each press overwrites it. (6) Keep the console log with `voice_showincoming 1` on.
+  (7) Note the PC's processor model."* The processor matters because the resampler's kernel is the receiving
+  PC's (with loopback, the same PC): one without FMA3 or AVX rules kernels out before anything is run. If the first recording's
+  best phase is 0 and its first packet's last 29 or so output samples fit the mirrored flush, that is the
+  first-packet behaviour seen; if its phase is not 0, Steam's decoder was not new, and nothing is lost.
 
 ## What it needs
 
@@ -49,16 +76,28 @@ rounding, a search one step up and down) does not work: the plan's second read p
 25 wrong inputs in 12,000, more than the kernels differ by. Do not rebuild it. Its scripts are in the review's
 scratch folder (`recov.mjs`, `recov2.mjs`, `kdiff.mjs`) if the session still has them.
 
-1. **Structure, from the recording alone.** For each of the 147 phases, fit a stretch of the recording as the
-   resampler's output of some 24 kHz signal (the least-squares fit, with no rounding) and take the residual.
-   The right phase stands out at once (the prototype: 0.19 of a 16-bit step, against 350 to 420 at the wrong
-   ones). **If the best residual is over one step, stop:** the recording is not this resampler's plain output,
-   and W3-09's reading of the path is in question; report that. Then mark the spurts and the silence records
-   (runs of zeros of 1378 or 2756 samples and the like) and keep the fitted samples, which are good enough to
-   line things up and not good enough to compare.
+1. **Structure: the packets from the console log, the phase from the recording.** The owner runs
+   `voice_showincoming 1` with a console log, which gives every packet's decoded sample count in order. That
+   is the packet structure with no fitting: a sound message's frames are its count over 882, and a silence
+   record's count is its own (with a file as the microphone there is no capture grid, so **a record can be
+   any length**, not only 1378 or 2756). Line the log up with the recording by the running sum of counts (the
+   file holds whole packets from a key press on). The least-squares fit is used for two things only: for each
+   of the 147 phases, fit a stretch of the recording as the resampler's output of some 24 kHz signal (no
+   rounding) and take the residual. The right phase stands out at once (the prototype: 0.19 of a 16-bit step,
+   against 350 to 420 at the wrong ones). **If the best residual is over one step, stop:** the recording is
+   not this resampler's plain output, and W3-09's reading of the path is in question; report that. Keep the
+   fitted samples, which are good enough to line the clip up and not good enough to compare. If there is no
+   log, mark the spurts and records from the recording's runs of exact zeros and say that the frame counts
+   are then inferred.
 2. **Where each spurt began in the clip.** Correlate the fitted samples with the looped clip, then try every
-   start within 480 samples of the peak. The pre-roll (the spurt's first 2400 samples) is the clip's earlier
-   samples, or zeros if Steam had kept nothing: try both.
+   start within 480 samples of the peak. A press of 13 s against the file's 11.9 s is fine: the first 1.1 s or
+   so of the clip's second loop is the overlap this search uses. **Three cases for the spurt's opening, try
+   each:** (a) a pre-roll of the clip's earlier samples (the gate was SILENT with sound kept); (b) a pre-roll
+   of 2400 zeros (a fresh capture, nothing kept); (c) **no pre-roll at all.** With the continuous clip the
+   gate never closes, so when a key is released the 0.5 s tail runs out with the spurt still open; the next
+   press sends the end marker alone, and its first active chunk opens from the ENDED state, a new spurt with
+   no pre-roll that starts at that chunk. So every recording after the first of a run is expected to be case
+   (c), and the first to be (a) or (b).
 3. **Forward.** From each candidate start: cut the clip into 480-sample frames, the last padded with zeros;
    encode with the `steam` profile's encoder, a fresh state per spurt (libopus 1.1.5, 24000 Hz, VOIP, 32000
    bit/s, signal voice, DTX on, complexity 9); decode with the 16-bit decoder, a fresh state per spurt; lay the

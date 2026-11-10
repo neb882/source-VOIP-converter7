@@ -311,28 +311,39 @@ async function main() {
   console.log('\n[5] Real codec modes per profile');
   {
     const src = musicLike(1, SR, 3);
-    const expect = { steam: ['hybrid', 32000], steam_48: ['hybrid', 64000], celt_22: ['celt', 22050], celt_44: ['celt', 165375], speex: ['speex', 8000] };
+    const expect = { steam: ['hybrid', 32000], steam_48: ['hybrid', 64000], celt_22: ['celt', 22050], celt_44: ['celt', 22050], speex: ['speex', 11025] };
     for (const [codec, [mode, bitrate]] of Object.entries(expect)) {
       const r = await TF2Audio.process(mkBuffer(src, SR), { codec });
       const m = r.codecInfo.modes;
       const total = Object.values(m).reduce((sum, n) => sum + n, 0);
       // The engine codecs run their own libraries in fixed-size packets: CELT
-      // 0.11, and Speex 1.2.1, whose frames have a mode of their own. The
+      // 0.11, and Speex 1.0.2, whose frames have a mode of their own. The
       // Steam profiles run the libopus release Steam's packets match.
       const engine = codec.startsWith('celt') ? 'celt' : codec === 'speex' ? 'speex' : 'libopus';
-      const name = { celt: 'CELT 0.11', speex: 'Speex 1.2.1', libopus: `libopus runs in ${mode} mode` }[engine];
+      const name = { celt: 'CELT 0.11', speex: 'Speex 1.0.2', libopus: `libopus runs in ${mode} mode` }[engine];
       check(`${codec}: ${name} at ${bitrate / 1000} kbps`,
         r.codecInfo.backend === engine && r.codecInfo.bitrate === bitrate && m[mode] / total > 0.8, JSON.stringify(m));
-      const release = { celt: 'CELT 0.11 (celt-0.11.0)', speex: 'Speex 1.2.1', libopus: 'libopus 1.1.5' }[engine];
+      const release = { celt: 'CELT 0.11 (celt-0.11.0, pitch filter in)', speex: 'Speex 1.0.2', libopus: 'libopus 1.1.5' }[engine];
       check(`${codec}: encodes and decodes with ${release}`, r.codecInfo.version === release, r.codecInfo.version);
+      // The game's module never sets the complexity, so the library's
+      // default, 5, applies (W3-03); vaudio_celt_high's mode is the 44100 Hz
+      // one, run on 22050 Hz sound, and vaudio_celt's has no mode rate of its own.
+      if (engine === 'celt') {
+        check(`${codec}: complexity 5 reaches the codec`, r.codecInfo.complexity === 5, String(r.codecInfo.complexity));
+        const modeRate = { celt_22: undefined, celt_44: 44100 }[codec];
+        check(`${codec}: ${modeRate ? `the ${modeRate} Hz mode on ${r.codecInfo.sampleRate} Hz sound, ${r.codecInfo.packetBytes}-byte packets of ${r.codecInfo.frameMs.toFixed(1)} ms` : 'no mode rate of its own'}`,
+          r.codecInfo.modeRate === modeRate && ('modeRate' in r.codecInfo) === !!modeRate && r.codecInfo.sampleRate === 22050
+          && r.codecInfo.packetBytes === { celt_22: 64, celt_44: 128 }[codec] && r.codecInfo.frameSamples === { celt_22: 512, celt_44: 1024 }[codec],
+          JSON.stringify({ modeRate: r.codecInfo.modeRate, sampleRate: r.codecInfo.sampleRate, packetBytes: r.codecInfo.packetBytes, frameSamples: r.codecInfo.frameSamples }));
+      }
       check(`${codec}: finite output`, !hasBadValues(r.samples) && r.samples.length === Math.round(src.length * r.sampleRate / SR));
     }
     const wide = whiteNoise(1, SR, 0.15, 7);
     const sp = await TF2Audio.process(mkBuffer(wide, SR), { codec: 'speex', agc: false, volume: 1 });
-    // Narrowband codec: nothing between its 4 kHz edge and the mixer's
-    // linear-interpolation images, which start near 11025 - 4000 Hz.
-    const gap = bandDb(sp.samples, SR, 4500, 6000);
-    check('speex: Speex narrowband leaves nothing between its 4 kHz edge and the mixer\'s images', gap < -50, `${gap.toFixed(1)} dB rel`);
+    // The narrowband codec on 11025 Hz sound, not resampled to 8000 Hz: its
+    // band reaches 5.5 kHz (at 8000 Hz this band was empty, under -50 dB).
+    const top = bandDb(sp.samples, SR, 4500, 5000);
+    check('speex: Speex on 11.025 kHz sound keeps the band from 4.5 to 5 kHz', top > -15, `${top.toFixed(1)} dB rel`);
     const st = await TF2Audio.process(mkBuffer(wide, SR), { codec: 'steam', agc: false, volume: 1 });
     const stHi = bandRms(st.samples, SR, 'highpass', 4000) / rms(st.samples);
     check('steam keeps its 4-12 kHz band', db(stHi) > -8, `${db(stHi).toFixed(1)} dB rel`);
@@ -597,6 +608,27 @@ async function main() {
     check('live chain holds back the gate pre-roll (120 ms) and reports its delay',
       offline.length - live.length >= 0.12 * SR && Math.abs(chain.stats.latencyMs - 1000 * (0.12 + delay)) < 0.01,
       `${chain.stats.latencyMs.toFixed(2)} ms; ${chain.stats.sent} of ${chain.stats.frames} frames sent`);
+
+    {
+      // vaudio_celt_high's gate counts its own frames, 46.4 ms of 22050 Hz
+      // sound (not of the 44100 Hz mode): 120 ms of pre-roll is 3 frames and
+      // 440 ms of hold is 9. The live chain sends the frames process() sends.
+      const rate = 48000, n = 8 * rate;
+      let seed = 3;
+      const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+      const bursts = new Float32Array(n);
+      for (let i = 0; i < n; i++) bursts[i] = 2e-4 * (rnd() * 2 - 1);
+      for (const t0 of [0.5, 2.2, 2.9, 5.5]) for (let i = 0; i < 0.7 * rate; i++) bursts[Math.round(t0 * rate) + i] += 0.2 * Math.sin(i * 0.04) * (0.5 + 0.5 * rnd());
+      const gated = { codec: 'celt_44', gate: true };
+      const whole = (await TF2Audio.process(mkBuffer(bursts, rate), gated)).codecInfo;
+      const celtChain = await TF2Audio.createLiveChain(gated, rate);
+      for (let o = 0; o < n; o += 960) await celtChain.process(bursts.subarray(o, o + 960));
+      const sent = celtChain.stats.sent;
+      celtChain.free();
+      check('celt_44 live chain: its gate counts 46.4 ms frames (pre-roll 3, hold 9) and sends the frames process() sends',
+        whole.prerollFrames === 3 && whole.holdFrames === 9 && whole.spurts > 1 && sent === whole.frames - whole.gatedFrames,
+        `live ${sent} sent; process() ${whole.frames - whole.gatedFrames} of ${whole.frames}, pre-roll ${whole.prerollFrames}, hold ${whole.holdFrames}`);
+    }
   }
 
   console.log('\n[10c] Receiver talk-spurt re-timing (voice_retime)');

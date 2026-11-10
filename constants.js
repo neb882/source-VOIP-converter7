@@ -221,16 +221,23 @@ const PRESETS = {
 
 /* -------------------------------------------------------------------------
  * Codec profiles. Each runs a real codec: the Steam profiles the bundled
- * libopus 1.1.5, the CELT profiles CELT 0.11 and `speex` Speex 1.2.1. Only
- * `steam` is calibrated against a real TF2 recording; the engine codecs'
- * settings come from public sources (CELT) or are assumed (Speex).
+ * libopus 1.1.5, the CELT profiles CELT 0.11 and `speex` Speex 1.0.2. Only
+ * `steam` is calibrated against a real TF2 recording; the CELT profiles'
+ * settings are read from the game's own module (W3-03) and their codec is
+ * the game's build (W3-08); Speex's codec and settings are read from the
+ * game's module (W3-09) and cannot be recorded.
  *
  *   engine      : 'celt011' for CELT 0.11 (frameSize samples per packetBytes
- *                 packet, scaled by snd_bits / 16); 'speex' for Speex
- *                 narrowband (8 kHz, 20 ms frames, the quality whose
- *                 bitrate is nearest bitrate x snd_bits / 16); otherwise Opus
+ *                 packet, scaled by snd_bits / 16); 'speex' for the game's
+ *                 Speex 1.0.2 module (frameSize samples in packetBytes
+ *                 bytes at codecRate, 11025 Hz; snd_bits does not change
+ *                 it); otherwise Opus
  *   codecRate   : codec sample rate (Opus: 8/12/16/24/48 kHz)
- *   bitrate     : bits per second at snd_bits 16 (Opus and Speex: 20 ms frames)
+ *   modeRate    : CELT only, optional: the rate the CELT mode is created
+ *                 with, when the engine feeds it sound at another rate
+ *                 (codecRate). Frame times, bitrates, the gate and the
+ *                 loss model use codecRate.
+ *   bitrate     : bits per second at snd_bits 16 (Opus: 20 ms frames)
  *   application : 'voip' (SILK/hybrid capable) or 'lowdelay' (CELT only)
  *   signal      : Opus signal hint; 'voice' keeps music in hybrid mode,
  *                 matching the SILK/CELT crossover seen in the recording
@@ -275,37 +282,46 @@ const CODEC_PROFILES = {
     senderGate: { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 },
     voiceRate: 44100, mixer: 'sinc', status: 'experimental'
   },
-  // vaudio_celt: the real codec, CELT 0.11 (vendor/celt-0.11), in the custom
-  // mode three public decoders and two encoders agree on: 22050 Hz,
-  // 512-sample frames (23.2 ms), 64-byte packets (22.05 kbps), complexity 10
-  // (tests/LEGACY_CODECS.md). The receiver side is modeled, not measured.
+  // vaudio_celt: CELT 0.11 (vendor/celt-0.11) in a custom mode, 22050 Hz,
+  // 512-sample frames (23.2 ms), 64-byte packets (22.05 kbps), complexity 5:
+  // read from the game's module (W3-03); the packet size and rate confirmed
+  // by Set H. The bundled build is the game's: the pitch pre-filter and
+  // post-filter compiled in, the reset after creation, 16-bit in and out
+  // (W3-08, tests/LEGACY_CODECS.md). The receiver side is modeled.
   celt_22: {
     displayName: 'vaudio_celt (CELT 0.11, 22 kHz, 64-byte frames)',
-    engine: 'celt011', codecRate: 22050, frameSize: 512, packetBytes: 64, complexity: 10,
+    engine: 'celt011', codecRate: 22050, frameSize: 512, packetBytes: 64, complexity: 5,
     bitrate: 22050, voiceRate: 22050, mixer: 'linear', status: 'modeled'
   },
-  // vaudio_celt_high: the same CELT 0.11 at the one public source's settings,
-  // 44100 Hz, 256-sample frames and 120-byte packets (165 kbps). That is at
-  // odds with the "44 kbps" usually quoted; unconfirmed until a take.
+  // vaudio_celt_high: the same CELT 0.11 in its 44100 Hz mode, 1024-sample
+  // frames, 128-byte packets, complexity 5, fed 22050 Hz sound: so a frame
+  // lasts 46.4 ms, 128 bytes a frame is 22.05 kbps, and the mode's 20 kHz
+  // band edge falls at 10 kHz of real sound. Read from the game's module
+  // (W3-03); the packet size and rate confirmed by Set H; the build as for
+  // vaudio_celt (W3-08). The key stays celt_44 so saved settings keep
+  // working. The receiver side is modeled.
   celt_44: {
-    displayName: 'vaudio_celt_high (CELT 0.11, 44 kHz, 120-byte frames)',
-    engine: 'celt011', codecRate: 44100, frameSize: 256, packetBytes: 120, complexity: 10,
-    bitrate: 165375, voiceRate: 44100, mixer: 'sinc', status: 'modeled'
+    displayName: 'vaudio_celt_high (CELT 0.11, 44.1 kHz mode on 22 kHz sound, 128-byte frames)',
+    engine: 'celt011', codecRate: 22050, modeRate: 44100, frameSize: 1024, packetBytes: 128, complexity: 5,
+    bitrate: 22050, voiceRate: 22050, mixer: 'linear', status: 'modeled'
   },
-  // vaudio_speex: the real codec, Speex 1.2.1 (vendor/speex), narrowband at
-  // 8 kHz in 20 ms frames. Its settings are assumptions: Source's Speex
-  // quality is not public, and current TF2 cannot load the codec to record
-  // it (tests/LEGACY_CODECS.md). Quality 4 is the 8 kbps mode (20-byte
-  // packets): the bitrate this profile had before, and GoldSrc's middle
-  // voice quality. Constant bitrate, no VAD or DTX, the library's default
-  // complexity (2); the decoder keeps its perceptual enhancement on. The
-  // receiver side is modeled, not measured.
+  // vaudio_speex: read from the game's module (docs/reports/
+  // W3-09-steam-voice.md, section 5); no recording of it can exist, since a
+  // current game asked for vaudio_speex runs vaudio_celt (section 6). Speex
+  // 1.0.2 (vendor/speex-1.0.2, W3-12a) narrowband at quality 4 (the engine's
+  // 3): 160-sample frames in 20 bytes, constant bit rate, enhancement on,
+  // complexity 2. The module does not resample: the codec, which believes it
+  // runs at 8000 Hz, is fed the engine's 11025 Hz sound, so a frame lasts
+  // 14.51 ms, 20 bytes a frame is 11.025 kbit/s and the band reaches 5.5 kHz;
+  // the voice rate is 11025 too, so nothing resamples after the decoder.
+  // Decoded samples wrap past full scale. snd_bits picks nothing (the module
+  // has one table row for the engine's argument). A lost frame plays as zeros:
+  // what the engine plays for a lost Speex packet was not read. The receiver
+  // side is modeled. Status: codec and settings read from the module; not
+  // recorded.
   speex: {
-    displayName: 'vaudio_speex (Speex 1.2.1, 8 kHz, 8 kbps)',
-    engine: 'speex', codecRate: 8000, bitrate: 8000,
-    // Speex's narrowband bitrate at qualities 0-10, as the library reports
-    // them (pinned by tests/speex.verify.mjs), for the chain strip.
-    qualityBitrates: [2150, 3950, 5950, 8000, 8000, 11000, 11000, 15000, 15000, 18200, 24600],
+    displayName: 'vaudio_speex (Speex 1.0.2 on 11 kHz sound, 11 kbps)',
+    engine: 'speex', codecRate: 11025, frameSize: 160, packetBytes: 20, bitrate: 11025,
     voiceRate: 11025, mixer: 'linear', status: 'modeled'
   }
 };
