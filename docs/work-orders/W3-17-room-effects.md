@@ -686,6 +686,44 @@ orchestrator's). May touch: `package.json` (the `test` line). Nothing else: no p
 `room-dsp.js`, `tests/room-dsp.verify.mjs`, `tests/roomdsp/` (`lines.py`, `lines.json`, `coefs.mjs`). Nothing
 else.
 
+## Amendment after part a (2026-11-10): what parts c and d must take from the second read
+
+Part a is built and merged. It was read against the engine's own code (`docs/reports/W3-17a-second-read.md`,
+"2R" below) and fixed where that read differed. Where this order's text on the points below says something
+else, **2R and the module as built win**. Parts c and d build on the module's API as
+`docs/reports/W3-17a-room-module.md` gives it.
+
+1. **Under water there is no fade and no fresh instance** (2R F4). The water slot is one long-lived instance of
+   preset 14, made with the path, run on the whole sum or not, switched at a block start by a flag, and frozen
+   while not run. A path made under water keeps its pre-roll of 44,100 samples. So part d's live chain switches
+   the water with `setWater`, with no cross-fade of its own, and never rebuilds the path for a dive. The
+   "0.1 s water fade" of this order is gone everywhere.
+2. **Taking "none" resets the four mix values** to preset 0's header, 0.2, 0.7, 80, 0.5 (2R F3).
+3. **The slot's cross-fade and the block order are the engine's** (2R F1, F2): the ramp is stepped and then
+   used; both instances run to the end of the block in which the ramp is done; per block the order is the take,
+   then the shares, then the slot stage. The block is the mixer's 512 samples. The two "assumed" constants of
+   this order no longer exist. Part c must therefore hand the path its samples so that **block boundaries fall
+   where the mixer's fall** (every 512 samples of the 44100 Hz mix, from the render's first sample), in the
+   offline render and in the stream alike, at any chunking.
+4. **"No room" creates no path at all** (part a's report, reading 20): a path with no room and no water still
+   builds its slots and a tail tracker. Decision 4 is kept by part c not calling `createRoomPath` when there is
+   no room and no water.
+5. **Part c's private check on Set C uses 2R's table**, not this order's figures. With the voice taken at the
+   mixer's input, the module with size class 2 and reflectivity class 3 gives, as autocorrelation less the dry
+   render's: 0.2311 at 57.96 ms, and 0.0291, 0.0356, 0.0331, 0.0282 at 105.2, 119.2, 134.2, 148.2 ms (the take:
+   0.2303, 0.0289, 0.0361, 0.0327, 0.0264; scatter 0.0028). The "0.024 to 0.027" of this order came from a fit
+   on the full-band played signal and is wrong for a render. Expected on the loud stretches: the level error
+   falls from +1.1 to +1.3 dB to within 0.1 dB. On Set D's PC A: 0.0232, 0.0119, 0.0085 at 68.02, 120.04,
+   308.02 ms for reflectivity class 1 (the take: 0.0240, 0.0147, 0.0104; scatter 0.0026).
+6. **Decision 11, more exactly** (2R, notes): the engine "keeps what it had" only for a number at or past its
+   template count. Numbers 30 to 59 and the like are presets the game's file has. The app does not hold them, and
+   treating them as not held is this plan's choice, not the engine's behaviour. The page does not offer them, so
+   the difference can only be reached by a typed number; part d's console line says "the app does not have this
+   room".
+7. **At a fully wet share the 32-bit products wrap** in presets 15, 16, 19, 23, 24, 25, 103, 107 and in the vent,
+   tunnel, big tunnel and great hall cases, in the engine and in the module alike (part a's report, reading 19).
+   The custom room at a high mix (part d) inherits this. Say so in the custom room's help line; do not guard it.
+
 ## W3-17c: the render
 
 **Depends on:** W3-10 merged (its mix stage and device stage are what this part builds on; read its report
