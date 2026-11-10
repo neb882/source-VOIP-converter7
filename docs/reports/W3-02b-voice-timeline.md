@@ -298,8 +298,8 @@ below "none"'s, which is 82 ms:
 
 ## Runs
 
-- `pnpm test` (under the lock): exit 0 in 3 min 1 s. Every suite passed, `voice-channel` at 124 and `steam-sender`
-  at 55. The browser suite was not run: no page file changed.
+- `pnpm test` (under the lock): exit 0 in 3 min 1 s, before and after the fix round. Every suite passed; after the fix round `voice-channel` at 127 and `steam-sender` at 58 (124 and 55 before).
+  The browser suite was not run: no page file changed.
 - The order's builder command: `node tests/voicequeue/synthetic-results.mjs > synthetic.json`, then
   `node tests/retiming.mjs --accuracy synthetic.json --generative --engine --seeds 50`. Section 2's row is below;
   the engine's start error is 22 ms against 82 for "none". Without `--engine` the output is identical to main's
