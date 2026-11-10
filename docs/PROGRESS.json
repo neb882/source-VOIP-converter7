@@ -26,19 +26,19 @@
   "in_flight": [
     {
       "order": "W3-16-sender-hold-clock",
-      "state": "building",
+      "state": "in review",
       "branch": "claude/w3-16-sender-hold-clock",
-      "note": "docs/work-orders/W3-16-sender-hold-clock.md (planned, reviewed, revised): the hold in 32-bit floats on Steam's clock with the sender's Steam uptime as a setting (default 9 days), the read clock as measured. Starts when W3-11a is on main."
+      "note": "Built (head 2461a2d, CI green; cache v25; 33 steam hashes re-recorded). The clock gives the order's reference hash; ends on the 7th, 8th and 9th chunk 26, 71 and 3% at the default uptime. The orchestrator's private runs, a reviewer and a second reader (the hold against Steam's code and on Set D's own chunks) are out."
     },
     {
       "order": "W3-17b-automatic-room",
-      "state": "next to build",
+      "state": "fix round",
       "branch": "claude/w3-17b-automatic-room",
-      "note": "Part b of docs/work-orders/W3-17-room-effects.md: the automatic room's build from two templates by shape and classes, the 14 example cases and the two measured ones (set_c_room, set_d_street), in the module's files only."
+      "note": "Built (0cf15eb). Reviewed (56,117 builds against the model, 0 differences) and read against the engine (docs/reports/W3-17b-second-read.md): one error shared by module and model, a vertical shaft's classes, corrected in the model on main (409d942); the fixer is matching it and adding a helper that turns adsp_debug lines into rows."
     }
   ],
   "next": [
-    "Order of work (decided 2026-11-10, see decisions): W3-16 (being built), W3-11b, W3-10, W3-17c, W3-17d, then W3-02c, W3-02d, W3-02f with W3-02e, W3-02g. Beside them, in the module's files only: W3-17b (in review). Two builders at most; audio.js orders one at a time.",
+    "Order of work (decided 2026-11-10; the orders brought up to date in docs/reports/W3-plan-maintenance-2.md): W3-16 (in review), W3-11b (rewritten; needs a plan review; 2 days), W3-10 (rewritten; 1.5 days), W3-17c, W3-17d, then W3-02c (its section 10d needs a planner first), W3-02d, W3-02f with W3-02e, W3-02g (needs a planner first). Beside them: W3-17b (fix round). Two builders at most; audio.js orders one at a time.",
     "From W3-14 and the W3-16 read: W3-16, a small order on steam-sender.js (the hold in 32-bit floats on Steam's clock, with the sender's Steam uptime as a setting; reads uniform 48.0 to 63.7 ms apart; capture steps late by a fitted amount; no late frames; the decoder's 17-frame cut), being planned; checked privately against Set D's demo and Set J; it re-records the steam hashes, so it follows W3-11a's merge. W3-11b takes the key-press rules. A doc edit to W3-09's report: the printed peak is a percentage of 32768, and the float's steps matter at once.",
     "W3-17 (docs/work-orders/W3-17-room-effects.md): part a is being built; part b after it; parts c and d after W3-10. W2-04's room half is replaced by part c. The owner's recording procedure for rooms is in the order.",
     "Still open: a registered prediction for vaudio_celt_high; the long-render queue W2-03 to W2-06 is HELD by the owner's priority.",
