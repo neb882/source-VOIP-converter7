@@ -18,7 +18,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HASHES, STREAMS, randomStreams, streamPackets } from '../swresample.verify.mjs';
+import { HASHES, STREAMS, mulberry32, randomStreams, streamPackets } from '../swresample.verify.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -30,17 +30,45 @@ let failed = 0;
 try {
   const pc = execFileSync('pkg-config', ['--cflags', '--libs', 'libswresample', 'libavutil'], { encoding: 'utf8' })
     .trim().split(/\s+/).filter(Boolean);
-  execFileSync('gcc', ['-O2', '-o', exe, join(here, 'native.c'), ...pc], { stdio: 'inherit' });
+  execFileSync('gcc', ['-O2', '-o', exe, join(here, 'native.c'), ...pc, '-lm'], { stdio: 'inherit' });
   const info = execFileSync(exe, ['--info'], { encoding: 'utf8' });
   process.stdout.write(info);
   const has = (flag) => new RegExp(`\\b${flag}=1\\b`).test(info);
   const available = { c: true, sse: has('sse4\\.2'), avx: has('avx') && !has('avxslow'),
     fma3: has('avx2') && has('fma3') && !has('avxslow') };
 
-  // Every stream the comparison runs: the four references, then the random ones.
+  // The fused multiply-add of the fma3 kernel against the C library's fmaf
+  // (correctly rounded, in hardware or not), on cases built to be hard.
+  {
+    const raw = execFileSync(exe, ['--fma'], { maxBuffer: 1 << 26 });
+    const f = new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
+    let wrong = 0, hard = 0;
+    for (let i = 0; i < f.length; i += 4) {
+      if (SW.fma32(f[i], f[i + 1], f[i + 2]) !== f[i + 3]) wrong++;
+      if (Math.fround(f[i] * f[i + 1] + f[i + 2]) !== f[i + 3]) hard++;
+    }
+    console.log(`fma32: ${f.length / 4 - wrong} of ${f.length / 4} equal fmaf (${hard} where rounding the double sum would not)`);
+    if (wrong) failed++;
+  }
+
+  // Every stream the comparison runs: the four references, the 50 random
+  // ones, and streams Steam does not send, to show the port follows the
+  // library's start and flush for any packet sizes: a first packet of 0 to 100
+  // samples, and packets of 0 to 200 samples throughout.
+  const noise = (n, draw) => Int16Array.from({ length: n }, () => Math.floor(draw() * 65536) - 32768);
+  const edge = [];
+  for (const first of [0, 1, 2, 5, 15, 16, 17, 18, 20, 31, 32, 33, 34, 47, 48, 100]) {
+    const draw = mulberry32(0xED6E0000 + first);
+    edge.push({ name: `first packet ${first}`, packets: [first, 480, 7, 1440, 1, 0, 3840, 33].map((n) => noise(n, draw)) });
+  }
+  for (let k = 1; k <= 10; k++) {
+    const draw = mulberry32(0x5A11000 + k);
+    edge.push({ name: `small packets ${k}`, packets: Array.from({ length: 60 }, () => noise(Math.floor(draw() * 201), draw)) });
+  }
   const streams = [
     ...Object.keys(STREAMS).map((name) => ({ name, packets: streamPackets(name) })),
     ...randomStreams(50).map((packets, i) => ({ name: `random ${i + 1}`, packets })),
+    ...edge,
   ];
   const parts = [];
   streams.forEach((s, i) => {

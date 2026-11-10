@@ -5,6 +5,9 @@
  *
  *   native <kernel>          kernel: fma3, avx, sse or c
  *   native --info            the library's version and the CPU flags it sees
+ *   native --fma             a million float triples a, b, c built so that the
+ *                            double sum a*b + c lands halfway between two floats,
+ *                            and the C library's fmaf(a, b, c): four floats each
  *
  * Input on stdin, little-endian int32 records:
  *   n >= 0   a packet of n 16-bit samples follows (24000 Hz, mono)
@@ -15,6 +18,7 @@
  * input. The kernel is forced with av_force_cpu_flags before the context is
  * made, so swr_init picks that kernel.
  */
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,10 +44,35 @@ static SwrContext *make_context(void) {
   return s;
 }
 
+static uint64_t xs = 88172645463325252ull;
+static uint32_t xorshift(void) { xs ^= xs << 13; xs ^= xs >> 7; xs ^= xs << 17; return (uint32_t)xs; }
+
+/* a * b is 1 + e with 0 < |e| < 2^-30, scaled; c's half ulp is about |a * b|,
+ * so the double sum is often exactly halfway and only its error tells the
+ * side. One case in four is a random c instead. */
+static void fma_cases(void) {
+  int n = 0;
+  while (n < 1000000) {
+    float a = 1.0f + (xorshift() & 0x7fffff) * 0x1p-23f;
+    float b = 1.0f / a;
+    double e = (double)a * b - 1.0;
+    int tie = xorshift() % 4;
+    if (tie && (e == 0 || fabs(e) > 0x1p-30)) continue;
+    int i = (int)(xorshift() % 40) - 20, j = (int)(xorshift() % 40) - 20;
+    float A = ldexpf(a, i), B = ldexpf(b, j) * ((xorshift() & 1) ? -1 : 1);
+    float m = 1.0f + (xorshift() & 0x7fffff) * 0x1p-23f;
+    float C = tie ? ldexpf(m, i + j + 24) : ldexpf(m, (int)(xorshift() % 60) - 30 + i + j);
+    if (xorshift() & 1) C = -C;
+    float R = fmaf(A, B, C);
+    fwrite(&A, 4, 1, stdout); fwrite(&B, 4, 1, stdout); fwrite(&C, 4, 1, stdout); fwrite(&R, 4, 1, stdout);
+    n++;
+  }
+}
+
 static int read_i32(int32_t *v) { return fread(v, 4, 1, stdin) == 1; }
 
 int main(int argc, char **argv) {
-  if (argc != 2) { fprintf(stderr, "usage: native <fma3|avx|sse|c|--info>\n"); return 2; }
+  if (argc != 2) { fprintf(stderr, "usage: native <fma3|avx|sse|c|--info|--fma>\n"); return 2; }
   if (!strcmp(argv[1], "--info")) {
     unsigned v = swresample_version();
     int f = av_get_cpu_flags();
@@ -52,6 +81,7 @@ int main(int argc, char **argv) {
            !!(f & AV_CPU_FLAG_AVX2), !!(f & AV_CPU_FLAG_FMA3), !!(f & AV_CPU_FLAG_AVXSLOW));
     return 0;
   }
+  if (!strcmp(argv[1], "--fma")) { fma_cases(); return 0; }
   int flags;
   if (!strcmp(argv[1], "fma3")) flags = FMA3_FLAGS;
   else if (!strcmp(argv[1], "avx")) flags = AVX_FLAGS;
