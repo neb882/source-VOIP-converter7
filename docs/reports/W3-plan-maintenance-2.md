@@ -180,6 +180,13 @@ device rate, the room's tail). W2-05 and W2-06 are not edited; they only say the
 9. **A sentence left in W3-17d** (item 6: "100 ms for the water slot") contradicts that order's own amendment
    (no water fade). The amendment says it wins; the sentence was not a matter of sequence and was left.
 
+10. **W3-17b's second read landed on main while this pass was being written**
+    (`docs/reports/W3-17b-second-read.md`): a shaft's classes are worked out with height and length swapped
+    (a must-fix for part b's module and for the oracle), and the game's debug lines print feet, the length
+    first, with no count of open sides. That is part b's and the owner's procedure's (step 9 and the rows of
+    `ROOM_PLACES`), not a matter of sequence: W3-17's parts c and d were not changed for it. Part d's manual
+    fields and its "what the engine would build" line take whatever part b's fix gives.
+
 ## Not done
 
 - No order was read by a builder's model after this pass. W3-11b is written to be handed to a plan reviewer
