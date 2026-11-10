@@ -22,6 +22,15 @@ their sections are left as built from. W3-02c to W3-02g were brought up to date 
 W3-05 and W3-13 learnt: the sender's messages as built, the measured ranges for section 10d, the gain's
 settings read at a reset, and a resampler that lives as long as the speaker's decoder.*
 
+*Moved to the end, 2026-11-10 (`docs/PROGRESS.json`, decisions; `docs/reports/W3-plan-maintenance-2.md`).
+For orders that touch `audio.js` the sequence is now W3-16, W3-11b, W3-10, W3-17c, W3-17d, and only then
+**W3-02c, W3-02d, W3-02f with W3-02e, W3-02g**: the receiver's model is the least certain (58% of transitions
+right on the speech take) and gains from recordings still to come. The parts below are **not rewritten**. Each
+of W3-02c to W3-02g carries a dated note, "Now comes after", with what will have changed under it and the
+rules today's reads gave it. The "Starts after" column of the table below and the sentences that put W3-10
+last are superseded by this paragraph. **W3-02c and W3-02g need a planner's pass before they are built** (their
+notes say on what); W3-02d, W3-02e and W3-02f hold as written, with their notes.*
+
 *Revision 2, 2026-11-10, after the plan's review by a builder (the findings and what was done about each are in
 `docs/reports/W3-02-plan.md`, "The review").* Seven orders, each leaving main working:
 
@@ -544,6 +553,65 @@ W3-11b have merged** (W3-05 leaves the gain as an object with `reset()`; W3-11a 
 Steam's messages and resampling each as a packet). W3-13's merge waits for the owner's word on its licence, and
 so do W3-11a's and this order's. **Time budget:** 1 day.
 
+> **Now comes after (2026-11-10, `docs/reports/W3-plan-maintenance-2.md`).** Built after W3-16, W3-11b, W3-10,
+> W3-17c and W3-17d. The spec below is as it was; read it with this.
+>
+> *What will have changed under it:*
+> - **The `steam` render and decoder are W3-11a's as built** (`docs/reports/W3-11a-steam-render.md`, "What was
+>   built" and "For W3-02c's builder"): `steamTimeline` lays the packets and feeds the gain; the codec is
+>   `createSteamStream` over `createSteamDecoder`; the hooks are `onDecoded`, `onResampled` and `onGain`; the
+>   stream holds back `STEAM_REACH`. Spec 2's first paragraph describes exactly that. The sentence under
+>   "Branch" that W3-13's, W3-11a's and this order's merges wait for the owner's word is void: both merged.
+> - **The sender is W3-16's**: reads are `{ time, since, samples }`, the hold is the float test with `uptime`
+>   (`opts.steamUptime`, 9 days by default), a message's tick comes from `since`, an empty read runs the
+>   states. **Its schedule moved, so every bracketed figure and range of section 10d was measured on a clock
+>   that no longer exists.** W3-16's builder re-derived the module's own checks: after 500 ms a spurt of its
+>   own in 42 of 50 seeds (was 38), starting 0 to +80 ms; after 900 ms appended in 46 of 50, **160 to 310 ms
+>   early** (seen 167.5 to 303.7; 10d asks -330 to -190, which no longer holds at its upper end); dropped
+>   after 1200 ms 86.5 to 153.7 ms; the first spurt's start +21.8 to +74.4 ms; 17.90 messages a second.
+>   **A planner re-measures layouts P and Q of 10d on the merged sender, through the capture filter, before
+>   this order is built**, and re-states which line catches which broken sender (a hold "0.39 s or less" is
+>   no longer a meaningful break: the hold is 375 to 437 ms of real time at the default).
+> - **The live chain is W3-11b's**: the render's stages on Steam's sender, with the key. `createSteamStream`
+>   has `press()` and messages that were made and not collected; the sender has `key()`. A render calls
+>   neither. Spec 7 stands: `createLiveChain` ignores `timeline`.
+> - **The mix stage and the device's rate are W3-10's.** The timeline's output reaches `mixEntry` where the
+>   gain's output does now; the 3-tap output stage is gone and a render is at the device's rate (48000 Hz by
+>   default). So in 10d: "A shift, where nothing else acts" and the `voice_scale 0` check both name "the
+>   three-tap output stage" and assume the output at 44.1 kHz: they are run with `deviceRate: 44100` and
+>   re-stated (no smear; and the entry truncates, so a sample of one unit becomes 0: the "at least 100 of
+>   them non-zero" is measured again). Spec 5's "keeps the source's length" is at the device's rate.
+> - **The mixer's blocks.** W3-10's stage runs in 512-sample blocks from the render's first sample, with the
+>   origin one named value. This order's clock has block `b` at output samples `512 b - D`. Under `'game'`
+>   it sets W3-10's origin to its own, so the channel's pulls and the mix stage's blocks are the same blocks,
+>   as in the game.
+> - **The room path is W3-17c's, and its slot and tail live at the mix**, after this order's stage. The slot
+>   is asked for its shares once per mixer block; this order calls the path's `spurtStart()` at each channel
+>   it opens (W3-17c calls it once, at the render's start). With a room the render is longer than the source
+>   by the room's tail: spec 5 still cuts the channel's own overshoot at the source's length, and the tail
+>   follows from there. The golden list holds room cases by then; "pass unchanged" covers them.
+>
+> *Rules today's reads gave this order:*
+> - **The gain is reset when a channel is assigned, and reads its three settings then** (W3-05's second read;
+>   finding 26). Spec 2 already says so; nothing changes.
+> - **The resampler and the decoder outlive channels and key presses** (measured: Set G for the resampler,
+>   Set J for both). One resampler per render (spec 2 says so). The decoder too: a channel that opens resets
+>   neither; only a delivered end marker or a number behind the expected one resets the decoder.
+> - **Sequence numbers are 16 bits and already masked** inside `createSteamDecoder` (W3-11a's fix round):
+>   nothing here masks or widens them.
+> - **The game's refusal of a message over 12 frames** (W3-16's read, section 3; W3-03 for the engine's
+>   room): the engine takes at most 22,528 bytes a call, 11,264 samples at 44.1 kHz. A message whose
+>   resampled sound is longer is refused whole: the decoder and the resampler have run, and nothing reaches
+>   the channel. Without loss a render cannot make one. With loss it can: 8 or more concealed frames in
+>   front of a 5-frame message, and W3-11a's render makes messages of 13 to 16 blocks. **Built here, where
+>   the channel takes a message**: under `'game'` such a message is not pushed, and `codecInfo.channel`
+>   counts it. On the source's timeline the render goes on playing it; whether it should refuse there too
+>   (the loss cases' hashes would move once) is asked of the orchestrator in the maintenance report.
+> - **The decoder's 17-frame cut** cannot be reached by a file render, with or without loss (W3-16's order):
+>   it is W3-02g's.
+> - **A late frame** is still the measured stand-in; what it is once the channel is real is still open
+>   (`docs/reports/W3-plan-maintenance.md`, "Open" 1).
+
 ### Files
 
 May touch: `audio.js` (`process()` and `createRender`: one new stage and the option; `createGain`'s `reset`
@@ -726,6 +794,22 @@ same main's before this branch, to the last digit printed.
 (PROGRESS, 2026-11-10): on the page the modern preset renders the game's timeline; a video keeps the source's;
 the flat rule is retired (W3-02f removes its code).
 
+> **Now comes after (2026-11-10, `docs/reports/W3-plan-maintenance-2.md`).** Built after W3-17d, which this
+> order used to precede. Its plan holds; the page it edits is another page:
+> - W3-16 added "Sender's Steam has been running"; W3-11b made the threshold's default the profile's own and
+>   re-worded the gate's texts; W3-10 added the listener's device rate and the render is at that rate;
+>   W3-17d rebuilt the listener's places, added `DEFAULT_LISTENER`, renamed `PRESETS.sewers` to `underwater`
+>   and put every control that is not the game's into one fieldset, "Extras: not in the game", with a list
+>   the browser suite carries.
+> - **So this order classifies its three controls as W3-17d's rule asks**: `fps_max` and `voice_buffer_ms`
+>   are the game's (name shown); `voice_timeline` is an extra and takes `voice_retime`'s place in the
+>   fieldset; the suite's list is updated in the same commit.
+> - Spec 2's reason for the other presets taking `source` ("their codecs or rooms are unverified") is half
+>   gone: the rooms are the engine's by then. What is left is the codec: the engine codecs ignore the
+>   option. The brief says which presets on `steam` with a room take `game`.
+> - A render may now carry a room's tail and `codecInfo.room`; the console line of spec 4 and the A/B note of
+>   spec 5 are unaffected.
+
 ### Files
 
 May touch: `index.html`, `app/core.js`, `app/console.js`, `app/render.js`, `app/source.js` (the video case
@@ -785,6 +869,12 @@ There is nothing private to run.
 **Files:** `app/visualizer.js`, `app/realtake.js`, `app/netgraph.js` (only if it reads the frame log), `sw.js`
 (the cache version), `tests/browser.verify.js`. Nothing else.
 
+> **Now comes after (2026-11-10, `docs/reports/W3-plan-maintenance-2.md`).** Built after W3-17d. Its plan
+> holds. What it will find: a render at the device's rate that may end in a room's tail (W3-10, W3-17c), so
+> a drop's `time` is in source seconds and the lane's width is the render's; `codecInfo.room` beside
+> `codecInfo.channel`; a live recording's codec lane in 20 ms slots by what was laid (W3-11b). The real-take
+> check keeps the frame model (W3-11's decision 9).
+
 1. **The visualizer** draws the codec lane and the frame hover from `codecInfo.frameLog`, which W3-02c re-times
    to the sound. Mark each entry of `codecInfo.channel.drops` on the lane (a tick mark at its `time`; hover:
    "ring overflow, N ms skipped"). `net_graph` shows the sender's counters; if it reads the frame log, it reads
@@ -810,6 +900,13 @@ rejection of `retime`), `tests/verify.js` (section 10c goes; 10d stays, less its
 `tests/predictions/PREDICTIONS.md` (the hashed-file note). `tests/retiming.mjs` keeps its own copy of the rule
 for scoring and is not touched.
 
+> **Now comes after (2026-11-10, `docs/reports/W3-plan-maintenance-2.md`).** Built after W3-17c and W3-17d.
+> Its plan holds. What it will find: `retimeSpurts` has two forms since W3-11a's fix round (the frame
+> path's, and the `steam` path's that moves each spurt's laid samples whole): both go; `tests/verify.js`
+> section [5c] has a check of the second ("re-timing on the steam path moves a spurt's laid samples
+> whole"), which goes with 10c; W3-17c left `createRender` refusing `retime`, alone or with a room, and that
+> refusal goes here; W3-17d lists `voice_retime` among the extras until W3-02d replaces it.
+
 **The builder runs:** `pnpm test`; the golden hashes unchanged; `grep -n "retime" audio.js` finds nothing; the
 browser suite (the alias `voice_retime` still works: it is the page's); CI. W2-04's point 2 (streaming the flat
 rule) is then void: say so in the report so the orchestrator notes it in PROGRESS. Nothing private.
@@ -818,6 +915,32 @@ rule) is then void: say so in the report so the orchestrator notes it in PROGRES
 
 **Branch:** `claude/w3-02g-demo-packets`, from `main` **after W3-02c, W3-06 (both change `demo.js`) and
 W3-02f**. **Time budget:** half a day.
+
+> **Now comes after (2026-11-10, `docs/reports/W3-plan-maintenance-2.md`).** The last order of the
+> sequence. **It needs a planner's pass before it is built**, on the first point below.
+>
+> - **Which decoder a demo's voice goes through.** W3-11a left a demo's received voice on the old path
+>   (`demo.js`'s own decode and the app's sinc resampler), and the spec below takes each message's samples
+>   as a range of one decoded signal. Under `'game'` it then asks for "16-bit, by W3-11a's decoder rules":
+>   that is `createSteamDecoder` fed the demo's own frames, message by message. The planner says which path
+>   a demo takes on each timeline, and what `from` and `to` mean when the decoder conceals inside a message.
+> - **The decoder's 17-frame cut is this order's** (W3-16's read, section 3; W3-16's order, "not here"): one
+>   record's 24 kHz buffer holds 17 frames, concealed ones included; a frame that would be the 18th is not
+>   decoded, its number is spent all the same, and the rest of the record is skipped. Only a demo's own
+>   packets can reach it (an opening of 6000 samples behind a pre-roll; numbers that ran on over frames
+>   never collected, across key presses). It is a rule of the record, so it sits where a record's frames are
+>   given to `createSteamDecoder`. **`opus-codec.mjs` is missing from this order's files.**
+> - **The game's 12-frame refusal** (W3-02c's note) applies to a demo's messages as to the model's: a 17-frame
+>   opening is decoded and never heard.
+> - **Sequence numbers** are the demo's own 16 bits, given to `receive(seq, packet)` as they are; the decoder
+>   masks.
+> - **The decoder outlives channels and key presses, as the resampler does** (measured, Set J): one decoder
+>   and one resampler per speaker for the whole demo; only an end marker in the demo or a number behind the
+>   expected one resets the decoder. An empty packet (the end marker alone, at a key press) resets it, holds
+>   no sound, and in the game still opens a channel: it is pushed with an empty `pcm`.
+> - **The gain is reset at each channel the timeline opens**, as in W3-02c, with the settings read then.
+> - Under it by then: W3-10's mix stage and device rate, and W3-17c's room path at the mix, as in W3-02c's
+>   note. A demo's render can carry a room like any other.
 
 A demo has the real packets and their ticks, so nothing is made up. **Files:** `demo.js` (`decode` also returns
 `packets`), `app/source.js` (passes them in `received`), `voice-channel.js` (`createTimeline` takes packets in

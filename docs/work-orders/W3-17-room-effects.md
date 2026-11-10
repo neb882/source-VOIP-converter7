@@ -9,13 +9,17 @@ first: the water preset's amplifier does not swing. Below, "R2 a" to "R2 f" are 
 `docs/reports/W3-18-rooms-in-the-takes.md` ("RT" below): two of the owner's existing sets carry the room.
 Part a was already being built and is unchanged: its arithmetic, files and checks stand as written. The
 amendment touches Decision 1, part b's cases, parts c and d, the owner's procedure and "What moves".***
+*Brought up to date 2026-11-10 for the new order of work (`docs/PROGRESS.json`, decisions;
+`docs/reports/W3-plan-maintenance-2.md`): parts c and d now come **before** the receiver's orders (W3-02c to
+W3-02g), straight after W3-10. Changed for that: Decisions 2 and 3, the "Depends on" of parts c and d, part
+c's items 4 and 5 and its entry check, part d's items 4 and 6. Parts a and b are untouched.*
 
 | Part | What | Files it touches | Starts after | Budget |
 | --- | --- | --- | --- | --- |
 | **W3-17a** | the room module: the table, the processors, a preset, the slot and its cross-fade, the voice's shares and entry, the room path, the tail's end | new files only | now; beside any order | 2 days |
 | **W3-17b** | the automatic room in the module: the build from two templates, the named cases | the module's files only | W3-17a | 1 day |
-| **W3-17c** | the render: `process()` and `createRender` use the module; the old processors go | `audio.js`, tests | **W3-10 merged**, and W3-17b; no other `audio.js` order open | 1.5 days |
-| **W3-17d** | the page and the live chain: places, the extras group, the labels, saved settings | `app/`, `index.html`, `constants.js`, `live*.js`, `batch.js`, docs | W3-17c | 1.5 days |
+| **W3-17c** | the render: `process()` and `createRender` use the module; the old processors go | `audio.js`, tests | **W3-10 merged** (and so W3-16 and W3-11b before it), and W3-17b; no other `audio.js` order open. **Before W3-02c** | 1.5 days |
+| **W3-17d** | the page and the live chain: places, the extras group, the labels, saved settings | `app/`, `index.html`, `constants.js`, `live*.js`, `batch.js`, docs | W3-17c. **Before W3-02c and W3-02d** | 1.5 days |
 
 **Kind:** code. `tf-builder` (effort xhigh for a and c, high for b and d), then `tf-reviewer`; the diffs of a,
 b and c also get a second reader on the stronger model (they decide how a render is computed). **Branches:**
@@ -70,9 +74,11 @@ for that.
    the order keeps (a).** A change to (b) or (c) is: the constant; the `PAGE` options of
    `tests/render-stream.verify.mjs` and so every golden hash of a default render, once; the accuracy table's
    default; the browser suite's expected first option.
-2. **Four parts, one file.** Parts a and b add new files only, so they do not wait for the `audio.js` queue
-   (W3-11a, W3-16, W3-11b, W3-02c, W3-02d, W3-02f with W3-02e, W3-02g, W3-10). Parts c and d come after
-   W3-10. This also follows the owner's priority (the modern preset before the rooms).
+2. **Four parts, one file.** Parts a and b add new files only, so they do not wait for the `audio.js` queue.
+   *Since 2026-11-10 that queue is:* W3-16, W3-11b, W3-10, **W3-17c, W3-17d**, then W3-02c, W3-02d, W3-02f
+   with W3-02e, W3-02g. Parts c and d come straight after W3-10 and before the receiver's orders: the rooms
+   rest on recordings (Sets C and D) and the receiver's model is the least certain. The modern preset's own
+   path (W3-16, W3-11b, W3-10) still comes first, which is the owner's priority.
 3. **W3-10 owns the mix stage; this order changes only its entry.** W3-10 builds, in `audio.js`: the voice's
    entry at channel volume 255, where that entry sits against the mixer's upsampling of a 22050 or 11025 Hz
    voice (at the voice's own rate, before it: W3-07 section 1), the sum, the clip at +-32767, `volume`, the
@@ -81,8 +87,11 @@ for that.
    entered twice by **that same function** (the direct share and the room share of the volume), each buffer
    is upsampled by W3-10's rule, the room buffer passes the room slot, and the sum goes to W3-10's clip;
    under water the sum passes the water slot first. The module's own `entry` is the tested statement of the
-   law: part c checks W3-10's function against it on every 16-bit sample. **W3-10 stays the last order that
-   re-records every golden hash, and nothing is recorded twice.**
+   law: part c checks W3-10's function against it on every 16-bit sample. *As W3-10 is now written
+   (2026-11-10) the three functions are `TF2Audio.mixEntry(s, volume)`, `mixUpsample2(buffer)` and
+   `mixClip`, and its stage already runs in the mixer's 512-sample blocks from the render's first sample
+   (`opts.onMixBlock` shows them).* **W3-10 re-records every golden hash once; part c moves none of them
+   and adds its own, so nothing is recorded twice.**
 4. **"No room" means no slot, no tail and no new key.** A render with no room and not under water builds
    nothing of this order: no slot, no extra output, no new key in `codecInfo`. Every existing golden hash and
    info hash of such a render is unchanged (part c, first check).
@@ -727,7 +736,12 @@ else, **2R and the module as built win**. Parts c and d build on the module's AP
 ## W3-17c: the render
 
 **Depends on:** W3-10 merged (its mix stage and device stage are what this part builds on; read its report
-first), W3-17b merged. No other `audio.js` order open.
+first), W3-17b merged. No other `audio.js` order open. *Since 2026-11-10 it comes before the receiver's
+orders, so when it is built:* the render has **no voice channel and no game timeline** (W3-02c is not
+built): the voice reaches the mix on the source's timeline, from the gain, as W3-11a and W3-16 left the
+`steam` path and W3-05 the others; the flat re-timing rule (`opts.retime`) is still in `audio.js` (W3-02f
+is not built); the page is as W3-16, W3-11b and W3-10 left it. Nothing here waits for any of the W3-02
+orders.
 
 ### What to build
 
@@ -762,8 +776,13 @@ first), W3-17b merged. No other `audio.js` order open.
    function, with the volumes `255 x direct / 256` and `255 x room / 256` (`shares()` of the path, asked per
    512-sample mixer block); each of the two buffers is brought to 44100 Hz by W3-10's upsampling (nothing for
    a 44100 Hz voice); `createRoomPath().process(direct, room)` gives the sum; W3-10's clip, `volume`,
-   rounding and device stage follow, unchanged. `spurtStart()` is called at each voice channel start the
-   render knows (W3-02c's timeline; at the render's start otherwise). The room is set before the first
+   rounding and device stage follow, unchanged. The blocks are W3-10's: 512 samples of the 44100 Hz mix
+   from the render's first sample, in `process()` and in `createRender` at any chunking (the amendment's
+   point 3); for a 22050 Hz voice a block is 256 voice samples, for 11025 Hz 128. **`spurtStart()` is called
+   once, at the render's start**: there is no voice channel in a render yet. When W3-02c brings the game's
+   timeline it calls `spurtStart()` at each channel it opens and moves the blocks' origin to its clock's;
+   with a fixed room neither changes a sample (the module runs sample by sample and the four mix values do
+   not move), so no hash of this part depends on it. The room is set before the first
    sample: no fade at the start of a render. **If W3-10 as merged did not write its entry and upsampling as
    Decision 3 and its pointer say, stop and report**; do not work around it.
 5. **The tail.** After the voice's last sample the render feeds zeros until `tailLeft()` says the output has
@@ -772,6 +791,9 @@ first), W3-17b merged. No other `audio.js` order open.
    `outputLength` stays the length without a tail, a new `maxTail` gives the cap at the output's rate, and
    `finish()` returns the tail. List every reader of `outputLength` (`app/`, `batch.js`, the workers) and
    what each does with a tail. This replaces the room half of W2-04 (its re-timing half is W3-02's).
+   `opts.retime` is still there when this part is built: `process()` takes it with a room as it does now
+   (the rule moves spurts before the gain, the room comes after), and `createRender` goes on refusing
+   `retime`, alone or with a room, until W3-02f removes the rule.
 6. **The accuracy table's rows say where a take was made.** In `tests/accuracy.takes.json` the six rows of
    Set C gain the setting `"room": { "auto": "set_c_room" }` and Set D's PC A row `"room": { "auto":
    "set_d_street" }` (RT 1.4); Set B's rows and PC B's gain nothing. The harness already hands a row's
@@ -790,7 +812,10 @@ first), W3-17b merged. No other `audio.js` order open.
   effect)" and "steam, custom room at mix 0 (no effect)" are no-room renders by item 2 and keep theirs. The
   builder shows this by running the suite before writing any new hash, and a check asserts that such a render
   made no slot (the module absent from the sandbox, the render still succeeds).
-- W3-10's entry function equals `TF2Room.entry` on all 65,536 samples at shares 256, 229, 26 and 23.
+- W3-10's entry function equals `TF2Room.entry` on all 65,536 samples at shares 256, 229, 26 and 23
+  (`TF2Audio.mixEntry(s, 255 x share / 256)` against `TF2Room.entry(s, share)`), and the path is given its
+  samples in W3-10's blocks: with `opts.onMixBlock`, every `process()` call of the path starts on a block's
+  first sample, in the offline render and in the stream at chunk sizes 1, 127 and 4096.
 - New golden cases, recorded once: `steam` with preset 6, with preset 17 (random taps), with the `tunnel`,
   `great_hall` and `set_c_room` cases, under water, under water with preset 6, the custom room at mix 0.3; `celt_22` with
   preset 6 (the entries before the upsampling); a room with loss and jitter; `dspRoom` 137 (no room: the
@@ -881,14 +906,17 @@ loading needs.
 4. **Every control, classified.** The rule: a control shows a variable's name (`class="cvar"`) only if the
    game has that variable; a control that is neither the game's nor a setting of one of the two PCs is an
    extra, and sits in one fieldset, "Extras: not in the game". The made-up names stay as console commands of
-   the app. **Read the page as it stands when this part starts** (W3-11b, W3-02d, W3-02f and W3-10 change it
-   first): a control this list does not name is reported, not guessed.
+   the app. **Read the page as it stands when this part starts** (*since 2026-11-10:* W3-16, W3-11b and W3-10
+   change it first; W3-02d and W3-02f come **after** this part and must keep the classification: W3-02d
+   puts `fps_max` and `voice_buffer_ms` on the game's side, `voice_timeline` among the extras in
+   `voice_retime`'s place, and updates the browser suite's list): a control this list does not name is
+   reported, not guessed.
 
    | Side | Controls |
    | --- | --- |
    | The game's (name shown) | codec `sv_voicecodec` (its four game values); the no-room option `dsp_slow_cpu`; listener position and manual number `dsp_room`; the automatic room's six measures (what the map would measure; no name); under water (a state; no name); `voice_avggain`; `voice_maxgain`; `voice_scale`; `volume`; frames lost `net_fakeloss`; jitter `net_fakejitter`; live push-to-talk (`+voicerecord`) |
-   | The two PCs (no variable name) | the sender's stereo capture choice (finding 6); the listener's sound device rate (W3-10); the live monitor's microphone and output device |
-   | Extras: not in the game | mic gain (`voice_micgain`); high-pass and low-pass (`dsp_hpf`, `dsp_lpf`); the gate switch and its threshold as W3-11b leaves them (`voice_vad`, `voice_vad_threshold`); codec bypass (`snd_codec`); bitrate scale (`snd_bits`); packet length (`net_split`); auto-gain switch (`voice_agc`); talk-spurt timing (`voice_retime`, if W3-02f has not retired it); the custom room (`dsp_custom_*`, `dsp_room 99`); the "Fullband Opus" codec (marked in its option); live low latency |
+   | The two PCs (no variable name) | the sender's stereo capture choice (finding 6); how long the sender's Steam has been running (W3-16); the listener's sound device rate (W3-10); the live monitor's microphone and output device |
+   | Extras: not in the game | mic gain (`voice_micgain`); high-pass and low-pass (`dsp_hpf`, `dsp_lpf`); the gate switch and its threshold as W3-11b leaves them (`voice_vad`, `voice_vad_threshold`); codec bypass (`snd_codec`); bitrate scale (`snd_bits`); packet length (`net_split`); auto-gain switch (`voice_agc`); talk-spurt timing (`voice_retime`: it is still there, W3-02d and W3-02f come later); the custom room (`dsp_custom_*`, `dsp_room 99`); the "Fullband Opus" codec (marked in its option); live low latency |
 
    The game's own names are from its `find voice` output (it has `sv_voicecodec`, `voice_avggain`,
    `voice_maxgain`, `voice_scale` and none of the made-up ones) and the reports.
@@ -899,7 +927,13 @@ loading needs.
 6. **The live chain.** The room path (`createRoomPath`) lives in `live-worker.js`, outside the chain, so a
    settings change that rebuilds the chain keeps the room's lines. A change of room calls `setRoom`: the
    engine's 200 ms cross-fade (100 ms for the water slot); the shares follow `shares()` block by block
-   (the limits from the next talk spurt on; 0 and 256 once a fade to none has ended: part a, item 11). At the
+   (the limits from the next talk spurt on; 0 and 256 once a fade to none has ended: part a, item 11). *Since
+   2026-11-10 this part comes before the receiver's orders, so the live chain has no voice channel:* it is
+   W3-11b's (the render's stages on Steam's sender, the packets laid on the source's timeline) with W3-10's
+   mix stage after it. `spurtStart()` is called at the first delivered message of each spurt the sender
+   opens: a stand-in for the channel's start, said in a comment, until a channel runs live. The chain's
+   mix stage calls the worker's path once per 512-sample block, between W3-10's upsampling and its clip;
+   the path keeps its own count of blocks across a rebuilt chain. At the
    context's rate the live chain converts as W3-10 left it. Measure the room's cost in the live worker on the
    build machine for `great_hall` during a fade and give it in the report (this plan's prototype: 167 ns a
    sample for two twelve-line presets, under 1% of real time).
