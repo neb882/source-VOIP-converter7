@@ -10,13 +10,14 @@ are spelled out; the tool for the owner's file-input recording and its private c
 | Part | What | Starts after | Budget |
 | --- | --- | --- | --- |
 | **W3-11a** | the render and `createRender`: the sender, the decoder's rules, 16 bits, the resampler, `codecInfo`, the golden hashes | **built and merged 2026-11-10** (`docs/reports/W3-11a-steam-render.md`); its section below is left as it was built from | 2 days |
-| **W3-11b** | the live chain on Steam's path (the render's own stages), the key, the threshold control and its default, the page's texts, README | **W3-16 merged**; no other `audio.js` order open | 2 days |
+| **W3-11b** | the live chain on the render's own stages, with the key held; the app's stand-in for push-to-talk; the threshold control and its default; the page's texts, README | **W3-16 merged**; no other `audio.js` order open | 1 day |
+| **W3-11c** | the key as Steam has it: the two tails, a press's resets, the empty packet, messages made and not collected | **not to be built yet**: after W3-17d, and only once the owner's microphone run is in and a planner has specified five points against it | to be set then |
 
-**The order of work since 2026-11-10** (`docs/PROGRESS.json`, decisions; `docs/reports/W3-plan-maintenance-2.md`):
-W3-16, then W3-11b, then W3-10, W3-17c and W3-17d, then W3-02c to W3-02g. **Part b was rewritten that day and
-is ready to build when W3-16 has merged.** **Kind:** code. `tf-builder` (effort xhigh), then `tf-reviewer`,
-then a second reader on the stronger model (part a: it changes how a render is computed; part b: it edits the
-sender and the codec's stream, which the render shares). **Branches:**
+**The order of work since 2026-11-10** (`docs/PROGRESS.json`, decisions; `docs/reports/W3-plan-maintenance-2.md`
+and its addendum): W3-16, then W3-11b, then W3-10, W3-17c and W3-17d, then W3-11c and W3-02c to W3-02g.
+**Part b was rewritten that day, reviewed, revised and cut in two: b is the path, c is the key.** **Kind:**
+code. `tf-builder` (effort xhigh), then `tf-reviewer`, then a second reader on the stronger model (part a: it
+changes how a render is computed; parts b and c: they decide what the live monitor computes). **Branches:**
 `claude/w3-11a-steam-render`, `claude/w3-11b-steam-live-page`, from `main`. **Worktrees:** given in the brief.
 *Maintenance, 2026-11-10 (`docs/reports/W3-plan-maintenance.md`): brought up to date with what the builds of
 W3-02b, W3-05 and W3-13 learnt (the sender's messages as built, the gain fed only decoded samples and its
@@ -296,26 +297,28 @@ not touch: `steam-sender.js`,
 - If `createRender` cannot equal `process()` with the per-message path.
 - If a golden hash moves for `steam_48`, CELT, Speex or a bypassed case.
 
-## W3-11b: the live chain on Steam's path, the key, the threshold control, the words
+## W3-11b: the live chain on the render's own stages
 
-*Rewritten 2026-11-10 (`docs/reports/W3-plan-maintenance-2.md`). The part as first written is replaced, not
-amended: it kept the live chain's float decode and its own resampler, left the key to a later order, used a
-sender interface that W3-16 has since changed, and one of its checks did not fit the code (a settings change
-rebuilds the live chain, so no gain "runs on" across one). What it said of the threshold control and the page's
-words stands and is carried over below.*
+*Rewritten 2026-11-10 (`docs/reports/W3-plan-maintenance-2.md`), then revised and cut in two the same day
+after its plan review (7 must-fix, 12 should-fix, 15 notes; what was done about each is in that report's
+addendum). **This part is the path: the live chain runs the render's stages, with the key held from the
+chain's start to its stop.** The key's own rules are W3-11c, below, which is not to be built yet. Against the
+first version of the day: the float decode and the app's resampler leave the live chain; the sender's
+interface is W3-16's; a check that did not fit the code is gone. What the first version said of the threshold
+control and the words stands and is carried over.*
 
-**Starts after:** W3-16 merged (its sender is what this part drives; W3-11a is merged). No other `audio.js`
-order open. **Before:** W3-10. **Budget:** 2 days (it was 1: the key and the decode side are new to it).
+**Starts after:** W3-16 merged. **It takes the sender as W3-16 merges it and names no constant of its clock**:
+W3-16 is still in review, and a later order may change how the capture's steps fall. Wherever a figure below
+comes from the sender (a reach, a latency), it is computed from `STEAM_SENDER` as the render computes it,
+never typed. No other `audio.js` order open. **Before:** W3-10. **Budget:** 1 day.
 **Agents:** `tf-builder` at effort xhigh, then `tf-reviewer`, then a second reader on the stronger model (it
-edits the sender and the codec's stream, which the render shares, and decides what the live monitor computes).
-**Branch:** `claude/w3-11b-steam-live-page`, from `main` after W3-16's merge.
+decides what the live monitor computes). **Branch:** `claude/w3-11b-steam-live-page`, from `main` after
+W3-16's merge.
 
 **Read first:** `docs/reports/W3-11a-steam-render.md` ("What was built", "Readings of the order", "For W3-11b's
 builder"); W3-16's report, `docs/reports/W3-16-sender-hold-clock.md` ("The sender", "For W3-11b's builder");
-`docs/reports/W3-16-steam-hold-read.md` (section 1d's last paragraph, section 1e and the pseudo-code: "the
-read" below); `docs/reports/W3-14-steam-file-input.md` ("The end of a key press, and the next press", "The run
-as one session"); `docs/reports/W3-09-steam-voice.md` ("Key down and key up"); `tests/REFERENCE_2026.md`,
-findings 28 and 29.
+`createRender`'s `steam` stage in `audio.js` (the stage that pushes to the sender and takes from
+`steamTimeline`): this part is that stage, fed without an end.
 
 ### Decisions of this part
 
@@ -323,211 +326,209 @@ findings 28 and 29.
    as the microphone's blocks arrive: the 16-bit capture, Steam's sender with the seeded clock and the
    `uptime` setting, `createSteamStream` (the library's 16-bit decoder under Steam's rules), one
    `TF2Swresample` resampler fed whole messages, the gain fed the decoded packets, the packets laid on the
-   source's timeline. **With the key held from the first sample, what the live chain hands its mix stage is,
-   sample for sample, what `createRender` hands its own** for the same sound, seed and settings. Why: Set J
-   showed the render's decode path to be Steam's in 524,286 of 524,288 samples (W3-14), so a second, float
-   path in the live chain is now the one place the app's `steam` differs from Steam for no reason; and
-   W3-11a's browser check 3f had to measure the lag between the two paths instead of proving them equal.
+   source's timeline. **What the live chain hands its mix stage is, sample for sample, what `createRender`
+   hands its own** for the same sound, seed and settings. Why: the render's decode path is Steam's in 524,286
+   of 524,288 samples on Set J (W3-14's own pipeline, and W3-11a's second reader's run of the render itself),
+   so a second, float path in the live chain is now the one place the app's `steam` differs from Steam for no
+   reason; and W3-11a's browser check 3f had to measure the lag between the two paths instead of proving
+   them equal. **The proof is in Node** (`tests/verify.js` [10b]); the browser checks words and wiring.
 2. **The clock is the model's, on the samples.** In Steam a microphone's chunk needs no clock: it is what the
-   capture cursor gained since the last read, at most 6000 samples, the newest kept (the read, section 1d);
-   the clock only times the hold. The browser gives neither Steam's reads nor Steam's capture: the page's
-   worklet gathers the context's 128-frame quanta into blocks of a fiftieth of a second at the context's rate
-   and posts them to the worker, which gets them when the browser schedules it, several at once after a
-   stall. Those arrival times are the browser's and this PC's; taken as reads they would make every chunk
-   480 samples (a 20 ms gate, which Steam's is not), and the same recording would gate differently on each
-   run, which the project's rule on determinism forbids. So: **the live chain counts time in the 24 kHz
-   samples it has pushed to the sender** (sample `n` is at `n / 24000` s from the chain's start), and the
-   sender's seeded clock (W3-16) draws the reads and the capture's steps on that time, exactly as in a
-   render. The wall clock is not read anywhere. What stands for the sender's PC is the model: 750-sample
-   capture steps up to 13 ms late, reads 48.0 to 63.7 ms apart.
-3. **The key is Steam's, in the sender and the stream.** Push-to-talk follows the read and Set J (item 4).
-   It adds calls to `steam-sender.js` and to `createSteamStream`; a render never makes them, and no golden
-   hash moves.
-4. **`null` and `undefined` mean the same threshold everywhere:** the profile's own.
+   capture cursor gained since the last read (W3-16's read, section 1d); the clock only times the hold. The
+   browser gives neither Steam's reads nor Steam's capture: the page's worklet gathers the context's quanta
+   into blocks of a fiftieth of a second at the context's rate and posts them to the worker, which gets them
+   when the browser schedules it, several at once after a stall. Taken as reads, those arrivals would make
+   every chunk one block long (a 20 ms gate, which Steam's is not), and the same recording would gate
+   differently on each run, which the project's rule on determinism forbids. So **the live chain counts time
+   in the 24 kHz samples it has pushed to the sender**, and the sender's seeded clock draws the reads on that
+   time exactly as in a render. The wall clock is not read anywhere.
+3. **The key is held from the chain's start to its stop.** With push-to-talk off (the page's default) that
+   is what the chain models: the render's model, and what holding `+voicerecord` gives. What TF2's own
+   open-microphone mode (`voice_vox`) does was not read; the README says so in one sentence.
+   **With push-to-talk on, until W3-11c, the app uses a stand-in of its own:** while the key is up the
+   microphone's block is replaced by zeros at the chain's input. The clock and every position run on; the
+   gate closes an open spurt by its own hold; a spurt after the next press takes its pre-roll from what was
+   pushed, which is zeros for as long as the key was up. So nothing captured with the key up is ever sent.
+   (One corner: after a key-up shorter than the pre-roll, the pre-roll reaches back across the zeros into
+   quiet sound from the hold before. README's "audio from before the key goes down is never sent" is
+   re-worded to "sound captured while the key is up is never sent", which is true by construction.) It is
+   **not** Steam's key: Steam goes on sending for half a second after a release, resets its encoder at a
+   press and can send an empty packet. The page says in plain words that this is the app's stand-in.
+   Nothing in this part claims a release tail.
+4. **`null`, `undefined` and `''` mean the same threshold everywhere:** the profile's own.
 5. **The uptime setting is the render's.** W3-16 put "Sender's Steam has been running" on the page, sent as
    `steamUptime` in `renderOptions()`. The live monitor's options are `renderOptions()` plus `lowLatency`
-   (`live.js`), so the value already reaches the worker; the live chain passes it to the sender through
-   `steamSenderOptions`. No second control.
+   (`live.js`), so the value already reaches the worker, and `steamSenderOptions` passes it to the sender
+   (the review confirmed both on W3-16's branch). No second control.
 6. **`steam_48`, the CELT and Speex profiles, and `steam` with the codec bypassed keep the frame queue**,
-   bit for bit but for item 6's reading of a `null` threshold.
+   bit for bit but for "What to build", item 4's reading of an absent threshold.
+7. **`steam-sender.js` and `opus-codec.mjs` are not touched.** With the key held, the sender and the stream
+   as they are on main after W3-16 are all this part needs.
 
 ### What to build
 
-1. **The live chain** (`createLiveChain`, `steam`, codec on). The stages, each the render's own function
-   where one exists (`steamCapture`, `steamSenderOptions`, `steamTimeline`, `createSteamStream`; W3-11a's
-   report names them):
+1. **The live chain** (`createLiveChain`, `steam`, codec on), from the render's own functions
+   (`steamCapture`, `steamSenderOptions`, `steamReach`, `steamTimeline`, `createSteamStream`):
    - **Capture.** As now up to the capture roll-off (mic gain, the clip, `streamResampleSinc` to 24 kHz, the
      optional filters, the roll-off as a causal FIR), **with each causal FIR's delay dropped from the front
      of its output**, as `firStage` drops it in `createRender`: the sender must be given the samples a render
-     gives it, at the same positions, or its clock cuts other chunks. The dropped delay stays in
-     `contentDelay` and `latencyMs`. Then `q = steamCapture(x)` and `sender.push(q)`; the encoder is given
-     `q / 32768` (inside `createSteamStream`).
+     gives it, at the same positions, or its clock cuts other chunks. Then `q = steamCapture(x)`.
    - **The sender**: `createSender(steamSenderOptions(opts, gateOn, seed).sender)` with the chain's seed
      (`opts.seed`, default `0xC0FFEE`, as the render's) and `opts.steamUptime`. The gate off is the sender's
      `gate: false`.
    - **The network**: `streamLossMask`, one draw per frame by the sender's frame number, as `createRender`
      draws it.
-   - **The codec and the receiver**: each message through `createSteamStream().message(msg, miss)`; its
-     `pcm` (when not empty) through the chain's one resampler as one `packet()`; the result, as 16-bit
-     values over 32768, through the chain's one gain (`createGain`, reset once, when the chain is made), a
-     silence record's zeros included and a late frame's span left out, and laid: all of it `steamTimeline`,
-     as `createRender` calls it. With `agc` off the laid signal is scaled and clipped as the render's stage 4
-     does.
-   - **What is given out.** After each block the chain gives out the voice-rate samples up to
-     `round((P - REACH - lookahead) x 147 / 80)`, `P` the samples pushed to the sender so far and `REACH` the
-     render's `STEAM_REACH` (4650: the longest chunk, 2250, and the pre-roll, 2400), and no further. Between
-     spurts they are zeros. **A laid sample that falls before what was already given out is dropped and
-     counted** (`stats.droppedLate`): the render lays it, the live chain cannot take sound back. With the
-     full reach that happens only where a gap of more than 10 lost frames closed up by more than the reach
-     allows (W3-11a point 6: the sound after such a gap comes earlier), about 16 lost frames in a row.
-   - **Low-latency mode** (`opts.lowLatency`): the reach is the longest chunk alone (2250). The sender, the
-     encoder and the decoder run exactly as before, pre-roll included, so every later sample of the spurt is
-     the render's; the pre-roll's samples that fall before what was given out are dropped by the rule above.
-     (The first version suggested keeping the sender's `past` empty: the sender then sends 2400 zeros in
-     their place, which changes the codec's state and gains nothing.)
+   - **The codec and the receiver**: each message through `createSteamStream().message(msg, miss)` and
+     `steamTimeline().add(...)`, as `createRender` calls them: one resampler for the chain, one gain reset
+     once when the chain is made, a silence record's zeros through both, a late frame's span left out of the
+     gain. With `agc` off the laid signal is scaled and clipped as the render's stage 4 does.
+   - **What `steamTimeline` needs for a chain with no end, and nothing more:** a frame log that grows (its
+     slot count comes from `codecLength` today); a `voiceLength` with no end; and a way to lay that drops
+     and counts in place of throwing (below). A render keeps the fixed log and the throwing `lay()`, and no
+     render's samples or `codecInfo` change: the golden hashes are the proof.
+   - **What is given out, defined per pushed sample**, so that the output is the same for any block plan.
+     For each 24 kHz sample pushed, in order: the messages the sender returns for it are handled; then
+     `given` becomes `max(given, bound(P, C))`, where `P` is the samples pushed so far, `C` the timeline's
+     cursor (where the open spurt's next packet will be laid; none when no spurt is open) and
+
+     ```
+     R = floor((P - reach - lookahead) x 147 / 80) - 1        # the render's own expression: share one function
+     W = 10 frames at the voice rate                           # the decoder's cap on a concealed gap
+     bound = min(R, max(C, R - W))                             # R when no spurt is open
+     ```
+
+     `reach` is `steamReach(STEAM_SENDER)`: the longest chunk and the pre-roll. A call to `process()`
+     returns the samples from the old `given` to the new one (as `take()` counts them: say in the comment
+     whether the bound is inclusive). Pushing the sender one sample at a time is the plain way and is cheap;
+     any batching must give the same output, and the block-plan check below proves it.
+     - `createRender` gives out up to `min(R, C)`: it can wait for the cursor without limit. The live chain
+       waits for it **at most ten frames**: while frames are being lost nothing is decoded and the cursor
+       stands still, and without the wait concealment would land on samples already given out after 5 to 9
+       lost frames in a row (the review measured the margin). With it, a gap of up to ten lost frames is
+       laid exactly as the render lays it.
+     - **The price:** during a run of lost frames the output waits, for up to 200 ms. The worklet's queue
+       runs dry, and when the held sound arrives at once it skips what is over its limit, as after any
+       stall. Loss is off by default. Say so in the report; the worklet is not changed.
+     - **A later packet of a spurt whose cursor lies before `given`** (only after a gap of more than ten
+       lost frames has closed up further than the wait covers) is laid from `given`, whole, and the spurt
+       goes on from there: the live chain cannot take sound back, and dropping instead would silence the
+       rest of a long spurt. Counted in `stats.movedLate` (packets). This is the one place the live chain's
+       laid signal may differ from the render's.
+     - **A spurt's first packet whose anchor lies before `given`** loses the samples before `given`; the
+       rest is laid where it belongs. Counted in `stats.droppedLate`, in voice-rate samples. With the full
+       reach this cannot happen.
+   - **Low-latency mode** (`opts.lowLatency`): the reach is the longest chunk plus one frame less a sample
+     (`steamReach` less the sender's `preroll`, plus `frame - 1`): a message's first frame can start that
+     far before the read that makes it, since up to a frame less a sample is kept from the chunk before. (A
+     reach of the longest chunk alone, as first written, drops sound in mid-spurt with no loss: the review
+     measured 1 to 2% of messages.) The sender, the encoder and the decoder run exactly as before, pre-roll
+     included, so every later sample of the spurt is the render's; only the pre-roll's sound is lost, by
+     the rule on a spurt's first packet. **The latency is lower by the difference of the two reaches** (about
+     80 ms with today's sender), and the page takes that figure from the chain, not from its text.
    - **After the mix point** the stages are the live chain's as they stand (the mixer's rate, the listener's
      low-pass, the output FIR, `volume`, the conversion to the context's rate, the limiter): W3-10 and W3-17d
-     change them, not this part.
-   - **What the chain reports.** `contentDelay` and `stats.latencyMs`: the dropped FIR delays, the codec's
-     lookahead, the reach and the later stages' delays; about 205 ms, and about 105 ms in low-latency mode
-     (today 132 and 12; say the figures in the report). `frameSize` 480, `frameSeconds` 0.02.
-     `takeFrameCodes()` gives the 20 ms slots that became final since the last call, by what was laid, as the
-     render's frame log has them (`steamTimeline` marks them); `live-worker.js`'s line that places slot `k`
-     follows the render's slot rule (slot `i` covers codec samples from `480 i - lookahead`). `stats`:
-     `frames` and `sent` count slots and slots not gated; **`lost` counts concealed blocks that were played**
-     (as the render's `lostFrames` counts concealed slots since W3-11a: a gap's frames past the tenth and
-     frames lost at a spurt's end are not played and not counted); `late` the late blocks; new:
-     `notCollected`, `emptyPackets`, `overTwelve`, `droppedLate` (items 4 and 5). `gateDb` is -40 for Steam's
-     own, the typed number otherwise, `null` with the gate off.
+     change them, not this part. **The mix point is one stage boundary**, with the test hook `opts.onGain`
+     on it as in the render: W3-10 starts "after its mix point as W3-11b left it" and counts the mixer's
+     blocks from the chain's first sample there.
+   - **`contentDelay` is the index shift and nothing else:** how many samples (at the context's rate) the
+     output's index sits behind the input's. On this path the capture FIR's delay is dropped from the
+     front, the lookahead is trimmed where the timeline lays, and the reach only holds samples back: none
+     moves the index. So for `steam` it is the causal delay of the stages after the mix point (today the
+     output FIR's one sample at 44.1 kHz). `live-worker.js` lines a recording up with it, and [10b] checks
+     it at the correlation's peak. **`stats.latencyMs` is `contentDelay` plus every hold-back**: the reach
+     and the lookahead, the dropped FIR waits, the resamplers' waits. Give both modes' figures in the report.
+   - **`stats`, each field** (the page reads them): `frames`: the 20 ms slots that have become final;
+     `sent`: those not gated; `lost` and `late`: the final slots with those codes, as the render's
+     `lostFrames` and `underrunFrames` count them (so a gap's frames past the tenth and frames lost at a
+     spurt's end are not counted: they were not played); `modes`, `dtx`, `bytes`, `lastMode`: per frame
+     encoded; `spurts`: the sender's `info().spurts.length`; `gateOpen`: a spurt is open in the timeline;
+     `talking`; `droppedLate` (voice-rate samples) and `movedLate` (packets); `latencyMs`. `frameSize` 480,
+     `frameSeconds` 0.02. `takeFrameCodes()` gives the slots that became final since the last call, by what
+     was laid, as the render's frame log has them; `live-worker.js`'s line that places slot `k` follows the
+     render's slot rule (slot `i` covers codec samples from `480 i - lookahead`). `gateDb` is -40 for
+     Steam's own, the typed number otherwise, `null` with the gate off.
    - **A settings change rebuilds the chain**, as now (`live-worker.js`, `configure`): the new chain starts
      with a silent sender, a new decoder, a resampler that has not flushed and a reset gain. That is the
-     app's own (in the game the receiver's settings are read when a channel is assigned), it is not changed
-     here, and the comment says so.
-2. **Checks 3f and [10b] are rewritten** (W3-11a moved both off `steam`): see "The builder runs".
-3. **`tests/speex102.verify.mjs`** renders `steam` through the live chain: its sandbox loads
-   `steam-sender.js` and `vendor/swresample/swresample.js` as the other suites' loaders do. Any other suite
-   that makes a `steam` live chain: the same.
-4. **The key** (`setTalking`, the live monitor's push-to-talk). Today a frame captured with the key up is
-   never sent. Steam does this (W3-09 "Key down and key up"; the read, section 1e and its pseudo-code;
-   measured where said):
-
-   | Event | What Steam does | Basis |
-   | --- | --- | --- |
-   | Key up | `stopF = nowF`: the float time of the last frame, not a new reading. `stopD = T()`: a double. Nothing else: reads go on | read |
-   | Each read while `stopF` is not 0 | first: if `nowF > fround(stopF + 0.5)` (floats, strictly greater), `stopF = 0` and, the key still up, the device stops: this read and the ones after it do nothing | read |
-   | The game's queue | a chunk's message is taken for the game until a read's time, in doubles, is past `stopD + 0.5`; the order of the take and the test within a frame is the read's pseudo-code | read |
-   | So there are two tails | the game is fed for an exact 0.5 s; the device and the gate run for 0.5 s on the float clock, up to one float step longer (62.5 ms at the default uptime, 125 ms at two weeks, 250 ms at a month). A message made in between is made (the encoder moves on, its numbers are spent, the gate's state moves, a spurt can end there) and never collected | read; the consequence inferred |
-   | Key down inside the float tail | `stopF = 0`; nothing is reset; taking goes on from the next read | read |
-   | Key down after the device stopped | the encoder is reset and the kept samples (the part of a frame in hand) are dropped. **Not reset: the sequence number, the gate's state and its noted time.** The device starts | read; measured twice (Set J) |
-   | The first read after that | with a microphone it usually finds no capture step yet. An empty read runs the states (W3-16): hanging or active with the hold long past, it sends **the end marker alone: the empty packet** of finding 25, and the next inactive chunk goes out as a silence record; ended, it clears the record; silent, nothing | read; the packet seen in Set G |
-   | A spurt left open | if the first read after a press does not end it (the hold has not run out, or the read brings an active chunk), **the spurt goes on**: no marker, numbers running on, the new encoder's packets into the old decoder | measured (Set J, both clips) |
-   | The decoder | outlives key presses and channels; only a delivered end marker, or a number behind the expected one, resets it. Numbers that ran on over frames it never got are a gap: at most 10 concealed | measured (Set J as one session); read |
-
-   **In the sender** (`steam-sender.js`; W3-16's builder: "`nowF` is per read in `nextRead()`; a tail test
-   belongs beside it"): a new call `key(down)` returning `{ messages, reset }`, and one new field on a
-   message, `collected` (false when the game would not have taken it; left out otherwise). The rules above,
-   with these readings for a sender that takes each read as soon as its chunk's samples are in:
-   - a key change takes effect **between two reads**: after every read already taken from what was pushed,
-     before the next. (A read is taken up to 108 ms before its own time on the model's clock, so a change can
-     land up to two reads late on that clock. It is deterministic, the page passes a key within about a
-     block, and the comment says so.) `stopF` is the `nowF` of the last read taken; `stopD` is that read's
-     time before the narrowing (`uptime + time`, a double);
-   - while the device is stopped, pushed samples are counted and not captured, so every `start` stays a
-     position in the chain's input; the clock's reads run on, and the sender takes and discards each one
-     whose `since` is at or before the time pushed (a read then draws as usual and does nothing). So the
-     first read after a press falls 0 to 63.7 ms after it, as Steam's next frame does;
-   - at a press after a stop, `reset` is true, `kept` is emptied, and the capture's steps count from the
-     press: step `k` holds the samples from the press's position on, 750 at a time, and is ready
-     `(k + 1) x 0.03125 + 0.013 x B()` s after the press (**a model: where a restarted device's steps fall
-     was not measured; one named constant, flagged in the report**). The seeded clock gains what that needs
-     (a `restart(since)` of its capture, or the like); a supplied clock gives its reads as it likes, so a
-     test scripts "the first read after the press brings nothing";
-   - the gate's buffer of past sound is part of the gate's state and is kept across a stop, so an onset in
-     the first chunk after a press takes its pre-roll from the last sound captured before the stop
-     (**inferred from what the reads list as reset; not seen in a recording: say so in the comment and the
-     report**);
-   - `push`, `finish`, `info` and every message of a sender whose `key` is never called are unchanged
-     (`tests/steam-sender.verify.mjs` passes as it stands, and the golden hashes hold).
-
-   **In the stream** (`createSteamStream`, `opus-codec.mjs`): today a spurt's first message makes a new
-   encoder and a new decoder together, and an end marker frees both, so it cannot say "a new encoder, the
-   old decoder", nor "made, not delivered" (W3-11a's second reader, note 8). The sender's side and the
-   receiver's are separated:
-   - the encoder and the frame numbers are the sender's: a new encoder and number 0 after each end marker
-     made, **and a new encoder with the numbers running on at `press()`** (a new call);
-   - the decoder is the receiver's: one `createSteamDecoder` for the stream's life, reset by a **delivered**
-     end marker (`end()`) or by a number behind the expected one, never by `press()`;
-   - a message with `collected: false` is encoded frame by frame (the mask still draws for its frames, so a
-     frame's fate depends on its number alone) and nothing of it reaches the decoder, the resampler or the
-     gain: its frames count toward the next gap as `lost()` counts them, its end marker resets no decoder,
-     its silence record gives no zeros;
-   - for a render (no `press()`, every message collected) each message's `pcm` and `blocks` are what they
-     are on main: a decoder reset is a new decoder (`createSteamDecoder`'s `reset` makes one).
-
-   **In the live chain:** `setTalking(on)` calls `sender.key(on)` at the next block's first sample, handles
-   the messages it returns in order, and calls `stream.press()` when `reset` is true. A chain made with the
-   key down is a render's start (the device running, the gate silent). `setTalking(false)` before the first
-   block is a chain whose device never started. `stats.notCollected` counts frames made and not collected;
-   `stats.emptyPackets` the end markers sent alone.
-5. **The two limits a key can reach, named** (W3-16's order, "The decoder's 17-frame cut: not here"; the
-   read, section 3). One record's 24 kHz buffer holds 17 frames; the game refuses whole a message that comes
-   to more than 12 frames at 44.1 kHz. With the key, numbers can run on over frames never collected. Under
-   the model's clock a chunk is at most 2250 samples, so a message after such a gap is at most 10 concealed
-   and 6 decoded: **the 17-frame cut cannot be reached here either** (a comment says why; the cut itself is
-   W3-02g's, in `createSteamDecoder`'s caller). **The 12-frame refusal can be**: at "about a month" the
-   float tail runs up to 250 ms past the exact one, 8 or more frames. The refusal is the receiver's and is
-   W3-02c's; here the live chain plays such a message and counts it (`stats.overTwelve`), and the report
-   gives the count for a scripted case.
-6. **The threshold, in the engine.** One helper in `audio.js` reads `opts.gateThresholdDb` for the frame
-   gate's three readers (`process()`, `createRender`, `createLiveChain`): `null`, `undefined`, `''` and
-   anything that is not a finite number give the profile's own; a finite number is clamped to -90..0 as now.
-   (Today `finiteOr(null, ...)` is 0 dBFS in all three, and W3-11a's `steamSenderOptions` already reads
-   `null` as Steam's own: they now agree.) Show first that no golden hash moves.
-7. **The threshold control** (`#vad_threshold`, `voice_vad_threshold`). **An untouched control must give
-   Steam's gate exactly.**
+     app's own, it is not changed here, and the comment says so.
+2. **Push-to-talk, the stand-in** (Decision 3). `setTalking(false)`: from the next block given to
+   `process()`, the block is replaced by zeros before the mic gain; `setTalking(true)`: from the next block,
+   the microphone again. The input meter still shows the microphone. Nothing else knows about the key. So a
+   chain driven with a key is, by construction, the chain fed the same sound with those blocks zeroed, and
+   the check says exactly that. The other profiles keep today's rule (frames with the key up are not sent).
+3. **The suites that held the old path.**
+   - `tests/verify.js` [10b] goes back to `steam` and becomes the proof (below). Browser check 3f is
+     restated.
+   - `tests/speex102.verify.mjs`: its sandbox loads `steam-sender.js` and `vendor/swresample/swresample.js`;
+     its "[Live chain] Every profile" checks watch `createVoiceStream`, which the new path does not call:
+     their `steam` case moves to `steam_48`, and what they proved for `steam` (a new encoder per spurt, late
+     and concealed blocks counted) is carried by [10b].
+   - `tests/gain.verify.mjs`: "3 s blocks give the samples of 20 ms blocks" keeps its point on `steam` and
+     gains a case with loss.
+4. **The threshold, in the engine.** One reading of `opts.gateThresholdDb`, shared by `steamSenderOptions`
+   and the frame gate's three readers (`process()`, `createRender`, `createLiveChain`): `null`, `undefined`
+   and `''` give the profile's own; a number, or a string that reads as one, is clamped to -90..0 as now;
+   anything else gives the profile's own. (Today `finiteOr(null, ...)` is 0 dBFS in the three frame-gate
+   readers, and `steamSenderOptions` already reads `null` as Steam's own.) Show first that no golden hash
+   moves; no golden case passes `null`, `''` or a string.
+5. **The threshold control** (`#vad_threshold`, `voice_vad_threshold`). **An untouched control must give
+   Steam's gate.**
    - Its meaning depends on the profile, and its help and title say so: for `steam`, "the mean of |x| over a
      capture chunk, in dBFS; Steam's own is -40 (1% of full scale); a sine opens at -39.1 dBFS RMS"; for the
      others, "20 ms frame RMS in dBFS (-39.5)".
    - Its default is the profile's own: -40 for `steam`, -39.5 for the others. When the codec changes and the
      control holds the old profile's default, it takes the new one's.
    - `app/render.js` leaves `gateThresholdDb` out (`undefined`) when the control holds the profile's default
-     and sends the number otherwise, for every profile (this replaces W3-11a's line). So Steam's 327.67 is
-     never recomputed from a typed -40, and a batch's key does not change at a default.
+     and sends the number otherwise, for every profile (this replaces W3-11a's line). The reason is the key
+     a render is cached and batched by, which must not change at a default. (A typed -40 gives 327.67
+     exactly in JavaScript: the first version's reason, "never recomputed", was moot.)
    - A saved setting of -39.5 with the `steam` profile reads as the default (-40).
    - **One step of difference at a typed threshold is accepted.** The sender compares the mean in doubles;
      Steam forms a 32-bit float percentage and compares that. At Steam's own number no chunk the sender can
      see differs (W3-02b's review tried every sum within 50 of the threshold); at a typed one a chunk
      exactly on the line can open here and not in Steam. The help text need not say it.
-   - Every place that carries the old default, to change or to check (line numbers as on main before W3-16;
-     find them again): `index.html` (the input's `value`, about line 143), `app/render.js` (about line 143),
-     `app/console.js` (the help at about line 303, the read at 466, the reset command at 535), `app/core.js`
-     (the saved-settings fields and the presets, if they name it), `README.md`, `tests/browser.verify.js`
-     (about line 1240 expects `-39.5`). Not changed: `audio.js`'s `DEFAULT_SENDER_GATE`, `app/realtake.js`,
-     `reference.js`, `tests/retiming.mjs`, `tests/LEGACY_CODECS.md`, `tests/predictions/` (they are the frame
-     model, which the other profiles and the take tools keep). One thing follows and is said in the
-     control's help for `steam`: `app/realtake.js` hands a typed threshold to the real-take check as a 20 ms
-     RMS level, so with `steam` and a typed number the check's own gate sits about 1 dB from the render's (a
-     sine's mean of |x| is 0.9 dB under its RMS). At the default nothing is typed and nothing is off.
-8. **The words.**
+   - Every place that carries the old default, to change or to check (find them again after W3-16's merge):
+     `index.html` (the input's `value`), `app/render.js` (W3-11a's line), `app/console.js` (the help, the
+     read, the reset command), `app/core.js` (the saved-settings fields and the presets, if they name it),
+     `README.md`, `tests/browser.verify.js` (it expects `-39.5`). Not changed: `audio.js`'s
+     `DEFAULT_SENDER_GATE`, `app/realtake.js`, `reference.js`, `tests/retiming.mjs`,
+     `tests/LEGACY_CODECS.md`, `tests/predictions/` (they are the frame model, which the other profiles and
+     the take tools keep). One thing follows and is said in the control's help for `steam`:
+     `app/realtake.js` hands a typed threshold to the real-take check as a 20 ms RMS level, so with `steam`
+     and a typed number the check's own gate sits about 1 dB from the render's (a sine's mean of |x| is
+     0.9 dB under its RMS). At the default nothing is typed and nothing is off.
+6. **The words.** Each text below differs by profile now: `steam` on the new path, the others on the frame
+   path with their 120 ms pre-roll.
    - The chain strip's Gate cell and the console's lines for `steam`: "chunks · 100 ms kept · 0.4 s hold" in
      place of the frame counts.
-   - Wherever the page shows a render's `lostFrames` or the live `lost` count for `steam` (`app/render.js`
-     about line 249, `app/netgraph.js`, `live.js` about line 210): "concealed", not "lost"; the render's
-     console line adds that frames lost at a spurt's end are not played.
-   - The live monitor's push-to-talk note: speech goes on being sent for 0.5 s after the key is released.
-   - `steam_48`'s label and README row gain "not the game's path: the 20 ms frame gate and the app's own
-     resampler".
-   - `README.md`: the gate paragraph (it still describes the 20 ms frame gate), the settings table, the
-     live monitor's paragraph (one path with the render; the key), "Files and licensing" if a hash is
-     quoted; the limits say that the packets' clock is a model.
-   - `constants.js`: the `steam` profile's comment no longer says the live chain uses the three frame-gate
-     numbers; they stay for the take tools.
-   - `tests/REFERENCE_2026.md`: only "the app today" where this build makes it untrue, in a commit of its
-     own: the live-chain clauses of the Model table's rows Capture, Voice gate, Codec, Decoder's resampler,
-     Auto-gain and Network, its "Not built" line, and the last lines of finding 28's and finding 29's "The
-     app today". No finding's evidence is touched.
-9. `sw.js`: raise `CACHE` by one. `tests/predictions/PREDICTIONS.md`: a dated note (`audio.js`,
-   `opus-codec.mjs` and `steam-sender.js` changed again; no render moved: the golden hashes).
+   - Wherever the page shows a render's `lostFrames` or the live `lost` count for `steam` (`app/render.js`'s
+     console line, `app/netgraph.js`, `live.js`'s loss line): "concealed", not "lost"; the render's console
+     line adds that frames lost at a spurt's end are not played.
+   - `index.html`: the latency tooltip ("including the voice gate's 120 ms pre-roll") and the low-latency
+     label and title ("Skip the voice gate's 120 ms pre-roll ... onsets lose their first 120 ms"): for
+     `steam`, what is held back is the pre-roll and the longest chunk, and low latency drops the pre-roll's
+     sound and saves the figure the chain gives; for the others, as now. The push-to-talk title: for
+     `steam`, "the app's stand-in for the key: the microphone is silenced while the key is up, and the
+     voice gate ends the phrase by its own hold. Steam's own key rules (it goes on sending for half a
+     second after a release) are not built yet"; for the others, as now.
+   - `README.md`: the gate paragraph (it still describes the 20 ms frame gate); the settings table; the
+     live monitor's section: the latency paragraph ("About 230 ms ... sends the 120 ms before a word"), the
+     push-to-talk bullet (the stand-in, in the title's words; "audio from before the key goes down is never
+     sent" becomes "sound captured while the key is up is never sent"), the low-latency bullet ("saves 120 ms"), one sentence that with
+     push-to-talk off the key counts as held and that TF2's open-microphone mode was not read; `steam_48`'s
+     row gains "not the game's path: the 20 ms frame gate and the app's own resampler"; the limits say that
+     the packets' clock is a model.
+   - `live.js`'s header comment; `constants.js`: the `steam` profile's comment no longer says the live chain
+     uses the three frame-gate numbers (they stay for the take tools), and `steam_48`'s label.
+   - `tests/REFERENCE_2026.md`: only "the app today" where this build makes it untrue, in the file's own
+     style (a dated "Corrected" line where a sentence is replaced), in a commit of its own: finding 5's
+     correction ("the live chain keeps the frame fit until W3-11b"); finding 12's "The app today"; finding
+     16's correction ("the profile's other paths (the live chain, ...) still decode to float"); finding
+     26's "the other paths (the live chain, ...)"; the last lines of finding 28's and finding 29's "The app
+     today" (28's gains the push-to-talk stand-in, named as the app's own); the Model section's opening
+     sentence and its "Not built" line; the live-chain clauses of the Model table's rows Capture, Voice
+     gate, Codec, Decoder's resampler, Auto-gain and Network. No finding's evidence is touched.
+7. `sw.js`: raise `CACHE` by one (no new asset). `tests/predictions/PREDICTIONS.md`: a dated note
+   (`audio.js` and `constants.js`, both hashed model files, changed again; no render moved: the golden
+   hashes).
 
 ### The builder runs
 
@@ -536,129 +537,269 @@ check fails when its line is broken; the builder says how, and at least the muta
 in a scratch copy.
 
 - **No golden hash moves**, shown before any new expectation is recorded: `node
-  tests/render-stream.verify.mjs --hashes` against main's, all cases.
-- **`tests/steam-sender.verify.mjs` passes unchanged**, then gains the key's checks, on a supplied clock at
-  `uptime: 0` unless said (times as W3-16's float table gives them):
-  - key up at a read, then reads 100 ms apart: messages are collected through the one the read's pseudo-code
-    takes last and not after; the device stops at the first read with `nowF > fround(stopF + 0.5)` and later
-    reads make nothing; at `uptime` 3110400 (a step of 1/4 s) at least one message lies between the two
-    tails, with `collected: false`;
-  - a spurt that ends between the two tails: its end message is `collected: false`;
-  - key down inside the float tail: `reset` false, `kept` kept, taking resumes;
-  - key down after the stop, the first read empty, the hold long past, the state hanging: one message, the
-    end marker alone, then a silence record on the next inactive chunk; the same from the active state;
-    from the ended state no record; from the silent state nothing;
-  - key down after the stop within the hold, the first read empty, then an active chunk: no end marker, the
-    spurt's frame numbers run on from where the last made frame left them, `reset` true, the first frame
-    cut from the chunk alone;
-  - samples pushed while stopped appear in no message, and a later spurt's `start` is its position in all
-    the samples pushed;
-  - the seeded clock: after a press the first chunk's first sample is the press's position; over seeds 1 to
-    200 the first read after a press is empty in more than half (the report gives the share);
-  - determinism: the same pushes and key changes give the same messages twice.
-- **`tests/opus.verify.mjs`**: the stream with a `press()` in mid-spurt equals, by hand, a new encoder's
-  packets given to the decoder that decoded the frames before it, and differs from a new decoder's output in
-  the first frame after the press; five frames `collected: false` then a collected one give five concealed
-  blocks and the frame; fifteen give ten; an uncollected end marker then a new spurt's frame 0 gives a reset
-  and nothing concealed; without any of these the stream's output equals main's on the suite's existing
-  cases (recorded hashes, made on main first).
-- **`tests/verify.js` [10b]**, back on `steam`:
-  - **the live chain is the render:** a 24 kHz speech-like source of 20 s, in blocks of 128, 480 and 4,096
-    samples and one plan of seeded uneven sizes; through a test hook (`opts.onGain`, as the render's) the
-    laid signal the live chain gives out equals `createRender`'s for the same options and seed, sample for
-    sample, over everything given out, and `codecInfo`-style counts agree (`sender.spurts`, the resampler's
-    calls); with a 48 kHz source the same (the capture's stages in front);
-  - the same with `lossPct` 15 and jitter; with the gate off; with `steamUptime` 14400 and 3110400; with a
-    typed threshold of -46; with `agc` off;
-  - `gateThresholdDb: null` and `undefined` give the same output, for `steam` and for `celt_22` with the
-    gate on;
-  - low-latency mode: `latencyMs` is lower by the pre-roll's 100 ms; the output equals the full-reach
-    output from each spurt's first given-out sample on, and `droppedLate` is at most 2400 a spurt in
-    24 kHz terms;
-  - the key: with a scripted key (up at 2 s inside speech, down at 2.3 s; up at 6 s, down at 7.5 s inside
-    speech), sound goes on for 0.5 s after each release and no longer than 0.5 s and one float step; the
-    second press gives `emptyPackets` 1; at `steamUptime` 3110400 a scripted case gives `notCollected` above
-    0 and the next delivered frame is preceded by `min(gap, 10)` concealed blocks;
-  - the whole chain against a render of the same audio, as [10b] has it for `steam_48` today (level and
-    waveform once the chain's delay is allowed for), on `steam`; `steam_48`'s live output is bit for bit
-    main's (a recorded hash, made on main first).
-- **The browser suite.** A fresh page shows -40 and a render's `codecInfo.sender.meanMin` is exactly 327.67;
-  switching to a CELT profile shows -39.5 and back shows -40; typing -46 gives `meanMin` of
-  `32767 x 10^(-46/20)`; a saved -39.5 under `steam` restores as -40; the reset command restores the
-  profile's default; the Gate cell's text; `steam_48`'s label. **Check 3f, rewritten:** the live take against
-  an offline render of the recorded microphone, on `steam`: both paths now carry Steam's resampler (27.9 to
-  29.9 samples late, by where its stream stood), so `|lag| <= 2 k` samples, `k = rate / 44100`, and
-  `r > 0.8`; if sixty seeded takes simulated as W3-11a's builder did show a lower floor, the bound is their
-  tenth percentile less 0.05, with the table in the report. `steam_48` keeps `|lag| <= 1` and `r > 0.8`.
-  The live checks that rest on the frame gate are restated: "frames sent" (slots not gated); the latency
-  window (about 205 ms; in low-latency mode about 105, no longer under 20); push-to-talk (nothing is sent
-  from 0.5 s and one float step after the key is up: the check waits 800 ms before its first count, where it
-  waited 400). The W3-16 choice changes the live chain too: the same clip at "since today" and "about a
-  month" gives another `stats.sent`.
+  tests/render-stream.verify.mjs --hashes` against main's, all cases. `tests/steam-sender.verify.mjs` and
+  `tests/opus.verify.mjs` pass untouched.
+- **`tests/verify.js` [10b], on `steam`: the live chain is the render.** A speech-like source of 20 s with
+  pauses that close the gate, at 24 kHz and at 48 kHz; the live chain fed in blocks of 128, 480 and 4,096
+  samples and one plan of seeded uneven sizes. Through `opts.onGain` on both:
+  - the laid signal the live chain has given out equals `createRender`'s, sample for sample, over
+    everything given out, at each plan; `droppedLate` and `movedLate` are 0;
+  - over the same span the counts agree: the spurts opened, the resampler's calls, the slots' codes (the
+    render's own totals include what `finish()` adds, so compare what the live chain has given out);
+  - the same with the gate off; with `steamUptime` at two values that end a spurt on different chunks (the
+    builder finds a source and seed where the two renders differ, and says which); with a typed threshold
+    of -46; with `agc` off; with `voice_scale` 0.5;
+  - **with `lossPct` 15 and jitter**, on a seed whose mask has no run of more than ten lost frames inside a
+    spurt (asserted first, from the mask): equal as above, `stats.lost` and `stats.late` equal the
+    render's `lostFrames` and `underrunFrames` over the span, and both are above 0;
+  - **a hand-made mask** (the `makeLossMask` hook, or the live chain's own) with 30 frames lost in a row in
+    a long spurt: no exception, `movedLate` is 1 or more, `droppedLate` is 0, sound is present again within
+    0.3 s of the gap's end, and before the gap the output equals the render's;
+  - a new encoder and decoder per spurt, and concealed and late blocks counted: what
+    `tests/speex102.verify.mjs` proved by watching the codec is proved here by the equality and the counts;
+  - `gateThresholdDb` `null`, `undefined` and `''` give the same samples in `process()`, in `createRender`
+    and in the live chain, for `steam` and for `celt_22` with the gate on; `'-46'` and `-46` give the same;
+  - **low-latency mode:** with no loss, at each of the four block plans, the output equals the full-reach
+    output from each spurt's first given-out sample on, and the four outputs are equal; `droppedLate` is above 0 and at most the pre-roll's length at the voice rate a
+    spurt; `movedLate` is 0; `latencyMs` is lower than the full mode's by exactly the difference of the two
+    reaches over 24 (computed in the test from `STEAM_SENDER`, not typed);
+  - **`contentDelay`:** the chain's whole output against a render of the same audio, as [10b] has it for
+    `steam_48` today (the level, and the waveform at the correlation's peak): the peak is at `contentDelay`,
+    and `latencyMs - 1000 x contentDelay / rate` is the hold-back the report states;
+  - **push-to-talk:** with a scripted key, up twice inside speech (once for a time the render of the
+    zeroed source bridges with one spurt, once for a time that ends the spurt: both asserted on that
+    render), the laid signal equals `createRender`'s for the same source with those blocks zeroed, sample
+    for sample;
+  - `steam_48`'s live output is bit for bit main's (a recorded hash, made on main first), with the key held
+    and with the scripted key.
+- **`tests/gain.verify.mjs`**: "3 s blocks give the samples of 20 ms blocks" on `steam`, as it stands and
+  with `lossPct` 15.
+- **The browser suite.** A fresh page shows -40; `renderOptions()` has **no** `gateThresholdDb` at the
+  default, for `steam` and for a CELT profile, and a batch's key at the default is what it was before the
+  control was touched and put back; switching to a CELT profile shows -39.5 and back shows -40; typing -46
+  gives a render whose `codecInfo.sender.meanMin` is `32767 x 10^(-46/20)`; a saved -39.5 under `steam`
+  restores as -40; the reset command restores the profile's default; the Gate cell's text; `steam_48`'s
+  label; the three live texts of item 6 for `steam` and for a CELT profile. **Check 3f, restated:** the
+  live take against an offline render of the recorded microphone, on `steam`: both paths are late by the
+  same 16 inputs of Steam's resampler, so the lag is near 0; what is left is the rounding of the anchors
+  and where the resampler's stream stood (the take starts in mid-session, so its clock's origin differs):
+  `|lag| <= 2 k` samples, `k = rate / 44100`, and `r > 0.8`; if sixty seeded takes simulated as W3-11a's
+  builder did show a lower floor, the bound is their tenth percentile less 0.05, with the table in the
+  report. **3f is a smoke test**: a float decode, a missing rounding, a kept FIR delay or a missing uptime
+  would all pass it; [10b] is the proof. `steam_48` keeps `|lag| <= 1` and `r > 0.8`. The live checks that
+  rest on the frame gate are restated for `steam`: "frames sent" (slots not gated, `modes.hybrid` above 0);
+  the latency shown lies between the chain's `latencyMs` and that plus 400 ms; low-latency mode lowers
+  `stats.latencyMs` by the figure the page shows; push-to-talk: the check waits 1.5 s after the key is up
+  before its first count (the hold, a chunk, the reach and the page's own delays come to about 0.9 s at
+  the default uptime), and then `sent` does not grow.
 - **Mutations**, each caught by the named check:
 
   | Mutation | Caught by |
   | --- | --- |
   | the capture FIR's delay not dropped before the sender | [10b] "the live chain is the render" (the spurts' starts differ) |
-  | the capture not rounded, or rounded half up | the same check, a sample differs; 3f does not see it |
-  | the live chain's own seed, or `steamUptime` not passed | the same check; the 14400 and 3110400 cases |
+  | the capture not rounded, or rounded half up | the same check; 3f does not see it |
+  | the live chain's own seed, or `steamUptime` not passed | the same check; the two-uptime case |
   | the float decode, or the app's sinc resampler, left in the live chain | the same check |
-  | the resampler made anew at each spurt, or at a press | the same check; `opus.verify`'s press case |
+  | the resampler made anew at each spurt | the same check (the resampler's calls and the samples) |
   | the gain fed the laid signal, or reset at a spurt | the same check, with `agc` on |
-  | given out past the reach | [10b] throws or differs at chunk plan 128 (a packet lands on samples given out) |
-  | `null` read as 0 dBFS | [10b] `null` against `undefined` |
-  | the float tail in doubles, or `>=` | the sender's key checks at `uptime` 3110400 |
-  | the exact tail on the float clock | the same: no message between the two tails |
-  | a press resets the sequence number, or the gate's state | the sender's "the spurt goes on" check |
-  | a press does not drop `kept` | the same: the first frame after the press |
-  | a press resets the decoder | `opus.verify`'s press case |
-  | an uncollected frame given to the decoder, or not counted toward the gap | `opus.verify`'s five and fifteen |
-  | an empty read after a press skipped | the sender's empty-packet check; [10b] `emptyPackets` |
-  | samples captured while the device is stopped | the sender's "appear in no message" |
+  | given out by the reach alone (no wait for the cursor) | [10b] loss case: `droppedLate` or a difference where the render lays concealment |
+  | the wait for the cursor without its ten-frame limit | the 30-lost mask: the output stalls, `movedLate` stays 0 |
+  | a late packet dropped, not laid from `given` | the 30-lost mask: no sound within 0.3 s |
+  | the low-latency reach the longest chunk alone | the low-latency check: a difference in mid-spurt |
+  | what is given out decided per block, not per pushed sample | low-latency at the four plans: the outputs differ between plans |
+  | `contentDelay` holding the reach | [10b] `contentDelay`: the peak is elsewhere |
+  | `null` read as 0 dBFS in any one of the three readers | [10b] `null`, `undefined`, `''` in `process()`, `createRender` and the live chain |
   | `lost` counting the mask's lost frames | [10b] loss case: `stats.lost` equals the render's `lostFrames` |
-  | the page sends -40 as a number at the default | browser: `meanMin` exactly 327.67 |
+  | the key up skipping blocks, not zeroing them | [10b] push-to-talk: later spurts land early |
+  | the key up zeroing after the capture's filters | the same check: the samples at each edge differ |
+  | the page sends -40 as a number at the default | browser: `renderOptions()` has no `gateThresholdDb` |
+  | the open-ended frame log changing a render's slots | the golden hashes (`codecInfo`) |
 
-- Screenshots (desktop and phone) of the control and the chain strip, and the live monitor running, in the
-  report. The report also gives: the chain's latency figures before and after; the live worker's cost for a
-  minute of speech (the resampler's port makes about 5 million samples a second; the chain needs 44,100);
-  the share of first reads after a press that are empty; every reading made of the key's rules.
+- Screenshots (desktop and phone) of the control, the chain strip and the live monitor running, in the
+  report. The report also gives: `contentDelay` and `latencyMs` in both modes, before and after; the live
+  worker's cost for a minute of speech against real time; what the worklet did with the held sound in a
+  loss run; every text of item 6 as it now reads.
 
-**The orchestrator runs privately:** nothing new is needed for the merge. If time allows, Set J's two clips as
-one session through the branch's stream with `press()` at each key press and the uncollected frames marked:
-W3-11a's second reader got 524,256 of 524,288 on the gate clip with the 17-frame cut applied by hand; the
-stream as built here should give the same figure the same way, and a lower one would point at `press()`.
+There is nothing private to run.
+
+### What W3-10 will find, and re-record
+
+W3-10 removes the output FIR and the limiter from the live chain. So it moves this part's `contentDelay` (to
+0 on a 44.1 kHz context), both latency figures, 3f's latency window and [10b]'s recorded `steam_48` live
+hash. Those are W3-10's to re-record; nothing here should be written so that it cannot.
 
 ### Files
 
-May touch: `audio.js` (`createLiveChain`; the threshold helper and its three callers; what `steamTimeline`
-or the stream stages need to be shared, with no change to a render's samples), `opus-codec.mjs`
-(`createSteamStream`, `createSteamDecoder` only), `steam-sender.js` (`key`, the `collected` field, the
-clock's restart; nothing a render reaches), `live.js`, `live-worker.js`, `index.html`, `app/console.js`,
-`app/core.js`, `app/render.js`, `app/netgraph.js`, `constants.js` (the `steam` profile's comment and
-`steam_48`'s `displayName`), `README.md`, `sw.js`, `tests/verify.js`, `tests/steam-sender.verify.mjs`,
-`tests/opus.verify.mjs`, `tests/speex102.verify.mjs` (its loader), `tests/browser.verify.js`,
-`tests/predictions/PREDICTIONS.md`, `tests/REFERENCE_2026.md` (item 8's lines only). May not touch:
-`process()` and `createRender` beyond the threshold helper, `voice-channel.js`, `vendor/`, `demo.js`,
+May touch: `audio.js` (`createLiveChain`; the threshold's one reading and its four callers; `steamTimeline`'s
+three changes of item 1 and the shared give-out function, with no change to a render's samples or
+`codecInfo`), `live.js`, `live-worker.js`, `index.html`, `app/console.js`, `app/core.js`, `app/render.js`,
+`app/netgraph.js`, `constants.js` (the `steam` profile's comment and `steam_48`'s `displayName`),
+`README.md`, `sw.js`, `tests/verify.js`, `tests/gain.verify.mjs`, `tests/speex102.verify.mjs`,
+`tests/browser.verify.js`, `tests/predictions/PREDICTIONS.md`, `tests/REFERENCE_2026.md` (item 6's lines
+only). May not touch: `steam-sender.js`, `opus-codec.mjs`, `live-worklet.js`, `process()` and `createRender`
+beyond the threshold's reading and the shared give-out function, `voice-channel.js`, `vendor/`, `demo.js`,
 `reference.js`, `app/realtake.js`, `tests/render-stream.verify.mjs` (its hashes are the proof),
-`tests/accuracy.mjs`, `tests/predictions/predictions.json`, `docs/PROGRESS.json`.
+`tests/steam-sender.verify.mjs`, `tests/opus.verify.mjs`, `tests/accuracy.mjs`,
+`tests/predictions/predictions.json`, `docs/PROGRESS.json`.
 
 ### Stop and ask
 
-- If a golden hash moves, or `tests/steam-sender.verify.mjs` needs a changed expectation for a sender whose
-  `key` is never called.
-- If the live chain cannot equal `createRender` at the mix point with the key held (give the first sample
-  that differs and the stage it comes from).
-- If the read's pseudo-code and this part's table disagree about an order of tests within a frame: the read
-  wins; say where.
-- If the two days run out with items 1 to 3 and 6 to 9 done and the key (items 4 and 5) not: stop there and
-  report. The key then keeps today's rule on the new path (samples with the key up are not pushed, and a
-  release cuts the spurt), and the orchestrator orders the key as a part of its own.
+- If a golden hash moves.
+- If the live chain cannot equal `createRender` at the mix point (give the first sample that differs and the
+  stage it comes from).
+- If the sender as W3-16 merged it does not return a message from the push of its chunk's last sample, or
+  `steamReach` no longer bounds where a message can start: the give-out rule rests on both.
+- If the sender or the stream needs a change.
+
+## W3-11c: the key, as Steam has it
+
+**Not to be built yet.** Written 2026-11-10 from the first version of part b (its items 4 and 5) and its plan
+review, so that what is known is in one place. It is **after W3-17d** in the order of work: the project's
+scope (`docs/PROGRESS.json`, decisions, 2026-11-10) puts models that no recording has checked after the 1.0
+list, and until then push-to-talk runs W3-11b's stand-in, named as such on the page. **Two things must
+happen first:**
+
+1. **The owner's microphone run is in** ("The run", below). It settles two of the three points this part
+   would otherwise have to model.
+2. **A planner specifies, against that run,** the five points the review found too open to build: M4, S1,
+   S2, N4 and N5 ("To be specified", below). Then the part gets its own files, checks and budget, and a
+   plan review.
+
+### What is read and measured
+
+W3-09 ("Key down and key up"), the W3-16 read (section 1e and its pseudo-code), W3-14 ("The end of a key
+press, and the next press", "The run as one session"):
+
+| Event | What Steam does | Basis |
+| --- | --- | --- |
+| Key up | `stopF = nowF`: the float time of the last frame, not a new reading. `stopD = T()`: a fresh reading, a double. Nothing else: reads go on | read |
+| Each read while `stopF` is not 0 | first: if `nowF > fround(stopF + 0.5)` (floats, strictly greater), `stopF = 0` and, the key still up, the device stops: this read and the ones after it do nothing | read |
+| The game's queue | a chunk's message is taken for the game until a fresh reading, in doubles, is past `stopD + 0.5`; the order of the take and the test within a frame is the read's pseudo-code | read. **Its one measurement does not fit: see "Not yet explained"** |
+| So there are two tails | the game is fed for an exact 0.5 s; the device and the gate run for 0.5 s on the float clock, up to one float step longer. A message made in between is made (the encoder moves on, its numbers are spent, the gate's state moves, a spurt can end there) and never collected | read; the consequence inferred |
+| Key down inside the float tail | `stopF = 0`; nothing is reset; taking goes on | read |
+| Key down after the device stopped | the queue of pending voice is cleared (nothing is in it: the exact tail has already stopped the taking), the encoder is reset and the kept samples (the part of a frame in hand) are dropped. **Not reset: the sequence number, the gate's state and its noted time.** The device starts | read; the encoder, the kept samples and the number measured twice (Set J) |
+| The first read after that | an empty read runs the states (W3-16): hanging or active with the hold long past, it sends **the end marker alone: the empty packet** of finding 25, and the next inactive chunk goes out as a silence record; ended, it clears the record; silent, nothing | read for the states; the packet seen in Set G. **That the first read is usually empty is W3-09's inference**, not a reading; a model of the restarted capture gives about two in three (the review's simulation) |
+| A spurt left open | if the first read after a press does not end it (the hold has not run out, or the read brings an active chunk), **the spurt goes on**: no marker, numbers running on, the new encoder's packets into the old decoder | measured (Set J, both clips) |
+| The decoder | outlives key presses and channels; only a delivered end marker, or a number behind the expected one, resets it. Numbers that ran on over frames it never got are a gap: at most 10 concealed | measured (Set J as one session); read |
+
+### Not yet explained
+
+**The one measured release left more uncollected than the two-tail rule allows.** In Set J the game never
+collected the last 10 messages of the continuous clip's first press: 34 frames, 0.67 s of reads (W3-14, "The
+run as one session"; finding 29, "The cut, seen"). At that run's float step of 1/8 s the two tails differ by
+at most about 0.125 s and one read. Why is not known. Until it is, "the game is fed for an exact 0.5 s" is a
+reading that its only measurement contradicts, and no text of the app may state a release tail as fact: the
+words would be "Steam keeps sending for 0.5 s after the release (read from Steam's client)".
+
+### The run (for the owner; a real microphone path, Steam's console and the game's)
+
+What it must contain, so that the planner can specify the part against it:
+
+- **Steam's uptime, noted**: when Steam was last started, to the hour, and the PC's. If it is easy, the run
+  twice: once on a Steam started within the hour, once on the Steam as it has been running.
+- **Steam's console:** `@voice_spew_activity_check 1` (one line per chunk: its verdict, length, mean and
+  peak). **The game's console:** `voice_showincoming 1` and `voice_showchannels 1`, and the key bound so
+  that the console marks it: `alias +vr "+voicerecord; echo KEYDOWN"`, `alias -vr "-voicerecord; echo
+  KEYUP"`, `bind v +vr`. `voice_loopback 1`, a lossless recording of the output as in the earlier sets.
+- **The sound**, through the same microphone path as Set D: a steady tone A (1 kHz at -20 dBFS) that is
+  loud enough to keep the gate open, and a second, different tone B (2 kHz), so that a recording shows which
+  sound a packet holds. A mark in the console (`echo MARK1`, ...) before each case; at least 3 s of key up
+  between cases; each case three times.
+  1. **A release left to run out.** Tone A playing; hold the key 5 s; release; wait 5 s. (How long the chunk
+     lines go on, and which of those chunks the game logged: the two tails, and whether Set J's 0.67 s
+     comes back.)
+  2. **A release and a press inside the tail.** Tone A playing; hold 3 s; release; press again as fast as
+     the finger allows (about 0.2 s); hold 3 s; release.
+  3. **A press in mid-spurt, after the tail.** Tone A playing throughout; hold 3 s; release; wait about
+     0.7 s, then 1 s, then 3 s in the three repeats; press and hold 3 s. (Whether the spurt goes on or an
+     end marker comes first; whether the first read after the press is empty; the lengths of the first
+     chunks after the press: where a restarted device's capture steps fall.)
+  4. **What the pre-roll holds after a stop.** Tone A playing; hold 3 s; release with A still playing; after
+     the release stop A and wait 3 s in silence; press, wait 1 s in silence, start tone B. (Whether B's
+     opening packet carries 100 ms of tone A from before the stop: the gate's buffer of past sound across a
+     stop.)
+  5. **A press in silence, then sound.** Silence; press; after 1 s start tone A for 2 s; stop; release 2 s
+     later. (The empty packet and the silence record, with their console lines.)
+  6. **A tap:** the key down for under a tenth of a second, with tone A playing.
+- **Send:** both console logs whole, the recordings, the uptimes, and which microphone path was used.
+
+It settles: where the capture's steps fall after a restart, and what the first read brings (model point 1);
+whether the past sound survives a stop (model point 2). It may explain the 0.67 s. It cannot settle the third
+point, which is the app's own (below).
+
+### To be specified against the run, before any build
+
+- **M4: a spurt that goes on across a stop.** W3-16's sender gives a non-opening message's `start` as the
+  spurt's start plus its frames, and `steamTimeline` lays each later packet straight after the one before:
+  as both stand, the sound after a press would be laid where the sound before the release ended, seconds
+  before what has been given out. To specify: after a press that reset the encoder, the next message's
+  `start` is the position of its first frame in the pushed samples; the timeline re-anchors the open spurt
+  there (the decoded frames from `round((start - lookahead) x 147/80)` with the concealed blocks before
+  them, or the whole message from that point: one, marked); a check that at such a press, with no loss,
+  nothing is dropped and sound is present within 0.1 s, for a seed whose first read after the press is
+  empty and for one whose first read is not.
+- **S1: the restarted capture**, tightly enough that two builders write the same thing: what the clock
+  draws while the device is stopped; where step 0 of the restarted capture starts and when each step is
+  ready; in what order the capture's random source draws after the restart; what happens to the read in
+  hand, which the sender has already drawn, with its sample count, before the press (`nextRead()` draws the
+  next read as soon as the last is taken); one function, marked as a model or as measured, and a reference
+  schedule for one seed and one press in the style of W3-16's hash. The run's case 3 gives the facts.
+- **S2: `stopF` and `stopD`.** Because the sender draws ahead, `nowF` at a key change belongs to the read
+  in hand, not to the last read taken: the two must be named and kept apart, and it must be said whether an
+  empty read that was drawn and run ahead counts as taken. `stopD` in Steam is a fresh reading at the
+  release, 0 to one read after the last frame: taking the last read's time shortens the exact tail by about
+  28 ms on average and leaves messages uncollected more often than Steam does. A rule closer to the read
+  (the release's own time on the chain's clock, never before the last read taken), or the choice marked as
+  a model with its effect, in the code, the report and the reference.
+- **N4: an end marker that was not collected.** If the decoder has received nothing since its last reset
+  and a new spurt's frame 0 follows an uncollected end marker, the stream's count of the gap comes to ten
+  concealed frames where Steam conceals none (the number equals the expected one). At an uncollected end
+  marker the stream sets its expected number back to the decoder's and its count of lost frames to 0. With
+  that, and only with that, "the 17-frame cut cannot be reached in the live chain" holds.
+- **N5: the calls.** `key(x)` with the key already in state `x` does nothing (`live-worker.js` calls
+  `setTalking(true)` on every new chain); whether `press()` on the stream comes before or after the
+  messages `key()` returns.
+- **Also, from the same review:** the scripted key case of [10b] with bounds derived from the model (S4: a
+  press inside the tail must leave the output equal to the render with no key; what is heard after a
+  release is bounded by the exact tail, the sender's read-ahead and one read, not by the float step); the
+  resampler across a press checked as W3-11a's "one resampler, never reset" (S6); an end marker counts as
+  delivered whenever its message is collected, whatever the mask drew for its frames (N3); a key change
+  takes effect at the samples pushed to the sender, which trail the block's input by the capture's waits
+  (N6); a scripted case with an exact count for the messages over 12 frames (N8); a supplied clock's read
+  brings at most the sender's longest chunk (N12); an uncollected silence record gives no zeros to the
+  resampler or the gain, with a check in the stream's suite and in [10b]; no message of a sender whose
+  `key` is never called carries the new field; the reference's finding 28 lists every point of the key
+  that is a model, and the Model table's Voice gate row gains the live chain's key (S10).
+
+### The design as it stands (the first version's, for the planner to start from)
+
+- **In the sender** (`steam-sender.js`): a call `key(down)` returning `{ messages, reset }`, and a field
+  `collected` on a message the game would not have taken. A key change takes effect between two reads of a
+  sender that takes each read as soon as its chunk's samples are in (so up to two reads late on the model's
+  own clock: **the third model point, the app's own, which no run settles**). While the device is stopped,
+  pushed samples are counted and not captured, so positions run on. `push`, `finish`, `info` and every
+  message of a sender whose `key` is never called are unchanged, and the golden hashes hold.
+- **In the stream** (`createSteamStream`): the sender's side and the receiver's are separated. The encoder
+  and the frame numbers are the sender's: a new encoder and number 0 after each end marker made, a new
+  encoder with the numbers running on at `press()`. The decoder is the receiver's: one for the stream's
+  life, reset by a delivered end marker or a number behind the expected one, never by `press()`. Today a
+  spurt's first message makes both anew together, so the stream cannot say "a new encoder into the old
+  decoder" or "made, not delivered" (W3-11a's second reader, note 8). A message that was not collected is
+  encoded frame by frame, the mask still drawing for its frames, and nothing of it reaches the decoder, the
+  resampler or the gain.
+- **In the live chain:** `setTalking(on)` calls `sender.key(on)` in place of W3-11b's zeroing.
+- **The two limits a key can reach** (W3-16's order, "The decoder's 17-frame cut: not here"; the read,
+  section 3). With the key, numbers can run on over frames never collected. A chunk is at most the sender's
+  longest, so a message after such a gap is at most 10 concealed and 6 decoded: the 17-frame cut is out of
+  reach (given N4). The game's refusal of a message over 12 frames is not: at a long uptime the float tail
+  runs up to 250 ms past the exact one. The refusal is the receiver's (W3-02c); the live chain would play
+  such a message and count it.
 
 ## Not in this order
 
 The game's timeline (W3-02c), and with it the channel a message opens, the gain's reset at a channel's
-assignment and the game's refusal of a message over 12 frames. The decoder's 17-frame cut (W3-02g). Steam's
-`voice_preprocess`. The capture roll-off, which W3-09 found to be Windows's resampler and stays as measured.
-A 48 kHz sender for `steam_48`. Loss that falls on whole messages (`docs/reports/W3-11-plan.md`, "Open"). The
-tie between Steam's reads and the game's tick (measured in Set J, not explained). The live chain's stages
-after the mix point (W3-10, W3-17d).
+assignment and the game's refusal of a message over 12 frames. The decoder's 17-frame cut (W3-02g). TF2's
+open-microphone mode (`voice_vox`), which was not read. Steam's `voice_preprocess`. The capture roll-off,
+which W3-09 found to be Windows's resampler and stays as measured. A 48 kHz sender for `steam_48`. Loss that
+falls on whole messages (`docs/reports/W3-11-plan.md`, "Open"). The tie between Steam's reads and the game's
+tick (measured in Set J, not explained). The live chain's stages after the mix point (W3-10, W3-17d).

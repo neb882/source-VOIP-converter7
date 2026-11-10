@@ -196,3 +196,66 @@ device rate, the room's tail). W2-05 and W2-06 are not edited; they only say the
   plateaus, the two samples of the single rounding) are arithmetic from the reports, not measurements.
 - The scan: the branch's diff against `origin/main` has no 17-digit numbers, drive or home paths, e-mail
   addresses or names.
+
+## Addendum, 2026-11-10: W3-11b after its plan review
+
+A builder's model read the rewritten W3-11b as the one who would build it, against the sender on W3-16's
+branch, and ran that sender for two of its findings: 7 must-fix, 12 should-fix, 15 notes. The orchestrator
+ruled on it, and the order was revised and **cut in two** (branch `claude/w3-plan-maintenance-3`; only
+`docs/work-orders/W3-11-steam-gate.md` and this addendum changed):
+
+- **W3-11b** is the path: the live chain on the render's own stages with the key held from start to stop,
+  proved in Node by sample-for-sample equality with `createRender`. One day. It touches neither
+  `steam-sender.js` nor `opus-codec.mjs`, takes the sender as W3-16 merges it, and names no constant of its
+  clock. With push-to-talk on it runs a stand-in of the app's own (the microphone's block zeroed while the
+  key is up), named as such on the page.
+- **W3-11c** is the key as Steam has it. It is written down and **not to be built**: it comes after W3-17d,
+  and waits for the owner's microphone run (specified in the order: six cases, Steam's uptime noted) and for
+  a planner to specify five points against that run (M4, S1, S2, N4, N5).
+
+| # | Finding | What was done |
+| --- | --- | --- |
+| M1 | `contentDelay` mixed the index shift with the hold-backs | W3-11b: `contentDelay` is the index shift alone (the stages after the mix point); `latencyMs` is that plus every hold-back; the recorder keeps `contentDelay`; [10b] checks it at the correlation's peak |
+| M2 | with the reach alone, concealment is dropped after 5 to 9 lost frames | the render's own give-out expression, waiting for the cursor at most ten frames; the price (up to 200 ms of wait in a loss run, which the worklet skips over) is stated; the 15% loss equality holds on a mask with no run over ten |
+| M3 | a low-latency reach of the longest chunk drops sound in mid-spurt | the longest chunk plus a frame less a sample, from the sender's constants; "about 80 ms lower", the figure taken from the chain |
+| M4 | a spurt that goes on across a stop is laid seconds early | W3-11c, "To be specified": the message's `start` after a press and the timeline's re-anchoring |
+| M5 | "the page sends -40" was not caught: `32767 x 10^-2` is 327.67 exactly | the browser check asserts `renderOptions()` has no `gateThresholdDb` at a default, and the batch key; the moot reason is struck |
+| M6 | `tests/speex102.verify.mjs` would fail on a correct build | the file is allowed; its `steam` case moves to `steam_48`; [10b] carries what it proved |
+| M7 | the stop point's fallback could not be built | it is now W3-11b's push-to-talk: zeros in place of the microphone while the key is up, so the clock and the positions run on |
+| S1 | the restarted capture was not specified | W3-11c, to be specified against the run's case 3 |
+| S2 | `stopF` and `stopD` read two ways; `stopD` an unmarked model | W3-11c, to be specified |
+| S3 | Set J's one measured release left 0.67 s uncollected | W3-11c, "Not yet explained", with the caveat on the table's row; nothing in W3-11b states a release tail |
+| S4 | the scripted key case and its bound | W3-11c; W3-11b's own key check is an equality (the render of the source with the key-up blocks zeroed) |
+| S5 | the browser's push-to-talk wait was too short | 1.5 s, with the derivation |
+| S6 | "the resampler made anew at a press" pointed at a check that cannot see it | W3-11c; in W3-11b the equality sees a resampler made anew at a spurt |
+| S7 | the `null` check covered one reader of three | `null`, `undefined` and `''` checked in `process()`, `createRender` and the live chain; one reading shared with `steamSenderOptions`, numeric strings included |
+| S8 | what is dropped depended on the block plan | what is given out is defined per pushed sample; low-latency mode is checked equal at four plans; `gain.verify` keeps its check and gains a loss case |
+| S9 | most `stats` fields undefined on the new path | each field defined |
+| S10 | reference lines left out | findings 5, 12, 16, 26 and the Model section's opening added to the allowed lines, in the file's style; the key's model points go to finding 28 with W3-11c |
+| S11 | texts that become false | the latency tooltip, the low-latency label and title, the push-to-talk title, three README lines and `live.js`'s header, each by profile |
+| S12 | push-to-talk off against an open microphone | one sentence in the order and the README: the key counts as held; TF2's `voice_vox` was not read |
+
+The notes: N1 (the render's own expression, one shared function), N2 (the three changes `steamTimeline` may
+take; a render keeps its own), N7 (3f is a smoke test, [10b] the proof), N9, N10 (`constants.js` named in
+PREDICTIONS), N11 (what W3-10 re-records; the mix point one stage boundary), N14 and N15 are in W3-11b. N3, N4,
+N5, N6, N8, N12 and N13 are in W3-11c. Of the first version's 18 mutations, 10 stay with W3-11b; it now lists
+17, among them the review's on the cursor, the low-latency reach, the block plan, `contentDelay` and the page's
+default.
+
+**Two things go beyond the review and the rulings:**
+
+- **A late packet is moved, not dropped.** With the ten-frame wait, a gap of more than ten lost frames that
+  closed up further than the wait covers leaves the spurt's cursor behind what was given out. Dropping what
+  lands there would silence the rest of the spurt, and with the gate off that is the rest of the session. So
+  such a packet is laid from what was given out and the spurt goes on from there (`stats.movedLate`); only a
+  spurt's first packet loses samples (`stats.droppedLate`, the pre-roll in low-latency mode). A hand-made
+  mask of 30 lost frames checks it.
+- **README's sentence on push-to-talk is re-worded.** "Audio from before the key goes down is never sent"
+  holds for everything captured with the key up, which is zeros. One corner reads against it: after a
+  key-up shorter than the pre-roll, the pre-roll reaches back across the zeros into quiet sound from the
+  hold before. The sentence becomes "sound captured while the key is up is never sent", true by
+  construction.
+
+**Not settled by this revision:** W3-11c's third model point (a key change lands between two reads of a sender
+that reads ahead of its own clock) is the app's own and no run settles it; why Set J's release left 0.67 s
+uncollected.
