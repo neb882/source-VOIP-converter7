@@ -120,17 +120,18 @@ Wherever this order says "the render", it means a render with the `steam` profil
   Sources are made **at 24 kHz** unless said, so no resampler stands between the test and the gate:
   - **The gate is the sender's:** for a seeded speech-like source, `codecInfo.sender.spurts` deep-equals what
     `createSender` gives on the same rounded 24 kHz samples and seed.
-  - **Mean, not RMS** (the old gate fails both): (a) bursts of 2 ms of a 3 kHz sine with a peak of 0.12 full
+  - **Mean, not RMS** (main's gate sends (a); (b) sits 0.08 dB under main's threshold, so it shows the rule and
+    need not fail on main): (a) bursts of 2 ms of a 3 kHz sine with a peak of 0.12 full
     scale, one every 40 ms for 3 s: the 20 ms frames holding a burst are at -31 dBFS RMS, yet every chunk's
-    mean is under 0.5% and no sample reaches 15%: nothing is sent. (b) a 200 Hz square wave of height 344
+    mean is about 0.5%, under 1%, and no sample reaches 15%: nothing is sent. (b) a 200 Hz square wave of height 344
     (1.05% of full scale) for 3 s: -39.6 dBFS RMS, under the old threshold, yet its mean is over 1%: it is
     sent.
   - **Finding 5's cases:** a 1 kHz sine with a peak of -36 dBFS is sent; with a peak of -40 dBFS it is not;
     pink noise at -42 dBFS RMS is not.
   - **The peak rule:** 1 ms of samples at 0.2 full scale in silence is sent (a single sample would not survive
     a resampler; at 24 kHz it is 24 samples).
-  - **The pre-roll and the hold** (a burst of noise at 0.5 full scale from sample `B` to sample `E` after 2 s
-    of noise at -50 dBFS; seeds 1 to 20): `B - spurts[0].start` is between 2400 and 4649 samples (100 ms plus
+  - **The pre-roll and the hold** (a burst of a 1 kHz square wave at 0.5 full scale, so every sample of it passes
+    the peak rule, from sample `B` to sample `E`, after 2 s of noise at -50 dBFS; seeds 1 to 20): `B - spurts[0].start` is between 2400 and 4649 samples (100 ms plus
     what of the onset's chunk lies before the burst; a chunk is at most 2250), and
     `spurts[0].start + 480 x spurts[0].frames - E` is between 9,000 and 13,500 samples (375 to 562 ms: the
     review measured 393 to 545 over random placements).
