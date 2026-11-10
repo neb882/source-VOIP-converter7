@@ -1,0 +1,471 @@
+# W3-09: Steam's side of voice, from public files and public writing
+
+An investigation, 2026-11-10. No app code changed. Nothing of any binary is in this repository: the report describes
+behaviour in its own words and cites constants with the place they were read. No leaked source was looked for, opened
+or used.
+
+**Status of this file:** written in stages and committed as each part was done. The Speex module (the order's point
+5) is the last section.
+
+## Summary
+
+Steam's sender is now read, not fitted. The gate, the pre-roll, the hold, the batches, the silence record, the empty
+packet and the encoder's settings were read from the owner's own `steamclient64.dll`, and each was then checked
+against the owner's logs and the Set D demo's packets. The receiver-side decoder and its resampler were read too, and
+the resampler turned out to be an open-source library whose output counts match the logs exactly.
+
+| Question | Answer | Confidence |
+| --- | --- | --- |
+| 1. The gate | Steam reads the microphone in **chunks** (whatever the capture device delivered since its last frame; on the owner's PC 31.25, 62.5 or 93.75 ms). A chunk is active when **the mean of \|x\| is at least 1.0% of full scale (327.67), or its peak is at least 15% of full scale (4915)**. Two hidden console variables hold those numbers; nothing in the library sets them, so the transmission threshold shown in Steam's settings (Off, Medium, High) is not this gate. | Read: high. Checked against Set D's packets: the rule marks the last active chunk 7 or 8 chunks before the end marker in 18 of 20 spurts. |
+| The pre-roll | The chunks read while silent are kept, the last **2400 samples (100 ms)** of them. An onset sends that buffer in front of the chunk that tripped the gate (100 ms of zeros if nothing was kept). So a spurt opens with 100 ms plus one chunk: 162.5 ms, sent as 8 frames. | Read: high. Logs: 8 frames in 17 of 20 (demo) and 17 of 23 (Set G). |
+| The hold | **0.4 s of wall-clock time** after the last active chunk was read. The first chunk read later than that is encoded as the last one (its last frame padded with zeros) and carries the end marker. The next chunk is not sent as sound: only its length goes out, as the **silence record** (1500 or 750 samples). | Read: high. The demo: the end comes 380 to 460 ms of sound after the last active chunk. |
+| Key up | The engine's `StopVoiceRecording` does not stop anything at once: Steam keeps capturing, gating and handing out voice for **0.5 s** more. If the gate has not closed by then, the spurt is left open with no end marker, and the next key press sends the end marker by itself: the **empty packet**. | Read: high. Matches W3-03's three empty packets (each followed by a silence record). |
+| 2. The batches | One chunk is one packet. The encoder cuts 480-sample frames from the chunk plus what was left over from the last one and keeps the remainder (under 20 ms). So 62.5 ms gives 3 frames, now and then 4; 31.25 ms gives 1 or 2. Every packet starts with a sample-rate record. | Read: high. All 20 spurts of the demo and 2,326 packets of Set G fit chunks of whole multiples of 750 samples. |
+| 3. The encoder | libopus **1.1.4** (the version string is in the public Linux build). `opus_encoder_init(24000, 1, VOIP)`, then three settings only: bit rate **32000**, signal **voice**, DTX **on**. Everything else is the library's default: **complexity 9**, VBR on, **constrained** VBR, no FEC, 20 ms frames. No high-pass, gain control or noise suppression of Steam's own runs before it (`voice_preprocess` is 0). The capture is opened through DirectSound at 24 kHz mono 16-bit, so the resampling from the device's rate is Windows's, not Steam's. | Read: high. Version: read in the Linux build, inferred for Windows. |
+| 4. The decoder | Per frame: an end marker resets the decoder; a sequence number ahead of the expected one conceals up to **10** lost frames; one behind resets without concealing. A silence record becomes that many zero samples. Then 24 kHz to the game's 44.1 kHz with **FFmpeg's libswresample (8.1.2) at its default settings** (32 taps, 147 phases, Kaiser window), called once per packet. No gain or filter is applied to decoded sound (`voice_autogain` is 0). | Read: high. The open-source library, called the same way, gives the logs' sample counts exactly (7056, 2646, 882, and 2756 or 2757 for a silence record). |
+| 5. Speex | See the last section. | |
+
+**The largest finding for the owner:** Steam has console variables that would give a sample-exact test of the whole
+Steam path with no virtual cable: `mic_inputfile` (Steam reads a 24 kHz mono WAV instead of the microphone),
+`mic_outputfile` (Steam writes what it captured, at 24 kHz, after Windows's resampler) and
+`@voice_spew_activity_check 1` (one console line per chunk: its length, mean, peak and the gate's verdict). See
+"What the owner could run".
+
+## How it was read
+
+| File | From | SHA-256 | Used for |
+| --- | --- | --- | --- |
+| `steamclient64.dll` (linked 2026-10-13) | the owner's Steam install | `e9045710ec7ee47d7b7488d1c5dda2d933dec7e251e965967a5c48f4df68eb4e` | every address below unless marked |
+| `steamclient64.dll` (linked 2026-10-21) | `bins_win64.zip`, Valve's public client package | `253e0a11a4415b38c78a42f7bdd6ecc426455f06c1ba6453a48090df3142dbbc` | cross-check: the same instruction bytes for every constant below |
+| `video64.dll` | the same package | `e84cb3391b4206feb03e1162b0d6815316905034a7ae190c66d0fa7fb00d48ba` | the resampler object (`CreateAudioResampler`) |
+| `libswresample-6.dll` | `bins_codecs_win64.zip`, public | `2ed49e82c7cab6b197b5229759c4d4e1a9eaa74fa5a8303680b34436de74d399` | the resampler's defaults and version |
+| `linux64/steamclient.so` | `bins_sdk_ubuntu12.zip`, public (the same file as SteamCMD's) | `3e32119f473cb9c2615e1b282da8498b9986378e8b71537a4aed9f77e7b797e0` | the libopus version string |
+
+- The owner's library has image base `0x138000000`; addresses below are virtual addresses in it. It keeps assertion
+  texts with source file names (`p2pvoice.cpp`, `clientaudio.cpp`, `voiceencoder_opus.cpp`, `voice_decoder.cpp`,
+  `voice_record_dsound.cpp`) and member names (`m_qVoiceChunks`, `m_vecSamplesMicDataPrevFrame`,
+  `m_bufOverflowBytes`), which is how the functions were found. Function names below are the binary's own where it
+  prints them (`CP2PVoiceSingleton::MicrophoneThink`, `GetMicrophoneData`, `CUser.RunFrame() -- CheckMicrophone`,
+  `StartVoiceRecording`, `DecompressVoice`) and **labels of mine** otherwise.
+- Read as data with a disassembler library; nothing downloaded was executed. libopus and FFmpeg are open source:
+  their request numbers, structures and defaults were recognised from the public sources, and the distribution's own
+  libswresample (6.1.1) was run to test the resampler's call pattern.
+- The public Linux libraries are not stripped of their section names but hold only about 500 symbols, none of the
+  voice code's: they gave the libopus string and nothing easier to follow than the Windows build's assertions.
+- Every statement is marked **read**, **shown** (by the owner's logs or demo) or **inferred**.
+
+## Part 1: what is already public
+
+| Source | What it says | Trust | Against the project's findings |
+| --- | --- | --- | --- |
+| Steamworks, "Steam Voice" (`partner.steamgames.com/doc/features/voice`) | Start on key down, stop on key up, poll `GetAvailableVoice` each frame, `DecompressVoice` on the other side. No codec, rate or size. | Valve's own; thin | Agrees with W3-03's reading of the engine. |
+| Steamworks, `ISteamUser` (`partner.steamgames.com/doc/api/ISteamUser`) | `GetVoice` "should be called once per frame, and at worst no more than four times a second"; after `StopVoiceRecording` "the system will keep recording for a little bit"; keep calling until `k_EVoiceResultNotRecording`; an 8 kilobyte buffer is recommended; "There may be no data at all during long periods of silence"; the decoder takes 11025 to 48000 Hz; the uncompressed output is deprecated. | Valve's own | Confirmed and made exact here: "a little bit" is 0.5 s; "four times a second" is because Steam keeps at most 8192 bytes queued; the decoder in fact accepts 1000 to 50000 Hz. |
+| Zhenyang Li, "Reversing Steam Voice Codec", 2021 (`zhenyangli.me/posts/reversing-steam-voice-codec/`) | Read from the 32-bit Windows client: 8-byte SteamID, typed records, CRC32 at the end; type 11 is the sample rate (24000), types 5 and 6 are Opus ("OPUS" and "OPUS PLC"), 1 to 4 legacy or SILK, 0 a sample count; the Opus class sets a field to 32000; a built-in test expects 24000 Hz mono. | A careful public write-up of the same kind of reading as this one | Agrees with finding 11 and with `demo.js`. Extended here: the 32000 is the bit rate; type 0 is the silence record; type 6 differs from 5 only in carrying sequence numbers. |
+| `steam-audio-codec`, a Rust crate by demos.tf (`docs.rs/steam-audio-codec`) | A decoder for these packets: record types 0, 6 and 11; inside type 6, a 16-bit length, `0xFFFF` resets the decoder and the expected sequence number, a sequence number behind the expected one resets, one ahead conceals the gap. | Open source, written against real TF2 demos | Agrees with `demo.js`. Two differences from Steam's own decoder, read here: Steam conceals at most 10 frames, and a silence record is played as zeros (the crate only counts it). |
+| `CS2VoiceData` (a Go example) | Every Counter-Strike 2 demo it met was 24000 Hz mono. | Open source, small | Agrees. |
+| The game's own `find voice` output (already in the project) | The receiver's variables. | The game itself | Nothing new for Steam's side. |
+
+Not found in public writing: the gate's rule, the pre-roll, the hold, the batches, the encoder's settings beyond
+"Opus at 24 kHz", the decoder's resampler. Those are below, from the files.
+
+Skipped: nothing that looked like leaked source came up in the searches made; GitHub outside the session's own
+repositories is refused from this machine, so two open-source projects that speak the format (a ReHLDS voice
+transcoder and SourceMod voice extensions) were not read.
+
+## Part 2: what was fetched, and what was refused
+
+Fetched from `client-update.steamstatic.com` and `steamcdn-a.akamaihd.net` (Valve's public servers, no login): the
+SteamCMD installer; the client manifests for Windows, Linux and SteamCMD; the packages `bins_win64`, `bins_ubuntu12`,
+`bins_sdk_ubuntu12`, `steamcmd_bins_linux`, `bins_codecs_win64`, `bins_misc_win64`. Nothing was refused there.
+
+Not done: the dedicated servers through SteamCMD's anonymous login. The owner supplied a `vaudio_speex` module
+meanwhile, which was the reason for that download. SteamCMD was not run.
+
+Refused: `github.com` (reported in the brief; not retried). Needed from it: nothing essential.
+
+## 1. The capture and the gate
+
+### The capture (read)
+
+- The recorder is created for **24000 Hz** (`mov ecx, 0x5dc0` at `0x1380d5b51`) and opens a DirectSound capture
+  buffer of one second as PCM, **1 channel, 16 bits**, at that rate (the format block is built at `0x1380dedad`:
+  format tag and channels `0x10001`, block size and bits `0x100002`). So the conversion from the device's own rate
+  and channel count to 24 kHz mono happens **inside Windows**, before Steam sees a sample. The capture roll-off of
+  findings 14 and 16 (-6.5 dB at 11.75 kHz) is therefore Windows's capture resampler (or the virtual cable's), not
+  Steam code. Inferred from that: it can differ between Windows versions and devices.
+- Each time Steam's voice code runs (`MicrophoneThink`, `0x1380d7250`) it takes **everything the capture buffer has
+  gained since the last time**, up to 6000 samples (two buffers of `0x2ee1` and `0x2ee2` bytes). That is the
+  **chunk**. Steam does not cut it into frames before the gate.
+- `voice_preprocess` (default `0`): when set, the chunk is passed through Speex's preprocessor in 480-sample blocks
+  first. It is off, so **nothing** processes the samples between the capture and the gate. That preprocessor is set
+  up (`0x1380d7e90`) with automatic gain, noise suppression of -30 dB, de-reverberation and its voice detector, the
+  gain's target level taken from `mic_autogain` (default `16000`): all of it idle while `voice_preprocess` is 0.
+  `voice_autogain` (default `0`) is read only on the decoding side. The echo cancellation, noise cancellation and automatic gain in the owner's Steam
+  settings screenshot belong to the friends' voice chat (the library carries a separate WebRTC module and settings
+  messages named `voice_use_echo_cancellation` and the like); nothing in the in-game path reads them. (Read for the
+  in-game path; inferred for where those settings do apply.)
+
+### The level test (read; `0x1380cf2d0`)
+
+For a chunk of n 16-bit samples:
+
+```
+full      = 32767
+peak_min  = trunc(full x voice_minabs)            # 0.15  -> 4915
+mean_pct  = (sum of |x| / n) x 100 / full         # as a 32-bit float
+active    = mean_pct >= voice_minavg              # 1.0
+            or peak >= peak_min
+```
+
+- The two numbers are console variables named `@voice_minabs` (default text `0.15`, object at `0x1397f65a0`) and
+  `@voice_minavg` (default `1.0`, at `0x1397f64c0`). Each is read in this function only, and nothing in the library
+  writes either. A third, `@voice_spew_activity_check` (default `0`), makes the function print one line per chunk:
+  `[+++] [62.50 msec] avgsample 1.23 | max 0.456 | high samples 7` (three marks: active, mean passed, peak passed;
+  the chunk's length; the mean as a percentage; the peak as a fraction of full scale; the count of samples at or
+  above the peak threshold).
+- **Against finding 5** (opens at about -39.5 dBFS RMS): the rule is on the mean of the absolute value, 1% of full
+  scale, which is -40.0 dBFS as a mean. For a sine that is a peak of -36.08 dBFS (-39.09 dBFS RMS): the -36 dBFS
+  sine has a mean of 1.009% and opens; the -40 dBFS sine has 0.64% and does not. For noise with a Gaussian
+  distribution it is -38.0 dBFS RMS: the -42 dB pink noise never opens. Every case in finding 5 agrees; the "-39.5"
+  was the sine's figure, and noise or speech needs about 1 dB more than a sine of the same RMS.
+- **New: the peak clause.** A single sample at or above 15% of full scale (-16.5 dBFS) opens the gate whatever the
+  mean. A click in a quiet chunk transmits.
+- **The window is the chunk**, not a 20 ms frame: 31.25 to 93.75 ms on the owner's PC. A short loud sound inside a
+  long quiet chunk is averaged down.
+
+### The state machine (read; `GetMicrophoneData`, `0x1380d5d30`)
+
+Four states: silent, active, hanging, ended.
+
+- **Silent, and the chunk is not active:** the chunk is appended to a buffer of past sound, which is then cut to
+  its **last 2400 samples** (`0x960`; `cmp r8d, 0x960` at `0x1380d62e2`). Nothing is sent.
+- **Silent, and the chunk is active:** if that buffer is empty, 2400 zeros are put in it (the 4800 zero bytes come
+  from `mov r8d, 0x12c0` at `0x1380d5ff7`). The chunk is appended, and **buffer plus chunk** is what goes to the
+  encoder. The buffer is emptied. State: active.
+- **Active or hanging, and the chunk is active:** the chunk goes to the encoder; the time of this call is noted.
+- **Active, and the chunk is not active:** state becomes hanging; the chunk still goes to the encoder.
+- **Hanging:** every chunk goes to the encoder. On the first call that comes **more than 0.4 s after the noted
+  time** (`0x3ecccccd` at `0x139199e04`, compared at `0x1380d6161`), the chunk is encoded **as the last one** and
+  the state becomes ended.
+- **Ended, and the chunk is not active:** the chunk goes into the buffer of past sound, and the function reports
+  **minus its length**: the silence record. State: silent. (If the call brought no samples, nothing is reported.)
+- **Ended, and the chunk is active:** the spurt simply goes on in a new encoder state, with no pre-roll.
+
+What follows from it:
+
+- **The pre-roll is 100 ms of real sound plus the part of the onset's chunk before the onset**: 100 to 162.5 ms
+  with 62.5 ms chunks. Finding 12 measured 115 to 152 ms.
+- **The pre-roll is shorter straight after a spurt.** The buffer is emptied at each onset and refilled only by
+  silent chunks, the first of which is the one sent as the silence record. An onset one chunk after a spurt's end
+  gets 62.5 ms of pre-roll, not 100. In the demo two spurts open that way (pre-roll of 1500 and of 750 samples).
+- **The hold is a time, measured between calls**, not a count of frames: the last chunk is the first one read more
+  than 0.4 s after the last active chunk was read. With chunks about 56 ms apart that is the 7th or 8th chunk, so
+  the sound after the last active chunk lasts 380 to 460 ms, and then comes one silence record of 31.25 or 62.5 ms.
+  Finding 12's 425 to 485 ms after the last loud *frame* is the same thing measured from inside the last active
+  chunk. **This is where the takes' pauses come out longer than the app's gate model gives** (W3-01's 50 ms): the
+  model holds 22 frames (440 ms) from the last loud 20 ms frame and adds one silence record; Steam holds from the
+  end of the last active *chunk*, which is up to 62.5 ms later than the last loud frame.
+- **A pause is closed if it is shorter than the hold.** Finding 12's "560 ms" (hold plus pre-roll) is not a rule of
+  the code: a new active chunk during the hang simply continues the spurt, and one after the end starts a new
+  spurt with whatever pre-roll the buffer holds.
+- **The clock is a 32-bit float of seconds since Steam started** (`cvtsd2ss` at `0x1380d72d0`). After about 4.6
+  hours it resolves 2 ms, after 36 hours 16 ms, after 3 days 31 ms. On a Steam that has been running for days the
+  hold is quantised that coarsely. (Read; its effect on a take was not measured.)
+
+### Key down and key up (read)
+
+- `StartVoiceRecording` (`0x1380d10b0`): marks the client as recording and registers it as a user of the
+  microphone. If the capture had fully stopped, the queue of pending voice is cleared, the encoder is reset and the
+  capture device is started; if it is still inside the 0.5 s tail of the last key press, the pending stop is just
+  cancelled and nothing is reset.
+- `StopVoiceRecording` (`0x1380d1230`): notes the time. For **0.5 s** after it (`0x3fe0000000000000` at
+  `0x139199008`, used at `0x1380d0fe3`) Steam goes on taking chunks into the queue the game reads; the microphone
+  side has its own 0.5 s (`0x3f000000` at `0x139199e08`, used at `0x1380d72f0`) before the device is stopped. Only
+  then does `GetAvailableVoice` answer "not recording" (the queue must be empty too), which is what the engine waits
+  for.
+- **The gate's state is not reset by either call.** If the 0.5 s runs out while the gate is active or hanging, no
+  end marker is sent. At the next key press the first call finds a state of hanging with a noted time long past,
+  so it encodes "the last chunk" at once, usually with no samples in hand: the encoder writes only the end marker.
+  That is the **empty packet** (a type 6 record two bytes long). The chunk after it goes out as a silence record.
+  This is W3-03's observation exactly: three empty packets, each 0.5 to 0.6 s after the previous sound and two of
+  them followed by a silence record.
+- So with push-to-talk: speech goes on being sent for up to 0.5 s after the key is released; a spurt that was still
+  open then is cut without a marker; and a key press shortly before speaking opens a channel on the receiver with
+  an empty packet and a silence record (W3-03's 5(c)).
+
+## 2. The batches
+
+### One chunk, one record (read)
+
+`MicrophoneThink` writes at most one payload per call (`0x1380d7474` to `0x1380d75e5`):
+
+```
+0x0B, rate as 16 bits            # 24000; 16000 if the codec is SILK
+then one of
+  type (6), length as 16 bits, the encoder's output for this chunk
+  0x00, sample count as 16 bits  # the silence record, in samples at the stream's rate
+```
+
+`CheckMicrophone` (`0x1380d0c90`, once per frame of Steam's own loop) copies that payload into a queue. The queue
+holds at most **8192 bytes** (`cmp dword [rdi+0x24], 0x2000`); the oldest chunk is dropped beyond that (about 2 s of
+voice: the reason for "at worst four times a second"). `GetVoice` (`0x1380cfdd0`) writes the SteamID, then **every
+queued chunk that fits** in the caller's buffer, then the CRC32. The engine asks every 15 ms with a 2048-byte
+buffer, so it nearly always gets one chunk per message. (Shown: all 1,816 messages of the demo hold exactly one
+rate record and one chunk.)
+
+### Frames from chunks (read; the encoder's `Compress`, `0x1380e2ce0`)
+
+- The encoder keeps the samples that did not fill a frame (`m_bufOverflowBytes`). A call encodes
+  `floor((kept + n) / 480)` frames of 480 samples (`0x1e0`) and keeps the rest. With fewer than 480 in hand it
+  writes nothing, and no packet goes out for that chunk.
+- Each frame is written as a 16-bit length, a 16-bit sequence number (type 6 only; it counts from 0), and the Opus
+  packet.
+- **The last call of a spurt** pads the remainder with zeros to a whole frame, encodes it, resets the Opus encoder
+  (request 4028), writes `0xFFFF` and sets the sequence number back to 0. With nothing in hand it writes only the
+  `0xFFFF`.
+
+### Checked against the logs and the demo (shown)
+
+If the code is read correctly, the frame counts of a spurt's packets must be explained by chunk lengths that add up
+through that rule. Chunks on the owner's PC turn out to be **whole multiples of 750 samples (31.25 ms)**:
+
+| Source | Packets | Fit chunks of k x 750 samples | k = 1 / 2 / 3 |
+| --- | ---: | --- | --- |
+| Set D demo (the real packets, with their end markers) | 1,797 in 20 spurts | all 20 spurts, every packet, the last one included | 23.4% / 74.8% / 1.8% |
+| Set G logs (decoded sizes only; three runs) | 2,326 | all but 39, which sit at the start of 9 spurts whose pre-roll was short or after an unseen restart | 23.6% / 74.0% / 2.3% |
+
+- The openings: 2400 + 1500 samples is 8 frames with 60 samples kept (17 of 20 in the demo); 2400 + 750 is 6
+  frames; 1500 + 750 is 4; 750 + 750 is 3. Those are the demo's other three openings, and Set G's "6 in 4, 7 and 9
+  once, 3 or 4 straight after a silence record".
+- The sizes follow from the chunks with nothing to fit: a 750-sample chunk gives 1 frame when under 210 samples
+  were kept and 2 otherwise; 1500 gives 3 (4 when 420 or more were kept); 2250 gives 4 or 5. With the shares above
+  that is 10% one-frame, 13% two-frame, 65% three-frame and 10% four-frame packets: the logs' 10, 14, 65 and 11%.
+  "A one-frame packet is usually followed by a four-frame one" is a short chunk followed by a catch-up.
+- The silence record is one chunk's length: 1500 samples 17 times and 750 twice in the demo, 2756 or 2757 (22
+  times) and 1378 or 1379 (6 times) at 44.1 kHz in Set G.
+- **Where the 31.25 ms comes from was not read**: it is how far Windows's capture position moves at a time on the
+  owner's PC (with a file as the microphone there is no grid: see `mic_inputfile`). The chunks come about
+  **55.85 ms** apart on average (Steam's own frame); the game sees them 3, 4 or 5 ticks apart.
+
+## 3. The encoder
+
+Read from the class `VoiceEncoder_OPUS` (its virtual table is at `0x13919b510`):
+
+- **Which codec:** the variable `voice_quality` picks it: 5 is Opus without sequence numbers, 6 and above "OPUS PLC"
+  (the same class with a flag that adds them), 3 raw samples, anything else SILK at 16 kHz. Its default text is `4`
+  (SILK), so something sets it to 6 for the packets we see; where was not read. The demo's packets are type 6.
+- **Set-up** (`Init`, `0x1380e32d0`): `opus_encoder_init(state, 24000, 1, 2048)`: 2048 is `OPUS_APPLICATION_VOIP`
+  (`mov r9d, 0x800`). Then exactly three requests:
+
+  | Request | Value | Where |
+  | --- | --- | --- |
+  | 4002, bit rate | **32000**, set in both constructors (`mov dword [rbx+0x10], 0x7d00`, bytes `C7 43 10 00 7D 00 00`, at `0x1380e3063` and `0x1380e30d3`) | `0x1380e335d` |
+  | 4024, signal | 3001, `OPUS_SIGNAL_VOICE` | `0x1380e336f` |
+  | 4016, DTX | 1 | `0x1380e3383` |
+
+- **Never set:** complexity, VBR, the VBR constraint, in-band FEC, expected loss, bandwidth, frame duration. The
+  library's defaults therefore hold, and this build's `opus_encoder_init` (`0x138bb16e0`) writes them as the
+  open-source 1.1 does: **complexity 9** (`mov qword [rdi+0x2c], 9`), VBR on and **constrained** (`[rdi+0x88]` and
+  `[rdi+0x8c]` both 1), no FEC, bit depth 24, bandwidth automatic up to what 24 kHz allows.
+- **Frames:** always 480 samples, 20 ms. The output buffer allows up to 32767 bytes a frame.
+- **A fresh encoder state per spurt:** the reset at each end marker, and at a key press after the capture had
+  stopped.
+- **The version:** the public Linux `steamclient.so` (32-bit and 64-bit) holds the string **`libopus 1.1.4`**. The
+  Windows libraries hold libopus's error texts but not its version function (unused, so the linker dropped it).
+  Inferred, high confidence: Windows is built from the same libopus. Finding 16 (1.1.x, most likely 1.1.2 or later,
+  with 1.1.2 to 1.1.5 giving identical packets on the test signal) is settled at 1.1.4.
+- The same library also holds a SILK encoder (`voice_silk_bitrate`, default 30000) for the friends' chat of older
+  clients. Not used for the packets we see.
+
+**Against the app** (`opus-codec.mjs`): it passes complexity 10 where Steam leaves 9. Whether 9 and 10 give
+different packets in libopus 1.1 at 24 kHz was not tested here; it is one run of the existing comparison. The app
+leaves the VBR constraint at the library's default, which is what Steam does.
+
+## 4. The decoder
+
+### `DecompressVoice` (read; `0x1380cfae0`)
+
+- Accepts a rate from 1000 to 50000 Hz, checks the CRC32 and that the SteamID is plausible, and hands the records
+  to a decoder object kept **per speaker** (`m_mapUserDecoders`), which lives until voice is reset.
+- `voice_fakeloss` (default 0): a percentage of payloads dropped before decoding, for testing.
+- **A sample-rate record** sets the stream's rate.
+- **A silence record** (`0x1380dd1a0`): that many zero samples at the stream's rate, sent through the same path as
+  decoded sound, so they are resampled like it. They are dropped instead when more than **0.2 s** is already waiting
+  in this decoder's output (`0x3e4ccccd` at `0x13919a9c4`); in the game's use the output is taken at once, so they
+  are played. (Shown: Set G's 2756 or 2757 samples per record.)
+- **A type 6 record** (`0x1380e3110`), frame by frame:
+  - length `0xFFFF`: reset the Opus decoder (request 4028), expected sequence number 0;
+  - sequence number below the expected one: reset the decoder, conceal nothing;
+  - above it: conceal `min(gap, 10)` frames (the decoder is called with no data), then decode;
+  - a length of 0: 480 zeros;
+  - otherwise `opus_decode` with room for 480 samples and FEC off.
+- `voice_autogain` (default `0`) would run a gain over decoded sound; it is off, and `voice_preprocess` blocks it
+  too. **Nothing is applied to decoded sound** but the resampler.
+
+### The resampler (read, and reproduced)
+
+- When the stream's rate differs from the rate asked for, the decoded block is passed to a resampler object made by
+  `CreateAudioResampler`, a function Steam's client finds in its own `video64.dll`. (`voice_resample_quality`,
+  default `1`; at `0` a fallback picks the nearest earlier input sample, with no filter.)
+- In the public `video64.dll` that object sets six options and nothing else (`0x1800a0173` to `0x1800a024e`): the
+  input and output channel layouts, sample rates and sample formats (16-bit, mono, both sides). Then `swr_init`. It
+  is **FFmpeg's libswresample**; Valve's public `libswresample-6.dll` says `FFmpeg version 8.1.2`, and its option
+  table gives the defaults: filter size **32**, phase shift 10, exact rational **on**, Kaiser window with beta
+  **9**, no dither. For 24000 to 44100 Hz (147/80) that is a bank of **147 phases of 32 taps**, a windowed sinc cut
+  at the input's Nyquist frequency, computed in 16-bit fixed point.
+- **Per packet** (`0x1380d2680`): ask the library how many samples it could give for n input samples; convert; and
+  if fewer came out than that upper bound, call it again **with no input** for the rest, which is the library's
+  "flush".
+- **Reproduced:** the distribution's own libswresample (6.1.1), driven with exactly those three calls per packet,
+  returns 7056 samples for 3840, 2646 for 1440, 3528, 1764 and 882 for 1920, 960 and 480, and 2757, 2756, 2756,
+  2756, 2757 for successive runs of 1500 zeros: the counts in the owner's logs, including one silence record in
+  four being a sample longer.
+- **What the flush does (measured on that run):** only the first call of a decoder's life flushes. It mirrors the
+  last 16 input samples to finish the first packet's output with no delay, and from then on the stream runs **8
+  input samples (0.33 ms) ahead**: about 40 output samples around the first packet's end are wrong, and 0.33 ms is
+  missing there. After that every packet's output is continuous with the last. Once per speaker per session.
+- **Its response** (computed from the filter as the open source builds it): flat to 10 kHz, -0.1 dB at 10.5 kHz,
+  -0.7 at 11, -1.4 at 11.25, -2.4 at 11.5, -4.0 at 11.75, -6.0 at 12 kHz. **Images are not well suppressed just
+  above 12 kHz:** what the codec carries at 11 to 12 kHz reappears mirrored at 12 to 13 kHz, 22 dB down at 13 kHz,
+  12 dB at 12.5 kHz and 6 dB at 12 kHz; above 14 kHz the rejection is over 65 dB.
+
+**Against the findings.** Finding 14 says the receiver is flat within 0.1 dB to 11.5 kHz once Steam's packets are
+decoded by the app's chain: the app's own 24 to 44.1 kHz resampler stands in for this one, and the two were not
+compared here. Finding 2's "noise-like energy at 12 to 19.5 kHz, reproduced by clipping" should be looked at again
+below 13.5 kHz, where this resampler puts a mirror of the top of the band that is coherent with the source.
+
+## (a) The sender model the app should run
+
+```
+constants
+  RATE      = 24000
+  FRAME     = 480                          # 20 ms
+  PREROLL   = 2400                         # samples of past sound kept, 100 ms
+  HOLD      = 0.4 s                        # wall clock, from the read of the last active chunk
+  TAIL      = 0.5 s                        # after key up
+  MEAN_MIN  = 0.01 x 32767                 # 327.67, on the mean of |x| over the chunk
+  PEAK_MIN  = trunc(0.15 x 32767)          # 4915
+  GRID      = 750 samples                  # 31.25 ms: the capture's step on the owner's PC
+  THINK     = 55.85 ms on average          # Steam's own frame; jittered (see the table)
+
+each Steam frame, at time now:
+    chunk = the whole GRID steps the capture has gained since the last frame      # 750, 1500, sometimes 2250
+    active = mean(|chunk|) >= MEAN_MIN or max(|chunk|) >= PEAK_MIN
+
+    if state == SILENT or state == ENDED:
+        if active:
+            if state == SILENT:
+                if past is empty: past = 2400 zeros
+                chunk = past + chunk ; past = empty
+            state = ACTIVE ; last = now ; send(encode(chunk, final = false))
+        else:
+            past = last PREROLL samples of (past + chunk)
+            if state == ENDED and chunk is not empty: send(silence record, len(chunk))
+            state = SILENT
+    else:                                   # ACTIVE or HANGING
+        if active: state = ACTIVE ; last = now
+        else:      state = HANGING
+        final = (state == HANGING and now > last + HOLD)
+        send(encode(chunk, final))
+        if final: state = ENDED
+
+encode(pcm, final):
+    buf = kept + pcm
+    if final: pad buf with zeros to a whole number of frames
+    write each whole frame as: length, sequence number (from 0), libopus 1.1.4 packet
+        # opus_encoder_init(24000, 1, VOIP); bit rate 32000; signal voice; DTX on; all else default (complexity 9)
+    kept = what is left of buf
+    if final: reset the encoder ; write 0xFFFF ; sequence number = 0
+    nothing written -> no packet
+
+send(x): one message: SteamID, 0x0B 24000, x, CRC32      # the game relays it on its next 15 ms tick
+```
+
+Beside the logs:
+
+| What | The model | The owner's logs and demo |
+| --- | --- | --- |
+| Opening packet | 2400 + 1500 samples: 8 frames (6 after a 750 chunk) | 8 frames in 17 of 20 (demo), 17 of 23 (Set G); 6 in 1 and in 4 |
+| Later packets | 3 frames from a 1500 chunk, 4 when the remainder passes 420; 1 or 2 from a 750 chunk | 60 ms 65%, 40 ms 14%, 80 ms 11%, 20 ms 10% (Set G); 64, 13, 11, 10% (demo) |
+| Chunk lengths, k x 750 | to be drawn: k = 2 in 75%, 1 in 23%, 3 in 2% | measured so (about 4,000 chunks) |
+| Order of chunk lengths | a clock of 55.85 ms against the 31.25 ms grid, with a few ms of jitter and about 3% of frames late | a 750 chunk every 3 to 5 chunks; pairs: 2-2 53%, 2-1 22%, 1-2 22%, 3-1 1.7%, 1-3 1.4%, 1-1 0.3% |
+| Packets a second | 17.9 | 17.8 (demo), 18.0 (Set G: one every 55.5 ms) |
+| Hold | the first chunk read more than 0.4 s after the last active one: the 7th or 8th | 7 chunks after in 9 spurts, 8 in 9 (demo; two unclear) |
+| Silence record | the chunk after the last: 1500 or 750 samples | 1500 x17, 750 x2 (demo); 62.5 ms x22, 31.25 ms x6 (Set G) |
+| Gate | mean of \|x\| at 1.0% of full scale, or a peak at 15% | -36 dBFS sine opens, -40 does not, -42 dB pink never (finding 5) |
+| Bit rate | 32000 asked, constrained VBR, DTX | 29.96 kbps over coded frames; 693 of 5,109 frames DTX (demo) |
+| Empty packet | a key press after a spurt the 0.5 s tail cut short | 3 in Set G, each then a silence record or a key press |
+
+Two things a file render must choose, because Steam's answer depends on the machine: the chunk grid and the frame
+clock. With `mic_inputfile` (below) Steam's own chunks are simply the time since the last frame times 24000, with no
+grid.
+
+## (b) Corrections
+
+To the findings (`tests/REFERENCE_2026.md`):
+
+- **5:** the gate is the mean of the absolute value over a capture chunk at 1.0% of full scale, or a peak at 15%;
+  "-39.5 dBFS RMS of a 20 ms frame" is its value for a sine. Not a WebRTC detector and not a 20 ms rule.
+- **11:** add: each message is one chunk; every chunk carries a sample-rate record; the sequence number restarts
+  because the encoder writes 0 after each end marker (read).
+- **12:** the pre-roll is the last 100 ms before the onset's chunk (2400 samples; zeros if none), not 6 frames; the
+  hold is 0.4 s of wall-clock time from the read of the last active chunk, not 22 frames; the 31.25 ms grid is the
+  capture's step. "A pause shorter than 560 ms keeps the spurt going" should read: a pause shorter than the hold.
+  "Each new talk spurt starts a fresh encoder and decoder": confirmed, as a reset of each.
+- **14 and 16:** the capture roll-off is Windows's resampler (DirectSound capture opened at 24 kHz), so it belongs
+  to the sender's machine. The libopus release is 1.1.4. The encoder's complexity is 9, not 10.
+- **2 and 14:** the receiver's 24 to 44.1 kHz resampler is libswresample's default filter; its roll-off and its
+  images above 12 kHz are in section 4.
+- **8:** concealment is capped at 10 frames per gap (read; the takes could not show it).
+
+To the receiver plan's sender model (`docs/reports/W3-02-plan.md`):
+
+- Replace "a 56 ms hand-out clock, 10 ms and 20 ms of jitter, a frame held back one time in ten" with the chunk
+  model above: packet sizes then follow from chunk lengths with no fitted constant, and one-frame packets come out
+  at the logged 10%.
+- Replace the fixed 6-frame pre-roll and 22-frame hold with the state machine above. The opening packet is 8 frames
+  because it is 2400 samples and a chunk, not because of a drawn number (the plan draws 8 with 0.77).
+- A spurt that follows a pause just over the hold opens with a short pre-roll (62.5 ms or less): the plan's "three
+  more spurts opened with 3 or 4 frames".
+- Decision 8 (no empty packet in a file render) stands: the empty packet needs a key.
+- Decision 9 (lost frames ride with the next packet): confirmed by the decoder, with the cap of 10.
+
+## (c) What remains unknown, and the cheapest way to learn each
+
+| Unknown | Cheapest way |
+| --- | --- |
+| Whether the app's libopus 1.1.5 at complexity 9 gives Steam's packets bit for bit | The `mic_inputfile` run below with SourceTV on: the input is then known to the sample |
+| Whether complexity 9 and 10 differ at all in 1.1.x at 24 kHz | Re-run finding 16's comparison at 9 (no take needed) |
+| The 31.25 ms capture step and the 55.85 ms frame: the owner's PC, or every PC? | `@voice_spew_activity_check 1` on both PCs: each line prints the chunk's length |
+| Windows's capture resampler exactly | `mic_outputfile`: Steam writes what it captured at 24 kHz; play the test signal through the cable once |
+| The first-packet flush of the resampler (40 samples, once per speaker) in a recording | `voice_recordtofile 1` with `voice_maxgain 1` on the first key press after the game starts, with a known input |
+| What sets `voice_quality` to 6 | Not needed for the model |
+| The friends' chat settings in the screenshot | Not in this path (inferred); a take with them all switched off would prove it |
+
+### What the owner could run
+
+All in **Steam's own console** (open `steam://open/console` from a browser or the Run box), not the game's. These
+are console variables of the Steam client; whether the release client lets each be set from its console was not
+tested (the code registers them without a hidden or cheat flag).
+
+1. `@voice_spew_activity_check 1`, then talk in the game. Steam's console (and its console log) prints one line per
+   chunk: the gate's verdict, the chunk's length in milliseconds, the mean and the peak. This checks the gate's
+   numbers, the chunk grid and the frame clock directly. Set it back to 0 afterwards.
+2. `mic_inputfile <full path to a WAV>`: 24000 Hz, 16-bit, mono, with a plain 44-byte header (the reader skips
+   exactly 44 bytes when the file starts with `RIFF`, and does not look at the header's fields). Steam prints
+   `loaded voice input file ...` and plays the file to the encoder in place of the microphone, in real time,
+   looping. With the game's `voice_loopback 1`, `voice_maxgain 1` and `voice_recordtofile 1`, or with SourceTV
+   recording, that is the sample-exact check of the gate, the encoder, the decoder and the resampler that
+   `voice_inputfromfile` could not give under the Steam codec. A working capture device is still needed. Set it to
+   an empty string to go back to the microphone.
+3. `mic_outputfile <path>`: Steam writes the captured sound to a 24 kHz WAV. Its header is written with zero
+   lengths first and Steam's own message says "close Steam before using": quit Steam, and if the lengths are still
+   zero read the file as raw 16-bit samples after the 44-byte header.
+4. `-log_voice` on Steam's command line writes `logs/voice_log.txt`, but for the in-game path it records almost
+   nothing (the first "Received voice data" and "Received silence data" of a decoder, and errors). Not worth a run.
+5. `@voice_minavg` and `@voice_minabs` can be changed the same way; `@voice_minavg 0` would open the gate for
+   everything, which gives takes with no gate in them.
+
+## 5. The Speex module
+
+To follow.
