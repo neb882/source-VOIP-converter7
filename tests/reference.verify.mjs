@@ -103,9 +103,61 @@ check('Level tracking rejects unequal lengths', true);
   check(`Real take: aligned, the take matches the render (bands within ${worst.toFixed(2)} dB, levels ${report.levelTracking.rmsDeviationDb.toFixed(3)} dB rms)`,
     worst < .1 && report.levelTracking.rmsDeviationDb < .05 && near(report.anchorGainDb, 10, .1));
   const simOnSource = TF2Reference.warp(sim, sr, own, sr, src.length);
-  let err = 0, ref = 0;
-  for (let i = sr; i < src.length - sr; i++) { err += (.316 * simOnSource[i] - aligned[i]) ** 2; ref += (.316 * simOnSource[i]) ** 2; }
-  check(`Real take: the aligned take nulls against the render (${(10 * Math.log10(err / ref)).toFixed(1)} dB)`, 10 * Math.log10(err / ref) < -25);
+  // The null of the aligned take against the render, over [1 s, length - 1 s].
+  const nullDb = (want, got) => {
+    let err = 0, ref = 0;
+    for (let i = sr; i < src.length - sr; i++) { err += (.316 * want[i] - got[i]) ** 2; ref += (.316 * want[i]) ** 2; }
+    return 10 * Math.log10(err / ref);
+  };
+  // What the alignment's own tolerance allows (W3-11a). The check above lets
+  // the found timeline be 20 us off and its clock 1 ppm, so the take may sit
+  // up to 20 us + 1 ppm x t off the render at second t. A component at f then
+  // nulls to 4 sin^2(pi f d) of its power; weighted by the render's spectrum
+  // and averaged over the window, that is the bound. (A fixed -25 dB here
+  // passed or failed by where the arbitrary delay put the two estimates:
+  // docs/reports/W3-11a-steam-render.md.)
+  const allowedDb = (x) => {
+    const N = 4096, power = new Float64Array(N / 2);
+    for (let at = sr; at + N <= x.length - sr; at += N) {
+      const re = Float64Array.from(x.subarray(at, at + N), (v, i) => v * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / N))), im = new Float64Array(N);
+      fft(re, im);
+      for (let b = 0; b < N / 2; b++) power[b] += re[b] * re[b] + im[b] * im[b];
+    }
+    let total = 0, lost = 0, n = 0;
+    for (let t = 1; t <= seconds - 1; t += 0.5, n++) {
+      const d = 20e-6 + 1e-6 * t;
+      for (let b = 0; b < N / 2; b++) lost += power[b] * 4 * Math.sin(Math.PI * (b * sr / N) * d) ** 2;
+    }
+    for (let b = 0; b < N / 2; b++) total += power[b];
+    return 10 * Math.log10(lost / (n * total));
+  };
+  // The take's own warp composed with the found timeline: the render's time
+  // to the source's as the take was found (warp() maps x-time s to offset +
+  // scale x s).
+  const composed = (tl, d) => ({ offsetSeconds: tl.offsetSeconds + tl.scale * d, scale: tl.scale / k });
+  // Both profiles at both delays: steam (since W3-11a Steam's resampler, a
+  // steady 0.6 ms late after its first packet) and steam_48 (main's path),
+  // 1.2345 s and 0.987 s. The first is the take made above.
+  const sim48 = (await audio.process({ sampleRate: sr, length: src.length, numberOfChannels: 1, getChannelData: () => src }, { codec: 'steam_48' })).samples;
+  let s2 = 99;
+  const quiet = () => ((s2 = (s2 * 1103515245 + 12345) >>> 0) / 4294967296) * 2 - 1;
+  const runs = [];
+  for (const [name, render] of [['steam', sim], ['steam_48', sim48]]) {
+    const base = name === 'steam' ? own : TF2Reference.locate(render, sr, src, sr);
+    const onSource = name === 'steam' ? simOnSource : TF2Reference.warp(render, sr, base, sr, src.length), bound = allowedDb(onSource);
+    for (const d of [delay, 0.987]) {
+      const first = name === 'steam' && d === delay;
+      const t = first ? take : TF2Reference.warp(render, sr, { offsetSeconds: d, scale: 1 / k }, sr, takeLength).map(v => .316 * v + 1e-4 * quiet());
+      const f = first ? found : TF2Reference.locate(t, sr, src, sr);
+      const back = first ? aligned : TF2Reference.warp(t, sr, f, sr, src.length);
+      runs.push({ name, d, bound, endToEnd: nullDb(onSource, back), strict: nullDb(TF2Reference.warp(render, sr, composed(f, d), sr, src.length), back) });
+    }
+  }
+  const list = (key) => runs.map(r => `${r.name} at ${r.d} s ${r[key].toFixed(1)}`).join(', ');
+  check(`Real take: the aligned take nulls against the render within what the alignment's tolerance allows (${list('endToEnd')} dB; bounds ${runs.filter((r, i) => i % 2 === 0).map(r => r.bound.toFixed(1)).join(' and ')} dB)`,
+    runs.every(r => r.endToEnd < r.bound));
+  check(`Real take: warp() puts the take back on the render to -40 dB, through the found timeline composed with the take's own warp (${list('strict')} dB)`,
+    runs.every(r => r.strict < -40));
   const short = TF2Reference.locate(take.subarray(Math.round(3 * sr), Math.round(6 * sr)), sr, src, sr);
   // Too short to measure the clock (200 ppm here): within a fraction of a millisecond.
   const at = (tl, tau) => tl.offsetSeconds + tl.scale * tau;

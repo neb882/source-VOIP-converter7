@@ -341,7 +341,7 @@
   /* the first block is at unity whatever voice_scale is.               */
   /* ------------------------------------------------------------------ */
 
-  const GAIN_BLOCK = 128;   // the engine's block; the ramp divides by GAIN_BLOCK - 1 (VOICE_ENGINE.autoGain.blockSize is not read)
+  const GAIN_BLOCK = 128;   // the engine's block; the ramp divides by GAIN_BLOCK - 1
 
   // The rule's state and its sample loop, shared by receiverAutoGain,
   // streamAutoGain and createGain. options: { avgGain, maxGain, scale,
@@ -459,6 +459,10 @@
   // by the silence less 0-130 ms (at most 350 ms); the spurt after keeps its
   // time. Moves the decoded audio (codec rate) and the frame log in place;
   // returns the moves as { time, shiftMs }.
+  // A spurt's samples are its frames' on the frame path. On the steam path
+  // (info.spans: the laid packets' sample ranges, which run up to half a slot
+  // past the slots they mark) they are every laid span its slots meet, moved
+  // whole, and never onto the spurt before.
   const RETIME = { maxGap: 0.45, chance: 0.41, leftMax: 0.13, maxShift: 0.35 };
   function retimeSpurts(samples, info, rate, rand) {
     const log = info.frameLog, size = info.frameSamples, lookahead = info.lookahead || 0;
@@ -470,16 +474,27 @@
       while (f + 1 < log.length && log[f + 1]) f++;
       spurts.push({ first, last: f });
     }
+    const range = ({ first, last }) => {
+      let from = first * size - lookahead, to = (last + 1) * size - lookahead;
+      if (info.spans) {
+        let a = Infinity, b = -Infinity;
+        for (const [p, q] of info.spans) if (q > from && p < to) { a = Math.min(a, p); b = Math.max(b, q); }
+        if (a < b) { from = a; to = b; }
+      }
+      return { from, to };
+    };
     const moves = [];
     let early = false;
     for (let k = 1; k < spurts.length; k++) {
       const gap = (spurts[k].first - spurts[k - 1].last - 1) * size / rate;
       if (early || gap > RETIME.maxGap || rand() >= RETIME.chance) { early = false; continue; }
-      const shift = Math.round(Math.min(RETIME.maxShift, gap - RETIME.leftMax * rand()) * rate);
+      let shift = Math.round(Math.min(RETIME.maxShift, gap - RETIME.leftMax * rand()) * rate);
+      const here = range(spurts[k]);
+      if (info.spans) shift = Math.min(shift, here.from - range(spurts[k - 1]).to);
       const frames = Math.round(shift / size);
       if (frames < 1) { early = false; continue; }
       const { first, last } = spurts[k];
-      const start = Math.max(shift, first * size - lookahead), end = Math.min(samples.length, (last + 1) * size - lookahead);
+      const start = Math.max(shift, here.from), end = Math.min(samples.length, here.to);
       if (end > start) { samples.copyWithin(start - shift, start, end); samples.fill(0, Math.max(start - shift, end - shift), end); }
       log.copyWithin(first - frames, first, last + 1); log.fill(0, last + 1 - frames, last + 1);
       if (info.frameBytes) { info.frameBytes.copyWithin(first - frames, first, last + 1); info.frameBytes.fill(0, last + 1 - frames, last + 1); }
@@ -812,6 +827,215 @@
       plc: 'opus', frameLog, frameBytes, lookahead: 0 };
   }
 
+  /* ------------------------------------------------------------------ */
+  /* The `steam` profile: Steam's own sender and decoder                */
+  /*                                                                    */
+  /* A profile whose senderGate.rule is 'steam' renders as Steam does   */
+  /* (docs/reports/W3-09-steam-voice.md; docs/work-orders/W3-11-steam-  */
+  /* gate.md, part a). The capture is rounded to 16 bits; Steam's       */
+  /* sender (steam-sender.js) gates chunks of it and cuts its messages; */
+  /* each message's frames are encoded and decoded with the library's   */
+  /* own 16-bit decoder under Steam's decoder rules (opus-codec.mjs     */
+  /* createSteamStream); each message's samples go, whole, through one  */
+  /* FFmpeg libswresample for the whole render (vendor/swresample) as   */
+  /* Steam's decoder calls it; the gain is fed the decoded packets in   */
+  /* order; and the packets are laid on the source's timeline.          */
+  /* ------------------------------------------------------------------ */
+
+  // The codec's stream rate and the voice rate: the resampler's 147/80.
+  const STEAM_RATE = 24000, STEAM_VOICE_RATE = 44100, STEAM_FRAME = 480;
+  // How far before the last sample the sender was given a spurt can still
+  // open: its longest chunk (the clock gains at most 3 grid steps between two
+  // frames: steam-sender.js's MAX_CHUNK) and its pre-roll, from the sender's
+  // own constants (4650 samples).
+  const steamReach = (S) => 3 * S.grid + S.preroll;
+
+  function steamModules() {
+    const sender = typeof TF2SteamSender !== 'undefined' ? TF2SteamSender : null;
+    const swr = typeof TF2Swresample !== 'undefined' ? TF2Swresample : null;
+    if (!sender || !swr) {
+      throw new Error('The steam profile needs steam-sender.js and vendor/swresample/swresample.js loaded beside audio.js.');
+    }
+    return { sender, swr };
+  }
+
+  // The capture's 16 bits, after the capture roll-off at 24 kHz: Steam's
+  // recorder hands its gate and encoder 16-bit samples. q = round(x * 32768),
+  // ties to even, clamped to -32768..32767.
+  function steamCapture(x) {
+    const q = new Int16Array(x.length);
+    for (let i = 0; i < x.length; i++) {
+      const v = x[i] * 32768;
+      let r = Math.round(v);
+      if (r - v === 0.5 && (r & 1)) r -= 1;
+      q[i] = r > 32767 ? 32767 : r < -32768 ? -32768 : r;
+    }
+    return q;
+  }
+
+  // The sender's settings from process()'s options. opts.gateThresholdDb
+  // null or absent (or not a number) is Steam's own gate exactly (no meanMin
+  // passed: 327.67, 1% of full scale); a finite number is the mean of |x| in
+  // dBFS (-90 to 0), meanMin = 32767 x 10^(dB / 20); the peak rule does not
+  // move. The gate off is the sender's own setting: every chunk is sent, as
+  // one spurt, and everything after the sender is the same path.
+  function steamSenderOptions(opts, gateOn, seed) {
+    const S = steamModules().sender.STEAM_SENDER;
+    const raw = opts.gateThresholdDb;
+    const typed = raw == null || raw === '' ? NaN : Number(raw);
+    const db = Number.isFinite(typed) ? clamp(typed, -90, 0) : null;
+    const meanMin = db === null ? S.meanMin : 32767 * 10 ** (db / 20);
+    const sender = { seed };
+    if (!gateOn) sender.gate = false;
+    if (db !== null) sender.meanMin = meanMin;
+    return { sender, gate: gateOn, meanMin, thresholdDb: db === null ? -40 : db };
+  }
+
+  // The receiver on the source's timeline, fed each sender message with
+  // what createSteamStream made of it (W3-11a, points 6 to 9).
+  //   - One resampler for the whole render, given each message's samples
+  //     whole (a silence record's as zeros): never reset, not by an Opus
+  //     decoder reset either; a message with no samples makes no call.
+  //   - One gain, reset once (at the render's start: no channel is assigned
+  //     on this timeline), fed the resampled packets in the sender's order,
+  //     each as its 16-bit values / 32768, the silence records' zeros among
+  //     them: those are decoded zeros and send it to its cap, as in the game.
+  //     A late frame's samples were not decoded, so they are left out of what
+  //     the gain is given and laid as they are: frame j of F in a packet of n
+  //     output samples is samples round(j n / F) to round((j + 1) n / F).
+  //     That span is approximate, and meant to be (the resampler is 16 inputs
+  //     late after its first packet and spreads a frame over 16 inputs each
+  //     side). The zeros between spurts never reach the gain: its blocks of
+  //     128 run over the decoded samples end to end, across packets and spurts.
+  //   - Laying: a spurt's first packet at round((start - lookahead) x 147 / 80),
+  //     each later one directly after the one before; a silence record is not
+  //     laid; where packets overlap the later one wins; samples before 0 or
+  //     past voiceLength are dropped (they have still been through the gain).
+  //   - The frame log: 20 ms slots on the source's time, slot i covering the
+  //     codec samples i x 480 - lookahead onwards, as the frame path's frames
+  //     do; each takes the code and size of the frame whose laid samples cover
+  //     its centre (a concealed frame's: lost; a late one's: late), or 0.
+  // add() returns nothing; take(end) gives the samples up to end, which the
+  // caller must know no later packet can reach (createRender's bound).
+  function steamTimeline(cfg) {
+    const { voiceLength, lookahead, resampler, gain } = cfg;
+    const slots = Math.ceil((cfg.codecLength + lookahead) / STEAM_FRAME);
+    const frameLog = new Uint8Array(slots), frameBytes = new Uint16Array(slots), frameMode = new Array(slots).fill(null);
+    let buf = new Float32Array(cfg.capacity || 1 << 16), base = 0, high = 0;
+    let spurt = null, cursor = 0, open = false, calls = 0;
+    const spans = [];   // each spurt's laid samples, [from, to) on the voice timeline
+    const centre = (i) => (i * STEAM_FRAME + STEAM_FRAME / 2 - lookahead) * STEAM_VOICE_RATE / STEAM_RATE;
+
+    function lay(y, at) {
+      const from = Math.max(at, 0), to = Math.min(at + y.length, voiceLength);
+      if (to <= from) return;
+      if (from < base) throw new Error('TF2Audio: a Steam packet landed on samples already given out.');
+      if (to - base > buf.length) {
+        const grown = new Float32Array(Math.max(to - base, 2 * buf.length));
+        grown.set(buf.subarray(0, high - base));
+        buf = grown;
+      }
+      buf.set(y.subarray(from - at, to - at), from - base);
+      if (to > high) high = to;
+    }
+    function mark(blocks, n, at) {
+      const F = blocks.length;
+      for (let j = 0; j < F; j++) {
+        const a = at + Math.round(j * n / F), b = at + Math.round((j + 1) * n / F);
+        let i = Math.max(0, Math.floor((a * STEAM_RATE / STEAM_VOICE_RATE + lookahead) / STEAM_FRAME - 0.5) - 1);
+        for (; i < slots; i++) {
+          const c = centre(i);
+          if (c >= b) break;
+          if (c >= a) { frameLog[i] = blocks[j].code; frameBytes[i] = blocks[j].bytes; frameMode[i] = blocks[j].mode; }
+        }
+      }
+    }
+    return {
+      add(msg, made) {
+        if (!made.silence && msg.spurt !== spurt) {
+          spurt = msg.spurt; open = true;
+          cursor = Math.round((msg.start - lookahead) * STEAM_VOICE_RATE / STEAM_RATE);
+          spans.push([cursor, cursor]);
+        }
+        const pcm = made.pcm;
+        if (pcm.length) {
+          cfg.onDecoded?.(pcm, msg);
+          const y16 = resampler.packet(pcm);
+          calls++;
+          cfg.onResampled?.(y16, msg);
+          let y = Float32Array.from(y16, v => v / 32768);
+          if (gain) {
+            const blocks = made.blocks, F = blocks.length, n = y.length;
+            const late = (j) => blocks[j].code === FRAME_CODES.late;
+            if (!blocks.some((b) => b.code === FRAME_CODES.late)) y = gain.process(y);
+            else {
+              for (let j = 0; j < F;) {
+                if (late(j)) { j++; continue; }
+                let k = j;
+                while (k < F && !late(k)) k++;
+                const a = Math.round(j * n / F), b = Math.round(k * n / F);
+                y.set(gain.process(y.subarray(a, b)), a);
+                j = k;
+              }
+            }
+          }
+          if (!made.silence) {
+            lay(y, cursor);
+            mark(made.blocks, y.length, cursor);
+            cursor += y.length;
+            spans[spans.length - 1][1] = cursor;
+          }
+        }
+        if (msg.end) open = false;
+      },
+      // Where the next packet of the spurt now open will be laid (Infinity
+      // when none is open): nothing of this spurt lands before it.
+      get cursor() { return open ? cursor : Infinity; },
+      take(end) {
+        end = Math.min(end, voiceLength);
+        if (end <= base) return new Float32Array(0);
+        const out = new Float32Array(end - base);
+        out.set(buf.subarray(0, Math.max(0, Math.min(end, high) - base)));
+        const keep = Math.max(0, high - end);
+        if (keep) buf.copyWithin(0, end - base, high - base);
+        buf.fill(0, keep, Math.max(keep, high - base));
+        base = end;
+        if (high < base) high = base;
+        return out;
+      },
+      slots: () => ({ frames: slots, frameLog, frameBytes, frameMode }),
+      // The spurts' laid spans, inside [0, voiceLength).
+      spans: () => spans.map(([a, b]) => [Math.max(a, 0), Math.min(b, voiceLength)]).filter(([a, b]) => b > a),
+      calls: () => calls
+    };
+  }
+
+  // codecInfo for a `steam` render. Its counters keep their meaning on the
+  // frame log's slots, by what was laid: frames is the slots; gated, lost,
+  // late and DTX frames the slots with those codes; modes and encodedBytes
+  // the coding mode and packet size of the frame laid at each slot that is
+  // not gated (a lost or late slot's frame was coded too). So, as on the frame
+  // path, the modes add up to frames - gatedFrames and frameBytes to
+  // encodedBytes. Then the sender's spurts, and what the sender and the
+  // resampler did.
+  function steamCodecInfo(codec, voice, timeline, sender, settings, resampler, bitrate) {
+    const { frames, frameLog, frameBytes, frameMode } = timeline.slots();
+    const count = (code) => { let n = 0; for (let i = 0; i < frameLog.length; i++) if (frameLog[i] === code) n++; return n; };
+    const modes = { silk: 0, hybrid: 0, celt: 0 };
+    let encodedBytes = 0;
+    for (let i = 0; i < frames; i++) if (frameLog[i] !== FRAME_CODES.gated) { modes[frameMode[i]]++; encodedBytes += frameBytes[i]; }
+    const info = sender.info();
+    return { backend: 'libopus', version: voice.version, runtime: codec.encoder?.runtime ?? '1.1.5', sampleRate: STEAM_RATE, bitrate,
+      application: codec.application ?? 'voip', signal: codec.signal ?? 'auto', complexity: codec.encoder?.complexity ?? 10,
+      vbr: !!codec.encoder?.vbr, dtx: !!codec.encoder?.dtx, frameSamples: STEAM_FRAME, frameMs: 20,
+      lookahead: voice.lookahead, frames, lostFrames: count(FRAME_CODES.lost), underrunFrames: count(FRAME_CODES.late),
+      gatedFrames: count(FRAME_CODES.gated), dtxFrames: count(FRAME_CODES.dtx), spurts: info.spurts.length,
+      gate: settings.gate ? settings.thresholdDb : null, prerollFrames: 0, holdFrames: 0,
+      encodedBytes, modes, plc: 'opus', frameLog, frameBytes,
+      sender: { rule: 'steam', gate: settings.gate, meanMin: settings.meanMin, chunks: info.chunks, messages: info.messages, spurts: info.spurts },
+      resampler: { kernel: resampler.kernel, calls: timeline.calls() } };
+  }
+
   /**
    * Render a source AudioBuffer (or any { sampleRate, length,
    * numberOfChannels, getChannelData }) through the TF2 voice pipeline.
@@ -831,7 +1055,14 @@
    *   jitterMs:     net_fakejitter in ms: late frames, measured          [0]
    *   enableWarble: false bypasses the codec (filters/engine remain)    [true]
    *   gate:         Steam sender voice gate; null = profile default     [null]
-   *   gateThresholdDb: gate opening level, frame RMS in dBFS [profile/-39.5]
+   *   gateThresholdDb: gate opening level, frame RMS in dBFS [profile/-39.5];
+   *                 for `steam` (senderGate.rule 'steam') the mean of |x|
+   *                 over a capture chunk in dBFS, null for Steam's own (-40)
+   *   onDecoded, onResampled, onGain, swrKernel: tests only, `steam` only:
+   *                 each message's 16-bit samples as given to the
+   *                 resampler; each packet() result; the voice-rate signal
+   *                 after the gain; a resampler kernel in place of the
+   *                 module's default
    *   agc:          receiver auto-gain (false = unity gain)             [true]
    *   retime:       TF2's early talk-spurt starts (finding 19)          [false]
    *   avgGain:      voice_avggain, mean (0) to peak (1) normalization   [0.5]
@@ -913,8 +1144,50 @@
 
     /* ---- 3) Encode -> lose packets -> decode / conceal ---- */
     let codecInfo = { backend: 'bypass', sampleRate: codecRate, frameMs };
+    // The `steam` profile: Steam's sender and decoder, through to the voice
+    // rate (stage 4's gain included), on the source's timeline.
+    const steamPath = enableCodec && !received && codec.senderGate?.rule === 'steam';
+    let steamVoice = null;
     if (received) codecInfo = receivedCodecInfo(received, codecRate);
-    else if (enableCodec) {
+    else if (steamPath) {
+      const { sender: SteamSender, swr } = steamModules();
+      if (codecRate !== STEAM_RATE || codec.voiceRate !== STEAM_VOICE_RATE || codec.decoderEq) {
+        throw new Error('The steam rule runs at 24000 Hz into a 44100 Hz voice rate, with no decoder EQ.');
+      }
+      const opus = await loadOpusModule();
+      const bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
+      const settings = steamSenderOptions(opts, gateOn, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
+      const sender = SteamSender.createSender(settings.sender);
+      const messages = sender.push(steamCapture(samples));
+      for (const m of sender.finish()) messages.push(m);
+      const trip = await opus.steamRoundTrip(messages, bitrate, {
+        application: codec.application, signal: codec.signal, runtime: codec.encoder?.runtime,
+        complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx,
+        makeLossMask: count => buildLossMask(count, framesPerPacket, lossPct, rand, jitterMs),
+        yieldControl: microYield,
+        onProgress: f => report(0.2 + 0.4 * f)
+      });
+      const resampler = opts.swrKernel !== undefined ? swr.createResampler({ kernel: opts.swrKernel }) : swr.createResampler();
+      const voiceLength = sincLength(samples.length, STEAM_RATE, STEAM_VOICE_RATE);
+      const timeline = steamTimeline({ voiceLength, codecLength: samples.length, lookahead: trip.lookahead, resampler,
+        gain: autoGain ? createGain({ avgGain, maxGain, scale: voiceScale }) : null, capacity: voiceLength,
+        onDecoded: opts.onDecoded, onResampled: opts.onResampled });
+      for (let k = 0; k < messages.length; k++) {
+        timeline.add(messages[k], trip.results[k]);
+        if ((k & 63) === 63) await microYield();
+      }
+      steamVoice = timeline.take(voiceLength);
+      codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate), framesPerPacket };
+      // The receiver's re-timing (finding 19), on the voice-rate timeline: the
+      // laid spurts, moved earlier as the frame path moves its decoded sound;
+      // the slots of 480 codec samples are 882 here.
+      if (opts.retime) {
+        codecInfo.retimed = retimeSpurts(steamVoice, { frameLog: codecInfo.frameLog, frameBytes: codecInfo.frameBytes,
+          frameSamples: STEAM_FRAME * STEAM_VOICE_RATE / STEAM_RATE, lookahead: Math.round(trip.lookahead * STEAM_VOICE_RATE / STEAM_RATE),
+          spans: timeline.spans() },
+        STEAM_VOICE_RATE, mulberry32((finiteOr(opts.seed, 0xC0FFEE) ^ 0x9E3779B9) >>> 0));
+      }
+    } else if (enableCodec) {
       const opus = await loadOpusModule();
       const bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
       // The codec's own frame length: 20 ms for Opus, frameSize for CELT and Speex.
@@ -945,14 +1218,23 @@
     await microYield();
 
     /* ---- 4) Receiver voice channel: auto-gain + int16 clamp ---- */
-    samples = resampleSinc(samples, codecRate, codec.voiceRate);
-    if (autoGain) {
+    if (steamPath) {
+      // The gain ran on the decoded packets (steamTimeline).
+      samples = steamVoice;
+      if (!autoGain) {
+        for (let i = 0; i < samples.length; i++) samples[i] *= voiceScale;
+        samples = hardClip(samples, INT16_FULL_SCALE);
+      }
+      opts.onGain?.(samples);
+    } else if (autoGain) {
+      samples = resampleSinc(samples, codecRate, codec.voiceRate);
       // With the gate on, the gain knows which blocks were decoded; with
       // no gate (or the codec bypassed) every block was.
       const decoded = received || (enableCodec && gateOn)
         ? decodedFromFrames(codecInfo.frameLog, codecInfo.frameSamples, codecInfo.lookahead || 0, codecRate, codec.voiceRate) : undefined;
       samples = receiverAutoGain(samples, { avgGain, maxGain, scale: voiceScale, decoded });
     } else {
+      samples = resampleSinc(samples, codecRate, codec.voiceRate);
       for (let i = 0; i < samples.length; i++) samples[i] *= voiceScale;
       samples = hardClip(samples, INT16_FULL_SCALE);
     }
@@ -1655,7 +1937,58 @@
 
     /* ---- 3) Gate, encode, lose packets, decode ---- */
     let voice = null, kind = null, coder = null, gate = null, gateOpts = null, bitrate = 0, packetBytes = 0;
-    if (enableCodec && !received) {
+    const steamPath = enableCodec && !received && codec.senderGate?.rule === 'steam';
+    let steam = null;
+    if (steamPath) {
+      // Steam's sender and decoder through to the voice rate, the gain
+      // included, as process() runs them: the same sender, stream, resampler,
+      // gain and timeline, given the sound as it comes. The loss mask is drawn
+      // a frame at a time in the sender's frame order (streamLossMask gives
+      // buildLossMask's values). A sample is given out once no later packet
+      // can reach it: past the open spurt's next packet, and a spurt not yet
+      // opened starts at most a chunk and the pre-roll before the last sample
+      // given to the sender.
+      const { sender: SteamSender, swr } = steamModules();
+      if (codecRate !== STEAM_RATE || codec.voiceRate !== STEAM_VOICE_RATE || codec.decoderEq) {
+        throw new Error('The steam rule runs at 24000 Hz into a 44100 Hz voice rate, with no decoder EQ.');
+      }
+      const opus = await loadOpusModule();
+      bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
+      const settings = steamSenderOptions(opts, gateOn, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
+      const sender = SteamSender.createSender(settings.sender);
+      voice = await opus.createSteamStream(bitrate, { application: codec.application, signal: codec.signal,
+        runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
+      const stream = voice;
+      const nextMiss = streamLossMask(framesPerPacket, lossPct, rand, jitterMs);
+      let frame = 0, given = 0, fed = 0;
+      const miss = (f) => {
+        if (f !== frame++) throw new Error(`createRender: frame ${f} reached the network out of order`);
+        return nextMiss();
+      };
+      const resampler = opts.swrKernel !== undefined ? swr.createResampler({ kernel: opts.swrKernel }) : swr.createResampler();
+      const timeline = steamTimeline({ voiceLength, codecLength, lookahead: stream.lookahead, resampler,
+        gain: autoGain ? createGain({ avgGain, maxGain, scale: voiceScale }) : null,
+        onDecoded: opts.onDecoded, onResampled: opts.onResampled });
+      const feed = async (messages) => {
+        for (const msg of messages) {
+          timeline.add(msg, await stream.message(msg, miss));
+          if ((++fed & 63) === 63) await microYield();
+        }
+      };
+      steam = { sender, settings, resampler, timeline };
+      stages.push({
+        async push(x) {
+          given += x.length;
+          await feed(sender.push(steamCapture(x)));
+          const reach = Math.floor((given - steamReach(SteamSender.STEAM_SENDER) - stream.lookahead) * STEAM_VOICE_RATE / STEAM_RATE) - 1;
+          return timeline.take(Math.min(reach, timeline.cursor));
+        },
+        async flush() {
+          await feed(sender.finish());
+          return timeline.take(voiceLength);
+        }
+      });
+    } else if (enableCodec && !received) {
       const opus = await loadOpusModule();
       bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
       const codecFrameMs = codec.frameSize ? 1000 * codec.frameSize / codecRate : frameMs;
@@ -1685,8 +2018,18 @@
     }
 
     /* ---- 4) Receiver voice channel: auto-gain + int16 clamp ---- */
-    stages.push(sincStage(codecRate, codec.voiceRate, codecLength));
-    if (autoGain) {
+    if (steamPath) {
+      // The gain ran on the decoded packets (steamTimeline).
+      if (!autoGain) {
+        stages.push(sampleStage((x) => {
+          const y = new Float32Array(x);
+          for (let i = 0; i < y.length; i++) y[i] *= voiceScale;
+          return hardClip(y, INT16_FULL_SCALE);
+        }));
+      }
+      if (typeof opts.onGain === 'function') stages.push(sampleStage((x) => { opts.onGain(x); return x; }));
+    } else if (autoGain) {
+      stages.push(sincStage(codecRate, codec.voiceRate, codecLength));
       // decoded() as process() builds it. The codec stage fills its frame
       // log as it goes, and a frame is logged before any voice-rate sample
       // it makes reaches the gain (the stages between only wait).
@@ -1700,6 +2043,7 @@
       const run = streamAutoGain({ avgGain, maxGain, scale: voiceScale, decoded });
       stages.push({ push: run, flush: run.flush });
     } else {
+      stages.push(sincStage(codecRate, codec.voiceRate, codecLength));
       stages.push(sampleStage((x) => {
         const y = new Float32Array(x);
         for (let i = 0; i < y.length; i++) y[i] *= voiceScale;
@@ -1776,7 +2120,10 @@
         for (let k = 0; k < stages.length; k++) parts.push(await through(k + 1, await stages[k].flush()));
         let codecInfo = { backend: 'bypass', sampleRate: codecRate, frameMs };
         if (received) codecInfo = receivedCodecInfo(received, codecRate);
-        else if (coder) codecInfo = { ...codecResultInfo(kind, voice, codec, coder.counts(), gate, gateOpts, bitrate, packetBytes, codecRate), framesPerPacket };
+        else if (steam) {
+          codecInfo = { ...steamCodecInfo(codec, voice, steam.timeline, steam.sender, steam.settings, steam.resampler, bitrate),
+            framesPerPacket };
+        } else if (coder) codecInfo = { ...codecResultInfo(kind, voice, codec, coder.counts(), gate, gateOpts, bitrate, packetBytes, codecRate), framesPerPacket };
         release();
         state = 'finished';
         report(1);

@@ -12,6 +12,9 @@ const peak = x => { let at = 0; for (let i = 1; i < x.length; i++) if (Math.abs(
 const difference = (a, b) => a.reduce((sum, v, i) => sum + (v - b[i]) ** 2, 0);
 const sandbox = { window: {}, Blob, console, TF2Opus: opus };
 vm.createContext(sandbox);
+for (const file of ['../steam-sender.js', '../vendor/swresample/swresample.js']) {
+  vm.runInContext(fs.readFileSync(new URL(file, import.meta.url), 'utf8'), sandbox);
+}
 vm.runInContext(fs.readFileSync(new URL('../constants.js', import.meta.url), 'utf8') + '\n' +
   fs.readFileSync(new URL('../audio.js', import.meta.url), 'utf8'), sandbox);
 const A = sandbox.window.TF2Audio;
@@ -56,10 +59,13 @@ check('Steam profile encodes as VOIP with the voice signal hint', high.codecInfo
 check('Encoder mode per packet is reported from the TOC byte',
   Object.values(high.codecInfo.modes).reduce((a, b) => a + b, 0) === high.codecInfo.frames);
 // Timing: the render keeps the source's timeline. The Steam profile runs
-// hybrid mode: its CELT layer (8-12 kHz) comes out exactly on time once the
-// encoder lookahead is trimmed; the SILK layer below leads by its own
-// frequency-dependent phase (tests/REFERENCE_2026.md, finding 19), which
-// TF2's identical libopus has too, so it is kept, not corrected.
+// hybrid mode: its CELT layer (8-12 kHz) comes out on time once the encoder
+// lookahead is trimmed, but for Steam's resampler, which since W3-11a is
+// 16 input samples (0.667 ms) late after its first packet (finding 29: the
+// game's, kept), and the laying of the spurt's first packet at a whole voice
+// sample; the SILK layer below leads by its own frequency-dependent phase
+// (tests/REFERENCE_2026.md, finding 19), which TF2's identical libopus has
+// too, so it is kept, not corrected.
 {
   const r48 = 48000, n = r48 * 4;
   let seed = 7;
@@ -71,11 +77,14 @@ check('Encoder mode per packet is reported from the TOC byte',
     for (let l = -40; l <= 40; l++) { let sum = 0; for (let i = r48; i < 3 * r48; i++) sum += p[i] * q[i + l]; v[l] = sum; if (sum > v[best]) best = l; }
     return (best + .5 * (v[best - 1] - v[best + 1]) / (v[best - 1] - 2 * v[best] + v[best + 1])) / r48 * 1e6;
   };
-  const rendered = (await A.process(buffer(white, r48), { ...base, volume: .5 })).samples;
+  const whole = await A.process(buffer(white, r48), { ...base, volume: .5 }), rendered = whole.samples;
   const celt = lagUs(band(white, 8000, 11000), band(rendered, 8000, 11000));
   const silk = lagUs(band(white, 1000, 3000), band(rendered, 1000, 3000));
-  check(`The CELT band is on time (${celt.toFixed(1)} us); the SILK band leads by Opus's own phase (${silk.toFixed(0)} us)`,
-    Math.abs(celt) < 3 && silk < -20 && silk > -120);
+  // The spurt's first packet lies at round((start - lookahead) x 147 / 80).
+  const anchor = (whole.codecInfo.sender.spurts[0].start - whole.codecInfo.lookahead) * 147 / 80;
+  const late = 1e6 * (16 / 24000 + (Math.round(anchor) - anchor) / 44100);
+  check(`The CELT band is ${celt.toFixed(1)} us late, Steam's resampler's 16 inputs as laid (${late.toFixed(1)} us); the SILK band leads it by Opus's own phase (${(silk - celt).toFixed(0)} us)`,
+    whole.codecInfo.spurts === 1 && Math.abs(celt - late) < 3 && silk - celt < -20 && silk - celt > -120);
 }
 // vaudio_celt: the real CELT 0.11 in Source's custom mode.
 {
@@ -258,7 +267,11 @@ check('Encoder mode per packet is reported from the TOC byte',
   }
 }
 const lost = await A.process(buffer(x, rate), { ...base, lossPct: 100 });
-check('100% loss reaches native decoder PLC', lost.codecInfo.plc === 'opus' && lost.codecInfo.lostFrames === lost.codecInfo.frames);
+// Since W3-11a Steam's decoder conceals a gap only when a later frame of the
+// spurt arrives (finding 29): with every frame lost none does, so nothing is
+// concealed and no slot is laid.
+check('100% loss: no frame arrives, so Steam\'s decoder conceals nothing and every slot is empty',
+  lost.codecInfo.plc === 'opus' && lost.codecInfo.lostFrames === 0 && lost.codecInfo.gatedFrames === lost.codecInfo.frames && lost.codecInfo.spurts === 1);
 check('No voice leaks through 100% loss from stream start', energy(lost.samples) < 1e-12);
 const lossy = await A.process(buffer(x, rate), { ...base, lossPct: 25 });
 check('Partial loss conceals packets without changing duration',
@@ -266,10 +279,17 @@ check('Partial loss conceals packets without changing duration',
 const silent = await A.process(buffer(new Float32Array(rate), rate), base);
 // Opus's own quantization may return very small nonzero PCM for silence.
 check('Silence stays below -100 dBFS RMS without added hiss', energy(silent.samples) / silent.samples.length < 1e-10);
-const muted = await A.process(buffer(x, rate), { ...base, voiceScale: 0 });
 // A render starts with a reset gain, at unity for its first 128 voice-rate samples whatever voice_scale is (W3-05).
-const unmutedAt = muted.samples.findLastIndex(v => v !== 0);
-check('Receiver mute is exact silence after the first block', unmutedAt >= 0 && unmutedAt < Math.round(0.01 * muted.sampleRate));
+// Since W3-11a those are the first decoded packet's, laid where the first spurt starts. On x alone that is its
+// pre-roll of zeros, before sample 0; so x follows half a second of a faint tone the gate does not send, and
+// the first spurt's pre-roll is that tone: the first block is heard there, and nothing after it.
+const lead = Float32Array.from({ length: rate / 2 + x.length }, (_, i) => (i < rate / 2 ? 1e-3 * Math.sin(2 * Math.PI * 1000 * i / rate) : x[i - rate / 2]));
+const muted = await A.process(buffer(lead, rate), { ...base, voiceScale: 0 });
+const mutedAt = Math.round((muted.codecInfo.sender.spurts[0].start - muted.codecInfo.lookahead) * 147 / 80);
+const unmutedFrom = muted.samples.findIndex(v => v !== 0), unmutedAt = muted.samples.findLastIndex(v => v !== 0);
+check('Receiver mute is exact silence after the first block, which is heard where the first spurt starts',
+  muted.sampleRate === 44100 && mutedAt > 0 && unmutedFrom >= mutedAt && unmutedAt >= mutedAt && unmutedAt <= mutedAt + 129,
+  `first block laid at ${mutedAt}; not zero from ${unmutedFrom} to ${unmutedAt}`);
 // x is about -21 dBFS RMS; stay above the Steam voice gate (-39.5 dBFS) so the gain is what is tested.
 const quiet = Float32Array.from(x, v => v * .3);
 const leveled = await A.process(buffer(quiet, rate), base);
@@ -364,22 +384,151 @@ check('Invalid PCM is rejected before encoding', true);
   await assert.rejects(() => opus.roundTrip(x, rate, 32000, { runtime: '0.9' }), /Unknown libopus runtime/);
   check('Unknown runtimes are rejected', true);
 }
+// Steam's decoder rules (W3-09 section 4, finding 29), on the decoder alone:
+// a gap is concealed when the next frame arrives, at most 10 frames of it; a
+// sequence number behind resets without concealing; the end marker resets;
+// the render's lost() counts toward the next gap and late() is no gap.
+{
+  const { createEncoder: enc11, createDecoder: dec11 } = await import('../vendor/libopus-1.1/index.mjs');
+  const enc = await enc11({ sampleRate: 24000, channels: 1, frameSize: 480, application: 2048, signal: 3001, bitrate: 32000, complexity: 9, vbr: true, dtx: true, fec: false });
+  const packets = Array.from({ length: 40 }, (_, f) => enc.encodeFloat(x.subarray(f * 480, (f + 1) * 480)));
+  enc.free();
+  const sameBlock = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  const fresh = async (p) => { const d = await dec11({ sampleRate: 24000, channels: 1 }); const y = d.decodeInt16(p, { frameSize: 480 }); d.free(); return y; };
+  const d = await opus.createSteamDecoder();
+  const counts = [];
+  counts.push((await d.receive(0, packets[0])).length, (await d.receive(1, packets[1])).length);
+  counts.push((await d.receive(5, packets[5])).length);           // 3 lost: 3 concealed, then the frame
+  counts.push((await d.receive(21, packets[21])).length);         // 15 lost: 10 concealed
+  const behind = await d.receive(7, packets[7]);                  // behind: reset, nothing concealed
+  counts.push(behind.length);
+  d.lost(8); d.lost(9);
+  counts.push((await d.receive(10, packets[10])).length);         // lost() twice: 2 concealed
+  const late = d.late(11);
+  counts.push((await d.receive(12, packets[12])).length);         // late() is no gap
+  d.lost(13);
+  const lateAfterLost = d.late(14);
+  counts.push((await d.receive(15, packets[15])).length);         // the lost frame before the late one is still concealed
+  await d.end();
+  const afterEnd = await d.receive(0, packets[30]);
+  d.free();
+  check(`Steam's decoder: a gap concealed at the next frame, at most 10; behind resets; lost and late frames (blocks ${counts.join(' ')})`,
+    counts.join() === '1,1,4,11,1,3,1,2' && sameBlock(behind[0], await fresh(packets[7])) && late.length === 480 && late.every(v => v === 0)
+    && lateAfterLost.every(v => v === 0) && sameBlock(afterEnd[0], await fresh(packets[30])));
+}
+// Sequence numbers are 16 bits, as the packets carry them (W3-16 section 3):
+// after 65535 comes 0, with no reset and nothing concealed. The numbers are
+// put across the wrap by hand (a spurt reaches it only at its 65,536th frame,
+// 22 minutes in): a fresh decoder given 65530 first conceals 10 frames, as
+// Steam's would, then 65531 to 65535 and 0 to 5 each decode one frame,
+// exactly as one decoder given the same calls. A frame lost at 65535 (the
+// decoder never sees it) makes 0 behind 65535: a reset, nothing concealed.
+{
+  const { createEncoder: enc11, createDecoder: dec11 } = await import('../vendor/libopus-1.1/index.mjs');
+  const enc = await enc11({ sampleRate: 24000, channels: 1, frameSize: 480, application: 2048, signal: 3001, bitrate: 32000, complexity: 9, vbr: true, dtx: true, fec: false });
+  const packets = Array.from({ length: 12 }, (_, f) => enc.encodeFloat(x.subarray(f * 480, (f + 1) * 480)));
+  enc.free();
+  const sameBlock = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  const one = await dec11({ sampleRate: 24000, channels: 1 });
+  const want = [];
+  for (let c = 0; c < 10; c++) want.push(one.decodePacketLossInt16(480));
+  for (const p of packets) want.push(one.decodeInt16(p, { frameSize: 480 }));
+  one.free();
+  const d = await opus.createSteamDecoder(), got = [], counts = [];
+  for (let i = 0; i < 12; i++) { const b = await d.receive((65530 + i) & 0xFFFF, packets[i]); counts.push(b.length); got.push(...b); }
+  d.free();
+  const lossy = await opus.createSteamDecoder();
+  for (let i = 0; i < 5; i++) await lossy.receive(65530 + i, packets[i]);
+  lossy.lost(65535);
+  const afterLoss = await lossy.receive(0, packets[6]);
+  lossy.free();
+  const fresh = await dec11({ sampleRate: 24000, channels: 1 }), reset = fresh.decodeInt16(packets[6], { frameSize: 480 });
+  fresh.free();
+  check(`Steam's decoder: sequence numbers wrap at 16 bits, 65535 then 0 with no reset and nothing concealed; a frame lost at 65535 makes 0 behind (blocks ${counts.join(' ')})`,
+    counts.join() === '11,1,1,1,1,1,1,1,1,1,1,1' && got.length === want.length && got.every((b, i) => sameBlock(b, want[i]))
+    && afterLoss.length === 1 && sameBlock(afterLoss[0], reset));
+}
+// W3-11a rebuilt the libopus 1.1.5 module with the library's 16-bit decoder,
+// opus_decode, exported (Steam decodes to 16 bits), and changed nothing else.
+{
+  const { testSignals, floatRun, int16Stream, digest, ENCODER, FRAME, RATE } = await import('./libopus11/native.mjs');
+  const { createEncoder: create11, createDecoder: decoder11 } = await import('../vendor/libopus-1.1/index.mjs');
+  const signals = testSignals();
+  // The float path must not move: these SHA-256 were recorded from the module
+  // as built before opus_decode was exported (b7a03edb...): the packets of 10 s
+  // of seeded noise bursts and vowels (some past full scale, and the same at
+  // 1/50 of the level), each packet through decodeFloat, and
+  // decodePacketLossFloat after every tenth.
+  const floatHashes = {
+    loud: { packets: '6bee8aa15d63d7f169940b8ecaa9f818555e3b733896e483d54c37e1718a75b2',
+      floats: 'faff9b07240216b0d25e9cc60d062ac2b6c4e405d5c88b2b21a683bcbbb7935f',
+      lost: '6787c35c12b7c6809ccdab66a493622f44061da95346dd191286e5b9e44d9bc8' },
+    quiet: { packets: 'b5226e0b8ff57bdda9fbec567cf244284eda90cad1eb6ea52d474df5b268648f',
+      floats: '56d18af46a017607e1ddbe8b9f33078154f1011329d54dca481a0327c8c6fa39',
+      lost: '8a03db0fe588c99e2d7db9154b9c7a0b13946090e928192ea8e5d8572a94a5ae' } };
+  for (const name of ['loud', 'quiet']) {
+    const got = await floatRun(signals[name]);
+    check(`libopus 1.1.5 rebuilt: the float path gives the earlier module's packets, decodeFloat and concealment (${name})`,
+      JSON.stringify(got) === JSON.stringify(floatHashes[name]));
+  }
+  // The 16-bit decoder against a native gcc build of the same checkout
+  // (`node tests/libopus11/native.mjs <checkout>`, gcc 13.3, x86-64): packets
+  // and opus_decode's samples, a concealed frame after every tenth packet.
+  const nativeHashes = {
+    loud: { packets: '6bee8aa15d63d7f169940b8ecaa9f818555e3b733896e483d54c37e1718a75b2',
+      int16: '12e83950d1dbc7bc70705b4a4f853a0fa7492a80c393892c307b4bed49f56cf9' },
+    quiet: { packets: 'b5226e0b8ff57bdda9fbec567cf244284eda90cad1eb6ea52d474df5b268648f',
+      int16: '24556dbc4662a730a6fa211602cc1a02a99176ecf995d4aef1628f782b015b97' } };
+  for (const name of ['loud', 'quiet']) {
+    const got = digest(await int16Stream(signals[name]));
+    check(`libopus 1.1.5: opus_decode's 16-bit samples match the native build sample for sample (${name}, ${got.samples} samples)`,
+      got.packets === nativeHashes[name].packets && got.int16 === nativeHashes[name].int16 && got.frames === 500);
+  }
+  // It is not the float decoder followed by a clip: the soft clipper changes
+  // the samples around a peak past full scale. On the quiet signal the two agree.
+  const roundEven = (v) => { const r = Math.round(v); return r - v === 0.5 && (r & 1) ? r - 1 : r; };
+  for (const [name, want] of [['loud', (n) => n >= 100], ['quiet', (n) => n === 0]]) {
+    const enc = await create11(ENCODER), d16 = await decoder11({ sampleRate: RATE, channels: 1 }), df = await decoder11({ sampleRate: RATE, channels: 1 });
+    let differ = 0, over = 0;
+    const x = signals[name];
+    for (let f = 0; (f + 1) * FRAME <= x.length; f++) {
+      const packet = enc.encodeFloat(x.subarray(f * FRAME, (f + 1) * FRAME));
+      const a = d16.decodeInt16(packet, { frameSize: FRAME }), b = df.decodeFloat(packet, { frameSize: FRAME });
+      for (let i = 0; i < FRAME; i++) {
+        if (Math.max(-32768, Math.min(32767, roundEven(b[i] * 32768))) !== a[i]) differ++;
+        if (Math.abs(b[i]) > 1) over++;
+      }
+      if (f % 10 === 9) {
+        const pa = d16.decodePacketLossInt16(FRAME), pb = df.decodePacketLossFloat(FRAME);
+        for (let i = 0; i < FRAME; i++) if (Math.max(-32768, Math.min(32767, roundEven(pb[i] * 32768))) !== pa[i]) differ++;
+      }
+    }
+    enc.free(); d16.free(); df.free();
+    check(`libopus 1.1.5: the 16-bit decoder ${name === 'loud' ? 'soft-clips' : 'equals'} clamp-and-round of decodeFloat (${name}: ${differ} samples differ; ${over} decoded floats past full scale)`,
+      want(differ));
+  }
+}
 const aliasSource = Float32Array.from({ length: 48000 }, (_, i) => Math.sin(2 * Math.PI * 16000 * i / 48000));
 const downsampled = A.resampleSinc(aliasSource, 48000, 24000).slice(100, -100);
 check('Downsampling rejects an out-of-band tone instead of aliasing it', energy(downsampled) / downsampled.length < 1e-7);
 
 // Observe the real encoder boundary to verify filter order, not just output EQ.
+// Since W3-11a the steam profile's encoder is given the sender's messages
+// (16-bit frames); the gate off, so that every frame of the tone is sent.
 let captured;
-sandbox.TF2Opus = { roundTrip: async (samples, sr, bitrate, options) => {
-  captured = samples.slice(); return opus.roundTrip(samples, sr, bitrate, options);
+sandbox.TF2Opus = { ...opus, steamRoundTrip: async (messages, bitrate, options) => {
+  const sound = messages.filter(m => m.silence === undefined);
+  captured = Float32Array.from(sound.flatMap(m => Array.from(m.pcm)), v => v / 32768);
+  return opus.steamRoundTrip(messages, bitrate, options);
 } };
 const highTone = Float32Array.from({ length: rate }, (_, i) => .15 * Math.sin(2 * Math.PI * 8000 * i / rate));
-await A.process(buffer(highTone, rate), { ...base, lp: 1500 });
-check('Sender low-pass removes out-of-band energy before encoding', energy(captured) < energy(highTone) * .001);
+await A.process(buffer(highTone, rate), { ...base, lp: 1500, gate: false });
+check('Sender low-pass removes out-of-band energy before encoding', captured.length >= rate && energy(captured) < energy(highTone) * .001,
+  `${captured.length} samples encoded`);
 sandbox.TF2Opus = opus;
 const bypassed = await A.process(buffer(x, rate), { ...base, enableWarble: false });
 check('Codec bypass is only selected explicitly and reported honestly', !bypassed.realOpus && bypassed.codecInfo.backend === 'bypass');
-sandbox.TF2Opus = { roundTrip: async () => { throw new Error('Codec unavailable'); } };
+sandbox.TF2Opus = { roundTrip: async () => { throw new Error('Codec unavailable'); }, steamRoundTrip: async () => { throw new Error('Codec unavailable'); } };
 await assert.rejects(() => A.process(buffer(x, rate), base), /Codec unavailable/);
 check('Codec failure is reported, never silently bypassed', true);
 sandbox.TF2Opus = opus;

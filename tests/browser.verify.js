@@ -856,48 +856,78 @@ async function verifyLiveMonitor(page) {
   await page.locator('#live-ptt').uncheck();
 
   // Record: the microphone and the voice come into the app lined up.
-  await page.locator('#live-record').click();
-  await page.waitForTimeout(3000);
-  await page.locator('#live-record').click();
-  await page.waitForFunction(() => state.sourceName && state.sourceName.startsWith('live-') && state.processedBuffer, null, { timeout: 20000 });
-  // The live chain and a render of the same microphone audio cut it into
-  // frames at different points, so their codec output differs a little:
-  // with the noise probe (wavProbe) the correlation was 0.87-0.91 over 58
-  // recordings covering the whole looped probe, and no other lag within
-  // 300 ms came above 0.09. The peak sat at 0 every time (fractional
-  // 0.00-0.04 samples over the first 32); tests/verify.js pins the
-  // live chain's delay to the sample. Chromium's own beep is a 400 Hz square
-  // wave, with a correlation peak every 110 samples nearly as high as the
-  // true one: one recording in 32 peaked at -330 that way.
-  const take = await page.evaluate(async () => {
-    const dry = state.decodedSource.getChannelData(0), wet = state.processedBuffer, rate = state.processedRate;
-    const render = (await TF2Audio.process(state.decodedSource, renderOptions())).samples;
-    const from = Math.round(rate * .4), to = Math.min(wet.length, render.length) - Math.round(rate * .2);
-    let size = 1;
-    while (size < 2 * (to - from)) size *= 2;
-    const ar = new Float64Array(size), ai = new Float64Array(size), br = new Float64Array(size), bi = new Float64Array(size);
-    let ea = 0, eb = 0;
-    for (let i = from; i < to; i++) { ar[i - from] = render[i]; br[i - from] = wet[i]; ea += render[i] ** 2; eb += wet[i] ** 2; }
-    TF2Reference.fft(ar, ai); TF2Reference.fft(br, bi);
-    for (let k = 0; k < size; k++) { const re = br[k] * ar[k] + bi[k] * ai[k], im = bi[k] * ar[k] - br[k] * ai[k]; br[k] = re; bi[k] = im; }
-    TF2Reference.fft(br, bi, true);
-    // Wet lagging the render by `lag` samples, within 300 ms either way.
-    let lag = 0;
-    for (let d = -Math.round(rate * .3); d <= Math.round(rate * .3); d++) if (br[(d + size) % size] > br[(lag + size) % size]) lag = d;
-    let low = 0, high = 0;
-    for (const v of dry) { low = Math.min(low, v); high = Math.max(high, v); }
-    return { seconds: dry.length / rate, same: dry.length === wet.length, lag, rate, r: ea > 0 && eb > 0 ? br[(lag + size) % size] / Math.sqrt(ea * eb) : 0, low, high,
-      lane: !!(state.lastCodecInfo && state.lastCodecInfo.frameLog && state.lastCodecInfo.frameLog.some(c => c > 0)),
-      ab: !els.abToggle.disabled };
-  });
+  // A take on the profile now on the page; the take, its dry signal and an
+  // offline render of that dry signal with the page's settings.
+  async function recordTake(codec) {
+    if (await page.locator('#codec').inputValue() !== codec) {
+      await page.locator('#codec').selectOption(codec);
+      await page.waitForFunction((c) => TF2Live.stats && TF2Live.stats.codec === c && TF2Live.stats.sent > 20, codec, { timeout: 15000 });
+    }
+    await page.locator('#live-record').click();
+    await page.waitForTimeout(3000);
+    await page.locator('#live-record').click();
+    await page.waitForFunction(() => state.sourceName && state.sourceName.startsWith('live-') && state.processedBuffer, null, { timeout: 20000 });
+    // The live chain and a render of the same microphone audio cut it into
+    // frames at different points, so their codec output differs a little:
+    // with the noise probe (wavProbe) the correlation was 0.87-0.91 over 58
+    // recordings covering the whole looped probe, and no other lag within
+    // 300 ms came above 0.09. The peak sat at 0 every time (fractional
+    // 0.00-0.04 samples over the first 32); tests/verify.js pins the
+    // live chain's delay to the sample. Chromium's own beep is a 400 Hz square
+    // wave, with a correlation peak every 110 samples nearly as high as the
+    // true one: one recording in 32 peaked at -330 that way.
+    return page.evaluate(async () => {
+      const dry = state.decodedSource.getChannelData(0), wet = state.processedBuffer, rate = state.processedRate;
+      const render = (await TF2Audio.process(state.decodedSource, renderOptions())).samples;
+      const from = Math.round(rate * .4), to = Math.min(wet.length, render.length) - Math.round(rate * .2);
+      let size = 1;
+      while (size < 2 * (to - from)) size *= 2;
+      const ar = new Float64Array(size), ai = new Float64Array(size), br = new Float64Array(size), bi = new Float64Array(size);
+      let ea = 0, eb = 0;
+      for (let i = from; i < to; i++) { ar[i - from] = render[i]; br[i - from] = wet[i]; ea += render[i] ** 2; eb += wet[i] ** 2; }
+      TF2Reference.fft(ar, ai); TF2Reference.fft(br, bi);
+      for (let k = 0; k < size; k++) { const re = br[k] * ar[k] + bi[k] * ai[k], im = bi[k] * ar[k] - br[k] * ai[k]; br[k] = re; bi[k] = im; }
+      TF2Reference.fft(br, bi, true);
+      // Wet lagging the render by `lag` samples, within 300 ms either way.
+      let lag = 0;
+      for (let d = -Math.round(rate * .3); d <= Math.round(rate * .3); d++) if (br[(d + size) % size] > br[(lag + size) % size]) lag = d;
+      let low = 0, high = 0;
+      for (const v of dry) { low = Math.min(low, v); high = Math.max(high, v); }
+      return { seconds: dry.length / rate, same: dry.length === wet.length, lag, rate, r: ea > 0 && eb > 0 ? br[(lag + size) % size] / Math.sqrt(ea * eb) : 0, low, high,
+        lane: !!(state.lastCodecInfo && state.lastCodecInfo.frameLog && state.lastCodecInfo.frameLog.some(c => c > 0)),
+        ab: !els.abToggle.disabled };
+    });
+  }
+  const take = await recordTake('steam');
   check(take.seconds > 2 && take.same && take.ab && take.lane,
     'Record loads the live session into the app as a dry/wet pair with its codec lane', `${take.seconds.toFixed(1)} s`);
   // Chromium's own beep swings from 0 to full scale; the probe stays within
   // about +-0.35 on both sides of zero.
   check(take.high < .5 && take.low < -.1, 'the fake microphone plays the noise probe, not Chromium\'s beep',
     `samples from ${take.low.toFixed(2)} to ${take.high.toFixed(2)}`);
-  check(Math.abs(take.lag) <= 1 && take.r > 0.8, 'the recorded voice lines up with an offline render of the recorded microphone, within a sample',
-    `peak at ${take.lag} samples, r ${take.r.toFixed(3)}`);
+  // W3-11a: the steam render runs Steam's resampler, which after its first
+  // packet is 16 inputs late (finding 29), while the live chain keeps the
+  // app's resampler until W3-11b (which rewrites this check when the live
+  // chain takes the sender). Each spurt's lateness is 29.4 voice samples less
+  // the fraction of a sample by which the resampler's output grid falls short
+  // at the spurt's first packet, plus the rounding of where that packet is
+  // laid: 27.9 to 29.9 samples at 44.1 kHz, 28.9 (0.655 ms) on average
+  // (measured spurt by spurt in Node against that prediction, within 0.15
+  // samples). The take is at the page's device rate (44.1 kHz here and on CI;
+  // 29.4 samples there are 32 at 48 kHz), so the window scales with it: the
+  // peak within 1.5 samples (at 44.1 kHz) of -28.9. 60 takes simulated in Node
+  // peaked at -28 to -30 at 44.1 kHz and -31 to -32 at 48 kHz. Their r is
+  // lower than on one path (the gate's frames, the 16-bit capture, the
+  // encoder's resets, the decode and the resampler all differ): 0.786 to 0.90
+  // over those 60 at 44.1 kHz, so r > 0.7 here.
+  const k = take.rate / 44100;
+  check(Math.abs(take.lag + 28.9 * k) <= 1.5 * k && take.r > 0.7,
+    'steam: an offline render of the recorded microphone lags the live take by Steam\'s resampler\'s 16 inputs (0.655 ms on average)',
+    `peak at ${take.lag} samples at ${take.rate} Hz (${(-1000 * take.lag / take.rate).toFixed(3)} ms), r ${take.r.toFixed(3)}`);
+  // steam_48 runs the frame path in the render and in the live chain alike.
+  const take48 = await recordTake('steam_48');
+  check(Math.abs(take48.lag) <= 1 && take48.r > 0.8, 'steam_48: the recorded voice lines up with an offline render of the recorded microphone, within a sample',
+    `peak at ${take48.lag} samples, r ${take48.r.toFixed(3)}`);
 
   // The speex profile live: the panel, and a recorded take, name Speex.
   await page.locator('#codec').selectOption('speex');
@@ -1296,10 +1326,48 @@ async function main() {
         });
         const samples = new Float32Array(result.samples);
         return { exact: samples.length === direct.samples.length && samples.every((v, i) => v === direct.samples[i]),
-          plc: result.codecInfo.plc, lost: result.codecInfo.lostFrames };
+          plc: result.codecInfo.plc, lost: result.codecInfo.lostFrames,
+          sender: result.codecInfo.sender && result.codecInfo.sender.rule, calls: result.codecInfo.resampler && result.codecInfo.resampler.calls };
       } finally { worker.terminate(); }
     });
     check(parity.exact && parity.plc === 'opus' && parity.lost > 0, 'worker and main thread agree with native packet-loss concealment');
+    // W3-11a: the steam render runs Steam's sender (steam-sender.js) and the
+    // decoder's resampler (vendor/swresample/swresample.js), loaded on the page
+    // and in both workers; the footer credits FFmpeg's libswresample.
+    check(parity.sender === 'steam' && parity.calls > 0, 'the audio worker renders steam through Steam\'s sender and the decoder\'s resampler',
+      `${parity.sender}, ${parity.calls} resampler calls`);
+    // The live monitor's worker runs no steam render before W3-11b, so only its
+    // own scope can show the two modules missing: it is read there once the
+    // worker has answered, then the worker is stopped.
+    const liveWorker = new Promise((resolve) => {
+      const timer = setTimeout(() => { page.off('worker', seen); resolve(null); }, 20000);
+      const seen = (w) => { if (w.url().endsWith('/live-worker.js')) { clearTimeout(timer); page.off('worker', seen); resolve(w); } };
+      page.on('worker', seen);
+    });
+    const loaded = await page.evaluate(async () => {
+      const page = typeof TF2SteamSender === 'object' && typeof TF2Swresample === 'object' && typeof TF2Swresample.createResampler === 'function';
+      // The live monitor's worker: it answers only once its scripts have loaded.
+      const live = await new Promise((resolve) => {
+        const worker = new Worker('live-worker.js');
+        window.__liveWorker = worker;
+        const timer = setTimeout(() => resolve('silent'), 15000);
+        worker.onerror = (e) => { clearTimeout(timer); resolve(`error ${e.message}`); };
+        worker.onmessage = (e) => { if (e.data.type === 'error') return; clearTimeout(timer); resolve(e.data.type); };
+        const channel = new MessageChannel();
+        worker.postMessage({ type: 'start', rate: 48000, port: channel.port1, opts: { codec: 'steam' } }, [channel.port1]);
+      });
+      const credit = [...document.querySelectorAll('footer a')].find(a => /libswresample|FFmpeg/.test(a.textContent) || /COPYING\.LGPLv2\.1/.test(a.getAttribute('href') || ''));
+      const licence = await fetch('vendor/swresample/COPYING.LGPLv2.1').then(r => r.ok ? r.text() : '');
+      return { page, live, footer: document.querySelector('footer').textContent.replace(/\s+/g, ' ').trim(),
+        link: !!credit, licence: /GNU LESSER GENERAL PUBLIC LICENSE/.test(licence) && /Version 2\.1/.test(licence) };
+    });
+    const scope = await liveWorker.then((w) => w ? w.evaluate(() => typeof self.TF2SteamSender === 'object'
+      && typeof self.TF2Swresample === 'object' && typeof self.TF2Swresample.createResampler === 'function') : 'no worker seen').catch((e) => `error ${e.message}`);
+    await page.evaluate(() => { window.__liveWorker.terminate(); delete window.__liveWorker; });
+    check(loaded.page && ['ready', 'stats'].includes(loaded.live) && scope === true,
+      'the page and the live monitor\'s worker load steam-sender.js and vendor/swresample/swresample.js', `${loaded.live}; in the worker's scope: ${scope}`);
+    check(loaded.footer.includes('libswresample') && loaded.footer.includes('LGPL') && loaded.footer.includes('translated to JavaScript, modified') && loaded.link && loaded.licence,
+      'the footer credits FFmpeg\'s libswresample (LGPL, translated to JavaScript, modified) beside LAME, with a link to its licence', loaded.footer);
     await verifyAverageAndRealTake(page);
     await verifyLiveMonitor(page);
     await verifyVideo(page);

@@ -27,6 +27,10 @@ const code =
 
 const sandbox = { window: {}, Blob: globalThis.Blob, console };
 vm.createContext(sandbox);
+// Steam's sender and the decoder's resampler load beside audio.js, as on the page.
+for (const file of ['steam-sender.js', 'vendor/swresample/swresample.js']) {
+  vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), sandbox);
+}
 vm.runInContext(code, sandbox);
 const TF2Audio = sandbox.window.TF2Audio;
 const ENGINE = vm.runInContext('VOICE_ENGINE', sandbox);
@@ -172,10 +176,491 @@ function check(name, cond, detail) {
 // Clean path: no codec, unity receiver gain, full output volume.
 const clean = { enableWarble: false, agc: false, volume: 1, listenerPos: 'open' };
 
+/* ---------------- the steam profile (W3-11a) ---------------- */
+
+// The `steam` render sends as Steam's client does and decodes as its decoder
+// does (docs/work-orders/W3-11-steam-gate.md, part a). Sources are made at
+// 24 kHz, so no resampler stands between a test and the gate: the capture is
+// the source, clipped, through the profile's capture roll-off, rounded to 16
+// bits, as process() makes it.
+async function steamSection() {
+  console.log('\n[5c] The steam profile: Steam\'s sender and decoder (W3-11a)');
+  const R = 24000, VR = 44100, opus = sandbox.TF2Opus;
+  // The test's own copies, in this realm (the sender takes only this realm's Int16Array).
+  const Sender = require(path.join(root, 'steam-sender.js')), Swr = require(path.join(root, 'vendor/swresample/swresample.js'));
+  const PROFILES = vm.runInContext('CODEC_PROFILES', sandbox), steam = PROFILES.steam;
+  const eqTaps = TF2Audio.firwin2(steam.captureEq.taps, steam.captureEq.freqs, steam.captureEq.gainsDb, R);
+  const round16 = (y) => Int16Array.from(y, (v) => {
+    const s = v * 32768;
+    let r = Math.round(s);
+    if (r - s === 0.5 && (r & 1)) r -= 1;
+    return Math.max(-32768, Math.min(32767, r));
+  });
+  const captured = (x) => round16(TF2Audio.applyFirZeroPhase(TF2Audio.hardClip(x, 32767 / 32768), eqTaps));
+  const senderOf = (x, opts = {}) => {
+    const s = Sender.createSender(opts), msgs = s.push(captured(x));
+    for (const m of s.finish()) msgs.push(m);
+    return { msgs, info: s.info() };
+  };
+  const holding = (msgs) => msgs.filter((m) => m.silence !== undefined || m.last >= m.first).length;
+  // The test hooks: each message's 16-bit samples as given to the resampler,
+  // each packet() result, and the voice-rate signal after the gain.
+  const hooked = () => {
+    const h = { decoded: [], resampled: [], gained: null };
+    h.opts = {
+      onDecoded: (p, m) => h.decoded.push({ pcm: Int16Array.from(p), msg: JSON.parse(JSON.stringify({ ...m, pcm: undefined })) }),
+      onResampled: (y, m) => h.resampled.push({ y: Int16Array.from(y), msg: JSON.parse(JSON.stringify({ ...m, pcm: undefined })) }),
+      onGain: (g) => { h.gained = Float32Array.from(g); }
+    };
+    return h;
+  };
+  const render = (x, opts = {}, h = null) => TF2Audio.process(mkBuffer(x, R), { codec: 'steam', volume: 1, ...opts, ...(h ? h.opts : {}) });
+  // A hand-made loss mask through the codec module's makeLossMask hook.
+  const withMask = async (make, run) => {
+    const real = sandbox.TF2Opus;
+    sandbox.TF2Opus = { ...real, steamRoundTrip: (m, b, o) => real.steamRoundTrip(m, b, { ...o, makeLossMask: make }) };
+    try { return await run(); } finally { sandbox.TF2Opus = real; }
+  };
+  const same = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
+  const sine = (f, seconds, peak) => Float32Array.from({ length: Math.round(seconds * R) }, (_, i) => peak * Math.sin(2 * Math.PI * f * i / R));
+  // Seeded speech-like talk: voiced syllables on a noise floor, with pauses.
+  const talk = (seconds, seed, level = 0.2) => {
+    const rnd = TF2Audio.mulberry32(seed), n = Math.round(seconds * R), x = new Float32Array(n);
+    for (let i = 0; i < n; i++) x[i] = 3e-4 * (rnd() * 2 - 1);
+    let t = Math.round(0.3 * R);
+    while (t < n) {
+      const len = Math.round((0.4 + 1.2 * rnd()) * R), f0 = 100 + 80 * rnd(), amp = level * (0.3 + 0.7 * rnd());
+      for (let i = 0; i < len && t + i < n; i++) {
+        const time = i / R, env = Math.sin(Math.PI * i / len) * Math.abs(Math.sin(Math.PI * 3.3 * time)) ** 0.7;
+        let v = 0;
+        for (let h = 1; h <= 8; h++) v += Math.sin(2 * Math.PI * f0 * h * time) / h;
+        x[t + i] += amp * env * (0.7 * v + 0.2 * (rnd() * 2 - 1));
+      }
+      t += len + Math.round((0.3 + 1.2 * rnd()) * R);
+    }
+    return x;
+  };
+  // A source of loud bursts (speech-like) at the given seconds, each `length`
+  // long, over a uniform noise floor at `floorDb` dBFS RMS.
+  const bursts = (seconds, starts, length, floorDb, seed = 5) => {
+    const rnd = TF2Audio.mulberry32(seed), x = new Float32Array(Math.round(seconds * R)), floor = 10 ** (floorDb / 20) * Math.sqrt(3);
+    for (let i = 0; i < x.length; i++) x[i] = floor * (rnd() * 2 - 1);
+    for (const s of starts) {
+      for (let i = 0, at = Math.round(s * R); i < Math.round(length * R) && at + i < x.length; i++) {
+        const time = i / R;
+        let v = 0;
+        for (let h = 1; h <= 8; h++) v += Math.sin(2 * Math.PI * 140 * h * time) / h;
+        x[at + i] = 0.25 * (0.6 + 0.4 * Math.sin(2 * Math.PI * 3 * time)) * v;
+      }
+    }
+    return x;
+  };
+
+  // The gate is the sender's.
+  {
+    const x = talk(10, 3), seed = 7;
+    const r = await render(x, { seed }), want = senderOf(x, { seed }).info.spurts;
+    check('the gate is the sender\'s: codecInfo.sender.spurts are createSender\'s on the rounded 24 kHz capture with the render\'s seed',
+      JSON.stringify(r.codecInfo.sender.spurts) === JSON.stringify(want) && want.length >= 3 && r.codecInfo.sender.rule === 'steam'
+      && r.codecInfo.sender.gate === true && r.codecInfo.sender.meanMin === 327.67 && r.codecInfo.gate === -40
+      && r.codecInfo.prerollFrames === 0 && r.codecInfo.holdFrames === 0 && r.codecInfo.spurts === want.length,
+      `${want.length} spurts from ${want.map((s) => s.start).join(', ')}`);
+  }
+  // A typed threshold is the mean a chunk must reach: 32767 x 10^(dB/20).
+  {
+    const x = talk(10, 3), seed = 7, meanMin = 32767 * 10 ** (-30 / 20);
+    const r = await render(x, { seed, gateThresholdDb: -30 }), want = senderOf(x, { seed, meanMin }).info.spurts;
+    const asRms = senderOf(x, { seed, meanMin: meanMin * Math.SQRT2 }).info.spurts;
+    check('a typed threshold is the mean a chunk must reach: -30 dB gives meanMin 32767 x 10^(-30/20) and createSender\'s spurts with it',
+      r.codecInfo.sender.meanMin === meanMin && r.codecInfo.gate === -30 && JSON.stringify(r.codecInfo.sender.spurts) === JSON.stringify(want)
+      && JSON.stringify(want) !== JSON.stringify(asRms), `${want.length} spurts from ${want.map((s) => s.start).join(', ')}`);
+  }
+  // The mean of |x| over a chunk, not a 20 ms frame's RMS.
+  {
+    const a = new Float32Array(3 * R);
+    for (let k = 0; k * 960 + 48 <= a.length; k++) for (let i = 0; i < 48; i++) a[k * 960 + i] = 0.12 * Math.sin(2 * Math.PI * 3000 * i / R);
+    const ra = await render(a), frameRms = db(rms(a, 0, 480)), old = await render(a, { codec: 'steam_48' });
+    check('mean, not RMS: 2 ms bursts of a 3 kHz sine every 40 ms (20 ms frames at -31 dBFS RMS, every chunk\'s mean about 0.4%, no sample at 15%) send nothing',
+      ra.codecInfo.spurts === 0 && peakAbs(ra.samples) === 0 && frameRms > -32 && old.codecInfo.spurts > 0,
+      `frame RMS ${frameRms.toFixed(1)} dBFS; steam ${ra.codecInfo.spurts} spurts; the frame gate (steam_48) ${old.codecInfo.spurts}`);
+    const b = Float32Array.from({ length: 3 * R }, (_, i) => (Math.floor(i / 60) % 2 ? -344 : 344) / 32768);
+    const rb = await render(b);
+    check('mean, not RMS: a 200 Hz square wave of height 344 (-39.6 dBFS RMS, a mean of 1.05%) is sent',
+      rb.codecInfo.spurts >= 1 && rb.codecInfo.sender.spurts[0].start <= 0 && peakAbs(rb.samples) > 0,
+      `RMS ${db(rms(b)).toFixed(2)} dBFS; ${rb.codecInfo.spurts} spurt(s)`);
+  }
+  // Finding 5's cases, and the peak rule.
+  {
+    const open = await render(sine(1000, 3, 10 ** (-35.8 / 20))), shut = await render(sine(1000, 3, 10 ** (-40 / 20)));
+    const rnd = TF2Audio.mulberry32(42), white = Float32Array.from({ length: 3 * R }, () => rnd() * 2 - 1);
+    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+    const pink = Float32Array.from(white, (w) => {
+      b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.969 * b2 + w * 0.153852;
+      b3 = 0.8665 * b3 + w * 0.3104856; b4 = 0.55 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.016898;
+      const v = b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362; b6 = w * 0.115926;
+      return v;
+    });
+    const k = 10 ** (-42 / 20) / rms(pink);
+    for (let i = 0; i < pink.length; i++) pink[i] *= k;
+    const noisy = await render(pink);
+    check('finding 5: a 1 kHz sine with a peak of -35.8 dBFS is sent; -40 dBFS is not; pink noise at -42 dBFS RMS is not',
+      open.codecInfo.spurts >= 1 && shut.codecInfo.spurts === 0 && noisy.codecInfo.spurts === 0 && peakAbs(shut.samples) === 0 && peakAbs(noisy.samples) === 0,
+      `${open.codecInfo.spurts} / ${shut.codecInfo.spurts} / ${noisy.codecInfo.spurts} spurts; pink ${db(rms(pink)).toFixed(1)} dBFS RMS`);
+    const click = (level) => { const x = new Float32Array(2 * R); x.fill(level, R, R + 24); return x; };
+    const hit = await render(click(0.2)), miss = await render(click(0.1));
+    check('the peak rule: 1 ms at 0.2 of full scale in silence is sent; at 0.1 it is not',
+      hit.codecInfo.spurts === 1 && miss.codecInfo.spurts === 0, `${hit.codecInfo.spurts} / ${miss.codecInfo.spurts}`);
+  }
+  // The pre-roll and the hold, seeds 1 to 20: a 1 kHz square wave at 0.5 of
+  // full scale (every sample passes the peak rule) from B to E, after 2 s of
+  // noise at -50 dBFS.
+  {
+    const B = 2 * R, E = 3 * R, floor = 10 ** (-50 / 20) * Math.sqrt(3);
+    const rnd = TF2Audio.mulberry32(9), x = Float32Array.from({ length: Math.round(4.5 * R) }, () => floor * (rnd() * 2 - 1));
+    for (let i = B; i < E; i++) x[i] = Math.floor((i - B) / 12) % 2 ? -0.5 : 0.5;
+    const pre = [], hold = [], kept = [];
+    for (let seed = 1; seed <= 20; seed++) {
+      const s = (await render(x, { seed })).codecInfo.sender.spurts;
+      pre.push(B - s[0].start);
+      hold.push(s[0].start + 480 * s[0].frames - E);
+      kept.push(s[0].preroll);
+    }
+    // The window alone would pass a longer pre-roll on these seeds (the onset's
+    // chunk puts 0 to 750 samples before the burst here), so the spurt's own
+    // pre-roll is read too.
+    check('the pre-roll: 100 ms and what of the onset\'s chunk lies before the burst (2400 to 4649 samples), seeds 1 to 20',
+      pre.every((v) => v >= 2400 && v <= 4649) && kept.every((v) => v === 2400), `${Math.min(...pre)} to ${Math.max(...pre)}; pre-roll ${[...new Set(kept)].join(', ')}`);
+    check('the hold: the spurt ends 9,000 to 13,500 samples (375 to 562 ms) after the burst, seeds 1 to 20',
+      hold.every((v) => v >= 9000 && v <= 13500), `${Math.min(...hold)} to ${Math.max(...hold)}`);
+  }
+  // The gate off: a sender setting; the same path after it.
+  {
+    const x = talk(4, 5), r = await render(x, { gate: false }), s = senderOf(x, { gate: false });
+    check('the gate off: one spurt from -2400, sender.gate false, codecInfo.gate null, one resampler call a message that holds samples',
+      r.codecInfo.spurts === 1 && r.codecInfo.sender.spurts[0].start === -2400 && r.codecInfo.sender.gate === false
+      && r.codecInfo.gate === null && r.codecInfo.resampler.calls === holding(s.msgs) && r.codecInfo.sender.messages === s.msgs.length,
+      `${r.codecInfo.resampler.calls} calls, ${s.msgs.length} messages`);
+  }
+  // 16 bits: the library's own 16-bit decoder.
+  const lib = await import(require('url').pathToFileURL(path.join(root, 'vendor/libopus-1.1/index.mjs')).href);
+  const encoderOptions = { sampleRate: R, channels: 1, frameSize: 480, application: 2048, signal: 3001, bitrate: 32000, complexity: 9, vbr: true, dtx: true, fec: false };
+  {
+    const loud = talk(3, 9, 2);
+    const h = hooked();
+    await render(loud, {}, h);
+    const { msgs } = senderOf(loud);
+    const sound = h.decoded.filter((d) => d.msg.silence === undefined);
+    let enc = null, dec = null, floatDec = null, frames = 0, equal = sound.length === msgs.filter((m) => m.silence === undefined).length, soft = 0, k = 0;
+    for (const m of msgs) {
+      if (m.silence !== undefined) continue;
+      if (!enc) { enc = await lib.createEncoder(encoderOptions); dec = await lib.createDecoder({ sampleRate: R, channels: 1 }); floatDec = await lib.createDecoder({ sampleRate: R, channels: 1 }); }
+      const got = sound[k];
+      for (let f = 0; f <= m.last - m.first; f++) {
+        const packet = enc.encodeFloat(Float32Array.from(m.pcm.subarray(f * 480, (f + 1) * 480), (v) => v / 32768));
+        const want = dec.decodeInt16(packet, { frameSize: 480 }), flt = round16(floatDec.decodeFloat(packet, { frameSize: 480 }));
+        if (!got || !same(Array.from(got.pcm.subarray(f * 480, (f + 1) * 480)), Array.from(want))) equal = false;
+        for (let i = 0; i < 480; i++) if (flt[i] !== want[i]) soft++;
+        frames++;
+      }
+      if (m.end) { enc.free(); dec.free(); floatDec.free(); enc = dec = floatDec = null; }
+      k++;
+    }
+    check('16 bits: the samples handed to the resampler are the module\'s decodeInt16 frame for frame, not clamp-and-round of decodeFloat',
+      equal && frames > 100 && soft >= 1, `${frames} frames; ${soft} samples differ from clamp-and-round of decodeFloat`);
+  }
+  // The same under loss, on a loud source: a decoder per spurt; a gap
+  // concealed by the module's decodePacketLossInt16 when the next frame
+  // arrives, at most 10 frames of it; a spurt whose first frame is lost
+  // concealed from a fresh decoder; frames lost at a spurt's end never played.
+  // First gaps of 3 and 12 and the last two frames in the longest spurt, and
+  // the first frame of every other spurt; then the gate off and three frames
+  // in ten lost, for many concealed frames (their rounding included).
+  {
+    const loud = talk(6, 31, 2);
+    const underLoss = async (opts, lose) => {
+      const sound = senderOf(loud, opts).msgs.filter((m) => m.silence === undefined), h = hooked();
+      await withMask((count) => Uint8Array.from({ length: count }, (_, f) => (lose(f, sound) ? 1 : 0)), () => render(loud, opts, h));
+      // A message whose frames were all lost makes no samples and no call.
+      const got = new Map(h.decoded.filter((d) => d.msg.silence === undefined).map((d) => [`${d.msg.spurt}:${d.msg.first}`, d.pcm]));
+      let enc = null, dec = null, pend = 0, frames = 0, concealed = 0, equal = true, calls = 0;
+      for (const m of sound) {
+        if (!enc) { enc = await lib.createEncoder(encoderOptions); dec = await lib.createDecoder({ sampleRate: R, channels: 1 }); pend = 0; }
+        const blocks = [];
+        for (let f = m.first; f <= m.last; f++) {
+          const packet = enc.encodeFloat(Float32Array.from(m.pcm.subarray((f - m.first) * 480, (f - m.first + 1) * 480), (v) => v / 32768));
+          if (lose(f, sound)) { pend++; continue; }
+          for (let c = 0; c < Math.min(pend, 10); c++) { blocks.push(dec.decodePacketLossInt16(480)); concealed++; }
+          pend = 0;
+          blocks.push(dec.decodeInt16(packet, { frameSize: 480 }));
+          frames++;
+        }
+        const want = new Int16Array(blocks.length * 480), had = got.get(`${m.spurt}:${m.first}`);
+        blocks.forEach((b, i) => want.set(b, i * 480));
+        if (want.length) calls++;
+        if (want.length ? !had || !same(Array.from(had), Array.from(want)) : had !== undefined) equal = false;
+        if (m.end) { enc.free(); dec.free(); enc = dec = null; }
+      }
+      return { equal: equal && calls === got.size, frames, concealed, spurts: new Set(sound.map((m) => m.spurt)).size };
+    };
+    const spans = (sound) => [...new Set(sound.map((m) => m.spurt))].map((sp) => {
+      const own = sound.filter((m) => m.spurt === sp);
+      return { first: own[0].first, last: own[own.length - 1].last };
+    });
+    const shaped = (f, sound) => {
+      const all = spans(sound), big = all.reduce((a, b) => (b.last - b.first > a.last - a.first ? b : a));
+      return (f >= big.first + 5 && f <= big.first + 7) || (f >= big.first + 12 && f < big.first + 24) || f >= big.last - 1 && f <= big.last
+        || all.some((sp) => sp !== big && f === sp.first);
+    };
+    const a = await underLoss({}, shaped), b = await underLoss({ gate: false }, (f) => (f * 7919) % 10 < 3);
+    check('under loss the decoded samples are the module\'s decodeInt16 and decodePacketLossInt16, a fresh decoder each spurt (a spurt\'s lost first frame concealed from it), a gap concealed at the next frame, at most 10, frames lost at a spurt\'s end not played',
+      a.equal && b.equal && a.spurts >= 2 && a.concealed === 13 + a.spurts - 1 && b.concealed >= 80,
+      `${a.spurts} spurts: ${a.frames} frames decoded, ${a.concealed} concealed${a.equal ? '' : ', NOT the module\'s'}; the gate off, 3 in 10 lost: ${b.frames} decoded, ${b.concealed} concealed${b.equal ? '' : ', NOT the module\'s'}`);
+  }
+  // The decoder's rules under loss: concealment capped at 10 frames a gap,
+  // a late frame 480 zeros and no gap. One long spurt (the gate off).
+  {
+    const x = talk(8, 13, 0.3);
+    const lossAt = (from, n, code = 1) => (count) => Uint8Array.from({ length: count }, (_, f) => (f >= from && f < from + n ? code : 0));
+    const plain = await render(x, { gate: false });
+    const lost15 = await withMask(lossAt(150, 15), () => render(x, { gate: false }));
+    const lost10 = await withMask(lossAt(150, 10), () => render(x, { gate: false }));
+    const lost5 = await withMask(lossAt(150, 5), () => render(x, { gate: false }));
+    const slots = (r) => Array.from(r.codecInfo.frameLog).flatMap((c, i) => (c === 5 ? [i] : []));
+    const s15 = slots(lost15), s0 = s15[0], bytes = (r) => Array.from(r.codecInfo.frameBytes);
+    const p = bytes(plain), b15 = bytes(lost15), b10 = bytes(lost10), b5 = bytes(lost5);
+    const run = (n) => Array.from({ length: n }, (_, k) => s0 + k);
+    check('the cap: 15 frames lost in a row give exactly 10 lost slots, the gap\'s first 10 (where those frames lie without loss)',
+      same(s15, run(10)) && same(slots(lost10), run(10)) && same(b15.slice(s0, s0 + 10), p.slice(s0, s0 + 10)),
+      `lost slots ${s15[0]} to ${s15[s15.length - 1]}`);
+    const tail = b15.length - s0 - 20;
+    check('the cap: the sound after a gap of 15 is 100 ms (5 frames) earlier than after a gap of 10',
+      same(b15.slice(s0 + 10, s0 + 10 + tail), b10.slice(s0 + 15, s0 + 15 + tail)) && !same(b15.slice(s0 + 10, s0 + 20), b10.slice(s0 + 10, s0 + 20)),
+      `${tail} slots compared`);
+    check('a gap of 5: 5 lost slots and nothing moves', same(slots(lost5), run(5)) && same(b5, p));
+    const h = hooked(), late = await withMask(lossAt(150, 1, 2), () => render(x, { gate: false }, h));
+    const d = h.decoded.find((e) => e.msg.first <= 150 && e.msg.last >= 150), j = 150 - d.msg.first;
+    const total = (hh) => hh.decoded.reduce((n, e) => n + e.pcm.length, 0), hp = hooked();
+    await render(x, { gate: false }, hp);
+    check('a late frame: 480 zeros at its place in the decoded samples, and nothing concealed',
+      d.pcm.length === 480 * (d.msg.last - d.msg.first + 1) && d.pcm.subarray(480 * j, 480 * (j + 1)).every((v) => v === 0)
+      && total(h) === total(hp) && late.codecInfo.underrunFrames === 1 && late.codecInfo.lostFrames === 0,
+      `block ${j} of the message from frame ${d.msg.first}`);
+  }
+  // Once per message, and one resampler for the render.
+  {
+    const x = talk(10, 11), s = senderOf(x), r = await render(x);
+    check('once per message: one resampler call for each message that holds samples (silence records among them)',
+      r.codecInfo.resampler.calls === holding(s.msgs) && s.msgs.some((m) => m.silence !== undefined) && r.codecInfo.resampler.kernel === Swr.DEFAULT_KERNEL,
+      `${r.codecInfo.resampler.calls} calls, ${s.msgs.length} messages`);
+    const exact = talk(4, 17).subarray(0, 96000), g = senderOf(exact, { seed: 0xC0FFEE, gate: false }), last = g.msgs[g.msgs.length - 1];
+    const rg = await render(exact, { seed: 0xC0FFEE, gate: false });
+    check('once per message: the gate off, 96,000 samples and seed 0xC0FFEE end on an empty end message, which makes no call',
+      last.end && last.last === last.first - 1 && last.pcm.length === 0 && rg.codecInfo.resampler.calls === g.msgs.length - 1,
+      `${rg.codecInfo.resampler.calls} calls, ${g.msgs.length} messages`);
+    const three = bursts(8, [0.5, 3, 5.5], 1, -60), h = hooked();
+    const r3 = await render(three, {}, h);
+    const one = Swr.createResampler(), reset = Swr.createResampler();
+    let match = true, resetMatch = true;
+    h.decoded.forEach((e, k) => {
+      if (!same(Array.from(one.packet(e.pcm)), Array.from(h.resampled[k].y))) match = false;
+      if (!same(Array.from(reset.packet(e.pcm)), Array.from(h.resampled[k].y))) resetMatch = false;
+      if (e.msg.end) reset.reset();
+    });
+    check('one resampler, never reset: its outputs are one createResampler() fed the decoded arrays in order; with a reset at each end marker they are not',
+      r3.codecInfo.spurts === 3 && match && !resetMatch && h.decoded.length === h.resampled.length, `${h.resampled.length} packets in ${r3.codecInfo.spurts} spurts`);
+    // A silence record is exactly its count of zeros (msg.silence), and the
+    // resampler makes of it, in its place, what it makes of that many zeros.
+    const own = Swr.createResampler();
+    let records = 0, zeros = true;
+    h.decoded.forEach((e, k) => {
+      const record = e.msg.silence !== undefined, y = own.packet(record ? new Int16Array(e.msg.silence) : e.pcm);
+      if (!record) return;
+      records++;
+      if (e.pcm.length !== e.msg.silence || e.pcm.some((v) => v !== 0) || !same(Array.from(y), Array.from(h.resampled[k].y))) zeros = false;
+    });
+    check('a silence record is exactly its count of zeros, and the resampler gives for it what it gives for that many zeros in its place',
+      zeros && records >= 2, `${records} records of ${h.decoded.filter((e) => e.msg.silence !== undefined).map((e) => e.msg.silence).join(', ')} samples`);
+  }
+  // The gain is fed the decoded packets and nothing else, in the sender's
+  // order: the silence records' zeros among them; a late frame's samples not.
+  {
+    const second = 3.3, x = bursts(6, [0.5, second], 0.8, -50), L = 156;   // 2 s apart
+    const relay = (h, settings, lateMode = 'out') => {
+      const gain = TF2Audio.createGain(settings), out = new Float32Array(h.gained.length), states = [];
+      let spurt = null, cursor = 0;
+      for (const { y, msg } of h.resampled) {
+        let g = Float32Array.from(y, (v) => v / 32768);
+        const F = msg.silence !== undefined ? 0 : msg.last - msg.first + 1, n = g.length;
+        const lateFrames = (msg.lateBlocks || []);
+        if (lateMode === 'out' && lateFrames.length) {
+          for (let j = 0; j < F;) {
+            if (lateFrames.includes(j)) { j++; continue; }
+            let k = j;
+            while (k < F && !lateFrames.includes(k)) k++;
+            const a = Math.round(j * n / F), b = Math.round(k * n / F);
+            g.set(gain.process(g.subarray(a, b)), a);
+            j = k;
+          }
+        } else g = gain.process(g);
+        states.push({ silence: msg.silence !== undefined, ...gain.state() });
+        if (msg.silence !== undefined) continue;
+        if (msg.spurt !== spurt) { spurt = msg.spurt; cursor = Math.round((msg.start - L) * VR / R); }
+        for (let i = 0; i < n; i++) if (cursor + i >= 0 && cursor + i < out.length) out[cursor + i] = g[i];
+        cursor += n;
+      }
+      return { out, states };
+    };
+    const settings = { avgGain: 0.5, maxGain: 10, scale: 1 }, h = hooked(), r = await render(x, {}, h);
+    const mine = relay(h, settings), silence = mine.states.find((s) => s.silence);
+    check('the gain is fed the decoded packets: the render\'s gain output is a fresh createGain fed every resampled packet in order (the silence record\'s included), laid as the render lays them',
+      r.codecInfo.spurts === 2 && same(Array.from(mine.out), Array.from(h.gained)) && h.resampled.some((e) => e.msg.silence !== undefined),
+      `${h.resampled.length} packets`);
+    check('a silence record\'s samples are decoded zeros: they send the gain to its cap', silence && silence.current === 10 && silence.next === 10,
+      silence ? `after the record: current ${silence.current}, next ${silence.next}` : 'no record');
+    // Main's rule: receiverAutoGain with W3-05's decoded() over the same laid
+    // signal, its blocks on the source's grid and a block not decoded held.
+    const raw = new Float32Array(h.gained.length);
+    { let spurt = null, cursor = 0;
+      for (const { y, msg } of h.resampled) {
+        if (msg.silence !== undefined) continue;
+        if (msg.spurt !== spurt) { spurt = msg.spurt; cursor = Math.round((msg.start - L) * VR / R); }
+        for (let i = 0; i < y.length; i++) if (cursor + i >= 0 && cursor + i < raw.length) raw[cursor + i] = y[i] / 32768;
+        cursor += y.length;
+      } }
+    const old = TF2Audio.receiverAutoGain(raw, { ...settings, decoded: TF2Audio.decodedFromFrames(r.codecInfo.frameLog, 480, L, R, VR) });
+    // The burst's onset where its decoded sound arrives on the timeline: a
+    // decoded sample is laid where its source sample is (times 147/80), and
+    // after the first packet the resampler is 16 inputs (29 outputs) late.
+    let onset = Math.round(second * VR) - 200;
+    while (Math.abs(raw[onset]) < 0.02) onset++;
+    let first = -1;
+    for (let i = onset; i < onset + 128; i++) if (old[i] !== h.gained[i]) { first = i - onset; break; }
+    check('the gain\'s blocks run over the decoded samples, not the source\'s grid: it differs from main\'s rule in the first 128 samples of the second burst',
+      first >= 0, `first difference ${first} samples after the onset, ${onset - Math.round(second * VR)} after the source's`);
+    // One late frame inside the second burst: its samples are left out of
+    // what the gain is given (and laid as they are), not fed to it.
+    const frame = r.codecInfo.sender.spurts[1].frames > 30 ? (() => { const m = h.decoded.find((e) => e.msg.spurt === 1); return m.msg.first + 20; })() : -1;
+    const hl = hooked();
+    await withMask((count) => Uint8Array.from({ length: count }, (_, f) => (f === frame ? 2 : 0)), () => render(x, {}, hl));
+    for (const e of hl.resampled) if (e.msg.first <= frame && e.msg.last >= frame) e.msg.lateBlocks = [frame - e.msg.first];
+    const left = relay(hl, settings, 'out'), fed = relay(hl, settings, 'in');
+    // A late frame's span, frame j of F in a packet of n samples, is
+    // round(j n / F) to round((j + 1) n / F). Every sound packet is 480 F
+    // samples and the resampler (147/80) gives exactly 882 F for it, its
+    // first packet included, so j n / F is a whole number and the rounding
+    // never acts: what is pinned is that premise.
+    const exact = h.resampled.filter((e) => e.msg.silence === undefined).every((e) => e.y.length === 882 * (e.msg.last - e.msg.first + 1));
+    check('a late frame\'s samples are not decoded: the gain after its packet is the gain with them left out, not with them fed (every packet 882 samples a frame, so the span is exact)',
+      frame > 0 && exact && same(Array.from(left.out), Array.from(hl.gained)) && !same(Array.from(fed.out), Array.from(hl.gained)), `frame ${frame}`);
+  }
+  // Laying (point 8) and the slots (point 9). On this source two spurts meet
+  // (the gate closes and opens again, its pre-roll over the last one's end),
+  // and some anchors round up. The gain off: what is laid is what reaches onGain.
+  {
+    const x = talk(12, 11), h = hooked(), r = await render(x, { seed: 1, agc: false, voiceScale: 1 }, h), L = r.codecInfo.lookahead;
+    const want = new Float32Array(h.gained.length);
+    let spurt = null, cursor = 0, twice = 0, up = 0;
+    for (const { y, msg } of h.resampled) {
+      if (msg.silence !== undefined) continue;
+      if (msg.spurt !== spurt) {
+        spurt = msg.spurt;
+        const a = (msg.start - L) * VR / R, anchor = Math.round(a);
+        if (anchor > a) up++;
+        twice += Math.max(0, cursor - anchor);
+        cursor = anchor;
+      }
+      for (let i = 0; i < y.length; i++) if (cursor + i >= 0 && cursor + i < want.length) want[cursor + i] = y[i] / 32768;
+      cursor += y.length;
+    }
+    check('laying: a spurt\'s first packet at round((start - lookahead) x 147/80), each later one after it, the later packet winning where two spurts meet',
+      same(Array.from(want), Array.from(h.gained)) && twice > 0 && up > 0, `${r.codecInfo.spurts} spurts; ${twice} samples laid twice; ${up} anchors rounded up`);
+    const n = r.codecInfo.frameLog.length, spurts = r.codecInfo.sender.spurts;
+    const covered = (p) => Array.from({ length: n }, (_, i) => (spurts.some((s) => 480 * i + p >= s.start && 480 * i + p < s.start + 480 * s.frames) ? 1 : 0));
+    check('slots: a 20 ms slot of the source holds a frame where a spurt\'s laid frames cover its centre, not its start',
+      n === Math.ceil((x.length + L) / 480) && same(Array.from(r.codecInfo.frameLog, (c) => (c ? 1 : 0)), covered(240)) && !same(covered(240), covered(0)),
+      `${n} slots, ${covered(240).reduce((t, v) => t + v, 0)} holding a frame`);
+  }
+  // Re-timing (opts.retime) on the steam path moves a spurt's laid samples
+  // whole: the moved spurt equals the unmoved one sample for sample, nothing
+  // is left between where it now ends and where it ended, it lands no earlier
+  // than the spurt before ends, and the rest of the render is as it was. Six
+  // bursts 0.8 s apart; at seeds 18 and 21 a move would otherwise reach into
+  // the spurt before.
+  {
+    const x = bursts(10, [0.5, 2.1, 3.7, 5.3, 6.9, 8.5], 0.8, -50);
+    let moves = 0, whole = 0, clear = 0, apart = 0, rest = 0;
+    for (const seed of [1, 2, 3, 4, 18, 21]) {
+      const h0 = hooked(), h1 = hooked();
+      const r0 = await render(x, { seed }, h0), r1 = await render(x, { seed, retime: true }, h1);
+      const L = r0.codecInfo.lookahead, N = h0.gained.length, spans = [];
+      let spurt = null, cursor = 0;
+      for (const { y, msg } of h0.resampled) {
+        if (msg.silence !== undefined) continue;
+        if (msg.spurt !== spurt) { spurt = msg.spurt; cursor = Math.round((msg.start - L) * VR / R); spans.push([cursor, cursor]); }
+        cursor += y.length;
+        spans[spans.length - 1][1] = cursor;
+      }
+      const merged = [];
+      for (const [p, q] of spans) {
+        const a = Math.max(0, p), b = Math.min(N, q);
+        if (b <= a) continue;
+        if (merged.length && a <= merged[merged.length - 1][1]) merged[merged.length - 1][1] = Math.max(b, merged[merged.length - 1][1]);
+        else merged.push([a, b]);
+      }
+      const want = Float32Array.from(h0.gained);
+      for (const m of r1.codecInfo.retimed) {
+        moves++;
+        const shift = Math.round(m.shiftMs * VR / 1000), from = Math.round(m.time * VR), span = merged.find(([a]) => a === from);
+        if (!span) continue;
+        const to = span[1];
+        if (same(Array.from(h1.gained.subarray(from - shift, to - shift)), Array.from(h0.gained.subarray(from, to)))) whole++;
+        if (h1.gained.subarray(to - shift, to).every((v) => v === 0)) clear++;
+        const k = merged.indexOf(span);
+        if (from - shift >= (k > 0 ? merged[k - 1][1] : 0)) apart++;
+        want.copyWithin(from - shift, from, to);
+        want.fill(0, Math.max(from - shift, to - shift), to);
+      }
+      if (same(Array.from(want), Array.from(h1.gained))) rest++;
+    }
+    check('re-timing on the steam path moves a spurt\'s laid samples whole: the moved spurt equals the unmoved one, nothing is left at its old place, it lands after the spurt before, the rest is as it was',
+      moves >= 6 && whole === moves && clear === moves && apart === moves && rest === 6,
+      `${moves} moves; ${whole} whole, ${clear} leaving nothing behind, ${apart} after the spurt before; ${rest} of 6 renders otherwise as they were`);
+  }
+  // The seed, the resampler's kernel, the complexity.
+  {
+    const x = talk(6, 21), a = await render(x, { seed: 3 }), b = await render(x, { seed: 3 }), c = await render(x, { seed: 4 });
+    check('the same seed gives the same samples; another moves a spurt\'s start or the messages',
+      same(Array.from(a.samples), Array.from(b.samples)) && (JSON.stringify(a.codecInfo.sender.spurts) !== JSON.stringify(c.codecInfo.sender.spurts)
+        || a.codecInfo.sender.messages !== c.codecInfo.sender.messages || !same(Array.from(a.samples), Array.from(c.samples))),
+      `${JSON.stringify(a.codecInfo.sender.spurts.map((s) => s.start))} / ${JSON.stringify(c.codecInfo.sender.spurts.map((s) => s.start))}`);
+    const loud = talk(4, 23, 1.2), hf = hooked(), hc = hooked();
+    await render(loud, {}, hf);
+    await render(loud, { swrKernel: 'c' }, hc);
+    let n = 0, differ = 0;
+    hf.resampled.forEach((e, k) => { n += e.y.length; for (let i = 0; i < e.y.length; i++) if (e.y[i] !== hc.resampled[k].y[i]) differ++; });
+    check('swrKernel \'c\' on a loud source changes at least one of the resampler\'s output samples and at most 1 in 500',
+      peakAbs(loud) > 0.5 && differ >= 1 && differ <= n / 500, `${differ} of ${n}`);
+    const signals = [talk(4, 25), loud, bursts(4, [0.5], 2, -50)];
+    let identical = true, frames = 0;
+    for (const sig of signals) {
+      const q = Float32Array.from(captured(sig), (v) => v / 32768), hashes = [];
+      for (const complexity of [9, 10]) {
+        const packets = [];
+        await opus.roundTrip(q, R, 32000, { runtime: '1.1.5', application: 'voip', signal: 'voice', complexity, vbr: true, dtx: true, onPacket: (f, p) => packets.push(Array.from(p).join()) });
+        hashes.push(packets.join('|'));
+        frames += packets.length / 2;
+      }
+      if (hashes[0] !== hashes[1]) identical = false;
+    }
+    check('complexity 9 (Steam sets none: the library\'s default) and 10 give identical packets on these signals',
+      identical && steam.encoder.complexity === 9, `${frames} frames`);
+  }
+}
+
 /* ---------------- tests ---------------- */
 
 async function main() {
-  sandbox.TF2Opus = await import('../opus-codec.mjs');
+  sandbox.TF2Opus = await import(require('url').pathToFileURL(path.join(root, 'opus-codec.mjs')).href);
   const SR = 48000;
 
   console.log('\n[1] Resampler');
@@ -300,7 +785,11 @@ async function main() {
     check('clipping after decode puts energy above the 12 kHz codec edge (recording: -37 to -56 dB)', hf > -70 && hf < -25, `${hf.toFixed(1)} dB rel`);
     const noAgc = await TF2Audio.process(mkBuffer(src.map(v => v * 0.3), SR), { codec: 'steam', volume: 1, agc: false });
     const hfOff = bandDb(noAgc.samples.subarray(SR / 2), SR, 14500, 20000);
-    check('without the receiver clamp, the codec band edge holds', hfOff < -80, `${hfOff.toFixed(1)} dB rel`);
+    // Since W3-11a the receiver's 24 to 44.1 kHz step is Steam's own (libswresample's
+    // 32-tap default filter, finding 29), which rejects its images above 14 kHz by
+    // over 65 dB where the app's own filter gave 75 dB or more, and decoded sound is
+    // whole 16-bit steps: -78.7 dB here, against -37 to -56 with the clamp.
+    check('without the receiver clamp, the codec band edge holds', hfOff < -70, `${hfOff.toFixed(1)} dB rel`);
     const vol = await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam' });
     const expected = ENGINE.volume;
     // RMS rather than peak: at volume 1 the final soft limiter touches the clipped peaks.
@@ -359,21 +848,30 @@ async function main() {
     check('speech-like input at -38 dBFS RMS is transmitted and boosted to the 20 dB cap', open.codecInfo.gatedFrames === 0 && open.codecInfo.dtxFrames === 0 && Math.abs(db(rms(open.samples, SR / 2)) + 18) < 1.5,
       `${open.codecInfo.gatedFrames} gated, ${db(rms(open.samples, SR / 2)).toFixed(1)} dB`);
     const forced = await TF2Audio.process(mkBuffer(speechLike(1.5, SR, -45), SR), { codec: 'steam', volume: 1, gate: false });
-    check('gate: false transmits everything', forced.codecInfo.gatedFrames === 0 && forced.codecInfo.gate === null && Math.abs(db(rms(forced.samples, SR / 2)) + 25) < 1.5,
-      `${db(rms(forced.samples, SR / 2)).toFixed(1)} dB`);
+    // Every 20 ms slot of the source is sent. Since W3-11a the sender's frames end
+    // with the source (gate off: the rest is the last chunk), so the codec's delay
+    // (6.5 ms) past the last frame is never decoded: a slot whose centre lies past
+    // the source's end can stay empty.
+    const pastEnd = (info, n) => Array.from(info.frameLog).every((c, i) => c !== 0 || (i * 480 + 240 - info.lookahead) >= n);
+    check('gate: false transmits everything', pastEnd(forced.codecInfo, 1.5 * 24000) && forced.codecInfo.gate === null && forced.codecInfo.spurts === 1
+      && Math.abs(db(rms(forced.samples, SR / 2)) + 25) < 1.5, `${db(rms(forced.samples, SR / 2)).toFixed(1)} dB; ${forced.codecInfo.gatedFrames} slot past the end`);
     const lower = await TF2Audio.process(mkBuffer(tone(1000, 1.5, SR, rmsDbfs(-45)), SR), { codec: 'steam', volume: 1, gateThresholdDb: -50 });
     check('the gate threshold is adjustable', lower.codecInfo.gatedFrames === 0 && lower.codecInfo.gate === -50);
     const legacy = await TF2Audio.process(mkBuffer(tone(1000, 1, SR, rmsDbfs(-45)), SR), { codec: 'speex', volume: 1 });
     check('push-to-talk engine codecs have no gate by default', legacy.codecInfo.gatedFrames === 0 && legacy.codecInfo.gate === null);
     // 0.5 s at -20 dBFS then 1.5 s at -60 dBFS. Steam's packets: the quiet tail is coded normally for ~10
-    // frames, then DTX comfort noise, and transmission ends 22 frames (440 ms) after the last loud frame.
+    // frames, then DTX comfort noise, and transmission ends when the hold, 0.4 s of Steam's clock after
+    // the last active chunk was read, has run out (W3-11a: Steam's rule; it was 22 frames of 20 ms).
     const burst = new Float32Array(2 * SR);
     burst.set(tone(700, 0.5, SR, rmsDbfs(-20)));
     burst.set(tone(700, 1.5, SR, rmsDbfs(-60)), SR / 2);
     const hb = await TF2Audio.process(mkBuffer(burst, SR), { codec: 'steam', volume: 1 });
     const tail = (a, b) => rms(hb.samples, Math.round(a * SR), Math.round(b * SR));
-    check('the gate holds 440 ms after speech, carrying the quiet tail at full auto-gain', Math.abs(db(tail(0.52, 0.66)) + 40) < 1.5 && peakAbs(hb.samples.subarray(Math.round(0.96 * SR))) === 0,
-      `${db(tail(0.52, 0.66)).toFixed(1)} dB then silence`);
+    const holdEnd = (hb.codecInfo.sender.spurts[0].start + 480 * hb.codecInfo.sender.spurts[0].frames) / 24000;
+    check('the gate holds 0.4 s of its clock after speech (the spurt ends 375 to 562 ms after it), carrying the quiet tail at full auto-gain',
+      Math.abs(db(tail(0.52, 0.66)) + 40) < 1.5 && holdEnd - 0.5 >= 0.375 && holdEnd - 0.5 <= 0.562
+      && peakAbs(hb.samples.subarray(Math.round((holdEnd + 0.005) * SR))) === 0 && hb.codecInfo.spurts === 1,
+      `${db(tail(0.52, 0.66)).toFixed(1)} dB, then silence from ${holdEnd.toFixed(3)} s`);
     check('the held tail falls into DTX comfort noise', hb.codecInfo.dtxFrames >= 5 && db(tail(0.74, 0.92)) < db(tail(0.52, 0.66)) - 6,
       `${hb.codecInfo.dtxFrames} DTX frames, ${db(tail(0.74, 0.92)).toFixed(1)} dB`);
     check('closed frames are neither encoded nor sent', hb.codecInfo.gatedFrames > 50 && hb.codecInfo.modes.hybrid + hb.codecInfo.modes.silk + hb.codecInfo.modes.celt === hb.codecInfo.frames - hb.codecInfo.gatedFrames,
@@ -387,14 +885,31 @@ async function main() {
     // The white floor loses half its power in the 24 kHz resample and ~3 dB in the codec, then gains 20 dB.
     check('the gate sends 120 ms of pre-roll before an onset', peakAbs(po.samples.subarray(0, Math.round(0.86 * SR))) === 0 && pre > -49 && pre < -43, `${pre.toFixed(1)} dB`);
     const twoBursts = (gap) => { const x = new Float32Array(Math.round((1 + gap) * SR)); x.set(speechLike(0.5, SR, -20)); x.set(speechLike(0.5, SR, -20), Math.round((0.5 + gap) * SR)); return x; };
-    const near = await TF2Audio.process(mkBuffer(twoBursts(0.5), SR), { codec: 'steam', volume: 1 });
+    // Since W3-11a Steam's rule: a pause shorter than the hold keeps the spurt
+    // going (there is no 560 ms rule of hold and pre-roll, finding 12).
+    const near = await TF2Audio.process(mkBuffer(twoBursts(0.3), SR), { codec: 'steam', volume: 1 });
     const far = await TF2Audio.process(mkBuffer(twoBursts(0.8), SR), { codec: 'steam', volume: 1 });
-    check('pauses under hold + pre-roll stay in one talk spurt; longer ones restart the encoder', near.codecInfo.spurts === 1 && far.codecInfo.spurts === 2,
+    check('a pause under the hold stays in one talk spurt; a longer one restarts the encoder', near.codecInfo.spurts === 1 && far.codecInfo.spurts === 2,
       `${near.codecInfo.spurts} / ${far.codecInfo.spurts}`);
     // Steam's encoder put the test signal's steady -36 and -30 dB sines into DTX; so does the model.
-    const steady = await TF2Audio.process(mkBuffer(tone(1000, 2, SR, rmsDbfs(-30)), SR), { codec: 'steam', volume: 1 });
-    const early = db(rms(steady.samples, 0, Math.round(0.3 * SR))), late = db(rms(steady.samples, SR, 2 * SR));
-    check('a steady tone decays into DTX comfort noise', steady.codecInfo.dtxFrames > 30 && late < early - 3, `${steady.codecInfo.dtxFrames} DTX frames, ${early.toFixed(1)} -> ${late.toFixed(1)} dB`);
+    // Finding 13's segments as the test signal has them: 1 s of silence, then 1 kHz sines at -60 to
+    // -24 dBFS peak, 2 s each, one after the other. Steam: the -36 sine's first DTX frame at 0.42 s and
+    // 75 DTX frames; the -30 sine's at 1.16 s and 40; none at -24. (W3-11a: a lone tone from digital
+    // silence, the check before, now meets 100 ms of zeros as its pre-roll and 16-bit samples, which
+    // keep a clean sine active longer; the measured sequence is what the model answers to.)
+    const levels = [-60, -54, -48, -42, -36, -30, -24], seq = new Float32Array(SR * (1 + 2 * levels.length));
+    levels.forEach((L, k) => seq.set(tone(1000, 2, SR, 10 ** (L / 20)), SR + 2 * k * SR));
+    const steady = await TF2Audio.process(mkBuffer(seq, SR), { codec: 'steam', volume: 1 });
+    const dtxIn = (k) => {
+      const a = Math.ceil((1 + 2 * k) / 0.02), log = steady.codecInfo.frameLog;
+      let n = 0, first = -1;
+      for (let f = a; f < a + 100 && f < log.length; f++) if (log[f] === 4) { n++; if (first < 0) first = (f - a) * 0.02; }
+      return { n, first };
+    };
+    const [s36, s30, s24] = [4, 5, 6].map(dtxIn);
+    check('steady sines fall into DTX comfort noise as Steam\'s did (finding 13: -36 dBFS from 0.42 s, 75 frames; -30 from 1.16 s, 40; -24 none)',
+      Math.abs(s36.first - 0.42) <= 0.08 && Math.abs(s36.n - 75) <= 5 && Math.abs(s30.first - 1.16) <= 0.08 && Math.abs(s30.n - 40) <= 5 && s24.n === 0,
+      `-36: ${s36.n} from ${s36.first.toFixed(2)} s; -30: ${s30.n} from ${s30.first.toFixed(2)} s; -24: ${s24.n}`);
     // Stereo capture: the measured default takes the left channel, as a mono read of a stereo cable does.
     const L = tone(500, 1, SR, 0.2), Rch = new Float32Array(SR);
     const stereoSrc = { sampleRate: SR, length: SR, numberOfChannels: 2, getChannelData: (c) => c ? Rch : L };
@@ -404,6 +919,8 @@ async function main() {
     check('stereo input: left channel by default, right and mix on request', Math.abs(db(rms(capL.samples) / rms(L))) < 0.3 && rms(capR.samples) === 0 && Math.abs(db(rms(capM.samples) / rms(L)) + 6.02) < 0.3,
       `${db(rms(capL.samples) / rms(L)).toFixed(2)} / ${db(rms(capM.samples) / rms(L)).toFixed(2)} dB`);
   }
+
+  await steamSection();
 
   console.log('\n[6] Clean path and codec bypass');
   {
@@ -582,18 +1099,22 @@ async function main() {
 
     // The whole chain, 20 ms at a time, against a render of the same audio:
     // the same level, and the same waveform once the live chain's own delay
-    // (capture EQ 127 samples at 24 kHz, Opus lookahead, output FIR 1 sample
-    // at 44.1 kHz) is allowed for.
+    // (the capture EQ's half length, Opus lookahead, output FIR 1 sample at
+    // 44.1 kHz) is allowed for. Since W3-11a a `steam` render runs Steam's
+    // sender and decoder, while the live chain keeps the 20 ms frame gate,
+    // the float decode and the app's resampler until W3-11b; `steam_48` runs
+    // that path in both, so it holds the live chain to the render here.
     const src = speechLike(3, SR, -20);
-    const opts = { codec: 'steam', volume: 1 };
+    const opts = { codec: 'steam_48', volume: 1 };
     const chain = await TF2Audio.createLiveChain(opts, SR);
     const parts = [];
     for (let o = 0; o < src.length; o += SR / 50) parts.push(await chain.process(src.subarray(o, o + SR / 50)));
     const live = new Float32Array(parts.reduce((t, p) => t + p.length, 0));
     parts.reduce((o, p) => { live.set(p, o); return o + p.length; }, 0);
     chain.free();
-    const offline = (await TF2Audio.process(mkBuffer(src, SR), opts)).samples;
-    const delay = (127 + 156) / 24000 + 1 / 44100, shift = Math.round(delay * SR);
+    const whole = await TF2Audio.process(mkBuffer(src, SR), opts), offline = whole.samples;
+    const live48 = vm.runInContext('CODEC_PROFILES.steam_48', sandbox), eqHalf = live48.captureEq ? (live48.captureEq.taps - 1) / 2 : 0;
+    const delay = (eqHalf + whole.codecInfo.lookahead) / live48.codecRate + 1 / 44100, shift = Math.round(delay * SR);
     const correlate = (d) => {
       let dot = 0, ea = 0, eb = 0;
       for (let i = SR / 2; i < live.length - shift - SR / 2; i++) { dot += offline[i] * live[i + shift + d]; ea += offline[i] ** 2; eb += live[i + shift + d] ** 2; }
@@ -641,7 +1162,8 @@ async function main() {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       src[Math.round((.3 + b * 1.4) * SR) + i] = ((seed / 2 ** 32) - .5) * .3;
     }
-    const plain = await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam' });
+    // The same seed for both: since W3-11a the seed also sets the sender's clock.
+    const plain = await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam', seed: 3 });
     const moved = await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam', retime: true, seed: 3 });
     const again = await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam', retime: true, seed: 3 });
     const moves = moved.codecInfo.retimed || [];

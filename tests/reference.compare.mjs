@@ -32,6 +32,9 @@ export async function decodeFile(filename) {
 export function audioEngine() {
   const sandbox = { window: {}, Blob, console };
   vm.createContext(sandbox);
+  for (const file of ['../steam-sender.js', '../vendor/swresample/swresample.js']) {
+    vm.runInContext(fs.readFileSync(new URL(file, import.meta.url), 'utf8'), sandbox);
+  }
   vm.runInContext(fs.readFileSync(new URL('../constants.js', import.meta.url), 'utf8') + '\n' +
     fs.readFileSync(new URL('../audio.js', import.meta.url), 'utf8'), sandbox);
   return { audio: sandbox.window.TF2Audio, sandbox };

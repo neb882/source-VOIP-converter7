@@ -13,12 +13,14 @@
  */
 
 const CACHE_PREFIX = 'tf2ve-';
-const CACHE = `${CACHE_PREFIX}v23`;
+const CACHE = `${CACHE_PREFIX}v24`;
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './constants.js',
+  './steam-sender.js',
+  './vendor/swresample/swresample.js',
   './audio.js',
   './audio-worker.js',
   './opus-codec.mjs',
