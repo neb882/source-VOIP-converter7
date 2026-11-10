@@ -318,14 +318,18 @@ async function steamSection() {
     const B = 2 * R, E = 3 * R, floor = 10 ** (-50 / 20) * Math.sqrt(3);
     const rnd = TF2Audio.mulberry32(9), x = Float32Array.from({ length: Math.round(4.5 * R) }, () => floor * (rnd() * 2 - 1));
     for (let i = B; i < E; i++) x[i] = Math.floor((i - B) / 12) % 2 ? -0.5 : 0.5;
-    const pre = [], hold = [];
+    const pre = [], hold = [], kept = [];
     for (let seed = 1; seed <= 20; seed++) {
       const s = (await render(x, { seed })).codecInfo.sender.spurts;
       pre.push(B - s[0].start);
       hold.push(s[0].start + 480 * s[0].frames - E);
+      kept.push(s[0].preroll);
     }
+    // The window alone would pass a longer pre-roll on these seeds (the onset's
+    // chunk puts 0 to 750 samples before the burst here), so the spurt's own
+    // pre-roll is read too.
     check('the pre-roll: 100 ms and what of the onset\'s chunk lies before the burst (2400 to 4649 samples), seeds 1 to 20',
-      pre.every((v) => v >= 2400 && v <= 4649), `${Math.min(...pre)} to ${Math.max(...pre)}`);
+      pre.every((v) => v >= 2400 && v <= 4649) && kept.every((v) => v === 2400), `${Math.min(...pre)} to ${Math.max(...pre)}; pre-roll ${[...new Set(kept)].join(', ')}`);
     check('the hold: the spurt ends 9,000 to 13,500 samples (375 to 562 ms) after the burst, seeds 1 to 20',
       hold.every((v) => v >= 9000 && v <= 13500), `${Math.min(...hold)} to ${Math.max(...hold)}`);
   }
