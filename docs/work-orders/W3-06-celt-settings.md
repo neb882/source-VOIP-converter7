@@ -177,3 +177,12 @@ on the pushed branch. Expected: `vaudio_celt` identical at 292,351 of 292,352 sa
 **The builder runs:** everything else in this order, and a public check that needs no private data: the new build's
 encoder and decoder reproduce hashes recorded from a native build of the same source with the same flag (as
 `tests/speex.verify.mjs` does for Speex), on synthetic signals that include a pitched one, so the filter is in use.
+
+## Amended 2026-11-10 (second): Speex leaves this order
+
+Point 5 ("Speex"), the Speex line of the acceptance list, the stop condition on Speex's qualities 3 and 4, and
+`.speex` and `tests/speex.verify.mjs` in the lists of files are **struck**. Do not touch the Speex profile, its
+calls or its tests in this order. Since this order was written the module itself was read
+(`docs/reports/W3-09-steam-voice.md`, section 5): it is Speex 1.0.2, the engine's 3 maps to Speex quality 4, and
+the 11025 Hz sound goes into the codec with no resampling. That is built by W3-12, which replaces the profile
+whole.
