@@ -4,7 +4,7 @@ The builder's report. The order is part b of `docs/work-orders/W3-11-steam-gate.
 built and was not touched). Branch `claude/w3-11b-live-chain`, from `fdf6d31` (main plus W3-16, the sender as merged).
 
 **Status:** built; every check of part b passes; `pnpm test`, `pnpm test:vendor` and the browser suite pass under the
-heavy-job lock; CI: see "Runs". Not yet reviewed.
+heavy-job lock; CI passes on the pushed branch (see "Runs"). Not yet reviewed.
 
 ## Summary
 
@@ -374,7 +374,7 @@ the recorded hashes.
 | `pnpm test`, under the lock | pass (`tests/verify.js` 295 checks, 0 failed; 626 s in all, of which [10b]'s steam section is about 4 minutes) |
 | `pnpm test:vendor`, under the lock | pass |
 | the browser suite, under the lock (`CHROMIUM_EXECUTABLE` set) | pass, 238 checks |
-| CI on the head | CI |
+| CI (`tests` workflow) | pass on `5aadf1b` (the last code change, run 42890081492) and on `434ebcf` (run 42890497723); the commits after it change only this report. The two failing runs before `5aadf1b` were the browser checks fixed there (the gate text against a profile with no gate; the 3f take race) |
 
 ## For W3-10's builder
 
