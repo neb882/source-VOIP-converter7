@@ -950,7 +950,8 @@ function timelineChecks() {
     let tie = 0, tieAll = 0, tieFirst = '';
     const steady = (open, to) => { const m = []; for (let t = open; t <= to; t += 4) m.push({ tick: t, pcm: new Float32Array(t === open ? 7056 : 2646).fill(0.5), source: 0 }); return m; };
     const tieCases = [[300, steady(1024 - 29, 1100)], [100, steady(1024 - 9, 1100)], [66.67, steady(1024 - 6, 1100)],
-      [300, madeUpMessages(11, 2100)], [100, madeUpMessages(12, 2100)]];
+      [300, madeUpMessages(11, 2100)], [100, madeUpMessages(12, 2100)],
+      [300, [{ tick: 1024 - 29, pcm: new Float32Array(7056).fill(0.5), source: 0 }]]];   // the tie inside finish()
     for (const [fps, messages] of tieCases) {
       const opts = { fps, length: 44100 * 33 }, want = referenceTimeline(messages, opts);
       for (const advanceEvery of [0, 1]) {
@@ -960,7 +961,7 @@ function timelineChecks() {
         if (at < 0) tie++; else if (!tieFirst) tieFirst = `${fps} fps${advanceEvery ? ', advance() every tick' : ''}: sample ${at}`;
       }
     }
-    check('a tick and a block that start together: the tick runs first (channels that start playing on tick 1024; streams to tick 2100; with and without advance() on every tick)', tie === tieAll, tieFirst || `${tieAll} runs`);
+    check('a tick and a block that start together: the tick runs first (channels that start playing on tick 1024, one of them inside finish(); streams to tick 2100; with and without advance() on every tick)', tie === tieAll, tieFirst || `${tieAll} runs`);
   }
   {
     // What a call returns is final up to the last block that starts before the tick.
