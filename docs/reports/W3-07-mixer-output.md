@@ -392,3 +392,15 @@ outside the engine (XAudio2 2.7, measured, not read):
 - **Why a few pulls in W3-03's log are 513 or 1025 samples.**
 - **`snd_surround_speakers`' other readers** (`0x180031107`, in the per-frame update; `0x1800432a0`, movie
   recording, which forces 2).
+
+## Corrections (2026-11-10, from W3-15 and its second read)
+
+- **The voice's room share is not always 26/256.** Putting a preset on the room slot overwrites the four mix
+  variables from the preset's header. Presets 0 to 29 give 26/256 to the room and 229/256 direct; the automatic
+  room gives 5 to 80 of 256 by shape (`docs/reports/W3-15-room-dsp.md`, section 1).
+- **`dsp_enhance_stereo` is 0 at start**, so that stage is skipped.
+- **The two-speaker level is 182.6/256, not 253.5/256**: the default sound mixer gives the voice's group 0.72.
+  The headphone level, 255/256, stands.
+- **`dsp_room` starts at 0.** A map's soundscape sets it; most stock maps set 1, the automatic room.
+- **With `dsp_volume` under 1** the direct share is `trunc(256 - mix × 256 × g)`
+  (`docs/reports/W3-17-room-dsp-second-read.md`, difference 12).

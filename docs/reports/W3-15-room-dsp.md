@@ -692,3 +692,11 @@ mixer and holds no reverb.
    preset: 26/256 for a numbered preset, 5 to 80 of 256 for the automatic room by shape".
 6. **W3-07, "the takes were made where no preset was active"**: still the best reading, but it now means the place
    had `dsp_room` 0, which no stock map's soundscape gives. Worth asking the owner which map it was.
+
+## Corrections (2026-11-10, from the second reads)
+
+- The reverb, the delay, the automatic room's build and the measuring are given more exactly in
+  `docs/reports/W3-17-room-dsp-second-read.md`, which wins where the two differ (its table of differences).
+- **The amplifier and under water** (section 2; section 5, row 8; section 6, check 6): replaced by
+  `docs/reports/W3-17-amp-mdy-second-read.md`. The water preset's amplifier does not swing. Its gain is full for
+  100 ms, glides once to 1640/4096 over 80 ms and stays there.
