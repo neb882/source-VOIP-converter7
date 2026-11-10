@@ -1,7 +1,7 @@
 # W3-17b: the automatic room
 
 Builder's report. The order: `docs/work-orders/W3-17-room-effects.md`, part b. Branch `claude/w3-17b-automatic-room`,
-from `6f0467e` (main with part a merged). Changed: `room-dsp.js` and `tests/room-dsp.verify.mjs`; added, the
+from `6f0467e` (main with part a merged; `main`'s later amendment to the order, for parts c and d, merged in). Changed: `room-dsp.js` and `tests/room-dsp.verify.mjs`; added, the
 builder's own: `tests/roomdsp/auto.py` and its output `tests/roomdsp/auto.json`. Nothing else.
 
 ## Summary
@@ -215,8 +215,9 @@ Where the order or the reports could be read more than one way. Where the report
 - Bad measures throw with a message that names them. The resolver can pass it on as it is.
 - The accuracy rows take `{ auto: 'set_c_room' }` and `{ auto: 'set_d_street' }`. The golden cases `tunnel`,
   `great_hall` and `set_c_room` build from their keys.
-- The order's private check of part c expects comb peaks from the fit on the played signal. The W3-17a second read
-  (N2) says that a correct render gives the take's own values instead.
+- The order's amendment after part a (merged into this branch from `main`) changes nothing in part b. Its item 5
+  replaces the comb-peak figures of part c's private check with the W3-17a second read's, for `set_c_room` and
+  `set_d_street` as built here.
 
 ## For part d's builder
 
