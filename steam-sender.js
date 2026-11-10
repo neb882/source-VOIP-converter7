@@ -189,10 +189,9 @@
       messages++;
     }
 
-    // past = the last 2400 samples of (past + chunk).
+    // past = the last 2400 samples of (past + chunk). A chunk is at most 2250 samples.
     function remember(len) {
       const P = S.preroll;
-      if (len >= P) { past.set(chunk.subarray(len - P, len), 0); pastLen = P; return; }
       const keep = Math.min(pastLen, P - len);
       past.copyWithin(0, pastLen - keep, pastLen);
       past.set(chunk.subarray(0, len), keep);

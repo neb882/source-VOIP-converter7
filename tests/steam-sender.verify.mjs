@@ -216,7 +216,7 @@ console.log('The reference schedule');
     for (const f of ref.frames) if (f.made >= 0) due.set(f.made, f.count);
     const s = createSender(opts());
     let k = 0, wrong = 0, early = 0;
-    for (let i = 0; i < sig.length; i++) for (const m of s.push(sig.subarray(i, i + 1))) { if (due.get(k) !== i + 1) { wrong++; if (i + 1 < due.get(k)) early++; } k++; m; }
+    for (let i = 0; i < sig.length; i++) for (let r = s.push(sig.subarray(i, i + 1)).length; r > 0; r--) { if (due.get(k) !== i + 1) { wrong++; if (i + 1 < due.get(k)) early++; } k++; }
     const tail = s.finish();
     const lateOk = tail.every((m, j) => due.get(k + j) > sig.length);
     check(`${label}: one sample at a time, every message comes from the push of its chunk's last sample`, wrong === 0 && lateOk && k + tail.length === ref.messages.length,
@@ -275,6 +275,10 @@ console.log('The gate (the hand clock: chunks of 1500)');
   const opens = (s, opts = {}) => sound(run(s, { clock: handClock(4), ...opts }).messages).length > 0;
   check('a chunk of 1500 samples of 327 is not active; one of 328 is',
     !opens(chunks(20, (s) => s.fill(327, C(5), C(6)))) && opens(chunks(20, (s) => s.fill(328, C(5), C(6)))));
+  // 1005 x 328 + 495 x 327 = 491505 = 1500 x 327.67: the mean is 327.67 to the last bit.
+  check('a chunk whose mean is exactly 327.67 is active; one sample less and it is not',
+    opens(chunks(20, (s) => { s.fill(327, C(5), C(6)); s.fill(328, C(5), C(5) + 1005); }))
+    && !opens(chunks(20, (s) => { s.fill(327, C(5), C(6)); s.fill(328, C(5), C(5) + 1004); })));
   check('a chunk of zeros with one sample of 4915 is active; with 4914 it is not',
     opens(chunks(20, (s) => { s[C(5) + 700] = 4915; })) && !opens(chunks(20, (s) => { s[C(5) + 700] = 4914; })));
   check('the peak is of |x|: one sample of -4915 is active', opens(chunks(20, (s) => { s[C(5) + 700] = -4915; })));
@@ -337,7 +341,6 @@ console.log('The pre-roll');
 console.log('The hold');
 {
   const stop = 6;                                       // sound in chunks 2 to stop - 1
-  const at = (clock, c) => { let i = 0; return { next: () => clock(i++) }; };
   const ending = (step, extra) => {
     const sig = new Int16Array(24000 * 4);
     sig.fill(1000, 0, C(stop));
@@ -470,8 +473,11 @@ console.log('Refusals');
   try { s.push(new Float32Array(10)); } catch (e) { a = e instanceof TypeError; }
   s.finish();
   try { s.push(new Int16Array(10)); } catch (e) { b = /after finish/.test(e.message); }
-  try { createSender({ clock: listClock([2, 2]) }).push(new Int16Array(3000)); } catch (e) { c = e instanceof RangeError; }
+  try { createSender({ clock: listClock([2, 2, 4, 6, 8, 10, 12]) }).push(new Int16Array(3000)); } catch (e) { c = e instanceof RangeError; }
   check('push() takes an Int16Array, not after finish(); a clock that does not move on is refused', a && b && c);
+  let d = false;
+  try { createSender({ clock: listClock([2, 9, 13, 17, 21]) }).push(new Int16Array(9000)); } catch (e) { d = e instanceof RangeError && /clock/.test(e.message); }
+  check('a clock that moves by more than 6 (a chunk over 2250 samples) is refused', d);
   check('finish() a second time returns nothing', s.finish().length === 0);
 }
 
