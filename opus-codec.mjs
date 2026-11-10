@@ -193,36 +193,45 @@ export async function roundTrip(samples, sampleRate, bitrate, options = {}) {
 //   - one behind: the decoder is reset and nothing is concealed;
 //   - the end marker: the decoder is reset (a new one: a spurt starts with a
 //     fresh decoder), expected 0.
+// Sequence numbers are 16 bits, as the packets carry them (W3-16 section 3,
+// read): the expected one is (seq + 1) & 0xFFFF, so 65535 is followed by 0,
+// and "behind" compares the two numbers as they are.
 // The render's network model adds two calls the client does not have: lost(seq)
 // for a frame the mask lost, which counts toward the next gap; and late(seq) for
 // a frame the mask made late (the measured stand-in, finding 9: one in ten late
 // frames plays as silence), which the decoder does not see, gives 480 zeros in
-// its place and is not a gap. receive() returns the 480-sample blocks it made,
-// the concealed ones first.
+// its place and is not a gap. Neither moves the number the decoder itself
+// expects (it never saw those frames), so a frame lost at 65535 makes number 0
+// behind and resets, as in Steam. receive() returns the 480-sample blocks it
+// made, the concealed ones first.
 export async function createSteamDecoder(options = {}) {
   const { createDecoder } = await runtime(options.runtime ?? '1.1.5');
   const sampleRate = 24000, frameSize = 480;
-  let decoder = await createDecoder({ sampleRate, channels: 1 }), expected = 0, lost = 0;
+  // next: the number the decoder expects (one past the last frame it was
+  // given); expected: one past the last frame the render reported, received,
+  // lost or late; lost: the frames lost since the decoder's last frame.
+  let decoder = await createDecoder({ sampleRate, channels: 1 }), next = 0, expected = 0, lost = 0;
   async function reset() {
     decoder.free();
     decoder = await createDecoder({ sampleRate, channels: 1 });
-    expected = 0; lost = 0;
+    next = 0; expected = 0; lost = 0;
   }
   return {
     frameSize,
     async receive(seq, packet) {
+      seq &= 0xFFFF;
       const blocks = [];
-      if (seq < expected) await reset();
+      if (seq < next) await reset();
       else {
-        const conceal = Math.min(lost + seq - expected, 10);
+        const conceal = Math.min(lost + ((seq - expected) & 0xFFFF), 10);
         for (let k = 0; k < conceal; k++) blocks.push(decoder.decodePacketLossInt16(frameSize));
       }
       blocks.push(decoder.decodeInt16(packet, { frameSize }));
-      expected = seq + 1; lost = 0;
+      next = expected = (seq + 1) & 0xFFFF; lost = 0;
       return blocks;
     },
-    lost(seq) { lost += seq + 1 - expected; expected = seq + 1; },
-    late(seq) { lost += seq - expected; expected = seq + 1; return new Int16Array(frameSize); },
+    lost(seq) { seq &= 0xFFFF; lost += (seq + 1 - expected) & 0xFFFF; expected = (seq + 1) & 0xFFFF; },
+    late(seq) { seq &= 0xFFFF; lost += (seq - expected) & 0xFFFF; expected = (seq + 1) & 0xFFFF; return new Int16Array(frameSize); },
     end: reset,
     free() { decoder?.free(); decoder = null; }
   };
@@ -271,7 +280,7 @@ export async function createSteamStream(bitrate, options = {}) {
         for (let i = 0; i < frameSize; i++) input[i] = msg.pcm[at + i] / 32768;
         const packet = encoder.encodeFloat(input), mode = packetMode(packet), dtx = packet.byteLength <= 2;
         const frame = { frame: f, code: dtx ? FRAME.dtx : FRAME[mode], bytes: packet.byteLength, mode };
-        const seq = f - spurtFirst, m = miss(f);
+        const seq = (f - spurtFirst) & 0xFFFF, m = miss(f);
         if (m === 1) { decoder.lost(seq); pending.push(frame); continue; }
         if (m === 2) { parts.push(decoder.late(seq)); blocks.push({ ...frame, code: FRAME.late }); continue; }
         const made = await decoder.receive(seq, packet);

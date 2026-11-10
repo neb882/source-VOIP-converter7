@@ -459,6 +459,10 @@
   // by the silence less 0-130 ms (at most 350 ms); the spurt after keeps its
   // time. Moves the decoded audio (codec rate) and the frame log in place;
   // returns the moves as { time, shiftMs }.
+  // A spurt's samples are its frames' on the frame path. On the steam path
+  // (info.spans: the laid packets' sample ranges, which run up to half a slot
+  // past the slots they mark) they are every laid span its slots meet, moved
+  // whole, and never onto the spurt before.
   const RETIME = { maxGap: 0.45, chance: 0.41, leftMax: 0.13, maxShift: 0.35 };
   function retimeSpurts(samples, info, rate, rand) {
     const log = info.frameLog, size = info.frameSamples, lookahead = info.lookahead || 0;
@@ -470,16 +474,27 @@
       while (f + 1 < log.length && log[f + 1]) f++;
       spurts.push({ first, last: f });
     }
+    const range = ({ first, last }) => {
+      let from = first * size - lookahead, to = (last + 1) * size - lookahead;
+      if (info.spans) {
+        let a = Infinity, b = -Infinity;
+        for (const [p, q] of info.spans) if (q > from && p < to) { a = Math.min(a, p); b = Math.max(b, q); }
+        if (a < b) { from = a; to = b; }
+      }
+      return { from, to };
+    };
     const moves = [];
     let early = false;
     for (let k = 1; k < spurts.length; k++) {
       const gap = (spurts[k].first - spurts[k - 1].last - 1) * size / rate;
       if (early || gap > RETIME.maxGap || rand() >= RETIME.chance) { early = false; continue; }
-      const shift = Math.round(Math.min(RETIME.maxShift, gap - RETIME.leftMax * rand()) * rate);
+      let shift = Math.round(Math.min(RETIME.maxShift, gap - RETIME.leftMax * rand()) * rate);
+      const here = range(spurts[k]);
+      if (info.spans) shift = Math.min(shift, here.from - range(spurts[k - 1]).to);
       const frames = Math.round(shift / size);
       if (frames < 1) { early = false; continue; }
       const { first, last } = spurts[k];
-      const start = Math.max(shift, first * size - lookahead), end = Math.min(samples.length, (last + 1) * size - lookahead);
+      const start = Math.max(shift, here.from), end = Math.min(samples.length, here.to);
       if (end > start) { samples.copyWithin(start - shift, start, end); samples.fill(0, Math.max(start - shift, end - shift), end); }
       log.copyWithin(first - frames, first, last + 1); log.fill(0, last + 1 - frames, last + 1);
       if (info.frameBytes) { info.frameBytes.copyWithin(first - frames, first, last + 1); info.frameBytes.fill(0, last + 1 - frames, last + 1); }
@@ -829,9 +844,11 @@
 
   // The codec's stream rate and the voice rate: the resampler's 147/80.
   const STEAM_RATE = 24000, STEAM_VOICE_RATE = 44100, STEAM_FRAME = 480;
-  // A spurt opens at most a chunk (2250 samples) and the pre-roll (2400)
-  // before the last sample the sender was given (steam-sender.js).
-  const STEAM_REACH = 2250 + 2400;
+  // How far before the last sample the sender was given a spurt can still
+  // open: its longest chunk (the clock gains at most 3 grid steps between two
+  // frames: steam-sender.js's MAX_CHUNK) and its pre-roll, from the sender's
+  // own constants (4650 samples).
+  const steamReach = (S) => 3 * S.grid + S.preroll;
 
   function steamModules() {
     const sender = typeof TF2SteamSender !== 'undefined' ? TF2SteamSender : null;
@@ -906,6 +923,7 @@
     const frameLog = new Uint8Array(slots), frameBytes = new Uint16Array(slots), frameMode = new Array(slots).fill(null);
     let buf = new Float32Array(cfg.capacity || 1 << 16), base = 0, high = 0;
     let spurt = null, cursor = 0, open = false, calls = 0;
+    const spans = [];   // each spurt's laid samples, [from, to) on the voice timeline
     const centre = (i) => (i * STEAM_FRAME + STEAM_FRAME / 2 - lookahead) * STEAM_VOICE_RATE / STEAM_RATE;
 
     function lay(y, at) {
@@ -937,6 +955,7 @@
         if (!made.silence && msg.spurt !== spurt) {
           spurt = msg.spurt; open = true;
           cursor = Math.round((msg.start - lookahead) * STEAM_VOICE_RATE / STEAM_RATE);
+          spans.push([cursor, cursor]);
         }
         const pcm = made.pcm;
         if (pcm.length) {
@@ -964,6 +983,7 @@
             lay(y, cursor);
             mark(made.blocks, y.length, cursor);
             cursor += y.length;
+            spans[spans.length - 1][1] = cursor;
           }
         }
         if (msg.end) open = false;
@@ -984,6 +1004,8 @@
         return out;
       },
       slots: () => ({ frames: slots, frameLog, frameBytes, frameMode }),
+      // The spurts' laid spans, inside [0, voiceLength).
+      spans: () => spans.map(([a, b]) => [Math.max(a, 0), Math.min(b, voiceLength)]).filter(([a, b]) => b > a),
       calls: () => calls
     };
   }
@@ -1161,7 +1183,8 @@
       // the slots of 480 codec samples are 882 here.
       if (opts.retime) {
         codecInfo.retimed = retimeSpurts(steamVoice, { frameLog: codecInfo.frameLog, frameBytes: codecInfo.frameBytes,
-          frameSamples: STEAM_FRAME * STEAM_VOICE_RATE / STEAM_RATE, lookahead: Math.round(trip.lookahead * STEAM_VOICE_RATE / STEAM_RATE) },
+          frameSamples: STEAM_FRAME * STEAM_VOICE_RATE / STEAM_RATE, lookahead: Math.round(trip.lookahead * STEAM_VOICE_RATE / STEAM_RATE),
+          spans: timeline.spans() },
         STEAM_VOICE_RATE, mulberry32((finiteOr(opts.seed, 0xC0FFEE) ^ 0x9E3779B9) >>> 0));
       }
     } else if (enableCodec) {
@@ -1957,7 +1980,7 @@
         async push(x) {
           given += x.length;
           await feed(sender.push(steamCapture(x)));
-          const reach = Math.floor((given - STEAM_REACH - stream.lookahead) * STEAM_VOICE_RATE / STEAM_RATE) - 1;
+          const reach = Math.floor((given - steamReach(SteamSender.STEAM_SENDER) - stream.lookahead) * STEAM_VOICE_RATE / STEAM_RATE) - 1;
           return timeline.take(Math.min(reach, timeline.cursor));
         },
         async flush() {

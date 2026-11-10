@@ -368,6 +368,54 @@ async function steamSection() {
     check('16 bits: the samples handed to the resampler are the module\'s decodeInt16 frame for frame, not clamp-and-round of decodeFloat',
       equal && frames > 100 && soft >= 1, `${frames} frames; ${soft} samples differ from clamp-and-round of decodeFloat`);
   }
+  // The same under loss, on a loud source: a decoder per spurt; a gap
+  // concealed by the module's decodePacketLossInt16 when the next frame
+  // arrives, at most 10 frames of it; a spurt whose first frame is lost
+  // concealed from a fresh decoder; frames lost at a spurt's end never played.
+  // First gaps of 3 and 12 and the last two frames in the longest spurt, and
+  // the first frame of every other spurt; then the gate off and three frames
+  // in ten lost, for many concealed frames (their rounding included).
+  {
+    const loud = talk(6, 31, 2);
+    const underLoss = async (opts, lose) => {
+      const sound = senderOf(loud, opts).msgs.filter((m) => m.silence === undefined), h = hooked();
+      await withMask((count) => Uint8Array.from({ length: count }, (_, f) => (lose(f, sound) ? 1 : 0)), () => render(loud, opts, h));
+      // A message whose frames were all lost makes no samples and no call.
+      const got = new Map(h.decoded.filter((d) => d.msg.silence === undefined).map((d) => [`${d.msg.spurt}:${d.msg.first}`, d.pcm]));
+      let enc = null, dec = null, pend = 0, frames = 0, concealed = 0, equal = true, calls = 0;
+      for (const m of sound) {
+        if (!enc) { enc = await lib.createEncoder(encoderOptions); dec = await lib.createDecoder({ sampleRate: R, channels: 1 }); pend = 0; }
+        const blocks = [];
+        for (let f = m.first; f <= m.last; f++) {
+          const packet = enc.encodeFloat(Float32Array.from(m.pcm.subarray((f - m.first) * 480, (f - m.first + 1) * 480), (v) => v / 32768));
+          if (lose(f, sound)) { pend++; continue; }
+          for (let c = 0; c < Math.min(pend, 10); c++) { blocks.push(dec.decodePacketLossInt16(480)); concealed++; }
+          pend = 0;
+          blocks.push(dec.decodeInt16(packet, { frameSize: 480 }));
+          frames++;
+        }
+        const want = new Int16Array(blocks.length * 480), had = got.get(`${m.spurt}:${m.first}`);
+        blocks.forEach((b, i) => want.set(b, i * 480));
+        if (want.length) calls++;
+        if (want.length ? !had || !same(Array.from(had), Array.from(want)) : had !== undefined) equal = false;
+        if (m.end) { enc.free(); dec.free(); enc = dec = null; }
+      }
+      return { equal: equal && calls === got.size, frames, concealed, spurts: new Set(sound.map((m) => m.spurt)).size };
+    };
+    const spans = (sound) => [...new Set(sound.map((m) => m.spurt))].map((sp) => {
+      const own = sound.filter((m) => m.spurt === sp);
+      return { first: own[0].first, last: own[own.length - 1].last };
+    });
+    const shaped = (f, sound) => {
+      const all = spans(sound), big = all.reduce((a, b) => (b.last - b.first > a.last - a.first ? b : a));
+      return (f >= big.first + 5 && f <= big.first + 7) || (f >= big.first + 12 && f < big.first + 24) || f >= big.last - 1 && f <= big.last
+        || all.some((sp) => sp !== big && f === sp.first);
+    };
+    const a = await underLoss({}, shaped), b = await underLoss({ gate: false }, (f) => (f * 7919) % 10 < 3);
+    check('under loss the decoded samples are the module\'s decodeInt16 and decodePacketLossInt16, a fresh decoder each spurt (a spurt\'s lost first frame concealed from it), a gap concealed at the next frame, at most 10, frames lost at a spurt\'s end not played',
+      a.equal && b.equal && a.spurts >= 2 && a.concealed === 13 + a.spurts - 1 && b.concealed >= 80,
+      `${a.spurts} spurts: ${a.frames} frames decoded, ${a.concealed} concealed${a.equal ? '' : ', NOT the module\'s'}; the gate off, 3 in 10 lost: ${b.frames} decoded, ${b.concealed} concealed${b.equal ? '' : ', NOT the module\'s'}`);
+  }
   // The decoder's rules under loss: concealment capped at 10 frames a gap,
   // a late frame 480 zeros and no gap. One long spurt (the gate off).
   {
@@ -420,6 +468,18 @@ async function steamSection() {
     });
     check('one resampler, never reset: its outputs are one createResampler() fed the decoded arrays in order; with a reset at each end marker they are not',
       r3.codecInfo.spurts === 3 && match && !resetMatch && h.decoded.length === h.resampled.length, `${h.resampled.length} packets in ${r3.codecInfo.spurts} spurts`);
+    // A silence record is exactly its count of zeros (msg.silence), and the
+    // resampler makes of it, in its place, what it makes of that many zeros.
+    const own = Swr.createResampler();
+    let records = 0, zeros = true;
+    h.decoded.forEach((e, k) => {
+      const record = e.msg.silence !== undefined, y = own.packet(record ? new Int16Array(e.msg.silence) : e.pcm);
+      if (!record) return;
+      records++;
+      if (e.pcm.length !== e.msg.silence || e.pcm.some((v) => v !== 0) || !same(Array.from(y), Array.from(h.resampled[k].y))) zeros = false;
+    });
+    check('a silence record is exactly its count of zeros, and the resampler gives for it what it gives for that many zeros in its place',
+      zeros && records >= 2, `${records} records of ${h.decoded.filter((e) => e.msg.silence !== undefined).map((e) => e.msg.silence).join(', ')} samples`);
   }
   // The gain is fed the decoded packets and nothing else, in the sender's
   // order: the silence records' zeros among them; a late frame's samples not.
@@ -484,8 +544,14 @@ async function steamSection() {
     await withMask((count) => Uint8Array.from({ length: count }, (_, f) => (f === frame ? 2 : 0)), () => render(x, {}, hl));
     for (const e of hl.resampled) if (e.msg.first <= frame && e.msg.last >= frame) e.msg.lateBlocks = [frame - e.msg.first];
     const left = relay(hl, settings, 'out'), fed = relay(hl, settings, 'in');
-    check('a late frame\'s samples are not decoded: the gain after its packet is the gain with them left out, not with them fed',
-      frame > 0 && same(Array.from(left.out), Array.from(hl.gained)) && !same(Array.from(fed.out), Array.from(hl.gained)), `frame ${frame}`);
+    // A late frame's span, frame j of F in a packet of n samples, is
+    // round(j n / F) to round((j + 1) n / F). Every sound packet is 480 F
+    // samples and the resampler (147/80) gives exactly 882 F for it, its
+    // first packet included, so j n / F is a whole number and the rounding
+    // never acts: what is pinned is that premise.
+    const exact = h.resampled.filter((e) => e.msg.silence === undefined).every((e) => e.y.length === 882 * (e.msg.last - e.msg.first + 1));
+    check('a late frame\'s samples are not decoded: the gain after its packet is the gain with them left out, not with them fed (every packet 882 samples a frame, so the span is exact)',
+      frame > 0 && exact && same(Array.from(left.out), Array.from(hl.gained)) && !same(Array.from(fed.out), Array.from(hl.gained)), `frame ${frame}`);
   }
   // Laying (point 8) and the slots (point 9). On this source two spurts meet
   // (the gate closes and opens again, its pre-roll over the last one's end),
@@ -513,6 +579,52 @@ async function steamSection() {
     check('slots: a 20 ms slot of the source holds a frame where a spurt\'s laid frames cover its centre, not its start',
       n === Math.ceil((x.length + L) / 480) && same(Array.from(r.codecInfo.frameLog, (c) => (c ? 1 : 0)), covered(240)) && !same(covered(240), covered(0)),
       `${n} slots, ${covered(240).reduce((t, v) => t + v, 0)} holding a frame`);
+  }
+  // Re-timing (opts.retime) on the steam path moves a spurt's laid samples
+  // whole: the moved spurt equals the unmoved one sample for sample, nothing
+  // is left between where it now ends and where it ended, it lands no earlier
+  // than the spurt before ends, and the rest of the render is as it was. Six
+  // bursts 0.8 s apart; at seeds 18 and 21 a move would otherwise reach into
+  // the spurt before.
+  {
+    const x = bursts(10, [0.5, 2.1, 3.7, 5.3, 6.9, 8.5], 0.8, -50);
+    let moves = 0, whole = 0, clear = 0, apart = 0, rest = 0;
+    for (const seed of [1, 2, 3, 4, 18, 21]) {
+      const h0 = hooked(), h1 = hooked();
+      const r0 = await render(x, { seed }, h0), r1 = await render(x, { seed, retime: true }, h1);
+      const L = r0.codecInfo.lookahead, N = h0.gained.length, spans = [];
+      let spurt = null, cursor = 0;
+      for (const { y, msg } of h0.resampled) {
+        if (msg.silence !== undefined) continue;
+        if (msg.spurt !== spurt) { spurt = msg.spurt; cursor = Math.round((msg.start - L) * VR / R); spans.push([cursor, cursor]); }
+        cursor += y.length;
+        spans[spans.length - 1][1] = cursor;
+      }
+      const merged = [];
+      for (const [p, q] of spans) {
+        const a = Math.max(0, p), b = Math.min(N, q);
+        if (b <= a) continue;
+        if (merged.length && a <= merged[merged.length - 1][1]) merged[merged.length - 1][1] = Math.max(b, merged[merged.length - 1][1]);
+        else merged.push([a, b]);
+      }
+      const want = Float32Array.from(h0.gained);
+      for (const m of r1.codecInfo.retimed) {
+        moves++;
+        const shift = Math.round(m.shiftMs * VR / 1000), from = Math.round(m.time * VR), span = merged.find(([a]) => a === from);
+        if (!span) continue;
+        const to = span[1];
+        if (same(Array.from(h1.gained.subarray(from - shift, to - shift)), Array.from(h0.gained.subarray(from, to)))) whole++;
+        if (h1.gained.subarray(to - shift, to).every((v) => v === 0)) clear++;
+        const k = merged.indexOf(span);
+        if (from - shift >= (k > 0 ? merged[k - 1][1] : 0)) apart++;
+        want.copyWithin(from - shift, from, to);
+        want.fill(0, Math.max(from - shift, to - shift), to);
+      }
+      if (same(Array.from(want), Array.from(h1.gained))) rest++;
+    }
+    check('re-timing on the steam path moves a spurt\'s laid samples whole: the moved spurt equals the unmoved one, nothing is left at its old place, it lands after the spurt before, the rest is as it was',
+      moves >= 6 && whole === moves && clear === moves && apart === moves && rest === 6,
+      `${moves} moves; ${whole} whole, ${clear} leaving nothing behind, ${apart} after the spurt before; ${rest} of 6 renders otherwise as they were`);
   }
   // The seed, the resampler's kernel, the complexity.
   {

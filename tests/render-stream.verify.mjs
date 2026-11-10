@@ -212,6 +212,17 @@ for (const [name, rate, opts, plan] of [
   ['test position with a low-pass', 48000, { listenerPos: 'test_lowpass' }, 'uneven']
 ]) add(name, rate, () => voice(8, rate, 4), opts, [plan]);
 add('steam, empty source', 48000, () => new Float32Array(0), {}, ['whole']);
+// Added in W3-11a's fix round. Heavy loss inside one long spurt (the gate
+// off): a run of lost frames lays nothing, so the open spurt's cursor stays
+// where it is while the sender reads on, and the next frame to arrive (with
+// its concealment) lands at that cursor. createRender may give out samples
+// only up to it; without that bound these cases throw at chunks of 960 and 7.
+const noise = (seconds, seed) => () => {
+  let s = seed >>> 0;
+  return Float32Array.from({ length: Math.round(seconds * 48000) }, () => 0.3 * ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2147483648 - 1));
+};
+add('steam, gate off, loss 80%, seed 1 (long runs lost inside a spurt)', 48000, noise(4, 1), { gate: false, lossPct: 80, seed: 1 }, ['960', '7']);
+add('steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)', 48000, noise(4, 3), { gate: false, lossPct: 40, seed: 3 }, ['960', '7']);
 add('celt_22, one sample at 22.05 kHz', 22050, () => Float32Array.of(0.25), { codec: 'celt_22' }, ['whole']);
 add('speex, 100 samples at 96 kHz', 96000, () => voice(0, 96000, 8, 100), { codec: 'speex' }, ['7']);
 // Added in the review's fix round. Output lengths that are not whole
@@ -338,7 +349,9 @@ const GOLDEN = {
   "steam, 88203 samples at 11025 Hz (an output length of 352812.00)": ["63b690b515bc1cca3868cbbd8b0f71122d20c87fc55056cfae14495b1400687f", "dae0ff7b0b761f58f7a3b5da154bb50773db75ddbd1603be1696dfe514839ebd"],
   "steam, silent but for a quarter frame of sine at the end": ["0e7551d1a6a29d2465b83e4719334870fb0135c31f2d4e921511bfdde1841712", "f61926fa97594bbe474b528c52ee7b4bd88e05ac8e7c9867dc9f25922e748e3f"],
   "steam_48, silent but for a quarter frame of sine at the end": ["0e7551d1a6a29d2465b83e4719334870fb0135c31f2d4e921511bfdde1841712", "a2ab787d46a1cdf2a53b25fdb56752994849a33fc9af2ebe979bfcd5fa32ecb1"],
-  "demo voice as received, past full scale": ["defc7e4cbbcb1c4c82b0e31bbee7949ecc9fcae3ab06c472e8868d65cbc822f3", "e6a7ce0f09e5683c1726bbea1d2500d2aaebf930359a22246c73eeb4a1325eb6"]
+  "demo voice as received, past full scale": ["defc7e4cbbcb1c4c82b0e31bbee7949ecc9fcae3ab06c472e8868d65cbc822f3", "e6a7ce0f09e5683c1726bbea1d2500d2aaebf930359a22246c73eeb4a1325eb6"],
+  "steam, gate off, loss 80%, seed 1 (long runs lost inside a spurt)": ["b4e16cd84f523a8a8c6f026038a925bfd9d5acf254170cacbecc66315e91d38e", "222301da01ca6882c922037bf9b95decdc6a3be4fde385961f00297ef740d800"],
+  "steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)": ["2b8bf7a3680b1cdcb74fce104c83cf2dba0012e19f24125aec9236fa3d3c4535", "995e2a827f24042d70b0b8f01a363d6bfa50cecdd990d2e68f6454c869226280"]
 };
 
 /* ---------------- helpers ---------------- */
