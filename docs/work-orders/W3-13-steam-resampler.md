@@ -2,14 +2,16 @@
 
 *Rewritten 2026-11-10 after the plan's review (findings 1 to 6; `docs/reports/W3-11-plan.md`, "The review"). The
 first version described 16-bit integer arithmetic, which the library does not use for a rate change: it was
-wrong, and its own reference hashes could not be met by it.*
+wrong, and its own reference hashes could not be met by it. Revised again the same day after the second read
+(its findings 1 to 4): the tool that was to tell the kernel from a recording is gone from this order; that
+question is W3-14's.*
 
 **Depends on:** W3-09's report (`docs/reports/W3-09-steam-voice.md`, section 4). Nothing else: it adds new files
 only, so it can start now and run beside any order (the `test` line of `package.json` is shared with W3-02a,
 W3-02b and W3-12a: a trivial merge). **Before W3-11a**, which wires it in. **Before it merges** the orchestrator
 writes finding 29 into `tests/REFERENCE_2026.md` (CLAUDE.md: a measured constant changes with its evidence).
 **Kind:** code. `tf-builder` (effort high), then `tf-reviewer`. **Branch:** `claude/w3-13-steam-resampler`, from
-`main`. **Worktree:** given in the brief. **Time budget:** 1.5 days.
+`main`. **Worktree:** given in the brief. **Time budget:** 1 day.
 
 ## Why
 
@@ -68,7 +70,8 @@ kernel's order equals the native library, forced to that kernel, on every sample
 **Which kernel Steam runs on the owner's PC is not known.** The default here is `fma3` (what a current x86-64
 processor picks, if Valve's build has the assembly in). It is one constant, `DEFAULT_KERNEL`; changing it needs
 no other change in this module (the hashes for all four are in the test), and then a re-record of the `steam`
-golden hashes downstream. The owner's file-input recording, if it comes, decides it (the private check below).
+golden hashes downstream. The owner's file-input recording, if it comes, decides it: that is
+`docs/work-orders/W3-14-steam-file-input.md`, an investigation, and nothing in this order waits for it.
 
 **The licence.** libswresample is under the GNU LGPL, version 2.1 or later. A port is a translation of that
 source, so the port is under the same licence. The project already ships an LGPL library (LAME, unmodified,
@@ -94,9 +97,11 @@ source, so the port is under the same licence. The project already ships an LGPL
 2. **The bank is stored, not computed in the page.** `Math.sin` is not the same function in every browser, and
    one different last bit in a coefficient would break "the same input gives the same samples". The script
    holds the 4704 floats as base64 (little-endian, phase by phase, 32 taps each). `tests/swresample/bank.mjs`
-   computes them by the formula above under Node and prints the base64 and its SHA-256, which must be
+   computes them by the formula above under Node and prints the base64 and the SHA-256 **of the 4,704 floats as
+   18,816 little-endian bytes** (not of the base64 text), which must be
    **`318831365a80e9e689d9f730e975fc5713aeafacb5ead762a9b52a95802f867e`** (computed with the plan review's port
-   under Node 22; with that bank the port equals the native library).
+   under Node 22, and again by the second read from this text alone; with that bank the port equals the native
+   library). The sign of `s` turning at each tap matters: `sin(x) / x` in its place changes 31 coefficients.
 3. **`vendor/swresample/README.md`** and `COPYING.LGPLv2.1` as the table says. `README.md`'s "Files and
    licensing" paragraph and file table gain the folder. `sw.js` is not changed here (W3-11a loads the file).
 4. **`tests/swresample/native.c` and `native.mjs`**: a one-off script, not in CI. It compiles a small program
@@ -107,15 +112,7 @@ source, so the port is under the same licence. The project already ships an LGPL
    FMA3 for `fma3`), on the four streams below and on 50 seeded streams of random packet sizes (multiples of
    480 up to 3840, records of 750 and 1500 zeros). It prints the library's version and the CPU's flags. A
    kernel the machine's processor lacks is reported as not confirmed here, not as a failure.
-5. **`tests/swresample/from-recording.mjs <wav> [--out <24k.raw>]`**: the tool that tells the kernel from a
-   recording of the game's decoded voice (16-bit mono 44.1 kHz), with no other knowledge. For a stretch of the
-   recording it finds the 24 kHz 16-bit samples behind it: try each of the 147 phases for the stretch's first
-   sample; for a phase, solve for the input by least squares over the bank (a banded system; conjugate
-   gradients on the normal equations is enough), round to integers, run the port forward and count the output
-   samples that differ; where a few differ, try the neighbouring inputs one step up and down. It prints, per
-   kernel, the best phase and the differing samples over the stretch, and with `--out` writes the recovered
-   24 kHz samples (W3-11a's private check reads them). It prints nothing else of the recording.
-6. **`tests/swresample.verify.mjs`**, in `pnpm test`.
+5. **`tests/swresample.verify.mjs`**, in `pnpm test`.
 
 ## The reference (the native library, 4.12.100 on x86-64, forced to each kernel, driven as Steam drives it)
 
@@ -166,13 +163,11 @@ samples late.
     within 0.1 dB of 0, -0.11, -0.71, -2.43 and -3.95 dB (the review's figures from the bank; no sine at 12 kHz:
     it is the input's Nyquist frequency and its level depends on its phase); an 11.5 kHz sine leaves an image
     at 12.5 kHz 12.2 dB under the input's level, within 0.5 dB;
-  - the four kernels differ from one another on stream A in at least 1 and fewer than 200 samples, each by 1;
+  - the four kernels differ from one another on stream A in at least 1 and fewer than 200 samples, each by 1
+    (the plan's runs: 15 to 40). That holds for full-scale input only: at -24 dBFS the kernels can agree on
+    every sample, so no check may ask for a difference on a quiet signal;
   - `reset()` gives a stream that repeats stream A exactly; the internal buffer stays under 4,096 samples over
     10 minutes of packets;
-  - **the recording tool on synthetic data:** a 20 s stream of seeded packets through the port under each
-    kernel in turn, the first 12,345 output samples cut off, written as a WAV: `from-recording.mjs` reports 0
-    differing samples for the kernel that made it and more than 0 for each of the others, and its `--out`
-    equals the input from the phase it found.
 - `node tests/swresample/native.mjs` on the build machine: the port equals the library under each kernel on the
   four streams and the 50 random ones. **If the native program does not give the sixteen hashes above, stop
   and say so before touching the port.**
@@ -185,16 +180,8 @@ samples late.
   equal the log's for every packet, the 2756 and 2757 of the silence records in their order included.
   Expected: all 2,375. A mismatch at a session's first packets only is reported, not a failure (the log does
   not say where a decoder was made).
-- **The kernel, if the owner's file-input recording exists** (Steam's `mic_inputfile` with a known 24 kHz clip,
-  the game's `voice_recordtofile 1` with `voice_maxgain 1`, which writes the decoder's 44.1 kHz output):
-  `node tests/swresample/from-recording.mjs <takes folder>/<the recording>.wav`. **A match** is one kernel with
-  0 differing samples over at least 50,000 output samples, and every other kernel with more. Then
-  `DEFAULT_KERNEL` is set to it (a one-line change by the orchestrator, with the evidence in finding 29). If no
-  kernel reaches 0, the orchestrator reports the four counts and the largest difference: counts in the tens
-  with differences of 1 point to a kernel or a library build not among the four (Valve's is 8.1.2, built with
-  another compiler); thousands point to the recording not being this resampler's plain output, and W3-09's
-  reading of the path is in question. If the recording does not exist, nothing here is run and the default
-  stays `fma3`, marked "not confirmed on Steam" in the README and in finding 29.
+- Which kernel Steam runs is not checked here: see W3-14. Until it is, the README and finding 29 say "`fma3`,
+  not confirmed on Steam".
 
 ## How it meets the channel and W3-02c
 
@@ -206,8 +193,10 @@ demo's packets (W3-02g) go the same way.
 ## Files
 
 May add: `vendor/swresample/` (`swresample.js`, `README.md`, `COPYING.LGPLv2.1`), `tests/swresample/`
-(`native.c`, `native.mjs`, `bank.mjs`, `from-recording.mjs`), `tests/swresample.verify.mjs`. May touch:
-`package.json` (the `test` script), `README.md` (the licensing paragraph and file table only). Nothing else.
+(`native.c`, `native.mjs`, `bank.mjs`), `tests/swresample.verify.mjs`. May touch:
+`package.json` (the `test` script), `README.md` (the licensing paragraph and file table only: **W3-12b edits
+the same paragraph and table, so whichever of the two merges second merges main in first and keeps both
+changes; the orchestrator does not start W3-12b's README edit while this order is in review**). Nothing else.
 
 ## Stop and ask
 
@@ -215,8 +204,5 @@ May add: `vendor/swresample/` (`swresample.js`, `README.md`, `COPYING.LGPLv2.1`)
   sample and the packet it is in. Do not adjust the reference.
 - If `bank.mjs` under the build machine's Node does not give the bank's hash: say which coefficients differ
   from a bank read out of the native library (an impulse through each phase shows it).
-- If the recording tool cannot reach 0 differing samples on its own synthetic data within the budget: ship
-  the rest, say how close it gets (the counts per kernel), and the orchestrator decides whether it still
-  tells the kernels apart.
 - If the owner's answer on the licence is not in the brief when the build is done: push the branch and report;
   the orchestrator holds the merge.
