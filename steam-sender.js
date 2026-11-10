@@ -70,7 +70,12 @@
   const SILENT = 0, ACTIVE = 1, HANGING = 2, ENDED = 3;
   const MAX_CHUNK = 3 * STEAM_SENDER.grid;        // the clock never gains more (see createClock)
 
-  const finiteOr = (x, d) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
+  // A setting left out is the default; one given must be a finite number.
+  function setting(x, d, name) {
+    if (x === undefined) return d;
+    if (typeof x !== 'number' || !Number.isFinite(x)) throw new RangeError(`${name} must be a finite number`);
+    return x;
+  }
 
   function mulberry32(seed) {                     // as in audio.js
     let a = seed >>> 0;
@@ -91,7 +96,7 @@
   function createClock(opts) {
     const o = opts || {};
     const S = STEAM_SENDER;
-    const draw = mulberry32(((finiteOr(o.seed, 0xC0FFEE) ^ S.seedMix) >>> 0));
+    const draw = mulberry32(((setting(o.seed, 0xC0FFEE, 'seed') ^ S.seedMix) >>> 0));
     const phase = 2 * S.timer * draw();
     let i = 0, last = 0;
     return Object.freeze({
@@ -130,7 +135,7 @@
     const o = opts || {};
     const S = STEAM_SENDER, FRAME = S.frame;
     const gate = o.gate !== false;
-    const meanMin = finiteOr(o.meanMin, S.meanMin);
+    const meanMin = setting(o.meanMin, S.meanMin, 'meanMin');
     if (!(meanMin > 0)) throw new RangeError('meanMin must be above 0: a chunk of zeros would never end a spurt');
     const clock = o.clock || createClock({ seed: o.seed });
     if (typeof clock.next !== 'function') throw new TypeError('clock must have next()');

@@ -169,6 +169,12 @@ console.log('The clock');
   check('seed 0xC0FFEE starts with the reference\'s 24 numbers', got.join() === REF_CLOCK.join(), got.join(','));
   const take = (seed, k) => { const c = createClock({ seed }); return Array.from({ length: k }, () => c.next()).join(); };
   check('two seeds differ', take(1, 24) !== take(2, 24));
+  let refused = 0;
+  for (const v of [NaN, Infinity, '7', null]) {
+    try { createClock({ seed: v }); } catch (e) { if (e instanceof RangeError) refused++; }
+    try { createSender({ seed: v }); } catch (e) { if (e instanceof RangeError) refused++; }
+  }
+  check('a seed that is given but is not a finite number is refused, not taken as 0xC0FFEE', refused === 8);
   check('one seed repeats', take(5, 1000) === take(5, 1000));
   let agree = true, steps = new Set();
   for (let seed = 1; seed <= 400 && agree; seed++) {
@@ -294,6 +300,16 @@ console.log('The gate (the hand clock: chunks of 1500)');
   let threw = 0;
   for (const v of [0, -1]) try { createSender({ meanMin: v }); } catch (e) { if (e instanceof RangeError) threw++; }
   check('meanMin at or below 0 is refused (a chunk of zeros would never end a spurt)', threw === 2);
+  let bad = 0;
+  for (const v of [NaN, Infinity, -Infinity, '300', null]) try { createSender({ meanMin: v }); } catch (e) { if (e instanceof RangeError) bad++; }
+  check('a meanMin that is given but is not a finite number is refused, not taken as 327.67', bad === 5 && opens(m250, { meanMin: undefined }) === false);
+  // The gate judges the chunk alone, even while silent with past sound kept: eleven chunks of
+  // 750 with a mean of 327.6, and one whose sound is all in its last 150 samples (sum 245700),
+  // are each inactive, though the last 2400 samples of past and chunk together are not.
+  const near = new Int16Array(750 * 12);
+  for (const c of [0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11]) for (let i = 0; i < 750; i++) near[750 * c + i] = i < 450 ? 328 : 327;
+  near.fill(1638, 750 * 4 + 600, 750 * 5);
+  check('the gate judges each chunk alone, not the pre-roll with it', run(near, { clock: handClock(2) }).messages.length === 0);
 }
 
 console.log('The pre-roll');

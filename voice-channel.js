@@ -264,12 +264,14 @@
     const INTO = Math.round(VOICE_CHANNEL.rate * 0.2);                        // 0.2 s into a spurt
 
     const slots = new Int32Array(Math.ceil(length / SLOT)).fill(-1);
-    // Per message: where pcm[0] is in the source (null: a record), its spurt (-1: none), and how
-    // many of its samples have left the ring (played or dropped). They leave in order, so the
-    // next one out is pcm[1 + that]: the channel does not write pcm[0].
-    const pSource = [], pSpurt = [], pOut = [];
+    // Per message: where pcm[0] is in the source (null: a record), its spurt (-1: none), how
+    // many of its samples the ring took (all but pcm[0]) and how many have left it (played or
+    // dropped). They leave in order, so the next one out is pcm[1 + that]. An overflow drops
+    // the oldest: the samples left of the oldest messages, from `oldest` on.
+    const pSource = [], pSpurt = [], pIn = [], pOut = [];
+    let oldest = 0;
     const spurts = [], drops = [], unheard = [];
-    let nextTick = 0, nextBlock = 0, floor = 0, fresh = false, open = false, finished = false, dropEntries = 0;
+    let nextTick = 0, nextBlock = 0, floor = 0, fresh = false, open = false, finished = false;
     let pieces = [];                              // the output of the blocks run since the last return
 
     function runTick() { ch.tick(); nextTick++; }
@@ -354,17 +356,17 @@
         if (open) s = spurts.length - 1;
         open = false;
       }
-      pSource.push(record ? null : source); pSpurt.push(s); pOut.push(0);
+      pSource.push(record ? null : source); pSpurt.push(s); pIn.push(Math.max(0, pcm.length - 1)); pOut.push(0);
       const opensBefore = ch.opens, droppedBefore = ch.dropped;
       ch.add(pcm, p);
       if (ch.opens > opensBefore) { fresh = true; if (first) spurts[s].opened = true; }
-      if (ch.dropped > droppedBefore) {           // an overflow: the channel's new drops entries
-        const all = ch.drops, lost = all.slice(dropEntries);
-        dropEntries = all.length;
-        let total = 0;
-        for (const d of lost) {
-          total += d.count;
-          if (d.tag >= 0) { pOut[d.tag] += d.count; if (pSpurt[d.tag] >= 0) spurts[pSpurt[d.tag]].dropped += d.count; }
+      if (ch.dropped > droppedBefore) {           // an overflow: the oldest samples in the ring went
+        const total = ch.dropped - droppedBefore;
+        for (let k = total; k > 0;) {
+          while (pOut[oldest] >= pIn[oldest]) oldest++;
+          const take = Math.min(k, pIn[oldest] - pOut[oldest]);
+          pOut[oldest] += take; k -= take;
+          if (pSpurt[oldest] >= 0) spurts[pSpurt[oldest]].dropped += take;
         }
         const d = { time: null, ms: total / PER_MS };
         drops.push(d); unheard.push(d);

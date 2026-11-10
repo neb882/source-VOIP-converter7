@@ -2,7 +2,53 @@
 
 The builder's report, 2026-11-10. The order is W3-02b in `docs/work-orders/W3-02-receiver-queue.md` (revision 3).
 All of it is built. Nothing in the app loads `steam-sender.js` or calls `createTimeline` yet. The private runs are
-the orchestrator's; the commands are at the end.
+the orchestrator's; the commands are at the end. The review found no bug; its small fixes are in "The fix round",
+and the orchestrator's private run is in "The private run".
+
+## The private run
+
+The orchestrator ran `tests/retiming.mjs --engine` on the owner's takes, on head `6b5d75a` (200 seeds, 300 fps).
+On the speech take the engine gets 58% of transitions right, with a start error of 87 ms. The order's bar is 45% or
+more and 110 ms or less. Beside it on the same take:
+
+| Model | Start error |
+| --- | ---: |
+| the engine (sender and timeline) | 87 ms |
+| the fitted queue model | 100 ms |
+| the flat rule | 134 ms |
+| none | 150 ms |
+
+W3-02c is not held.
+
+## The fix round
+
+The review's own model agreed with the sender on 23,000 seeded cases and with the timeline on 2,000. Its findings,
+and what was done:
+
+| Finding | Done | The break, and what fails |
+| --- | --- | --- |
+| The `--engine` criterion cannot see the seed | A check in `tests/voice-channel.verify.mjs` runs `retiming.mjs --engine` on the stand-in at `--seeds 1` and `--seeds 50`. The engine's columns must differ, and its start error must be under "none"'s. A second check: without `--engine`, no engine column or line | every seed run as seed 1: "its columns differ between 1 seed and 50" fails (`1 seed 100, 100, 15; 50 seeds 100, 100, 15; none 82, 82`; the real build gives `96, 99, 22` at 50) |
+| A bad seed or `meanMin` fell back to the default | Refused. A value that is given but is not a finite number is a `RangeError`; one left out is the default. `Infinity` is refused too | a seed back to `0xC0FFEE`: "a seed that is given but is not a finite number is refused" fails; `meanMin` back to 327.67: "a meanMin that is given ... is refused" fails |
+| S7: the gate judged on past + chunk while silent survived | The review's case is a check. Eleven chunks of 750 with a mean of 327.6, and one with its sound in its last 150 samples: no message | S7: "the gate judges each chunk alone, not the pre-roll with it" fails (the mutant sends 15) |
+| The 500 ms count was `>= 30` | Pinned at 38 of the 50 seeds, with the reason. The seeds are fixed, so the count is exact | hold 0.39 s, voice-channel suite only: the check fails with "50 of 50". The old `>= 30` and its range passed it |
+| `ch.drops` copied the whole list on every overflow | `createTimeline` no longer reads the list. An overflow drops the oldest samples in the ring, so it walks its own count of each message's samples from the oldest on. `createChannel` is not changed. A new check compares each spurt's `droppedMs` on the 96 made-up runs with what the channel's own `drops` list says (6.9 million samples dropped in all) | the newest message's samples taken, or pcm[0] counted as written: that check fails, "0 of 96 runs" |
+
+A relay of 12.1 ms survives the voice-channel suite; the timeline's ranges allow it. The sender suite's constants
+check catches it.
+
+Now 58 sender checks and 127 voice channel checks.
+
+**For W3-11b (the threshold control).** The module compares the mean in doubles (`sum / n >= meanMin`). Steam
+forms a 32-bit float percentage and compares it with `voice_minavg`. At the default (327.67) no chunk the sender
+can see differs: the review tried every sum within 50 of the threshold for chunks of 750, 1500 and 2250. At other
+thresholds the two can differ by one step. For example, with `voice_minavg` 0.2 (`meanMin` 65.534), a 1500-sample
+chunk with a sum of 98301 (801 x 66 + 699 x 65) is active in doubles. Steam's percentage comes out at 0.19999999,
+under 0.2. The module errs on the permissive side: it opens. W3-11b should either compare a percentage as Steam
+does or accept the one-step difference.
+
+**For anyone driving the sender from a demo.** A hand clock that moves by more than 6 (a chunk over 2250 samples)
+is refused, with a `RangeError` naming the clock. If the demo's spacing implies a longer read after a hitch, split
+it into steps of at most 6.
 
 ## What was built
 
@@ -10,8 +56,8 @@ the orchestrator's; the commands are at the end.
 | --- | --- |
 | `steam-sender.js` (new) | Steam's sender as "The sender's packets": `STEAM_SENDER`, `createClock`, `createSender`. An IIFE in `demo.js`'s form (`TF2SteamSender`), no imports, no `Math.random`, no clock. |
 | `voice-channel.js` | `createTimeline` added, and its name in the exports. `createChannel` is not changed: the diff removes one line, the old export line. |
-| `tests/steam-sender.verify.mjs` (new) | 55 checks. A second, plain-array model of the order's text (`plainSender`, `plainClock`) runs beside the module. |
-| `tests/voice-channel.verify.mjs` | 23 timeline checks added (124 in all). One of W3-02a's checks is changed: the exports check now names five functions. |
+| `tests/steam-sender.verify.mjs` (new) | 58 checks. A second, plain-array model of the order's text (`plainSender`, `plainClock`) runs beside the module. |
+| `tests/voice-channel.verify.mjs` | 26 timeline checks added (127 in all). One of W3-02a's checks is changed: the exports check now names five functions. |
 | `tests/voicequeue/synthetic-results.mjs` (new) | Spec 4's stand-in results. It also exports `engineRun` and `offsetsOf`, which `retiming.mjs --engine` uses. |
 | `tests/retiming.mjs` | The `--engine` flag only. Without it the output is byte for byte main's. |
 | `package.json` | `node tests/steam-sender.verify.mjs` appended to `test`. Main's new `speex102` suite is kept. |
@@ -64,7 +110,8 @@ Where the text allowed more than one reading, this is what I built.
    - The padded last frame is checked on a 95,003-sample cut, seeds 1 to 50 (37 zeros each).
    - Any reading that pads a whole zero chunk would break the order's "at most 479 zeros more".
 4. **`meanMin` at or below 0 is refused** (`RangeError`). A chunk of zeros would count as active, and `finish()`
-   would never end.
+   would never end. Since the fix round, a seed or a `meanMin` that is given but is not a finite number is refused
+   too.
 5. **A hand clock** must give whole numbers, each 1 to 6 above the last. So a chunk is at most 2250 samples, and the
    memory bound holds. The seeded clock moves by 1 to 6.
 6. **`info()`**: `chunks` counts the chunks read that were not empty; `messages` counts every message, records
@@ -82,7 +129,8 @@ Where the text allowed more than one reading, this is what I built.
    - `start` is the first sound message's source, pre-roll included; `end` is where the last one ends.
    - `offsetStartMs` is read 0.2 s after that `start`. Offsets count samples played before output 0 too.
    - Both offsets are `null` if nothing of the spurt played.
-10. **`drops`**: one entry per message that overflowed the ring. Its `time` is where the skip is heard:
+10. **`drops`**: one entry per message that overflowed the ring. Since the fix round each spurt's share comes from
+    the timeline's own count of each message's samples, not from the channel's `drops` list. Its `time` is where the skip is heard:
     - while playing, the start of the next block;
     - during a wait, the first block after the wait;
     - if never heard, after the end.
@@ -138,7 +186,7 @@ thing:
 
 ## The checks, and how each was broken
 
-`node tests/steam-sender.verify.mjs`: 55 checks, about 10 s. They cover:
+`node tests/steam-sender.verify.mjs`: 55 checks in the first round (58 after the fix round), about 10 s. They cover:
 - the module: how it loads, that it draws only from its seed, its constants;
 - the clock: the reference numbers; two seeds differ, one repeats; a second reading over 400 seeds;
 - the reference schedule: message for message, its spurts, the hand clock, the opening, pieces of 1, 479, 750
@@ -151,7 +199,7 @@ thing:
   ENDED;
 - refusals.
 
-`node tests/voice-channel.verify.mjs` adds 23 timeline checks:
+`node tests/voice-channel.verify.mjs` adds 23 timeline checks in the first round (26 after the fix round):
 - a second reading of the clock, driven by blocks, against the module on 48 made-up streams at six settings, with
   and without `advance()`;
 - ties between a tick and a block, the first at tick 1024, among them one inside `finish()`;

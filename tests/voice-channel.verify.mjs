@@ -23,7 +23,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { logToFixture } from './voicequeue/log-to-fixture.mjs';
 import { createReferenceChannel, referenceWaitTicks, referenceLatency } from './voicequeue/reference-channel.mjs';
-import { engineRun } from './voicequeue/synthetic-results.mjs';
+import { engineRun, syntheticResults } from './voicequeue/synthetic-results.mjs';
 
 const require = createRequire(import.meta.url);
 const V = require('../voice-channel.js');
@@ -864,7 +864,9 @@ function publicChecks() {
 
 // A second reading of the clock, driven by blocks: before block b every tick k with
 // 1323 k <= 1024 b runs (its messages first); a block pulls 512, or 513 on the first block
-// after an open while playing, playing the last 512. Returns the whole output.
+// after an open while playing, playing the last 512. Returns the whole output, and as
+// .spurtDropped the samples each spurt lost to overflow, read from the channel's own drops
+// list (a spurt is a run of messages up to a silence record, the record its last).
 function referenceTimeline(messages, { fps, bufferMs, fadeTime, length }) {
   const ch = createChannel({ fps, bufferMs, fadeTime });
   const D = Math.round(44100 * latency(bufferMs, fps));
@@ -874,7 +876,7 @@ function referenceTimeline(messages, { fps, bufferMs, fadeTime, length }) {
     while (1323 * k <= 1024 * b) {
       while (m < messages.length && messages[m].tick === k) {
         const opens = ch.opens;
-        ch.add(messages[m].pcm);
+        ch.add(messages[m].pcm, m);
         if (ch.opens > opens) fresh = true;
         m++;
       }
@@ -884,6 +886,14 @@ function referenceTimeline(messages, { fps, bufferMs, fadeTime, length }) {
     if (ch.playing && fresh) { s = ch.pull(513).samples.subarray(1); fresh = false; } else s = ch.pull(512).samples;
     for (let j = 0; j < 512; j++) { const o = 512 * b - D + j; if (o >= 0 && o < length) out[o] = s[j]; }
   }
+  const spurtOf = [], dropped = [];
+  let open = false;
+  for (const msg of messages) {
+    if (msg.source !== -1) { if (!open) { dropped.push(0); open = true; } spurtOf.push(dropped.length - 1); }
+    else { spurtOf.push(open ? dropped.length - 1 : -1); open = false; }
+  }
+  for (const d of ch.drops) if (d.tag >= 0 && spurtOf[d.tag] >= 0) dropped[spurtOf[d.tag]] += d.count;
+  out.spurtDropped = dropped;
   return out;
 }
 
@@ -930,7 +940,7 @@ function timelineChecks() {
   console.log('The timeline: its clock, against a second reading of it');
   {
     const cases = [[300, 100, 0.1], [100, 100, 0.1], [66.67, 100, 0.1], [150, 50, 0.05], [30, 200, 0.1], [300, 30, 0.02]];
-    let ok = 0, all = 0, first = '';
+    let ok = 0, all = 0, first = '', dropsOk = 0, dropsAll = 0, dropped = 0;
     for (const [fps, bufferMs, fadeTime] of cases) {
       for (let seed = 1; seed <= 8; seed++) {
         const messages = madeUpMessages(seed, 900), length = 44100 * 14 + seed * 37;
@@ -938,13 +948,18 @@ function timelineChecks() {
         const want = referenceTimeline(messages, opts);
         for (const advanceEvery of [0, 3]) {
           all++;
-          const got = timelineRun(messages, opts, { advanceEvery }).samples;
+          const run = timelineRun(messages, opts, { advanceEvery }), got = run.samples;
           const at = got.length === length ? got.findIndex((v, i) => v !== want[i]) : -2;
           if (at === -1) ok++; else if (!first) first = `${fps} fps, seed ${seed}: sample ${at}`;
+          dropsAll++;
+          if (JSON.stringify(run.info.spurts.map((x) => x.droppedMs)) === JSON.stringify(want.spurtDropped.map((x) => x / 44.1))) dropsOk++;
+          dropped += run.info.droppedSamples;
         }
       }
     }
     check('48 made-up message streams at six settings: every output sample equal, with and without advance()', ok === all, first || `${all} runs`);
+    check('the same streams: what each spurt lost to overflow equals what the channel\'s own drops list says', dropsOk === dropsAll && dropped > 0,
+      `${dropsOk} of ${dropsAll} runs, ${dropped} samples dropped in all`);
     // A tick and a block first start together at tick 1024 (1323 x 1024 = 1024 x 1323), 15.36 s
     // in: the tick runs first. Channels that start playing on that tick, and long streams.
     let tie = 0, tieAll = 0, tieFirst = '';
@@ -1139,8 +1154,10 @@ function timelineChecks() {
     check('300 fps: the first spurt opens a channel, its offsetStartMs between -20 and +90', first.every((s) => s.opened && s.offsetStartMs >= -20 && s.offsetStartMs <= 90),
       `${range(first.map((s) => s.offsetStartMs))} ms; dropped ${range(first.map((s) => s.droppedMs))} ms`);
     const own = runs.map((r) => r.sp[2]).filter((s) => s.own);
-    check('300 fps: after 500 ms the next spurt is one of its own in most seeds (else it follows an end marker with no record), and then is appended, starting -20 to +60 ms from the source',
-      own.length >= 30 && own.every((s) => !s.opened && s.offsetStartMs >= -20 && s.offsetStartMs <= 60), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
+    // 38 of these 50 seeds: in the other 12 the chunk after the final one is active (the ENDED
+    // state: no record), so the timeline keeps one spurt. The seeds are fixed: the count is exact.
+    check('300 fps: after 500 ms the next spurt is one of its own in 38 of the 50 seeds, and then is appended, starting -20 to +60 ms from the source',
+      own.length === 38 && own.every((s) => !s.opened && s.offsetStartMs >= -20 && s.offsetStartMs <= 60), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
     const last = runs.map((r) => r.sp[3]);
     check('300 fps: after 1200 ms it opens a channel and loses 30 to 170 ms to overflow', last.every((s) => s.own && s.opened && s.droppedMs >= 30 && s.droppedMs <= 170),
       `${range(last.map((s) => s.droppedMs))} ms; starts ${range(last.map((s) => s.offsetStartMs))} ms`);
@@ -1166,6 +1183,29 @@ function timelineChecks() {
     const d150 = drift(150), d300 = drift(300);
     check('150 fps: offsetEndMs - offsetStartMs between -26 and -22 ms (one sample for each of 17.88 messages a second)', d150.every((d) => d >= -26 && d <= -22), `${range(d150)} ms`);
     check('300 fps: that or lower', d300.every((d) => d <= -22), `${range(d300)} ms`);
+  }
+  console.log('tests/retiming.mjs --engine on the stand-in results');
+  {
+    // Section 2's row for the stand-in take: the engine's numbers are the third of each group.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf2ve-retiming-'));
+    try {
+      const file = path.join(dir, 'synthetic.json');
+      fs.writeFileSync(file, JSON.stringify(syntheticResults()));
+      const retiming = fileURLToPath(new URL('./retiming.mjs', import.meta.url));
+      const runIt = (...args) => spawnSync(process.execPath, [retiming, '--accuracy', file, '--generative', ...args], { encoding: 'utf8' });
+      const row = (r) => {
+        const line = (r.stdout || '').split('\n').find((l) => /^ {3}synthetic_speech .*\|.*\|.*\|/.test(l));
+        if (!line) return null;
+        const g = line.split('|').slice(0, 3).map((x) => x.trim().split(/\s+/).filter((v) => /^-?[\d.]+$/.test(v)).map(Number));
+        return { engine: [g[0][g[0].length - 1], g[1][2], g[2][2]], none: [g[1][3], g[2][3]] };
+      };
+      const one = row(runIt('--engine', '--seeds', '1')), fifty = row(runIt('--engine', '--seeds', '50')), plain = runIt('--seeds', '1');
+      check('--engine: the engine\'s start error is under "none"\'s, and its columns differ between 1 seed and 50 (each seed draws its own clock)',
+        one && fifty && fifty.engine[2] < fifty.none[1] && one.engine.join() !== fifty.engine.join(), `1 seed ${one && one.engine.join(', ')}; 50 seeds ${fifty && fifty.engine.join(', ')}; none ${fifty && fifty.none.join(', ')}`);
+      check('without --engine there is no engine column or line', plain.status === 0 && !/engine|Engine/.test(plain.stdout) && /queue {2}rule \| transitions/.test(plain.stdout));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
 }
 
