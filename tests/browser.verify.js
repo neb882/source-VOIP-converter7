@@ -911,12 +911,19 @@ async function verifyLiveMonitor(page) {
   // chain takes the sender). Each spurt's lateness is 29.4 voice samples less
   // the fraction of a sample by which the resampler's output grid falls short
   // at the spurt's first packet, plus the rounding of where that packet is
-  // laid: 30.4 to 32.5 samples at 48 kHz, 31.5 on average (measured spurt by
-  // spurt in Node against that prediction, within 0.15 samples). So the
-  // render lags the live take by that much: the peak 30 to 33 samples late.
-  check(take.lag >= -33 && take.lag <= -30 && take.r > 0.8,
-    'steam: an offline render of the recorded microphone lags the live take by Steam\'s resampler\'s 16 inputs (30 to 33 samples at 48 kHz)',
-    `peak at ${take.lag} samples, r ${take.r.toFixed(3)}`);
+  // laid: 27.9 to 29.9 samples at 44.1 kHz, 28.9 (0.655 ms) on average
+  // (measured spurt by spurt in Node against that prediction, within 0.15
+  // samples). The take is at the page's device rate (44.1 kHz here and on CI;
+  // 29.4 samples there are 32 at 48 kHz), so the window scales with it: the
+  // peak within 1.5 samples (at 44.1 kHz) of -28.9. 60 takes simulated in Node
+  // peaked at -28 to -30 at 44.1 kHz and -31 to -32 at 48 kHz. Their r is
+  // lower than on one path (the gate's frames, the 16-bit capture, the
+  // encoder's resets, the decode and the resampler all differ): 0.786 to 0.90
+  // over those 60 at 44.1 kHz, so r > 0.7 here.
+  const k = take.rate / 44100;
+  check(Math.abs(take.lag + 28.9 * k) <= 1.5 * k && take.r > 0.7,
+    'steam: an offline render of the recorded microphone lags the live take by Steam\'s resampler\'s 16 inputs (0.655 ms on average)',
+    `peak at ${take.lag} samples at ${take.rate} Hz (${(-1000 * take.lag / take.rate).toFixed(3)} ms), r ${take.r.toFixed(3)}`);
   // steam_48 runs the frame path in the render and in the live chain alike.
   const take48 = await recordTake('steam_48');
   check(Math.abs(take48.lag) <= 1 && take48.r > 0.8, 'steam_48: the recorded voice lines up with an offline render of the recorded microphone, within a sample',
@@ -1329,14 +1336,23 @@ async function main() {
     // and in both workers; the footer credits FFmpeg's libswresample.
     check(parity.sender === 'steam' && parity.calls > 0, 'the audio worker renders steam through Steam\'s sender and the decoder\'s resampler',
       `${parity.sender}, ${parity.calls} resampler calls`);
+    // The live monitor's worker runs no steam render before W3-11b, so only its
+    // own scope can show the two modules missing: it is read there once the
+    // worker has answered, then the worker is stopped.
+    const liveWorker = new Promise((resolve) => {
+      const timer = setTimeout(() => { page.off('worker', seen); resolve(null); }, 20000);
+      const seen = (w) => { if (w.url().endsWith('/live-worker.js')) { clearTimeout(timer); page.off('worker', seen); resolve(w); } };
+      page.on('worker', seen);
+    });
     const loaded = await page.evaluate(async () => {
       const page = typeof TF2SteamSender === 'object' && typeof TF2Swresample === 'object' && typeof TF2Swresample.createResampler === 'function';
       // The live monitor's worker: it answers only once its scripts have loaded.
       const live = await new Promise((resolve) => {
         const worker = new Worker('live-worker.js');
-        const timer = setTimeout(() => { worker.terminate(); resolve('silent'); }, 15000);
-        worker.onerror = (e) => { clearTimeout(timer); worker.terminate(); resolve(`error ${e.message}`); };
-        worker.onmessage = (e) => { if (e.data.type === 'error') return; clearTimeout(timer); worker.terminate(); resolve(e.data.type); };
+        window.__liveWorker = worker;
+        const timer = setTimeout(() => resolve('silent'), 15000);
+        worker.onerror = (e) => { clearTimeout(timer); resolve(`error ${e.message}`); };
+        worker.onmessage = (e) => { if (e.data.type === 'error') return; clearTimeout(timer); resolve(e.data.type); };
         const channel = new MessageChannel();
         worker.postMessage({ type: 'start', rate: 48000, port: channel.port1, opts: { codec: 'steam' } }, [channel.port1]);
       });
@@ -1345,7 +1361,11 @@ async function main() {
       return { page, live, footer: document.querySelector('footer').textContent.replace(/\s+/g, ' ').trim(),
         link: !!credit, licence: /GNU LESSER GENERAL PUBLIC LICENSE/.test(licence) && /Version 2\.1/.test(licence) };
     });
-    check(loaded.page && ['ready', 'stats'].includes(loaded.live), 'the page and the live monitor\'s worker load steam-sender.js and vendor/swresample/swresample.js', loaded.live);
+    const scope = await liveWorker.then((w) => w ? w.evaluate(() => typeof self.TF2SteamSender === 'object'
+      && typeof self.TF2Swresample === 'object' && typeof self.TF2Swresample.createResampler === 'function') : 'no worker seen').catch((e) => `error ${e.message}`);
+    await page.evaluate(() => { window.__liveWorker.terminate(); delete window.__liveWorker; });
+    check(loaded.page && ['ready', 'stats'].includes(loaded.live) && scope === true,
+      'the page and the live monitor\'s worker load steam-sender.js and vendor/swresample/swresample.js', `${loaded.live}; in the worker's scope: ${scope}`);
     check(loaded.footer.includes('libswresample') && loaded.footer.includes('LGPL') && loaded.footer.includes('translated to JavaScript, modified') && loaded.link && loaded.licence,
       'the footer credits FFmpeg\'s libswresample (LGPL, translated to JavaScript, modified) beside LAME, with a link to its licence', loaded.footer);
     await verifyAverageAndRealTake(page);
