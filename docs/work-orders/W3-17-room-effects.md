@@ -5,7 +5,10 @@
 the same day after the plan's review (4 must-fix, 14 should-fix; all answered below) and after the second read
 of the amplifier and the modulating delay, `docs/reports/W3-17-amp-mdy-second-read.md`, which corrects the
 first: the water preset's amplifier does not swing. Below, "R2 a" to "R2 f" are the second read's sections,
-"R1 1" to "R1 6" the first's, and "AM 0" to "AM 5" those of the amplifier's read.*
+"R1 1" to "R1 6" the first's, and "AM 0" to "AM 5" those of the amplifier's read. **Amended once more after
+`docs/reports/W3-18-rooms-in-the-takes.md` ("RT" below): two of the owner's existing sets carry the room.
+Part a was already being built and is unchanged: its arithmetic, files and checks stand as written. The
+amendment touches Decision 1, part b's cases, parts c and d, the owner's procedure and "What moves".***
 
 | Part | What | Files it touches | Starts after | Budget |
 | --- | --- | --- | --- | --- |
@@ -28,17 +31,45 @@ has no automatic room, which is what two soundscapes in three ask for (R1 4), an
 water that the engine does not have. The reads give the engine's arithmetic to the formula. This order builds
 it.
 
-**No recording with a room exists.** Until one does, the room effects are "read from the engine, not yet
-checked against a recording", and the page says so. "The owner's recording" below is the procedure that would
-check them.
+**What the recordings already show (RT).** Two of the owner's sets were made in a room, and the model built
+from the reads fits both, with the game's ambient sound under them:
+- **Set C** (six takes, the speaker's own voice in loopback): the automatic room of size class 2, room 41/256,
+  direct 214/256. The diffusor's three delays show at 57.96 ms (and their pairs at 32, 39 and 45 ms, negative);
+  the model gives 0.232 there against 0.2335 measured; the four comb lines show at 105.2, 119.2, 134.2 and
+  148.2 ms, which only size class 2 gives; the pattern from 31 to 540 ms correlates 0.89 to 0.90; the
+  predicted level drop of 1.20 dB is the 1.09 to 1.33 dB the accuracy table has always shown on Set C.
+- **Set D, PC A** (own voice in loopback): the street preset with width and length class 3, room 23/256,
+  direct 232/256: echoes at 68.02, 120.04 and 308.02 ms where the engine's rule gives 68, 120 and 308.
+- **Set B** is dry: 255/256 to four digits and no echo. The likeliest reason is the game's Sound quality at
+  its lowest (`dsp_slow_cpu 1`), which turns the room off while `dsp_room` still prints 1 (RT 2b, 4).
+
+So the room is checked against recordings as far as this: **echo times to the sample, one autocorrelation
+value to 1%, a level to 0.1 dB, a pattern at 0.9**. It is **not** checked sample for sample: every take has
+ambience under it, and no take is fully wet. The fully wet take of "The owner's recording" is still wanted
+for that.
 
 ## Decisions of this plan
 
-1. **The default stays "no room".** The owner's takes have flat tops at the full ceiling and a level within 1%
-   of the full one (W3-07 section 1). A numbered preset would put the direct voice's flat tops at 229/256 and
-   an automatic room in the open at 250/256 (R1 4). It is the flat tops that rule a room out: in a room with
-   no diffusor first, the room path's own undelayed copy would restore most of the level. No evidence argues
-   for another default. Why `dsp_room` was 0 there is not known; the owner's console readings would say.
+1. **The listener's default place is one constant, and the owner chooses it.** `DEFAULT_LISTENER` in
+   `constants.js` (part d): the page's first choice, what the built-in presets use, and what the accuracy
+   table renders a take with when its row names no room. `audio.js` itself keeps "no room" for a caller that
+   passes none. Three candidates:
+   - **(a) No room, named for what it is:** the game's Sound quality at its lowest, `dsp_slow_cpu 1` (RT 2b).
+     It is today's sound, Set B's, checked to four digits, and it moves no hash.
+   - **(b) The room of Set C:** the automatic room a spawn-sized room on 2Fort gave (`set_c_room`, part b):
+     41/256 through a 58 ms diffusor and five combs, the voice 1.2 dB down. It is what a listener at the
+     game's default Sound quality hears in such a room, and the one room with a recording.
+   - **(c) The open** (`open`): 5/256 to a reverb that cannot be heard, the direct voice at 250/256. True to
+     a listener outdoors at the default Sound quality; a guess as to its measures, and no take shows it.
+
+   **Recommended: (a) for now, with (b) the first choice under it.** A room belongs to where the listener
+   stands, not to voice chat: any one room as the default is wrong for most places, while "no room" is a real
+   state of the game and the only one verified beyond echo times. And (a) keeps every golden hash, the
+   registered predictions and the accuracy table as they are. Once the fully wet take has shown the room
+   sample for sample, the owner can move the constant to (b) knowing what it is. **Until the owner answers,
+   the order keeps (a).** A change to (b) or (c) is: the constant; the `PAGE` options of
+   `tests/render-stream.verify.mjs` and so every golden hash of a default render, once; the accuracy table's
+   default; the browser suite's expected first option.
 2. **Four parts, one file.** Parts a and b add new files only, so they do not wait for the `audio.js` queue
    (W3-11a, W3-16, W3-11b, W3-02c, W3-02d, W3-02f with W3-02e, W3-02g, W3-10). Parts c and d come after
    W3-10. This also follows the owner's priority (the modern preset before the rooms).
@@ -570,7 +601,8 @@ orchestrator's). May touch: `package.json` (the `test` line). Nothing else: no p
    model compares the single-precision value (0.800000012) with a double 0.8 and gives **class 3**. The 0.04
    and 0.5 thresholds agree. The module does as the model does, with a comment that says so.
 3. **The named cases**, `ROOM_CASES` in `room-dsp.js`. The app has no map, so a case is a set of measures
-   that the shape rules name the way the label says. **Each is an example: no real spot has been measured.**
+   that the shape rules name the way the label says. **Each of these 14 is an example, not a measured spot**
+   (the two measured cases are item 5).
    A unit is an inch to this code (e1 divides by 12 for feet). All sit in reflectivity class 1. No case sits
    on a threshold of a class or of the reflectivity; `vent`'s width of 48 is the widest a duct can be
    (`width <= 48`, an integer test, e2) and the narrowest a player fits. This plan's run of the model (the
@@ -603,6 +635,35 @@ orchestrator's). May touch: `package.json` (the `test` line). Nothing else: no p
 4. **A place** (for the owner's log, when it comes) is one more row of the same shape: a key, a label, the map
    and spot in words, and the measures the engine printed. `ROOM_PLACES` starts empty. Nothing else is
    needed to add one.
+5. **The two measured cases** (RT; this plan's fit on Set C's baseline take), in `ROOM_CASES` with
+   `measured` set and the set's name. Their classes are measured; their measures are any that give those
+   classes, since a take shows classes, not units.
+
+   | Key | Label | Measures | Shape; classes | Copy; shares | Built |
+   | --- | --- | --- | --- | --- | --- |
+   | `set_c_room` | Spawn-sized room (as recorded, Set C) | no sky, 300 x 400 x 160, reflectivity 0.9 | room; size 2, reflectivity 3 | 103; 41/214 | 3 all-passes (573, 837, 1146; 614); 5 lines 1464, 2081, 2698, 3360, 3977 samples (33.2, 47.2, 61.2, 76.2, 90.2 ms; feedback 3506, 3283, 3075, 2866, 2684; gain 764, 1053, 1323, 1327, 1327); cutoff 4950 |
+   | `set_d_street` | Street (as recorded, Set D) | sky, 300 x 1000 x 4800, reflectivity 0.4, no open side | street; size 3, width 3, length 3 | 119; 23/232 | predelays 13582 samples (308 ms; factor 557) and 5292 (120 ms; 901), line 2998 (68 ms; feedback 1769; gain 3686); cutoff 1750 |
+
+   - **Set C's fit.** The take's autocorrelation, less the played signal's, at 32.0, 39.0, 45.0, 57.96, 71.0,
+     76.9, 83.9, 105.2, 119.2, 134.2 and 148.2 ms is -0.035, -0.040, -0.040, 0.231, 0.035, 0.032, 0.038,
+     0.029, 0.034, 0.033, 0.030. The first seven are the diffusor's (573, 837 and 1146 samples, their pairs,
+     their sum, and the sum plus each) and any room of size class 2 to 4 gives them. **The last four are the
+     sum plus the comb lines 47.2, 61.2, 76.2 and 90.2 ms: only size class 2 has those lines** (class 3 and 4
+     give 0.00 there; class 0 and 1 have no diffusor and give nothing at all). By reflectivity class 0, 1, 2,
+     3 the model's rms distance from the take at the eleven peaks is 0.0086, 0.0068, 0.0057, 0.0051, and the
+     pattern's correlation 0.867, 0.886, 0.894, 0.896 (size class 3 or 4: 0.71 to 0.73). So **size class 2 is
+     certain; reflectivity class 3 fits best, 2 nearly as well**, and the take's four comb peaks are still 15
+     to 25% above class 3's (0.025, 0.027, 0.027, 0.024). The value at 57.96 ms is 0.232 for every class
+     against 0.2335. **This is the `room` example's size class with a harder reflectivity**: the same lines,
+     cutoff 4950 where `room` has 2850. `room` stays as an example.
+   - **Set D's fit** is RT's: 68.02, 120.04 and 308.02 ms measured; the rule gives 50 + 50 x (3/5)^2 = 68,
+     120, and 200 + 300 x (3/5)^2 = 308. The reflectivity class is not fixed by the take; class 1 is taken.
+     Open street shares the preset.
+   - The model's outputs for the two, as "The model's outputs" defines them (room case, noise):
+     `set_c_room` 41/214 `b8160db1baa79bbf672458a508da2590c72479c17d403f14bd7bbf1274d8167f`, tails 32481
+     (quiet) and 80874 (square); `set_d_street` 23/232
+     `337b9b8673dd8fd76e028ca611165e1b3cc85cd871c9a88e5d1612efb14a285c`, tails 22050 and 39889. They are
+     checked here, in part b; part a's lists are not changed.
 
 ### Checks
 
@@ -614,6 +675,8 @@ orchestrator's). May touch: `package.json` (the `test` line). Nothing else: no p
   pinned integers; R2's two examples by their echo tables; the reference hashes and tail lengths of the 14
   cases; the synthetic pair "negative width and depth in templates" (110 with its width written -1, 111 with
   its depth written -1, the corridor's measures: built width 6.6666665, depth 33.333332, and its hash);
+- the two measured cases: classes, built values, pinned integers, the two hashes and four tail lengths of
+  item 5;
 - mutations caught: the cutoff blended from the bright end; the copy taken from A at size class 2; a squared
   parameter made linear (and the reverse); the size class of a street taken from the mean; the diffuse pair
   chosen; the measured delay as length / 12; a negative template dimension interpolated.
@@ -671,7 +734,12 @@ first), W3-17b merged. No other `audio.js` order open.
    `outputLength` stays the length without a tail, a new `maxTail` gives the cap at the output's rate, and
    `finish()` returns the tail. List every reader of `outputLength` (`app/`, `batch.js`, the workers) and
    what each does with a tail. This replaces the room half of W2-04 (its re-timing half is W3-02's).
-6. **What goes:** `dspDFR`, `dspRVA`, `dspDLY`, `dspAMP`, `dspMDY`, `runDspChain`, `customChain`, the 0.45
+6. **The accuracy table's rows say where a take was made.** In `tests/accuracy.takes.json` the six rows of
+   Set C gain the setting `"room": { "auto": "set_c_room" }` and Set D's PC A row `"room": { "auto":
+   "set_d_street" }` (RT 1.4); Set B's rows and PC B's gain nothing. The harness already hands a row's
+   settings to the render; if a render that is longer than its take by a tail upsets it, cut the comparison
+   at the take's end and say so.
+7. **What goes:** `dspDFR`, `dspRVA`, `dspDLY`, `dspAMP`, `dspMDY`, `runDspChain`, `customChain`, the 0.45
    mix, the listener position's extra low-pass (`extraLpf`) in `process()`, `createRender` and the live
    chain, and `TF2Audio.runDspChain` from the exports. Find every caller (`tests/verify.js` sections 7 and 8)
    and move it to the new option.
@@ -685,8 +753,8 @@ first), W3-17b merged. No other `audio.js` order open.
   builder shows this by running the suite before writing any new hash, and a check asserts that such a render
   made no slot (the module absent from the sandbox, the render still succeeds).
 - W3-10's entry function equals `TF2Room.entry` on all 65,536 samples at shares 256, 229, 26 and 23.
-- New golden cases, recorded once: `steam` with preset 6, with preset 17 (random taps), with the `tunnel`
-  and `great_hall` cases, under water, under water with preset 6, the custom room at mix 0.3; `celt_22` with
+- New golden cases, recorded once: `steam` with preset 6, with preset 17 (random taps), with the `tunnel`,
+  `great_hall` and `set_c_room` cases, under water, under water with preset 6, the custom room at mix 0.3; `celt_22` with
   preset 6 (the entries before the upsampling); a room with loss and jitter; `dspRoom` 137 (no room: the
   hashes of the same render with none). Sources of 3 s. Each streams equal to `process()` at the chunk plans
   of that file. **Together they add under 30 seconds to `pnpm test`** on the build machine (say the time); if
@@ -701,9 +769,31 @@ first), W3-17b merged. No other `audio.js` order open.
   no sample past the clip. (No level check: the module's hashes pin more than a level would.)
 - `pnpm test`, the browser suite and CI pass. `sw.js` cache version up.
 
+**The orchestrator runs privately** (the takes; before and after, `node tests/accuracy.mjs --takes ...`):
+- **Set B, no room: every figure of the table unchanged**, to the last digit.
+- **Set C with `set_c_room`:** the anchor level of the four takes with a clean anchor falls from 1.09 to
+  1.33 dB to what Sets B and D-A show, about 0.15 dB (the model's room lowers the voice by 1.20 dB). The two
+  heavy-loss takes' anchors (-0.8 and -1.7 dB) fall by the same 1.2 dB, to about -2.0 and -2.9 dB: that is
+  the loss model's own error laid bare, to be reported, not tuned. Also expected to move toward the take:
+  the share of samples at the clamp (the direct voice is at 214/256) and the levels of the half-seconds just
+  after a spurt. Must not move: frame counts, the gate's timing, the codec's figures.
+- **Set D, PC A with `set_d_street`:** the anchor stays near 0.15 dB (this preset passes the voice straight
+  through: direct plus room is 252.7 of 256); the unclipped 1 kHz steps rise by 2 to 6% and close the 3.1 to
+  3.3% by which the take stands above Set B (RT 1.5). PC B: unchanged.
+- **The echoes themselves**, by a private script of the orchestrator's on the investigation's method
+  (`acorr.py` beside RT's scripts: the autocorrelation of the noise-like stretches above 300 Hz, the render
+  taken at 48000 Hz): on Set C's baseline the render's value at 57.96 ms within 0.01 of the take's 0.2335,
+  its four comb peaks (105.2 to 148.2 ms) at 0.024 to 0.027 against the take's 0.029 to 0.034, and the
+  pattern from 31 to 540 ms correlating at least 0.88 with the take's; on Set D's PC A peaks at 68.02, 120.04
+  and 308.02 ms within 20% of 0.023, 0.012 and 0.008.
+- **What the ambience allows.** Robust: the anchor and every loud segment's level (30 dB over the floor),
+  the share at the clamp, the autocorrelation peaks. Not robust: the quiet half-seconds and the tails once
+  they are under the ambience, about -35 dB against the ceiling whole-band and -41 to -44 dB above 300 Hz
+  (RT 1.1). No figure is expected to match sample for sample.
+
 ### Files
 
-`audio.js`, `audio-worker.js`, `live-worker.js` (loading only), `sw.js`, `index.html` (script tags only),
+`tests/accuracy.takes.json`, `audio.js`, `audio-worker.js`, `live-worker.js` (loading only), `sw.js`, `index.html` (script tags only),
 `tests/render-stream.verify.mjs`, `tests/verify.js`, `package.json` (only if `test:room` is needed),
 `tests/predictions/PREDICTIONS.md` (the note), `tests/REFERENCE_2026.md` (below). Not `app/` beyond what
 loading needs.
@@ -713,8 +803,11 @@ loading needs.
 ### What to build
 
 1. **Listener position** (`#listener_position`, saved as `pos`), in this order:
-   - "No room effect (as the recordings show)", value `open`, the default;
-   - a group "Automatic room: most maps. Examples by shape": the 14 named cases, values `auto_<key>`
+   - "No room effect (the game's Sound quality: Low)", value `open`, with `dsp_slow_cpu 1` as its variable:
+     the true name of the dry case (RT 2b); it is what Set B shows;
+   - a group "Automatic room, as recorded": `auto_set_c_room` and `auto_set_d_street` (part b, item 5),
+     each naming its set;
+   - a group "Automatic room: examples by shape": the 14 named cases, values `auto_<key>`
      (`auto_closet` ... `auto_open`), each with its measures in its help text; then any `ROOM_PLACES`, values
      `place_<key>`;
    - a group "A room the map sets by number" (R1 4, from the soundscape scripts; a label names the script
@@ -725,8 +818,12 @@ loading needs.
      rottenburg: town, medieval: outside; `room_25` warehouse: main hall; `room_26` halloween: underworld;
    - "Manual: number or measures below", value `manual`.
 
-   One line under the control, shown whenever a room or under water is chosen: **"Room effects are read from
-   the game's code. They have not been checked against a recording yet."**
+   **The selected option is `DEFAULT_LISTENER`** (Decision 1), a constant of `constants.js` that the built-in
+   presets and the accuracy table's default also read; it is `open` until the owner chooses.
+   One line under the control, shown whenever a room or under water is chosen: **"Room effects follow the
+   game's own code. The two rooms marked 'as recorded' match recordings of the game in echo times and level.
+   No room has been checked sample for sample yet, and the other shapes are examples."** For under water
+   alone: "Read from the game's code; no recording yet."
 2. **Manual** (advanced): `dsp_room` (`#env`, saved as `dsp`) 0 to 29 as now, 1 reading "1: automatic (the
    map measures the room; give the measures)"; with 1, six fields, saved as `asky`, `aw`, `al`, `ah`,
    `aopen`, `arefl`: under the sky, width, length, height (units), open sides, reflectivity; and a line that
@@ -751,7 +848,7 @@ loading needs.
 
    | Side | Controls |
    | --- | --- |
-   | The game's (name shown) | codec `sv_voicecodec` (its four game values); listener position and manual number `dsp_room`; the automatic room's six measures (what the map would measure; no name); under water (a state; no name); `voice_avggain`; `voice_maxgain`; `voice_scale`; `volume`; frames lost `net_fakeloss`; jitter `net_fakejitter`; live push-to-talk (`+voicerecord`) |
+   | The game's (name shown) | codec `sv_voicecodec` (its four game values); the no-room option `dsp_slow_cpu`; listener position and manual number `dsp_room`; the automatic room's six measures (what the map would measure; no name); under water (a state; no name); `voice_avggain`; `voice_maxgain`; `voice_scale`; `volume`; frames lost `net_fakeloss`; jitter `net_fakejitter`; live push-to-talk (`+voicerecord`) |
    | The two PCs (no variable name) | the sender's stereo capture choice (finding 6); the listener's sound device rate (W3-10); the live monitor's microphone and output device |
    | Extras: not in the game | mic gain (`voice_micgain`); high-pass and low-pass (`dsp_hpf`, `dsp_lpf`); the gate switch and its threshold as W3-11b leaves them (`voice_vad`, `voice_vad_threshold`); codec bypass (`snd_codec`); bitrate scale (`snd_bits`); packet length (`net_split`); auto-gain switch (`voice_agc`); talk-spurt timing (`voice_retime`, if W3-02f has not retired it); the custom room (`dsp_custom_*`, `dsp_room 99`); the "Fullband Opus" codec (marked in its option); live low latency |
 
@@ -786,89 +883,104 @@ version up.
 
 ## The owner's recording (handed over as it is)
 
-**What it is for.** To check that the app's room effect is the game's, sample for sample: one numbered room,
-one automatic room, and under water. About 25 minutes. Nothing here needs `sv_cheats`.
+**What it is for.** Your Set C and Set D takes turned out to carry the game's room effect, and the app's new
+room code fits them (echo times and level). Set B has no room. These steps find out why, and then check the
+room code sample for sample, which the old takes cannot do. About 20 minutes. Nothing needs `sv_cheats`.
 
-> **One more reading (the orchestrator fills this in before handing over, or deletes the box):**
-> ______________________________________________
+**A. Readings (two minutes, no recording)**
 
-**Before the takes**
+1. Options, Audio: note what **Sound quality** is set to.
+2. In the console, type each alone and note the answer: `dsp_slow_cpu`, `dsp_volume`.
+3. Then these nine, the same way: `dsp_room`, `dsp_automatic`, `dsp_mix_min`, `dsp_mix_max`, `dsp_db_min`,
+   `dsp_db_mixdrop`, `dsp_enhance_stereo`, `snd_surround_speakers`, `snd_pitchquality`. Note the map and where
+   you stand.
+4. Three questions. Was Sound quality, or a config file, changed between Set B and Sets C and D? Were the
+   three sets made at the same spot? Where was Set C made (a 2Fort spawn room)?
 
-1. Windows: set the playback device to **44100 Hz** (Sound settings, the device, Advanced: 16 or 24 bit,
-   44100 Hz). Record that device's output losslessly at 44100 Hz, as in the earlier takes (FLAC).
-2. Start the game and load the map afresh on your own server: `map <the map of the earlier takes>`. A fresh
-   load matters: it clears the room's memory of earlier sound.
-3. Go to a **quiet spot with no steady sound near it** (no water, wind, machines or music) and stand still.
-   Stay on that spot for takes R1 to R3. Moving can change the soundscape, which sets the room again.
-4. `volume 1` — **turn the speakers down first.** `voice_loopback 1`.
-5. The microphone is the test signal, as in the earlier takes (`tests/testsignal/`), followed by one spoken
-   sentence. Leave **5 seconds of silence before pressing the voice key** in every take, and let go of the
-   key between the signal and the sentence.
-6. For each take: `voice_recordtofile 1` before you press the voice key and `voice_recordtofile 0` after
-   (as for Set H). After each take copy `voice_decompressed.wav` out of the game's folder and name it after
-   the take; the next take overwrites it.
+**B. One minute by ear, then two short takes**
 
-**Nine readings.** Type each alone and note the answer: `dsp_room`, `dsp_automatic`, `dsp_mix_min`,
-`dsp_mix_max`, `dsp_db_min`, `dsp_db_mixdrop`, `dsp_volume`, `dsp_enhance_stereo`, `snd_surround_speakers`.
-Also note the map's name and where you stand.
+5. Stand in a spawn room with `voice_loopback 1`. Say a word. Type `dsp_slow_cpu 1` and say it again. Type
+   `dsp_slow_cpu 0` and say it again. Expected: the reverb goes, then comes back.
+6. Record one sentence in each state: **Q1** after `dsp_slow_cpu 1`, **Q2** after `dsp_slow_cpu 0`. Leave it
+   at 0 for everything below.
 
-**The takes**
+**C. The two takes that matter most**
 
-| Take | Type, in this order | Then |
-| --- | --- | --- |
-| **R1** no room | `dsp_room 0` | type `dsp_room`: it must answer 0. Wait 5 s. Play the signal and the sentence |
-| **R2** room 6, as the game shares it | `dsp_room 6` | type `dsp_room`: it must answer 6. Note `dsp_mix_min`, `dsp_mix_max`, `dsp_db_min`, `dsp_db_mixdrop` (expected 0.2, 0.7, 80, 0.5). Wait 5 s. Play |
-| **R3** room 6, all of the voice through the room | do **not** type `dsp_room` again. `dsp_mix_min 1`, `dsp_mix_max 1`, `dsp_db_mixdrop 1` | these three must come after the room was set and before the voice key is pressed. Play. Leave **10 s of silence** at the end. Then put the values back: `dsp_mix_min 0.2`, `dsp_mix_max 0.7`, `dsp_db_mixdrop 0.5` |
-| **R4** automatic room | `developer 1`, `adsp_debug 2`, `dsp_room 1`. Walk into a tunnel or a small room and stop | copy the console's new lines (`NEW DSP NODE ...` and the shape's name). Note `dsp_automatic` and the four values of R2's list. Then `dsp_mix_min 1`, `dsp_mix_max 1`, `dsp_db_mixdrop 1`, and play **without moving**, 10 s of silence at the end. Then put back the three values you just noted |
-| **R5** under water (optional) | go under water **first** and stop; then `dsp_room 0` | play only the sentence: you have about ten seconds of air |
+Set-up for these: the Windows playback device at **44100 Hz**, recorded losslessly at 44100 Hz. Load the map
+afresh (`map <your map>`). Stand still in the spot with the **least ambient sound** you can find: the map's
+ambient sound passes through the same room effect, and no console variable is known to turn it off, so the
+spot is what counts. `volume 1` (**speakers down first**), `voice_loopback 1`. The microphone is the test
+signal and then one spoken sentence, with 5 seconds of silence before you press the voice key.
+`voice_recordtofile 1` before the key and `voice_recordtofile 0` after; copy `voice_decompressed.wav` out of
+the game's folder after each take and name it after the take.
 
-**Afterwards:** `dsp_room 1`, `volume` back to your own, `developer 0`, `adsp_debug 0`,
-`voice_recordtofile 0`, then load the map again so that every room variable is the map's own.
+7. **R1, no room.** `dsp_room 0`. Type `dsp_room`: it must answer 0. Play.
+8. **R3, all of the voice through room 6.** `dsp_room 6`. Type `dsp_room`: it must answer 6. Then
+   `dsp_mix_min 1`, `dsp_mix_max 1`, `dsp_db_mixdrop 1` (after the room is set, before the voice key). Play.
+   Leave 10 seconds of silence at the end. Then put the values back: `dsp_mix_min 0.2`, `dsp_mix_max 0.7`,
+   `dsp_db_mixdrop 0.5`.
 
-**Send:** the five recordings, the five `voice_decompressed.wav` files, the nine readings, the values noted in
-R2 and R4, and the console lines of R4.
+**D. Next: what the game measures (no recording)**
 
-**What the model says each take will show**
+9. `developer 1`, `adsp_debug 2`, `dsp_room 1`. Walk to the spot of Set C if you remember it, else into a
+   spawn room, and stop. Copy the console's new lines (`NEW DSP NODE ...` and the shape's name). Note
+   `dsp_automatic`, `dsp_mix_min`, `dsp_mix_max`, `dsp_db_min`, `dsp_db_mixdrop`. The same at one or two more
+   spots if you like (a tunnel, outdoors).
 
-- **R1.** No room, no echo. The loudest flat parts of the signal sit at **32639** (255/256 of full scale). If
-  they sit at **32510** instead, the game kept the last room's share after `dsp_room 0` while passing the
-  sound straight through; the app assumes it does not, and this take decides.
-- **R2.** The four values read 0.2, 0.7, 80, 0.5. The direct voice is at 229/256 of R1's and the room's part
-  about 20 dB under it: after each sound, two faint negative echoes 573 and 837 samples later (13 and 19 ms),
-  the strongest at 1410 samples (32.0 ms), the tail 60 dB down after 0.7 s. (The take shows the direct voice
-  and the room together; the direct part alone would top out at 29196.)
-- **R3.** No direct voice at all. After a click the output shows, in samples after it: a faint copy at once,
-  -0.106 of the click at 573 and at 837, **0.69 of it at 1410**, then 0.104 at 1983; the pattern repeats
-  every 661 and 2513 samples (15.0 and 57.0 ms). The silence at the end does not return to zero: it rests a
-  few units below it (the model, from silence: between -8 and -6).
-- **R4.** The printed measures, put into the app's build, name the same shape as the console did and give the
-  four values you noted (a tunnel: 0.4, 0.9, 80, 0.7; a small room: 0.3, 0.8, 80, 0.5).
-- **R5.** The voice at **0.40 of its level (8 dB down), steady**, and dull, with two short fluttering echoes
-  (59 and 70 ms). The first read of the game predicted a tremolo, ten swings a second; the second read says
-  there is none. This take decides.
+**E. Optional, in this order**
 
-**How it is scored** (the orchestrator, privately). Each take's own `voice_decompressed.wav` is run through
-the app's gain, entry and room, starting from silence, and lined up with the recording by its largest sample.
-For R1 and R3 (room 6 draws nothing at random) the two should be **equal sample for sample**. Two things can
-spoil that with a correct model: the map's own sound, which passes the same room, and what the room held
-before the take. So the comparison is reported twice, per second: from the start, and **from the second
-stretch of speech on**, when the room's memory is the voice's own; each as the share of equal samples and the
-largest difference, set against the tail's level at that moment. R2 the same, direct and room together. R4:
-the shape and the four values, then sample equality if the built room draws nothing at random. R5: the level
-ratio to R1 and the absence of a 10 Hz swing; samples cannot match (the water preset draws at random). A
-difference of one unit in scattered samples points at a rounding; echoes at other delays point at a misread
-line. Either is a finding for the skeptic before any code changes.
+10. **R2, room 6 as the game shares it.** `dsp_room 6`, nothing else. Play.
+11. **R4, the measured room, all of the voice through it.** At the spot of step 9 with `dsp_room 1`: the three
+    lines of step 8, play without moving, then put back the three values you noted in step 9.
+12. **R5, under water.** Go under water first and stop, then `dsp_room 0`. The sentence only: you have about
+    ten seconds of air.
+
+**Afterwards.** `dsp_room 1`, `volume` and `dsp_slow_cpu` as you found them, `developer 0`, `adsp_debug 0`,
+`voice_recordtofile 0`, then load the map again so every room variable is the map's own.
+
+**Send.** The readings and answers of A, the console lines and values of step 9, each recording and its
+`voice_decompressed.wav`.
+
+**What we expect.**
+- A: if Set B's day had Sound quality at its lowest (`dsp_slow_cpu 1`), that is why it has no room.
+- Q1 has no reverb; Q2 has the room's.
+- R1: no echo; the loudest flat parts at 32639. (At 32510 instead, the game keeps a room's share after
+  `dsp_room 0`; that settles a detail we had to assume.)
+- R3: no direct voice. After a click: -0.106 of it 13.0 and 19.0 ms later, 0.69 of it at 32.0 ms, and the
+  pattern repeating every 15.0 and 57.0 ms; the silence at the end rests a few units below zero.
+- Step 9 at Set C's spot: the shape "room", and mix values 0.32, 0.8, 80, 0.5.
+- R2: the four values read 0.2, 0.7, 80, 0.5; the room's part about 20 dB under the voice.
+- R5: the voice steady at 0.40 of its level and dull, with no tremolo.
+
+### How the takes are scored (the orchestrator's; not handed over)
+
+Each take's own `voice_decompressed.wav` is run through the app's gain, entry and room, starting from
+silence, and lined up with the recording by its largest sample. For R1 and R3 (room 6 draws nothing at
+random) the two should be **equal sample for sample**. Two things can spoil that with a correct model: the
+map's own sound, which passes the same room, and what the room held before the take. So the comparison is
+reported twice, per second: from the start, and **from the second stretch of speech on**, when the room's
+memory is the voice's own; each as the share of equal samples and the largest difference, set against the
+tail's level at that moment. R2 the same, direct and room together. R4: the shape and the four values
+against the app's build from the printed measures (a tunnel: 0.4, 0.9, 80, 0.7; a small room: 0.3, 0.8, 80,
+0.5; Set C's room: 0.32, 0.8, 80, 0.5), then sample equality if the built room draws nothing at random. Q1
+and Q2: no echo against the room's echoes; with `dsp_slow_cpu 1` the flat tops at 32639. R5: the level ratio
+to R1 and the absence of a 10 Hz swing; samples cannot match (the water preset draws at random). A difference
+of one unit in scattered samples points at a rounding; echoes at other delays point at a misread line. Either
+is a finding for the skeptic before any code changes.
 
 ## Where the owner's answers plug in (nothing above waits for them)
 
 | Answer | Goes into |
 | --- | --- |
-| `dsp_room` and the mix values at the takes' spot | Decision 1 and the page's first option. If `dsp_room` reads 1 there with an open-space header, the takes' flat tops contradict the 250/256 share: a finding for the skeptic, not a quiet change of the default |
-| `adsp_debug 2` lines at known spots | rows of `ROOM_PLACES` (part b, item 4): map, spot, sky, width, length, height, reflectivity, open sides or the printed shape. The build of each is checked against the printed shape and, where noted, the header |
+| Sound quality, `dsp_slow_cpu`, `dsp_volume` and the answers of step 4 | why Set B is dry (RT 4), and so the first option's words. The owner's choice of `DEFAULT_LISTENER` (Decision 1) |
+| takes Q1 and Q2 | that `dsp_slow_cpu 1` is the dry case: the first option's name |
+| `adsp_debug 2` lines at Set C's spot | the measures of `set_c_room` (units in place of this plan's stand-ins) and its reflectivity class, which the take leaves between 2 and 3 |
+| `adsp_debug 2` lines at other spots | rows of `ROOM_PLACES` (part b, item 4): map, spot, sky, width, length, height, reflectivity, open sides or the printed shape. The build of each is checked against the printed shape and, where noted, the header |
 | which map | the words of the page's first option and of the new finding |
 | take R1 | part a, item 11: when the "before" preset is cleared |
 | take R4 at a reflectivity near 0.8, if one turns up | part b, item 2 |
-| takes R2 to R5 | the finding moves from "read" to "checked"; the page's line under the control goes; the slot's ramp alignment and the water slot's start are confirmed or corrected |
+| take R3, with R1 | the finding gains "checked sample for sample" for a numbered room; the page's line under the control is rewritten |
+| takes R2, R4, R5 | the real share, an automatic room and under water, each from "read" to "checked"; the water slot's start is confirmed or corrected |
 
 ## What moves
 
@@ -877,13 +989,23 @@ line. Either is a finding for the skeptic before any code changes.
 - **`sw.js`:** the cache version goes up in c (two new files in its list) and in d.
 - **`tests/predictions/PREDICTIONS.md`:** part c notes that `audio.js` (a hashed model file) changed, that
   the predicted takes have no room, and that the golden renders with no room are unchanged.
+- **The accuracy table** (`tests/accuracy.takes.json`, and the "Every take" table of REFERENCE): until part c
+  its Set C rows compare a take made in a room with a model that has none; their 1.09 to 1.33 dB anchor is
+  that, and REFERENCE says so from now (the orchestrator's direct edit). Part c gives those rows and Set D's
+  PC A their room, and the table is re-run and re-written once, with the private results above.
 - **`tests/REFERENCE_2026.md`:** (c) a new finding under **the next free number at merge**, "The room effect
-  on a voice: read, not yet recorded": the map's soundscape sets `dsp_room`; 101 of 153 stock soundscapes ask
+  on a voice: read, and seen in two sets": Set C carries the automatic room of size class 2 (41/256; 0.232
+  predicted at 57.96 ms, 0.2335 measured; the comb lines of size class 2 at 105 to 148 ms; 1.20 dB) and Set
+  D's PC A the street preset (23/256; echoes at 68.02, 120.04 and 308.02 ms); both are the speaker's own
+  voice in loopback, so no voice is exempt; Set B is dry at 255/256, most likely Sound quality: Low
+  (`dsp_slow_cpu 1`); a 1 kHz tone's level cannot show a room; nothing is checked sample for sample yet.
+  The rest of the finding: the map's soundscape sets `dsp_room`; 101 of 153 stock soundscapes ask
   for 1, the automatic room, built by shape and size from two authored presets; the voice's share is the
   preset's (26/256 for a numbered preset, 5 to 72 of 256 for the automatic room), the direct part `256 -
   share`; the room is mono, 44100 Hz, 32-bit integers, before the clip; under water the whole sum passes
   preset 14, whose amplifier settles at 0.40 and does not swing; random taps are seeded in the app; no
-  recording with a room exists; the takes were made with no preset active. Finding 30's DSP line is
+  fully wet take exists yet. Finding 30's DSP line ("the takes were made with no preset active": true of Set B
+  only) is
   corrected to point at it (R1 correction 5). A new row in the Model table: **Room** | the game: as that
   finding | the app: the engine's arithmetic from the reads, bit for bit against a second implementation;
   the automatic room by example measures, since the app has no map | basis: that finding; W3-15, W3-17.
@@ -912,10 +1034,12 @@ device stage and everything after the clip (W3-10). The receiver's timeline (W3-
    water slot 100 ms; AM 5 speaks of 200. The order follows R1 1's table (the slot's own time) for a change
    during a live session, and starts a render that is under water from its first sample with the preset
    already settled.
-3. **What real spots measure.** Every named case is an example, and `open` is a guess between two readings.
-   The first `adsp_debug 2` log replaces guesses with places.
-4. **Why the takes had no room.** Decision 1 rests on the flat tops and the level, not on a reading of
-   `dsp_room`. An investigation is running.
+3. **What real spots measure.** Two cases have their classes from a recording (`set_c_room`, whose
+   reflectivity class is 2 or 3, and `set_d_street`); their measures in units are stand-ins. The other 14 are
+   examples, and `open` is a guess between two readings. The first `adsp_debug 2` log replaces guesses with
+   places. Set D's PC B has two weak echoes (88.2 and 140.2 ms), one of them unexplained (RT 1.4).
+4. **Why Set B has no room** (RT 4): most likely Sound quality: Low. Steps A and B of the owner's procedure
+   decide it. **Which default the owner wants** (Decision 1) is the owner's to say.
 5. **A reflectivity of exactly 0.8** (part b, item 2): the model's reading is built; the report's text says
    otherwise.
 6. **Which map loads which soundscape script** was not read, so the fixed rooms are labelled by script and
