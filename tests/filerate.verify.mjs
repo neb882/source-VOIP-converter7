@@ -5,7 +5,9 @@
 //   ffmpeg -f lavfi -i sine=frequency=440:duration=0.5:sample_rate=48000 -af volume=0.3 \
 //     -ac 1 -map_metadata -1 -ar 22050 -c:a libmp3lame -b:a 32k tone_22050.mp3
 // (tone_22050.aac and .m4a: -c:a aac -b:a 32k; .ogg: -c:a libvorbis -q:a 0;
-// tone_16000.opus and .webm: -ar 16000 -c:a libopus -b:a 24k.) The browser
+// tone_16000.opus and .webm: -ar 16000 -c:a libopus -b:a 24k; 0.1 s at
+// 96 kHz, tone_96000_lpcm.mov: -c:a pcm_s16le, and tone_88200.m4a: -ar 88200
+// -c:a alac.) The browser
 // suite decodes them at the rates read here.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -125,7 +127,13 @@ const expected = {
   'filerate/tone_44100.m4a': [44100, 'MP4 AAC'], 'filerate/tone_22050.m4a': [22050, 'MP4 AAC'], 'filerate/tone_22050.aac': [44100, 'AAC (ADTS)'],
   'filerate/tone_22050.ogg': [22050, 'Ogg Vorbis'], 'filerate/tone_16000.opus': [48000, 'Ogg Opus'],
   'video/h264_aac.mp4': [48000, 'MP4 AAC'], 'video/aac_h264_fragmented_nobase.mp4': [48000, 'MP4 AAC'], 'video/h264_pcm.mov': [8000, 'MOV sowt'],
-  'video/vp9_opus.mp4': [48000, 'MP4 Opus']
+  'video/vp9_opus.mp4': [48000, 'MP4 Opus'],
+  // A version 2 QuickTime sound description: its 16.16 rate field holds 1,
+  // and the rate is the float64 after it.
+  'filerate/tone_96000_lpcm.mov': [96000, 'MOV lpcm'],
+  // ALAC at 88.2 kHz: the 16.16 field cannot hold the rate and is 0; the
+  // track's timescale gives it. (Chromium does not decode ALAC.)
+  'filerate/tone_88200.m4a': [88200, 'MP4 alac']
 };
 // ffmpeg's AAC encoder ends its AudioSpecificConfig with the SBR extension
 // saying "no SBR", so its 22.05 kHz M4A reads as 22.05 kHz; ADTS cannot say

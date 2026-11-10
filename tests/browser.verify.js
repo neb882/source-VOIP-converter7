@@ -246,11 +246,13 @@ async function verifyNativeRate(browser, base) {
     const lossy = [['tone_44100.mp3', 44100, 1], ['tone_22050.mp3', 22050, 1], ['tone_11025.mp3', 11025, 1],
       ['tone_44100.m4a', 44100, 1], ['tone_22050.m4a', 22050, 1], ['tone_22050.ogg', 22050, 2048],
       // ADTS cannot say whether the stream carries SBR: twice the 22.05 kHz core.
-      ['tone_22050.aac', 44100, 2 * 2048]];
-    for (const [name, rate, within] of lossy) {
+      ['tone_22050.aac', 44100, 2 * 2048],
+      // PCM in a QuickTime version 2 sound description (a tenth of a second).
+      ['tone_96000_lpcm.mov', 96000, 0, .1]];
+    for (const [name, rate, within, seconds = .5] of lossy) {
       await load(path.join(__dirname, 'filerate', name));
       const got = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, length: state.decodedSource.length }));
-      check(got.rate === rate && Math.abs(got.length - rate / 2) <= within, `${name} decodes at ${rate} Hz to its length`, `${got.rate} Hz, ${got.length} samples`);
+      check(got.rate === rate && Math.abs(got.length - rate * seconds) <= within, `${name} decodes at ${rate} Hz to its length`, `${got.rate} Hz, ${got.length} samples`);
     }
 
     // The fallbacks: a file always loads.
