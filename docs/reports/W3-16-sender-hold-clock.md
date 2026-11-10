@@ -3,8 +3,9 @@
 The builder's report. The order is `docs/work-orders/W3-16-sender-hold-clock.md`. Branch
 `claude/w3-16-sender-hold-clock`, from `dc1e64b` (main plus W3-11a).
 
-**Status:** built. Every check of the order passes; `pnpm test`, `pnpm test:vendor` and the browser suite pass on
-the head under the heavy-job lock; CI: see "Runs". Not reviewed yet. The private runs (Set D's demo, the accuracy
+**Status:** built, reviewed (no must-fix), read a second time (merge as it is), and the fix round done (see
+"Review" and "Fix round"). Every check of the order passes; `pnpm test`, `pnpm test:vendor` and the browser suite pass on
+the head under the heavy-job lock; CI: see "Runs". The private runs (Set D's demo, the accuracy
 table, the re-timing check) are the orchestrator's: "What the orchestrator runs privately" gives the commands.
 
 ## Summary
@@ -313,6 +314,49 @@ On `db9e250` (code and tests as at the head; later commits touch only this repor
 - `pnpm test:vendor`: the three builds match their recorded hashes.
 - The browser suite (with `CHROMIUM_EXECUTABLE` set): 231 passed.
 - CI (`tests`, `pnpm test:all`): success on `df117e8`, `0889e92`, `db9e250` and `6c69d59`.
+
+## Review
+
+- **The reviewer** (`agents/w3-16-review/REVIEW-HANDBACK.md` in the session's scratch): no must-fix. Its own hold
+  model, from the read's pseudo-code, agrees with the module on 30,842 of 30,842 hand-clock cases at every float
+  step from 1/4096 to 1/4 s; its clock, coded from the order, gives the hash and equals the module on 3,600,000
+  reads; its own second sender equals the module on 2,100 of 2,100 runs (295,641 messages). Of its mutations four
+  passed every suite (X21, X19, X1b, X27): findings 1 to 4, two should-fix and two notes. Notes 5 to 8: the
+  "since today" choice has 33 minutes of headroom in its float row; seed 1's phase is 0.12476268 s (this report
+  had it wrong); the 67 fps bar after 900 ms sits 2.4 ms from its value; the brief's capture formula said `j`
+  where the order and the hash have `j + 1`.
+- **The second read** (`docs/reports/W3-16-second-read.md`): the state machine and the hold match Steam's code
+  piece by piece; Set J's twelve spurt ends are reproduced through this sender; the direct test on Set D's own
+  chunks singles out a Steam of 6.1 to 12.1 days, so 777,600 s stays and the fallback to 14,400 s has no grounds;
+  verdict: merge as it is. Two should-fix in words only (its findings 4 and 5), and a proposal for a later order.
+
+## Fix round
+
+On `90ca65c` (`origin/main` merged; no conflict), then `723200b` and the commits after it. No change to the clock
+or the hold.
+
+| Item | What | Its break, and the check that fails |
+| --- | --- | --- |
+| 1 (reviewer 1) | the end marker of an empty read (since 1.5, the chunk before at 1.2) has tick `max(last + 1, ceil((1.5 + 0.002) / 0.015))` = 101 | F1: `since` set only after `emptyRead` (X21): "ticked from that read's since" (81 then 82) |
+| 2 (reviewer 2) | silent: two quiet chunks, an empty read, an onset: the pre-roll is the 1500 quiet samples | F2: the silent state's empty read clears the past (X19): pre-roll 2400 from −900 |
+| 3 (reviewer 3) | uptime 777600, the active read at 0.03125 + 1e-9: "now" is 777600.0625; a read at 0.42 does not end the spurt, one at 0.47 does | F3: `fround(fround(uptime) + fround(time))` (X1b): "now is narrowed once" |
+| 4 (reviewer 4) | `retiming.mjs --engine --uptime 0` reaches the sender as 0 (columns 80, 96, 53 against the default's 80, 96, 54) | F4: `engineRun` drops a 0 (X27): "--uptime 0 reaches the sender as 0" |
+| 5 (second read 4 and 5, reviewer 6) | `steam-sender.js`: the step is a 32nd of the one-second capture buffer Steam asks for (the number not in Steam's code; Windows moving the read position in 32nds inferred), not shown to be the owner's device; the default is the middle of the one range the demo's own chunks leave, 6.1 to 12.1 days, and no other range is named. The same in the PREDICTIONS note and in this order's lines of `tests/REFERENCE_2026.md` finding 28. This report's phase figure | words only |
+| 6 | the orchestrator's private figures of 2026-11-10 in the PREDICTIONS note, marked as such | words only |
+
+Not mine and left as they are: the finding 28 game bullet "Set D's Steam" and the unverified section's "The
+sender's Steam uptime" (lines the orchestrator wrote) still say Set D fits "a Steam under 1.5 days old or one of
+6.1 to 12.1 days"; the game column of the Model table's voice gate row still says "750 samples each on the owner's
+PC".
+
+No golden hash moved: `render-stream.verify.mjs` passes its 51 recorded cases unchanged, and `--hashes` on the
+round's head prints the same 51 lines as before the round.
+
+**For a later clock order (not this one), from the second read:** capture steps made readable on a 10 ms tick
+(the first multiple of 10 ms at or after a step's end, plus 0 to 8 ms), which gives the demo's 8-step pattern of
+chunk ends the present clock lacks; and the constant capture phase `c0` taken out of the tick (or dropped), which
+halves the constant 32 ms the re-timing check now reads and takes away a 9 ms seed-to-seed spread. Both move the
+clock's hash, the reference schedule and the 33 golden hashes.
 
 ## Not done
 
