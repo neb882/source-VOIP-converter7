@@ -149,3 +149,31 @@ comparison (the app's `celt_22` and `celt_44` coding `to-run/voice_input.wav` ag
 - If the bundled CELT rejects the game's mode in the browser build (it did not under Node).
 - If Speex's qualities 3 and 4 give different packets.
 - If W3-08's final report contradicts a setting here.
+
+## Amended 2026-11-10: built together with the codec's rebuild (W3-08)
+
+W3-08 found why the app's CELT did not give the game's samples (`docs/reports/W3-08-celt-encoder.md`): the game's
+module is the pinned source built with the pitch pre-filter and post-filter compiled in. This order now includes
+that report's section "Changes" in full, as one change with one re-recording of the CELT hashes:
+
+- `tests/celt011/build.mjs` builds with `-DOPUS_BUILD`; the recorded hash in `tests/vendor-opus.mjs` is replaced by
+  the new build's (the report gives the expected size and hash for this toolchain; if yours differs, stop and say
+  what differs before recording anything). The pinned source and commit do not change.
+- `vendor/celt-0.11/index.mjs`: the reset after creation (request 8 on the encoder and the decoder), and 16-bit in
+  and out with ties to even, by the route the report found to match (exported `celt_encode` and `celt_decode`).
+- The profiles as this order already says (complexity 5; `celt_44` as the 1024-sample, 128-byte mode on 22050 Hz
+  sound).
+- `demo.js`: with the filter in, a real `vaudio_celt` packet whose filter flag is set decodes; today the bundled
+  decoder refuses it. Add a check with a packet made by the new encoder from a pitched signal: it must decode, and
+  must fail on the old build.
+- Files this adds to the order's list: `tests/celt011/build.mjs`, `tests/celt011/api.c`, `tests/vendor-opus.mjs`,
+  `vendor/celt-0.11/` (the module, `index.mjs`, its README), `sw.js` (the cache version, since a cached file
+  changes).
+
+**The orchestrator runs privately:** `node <takes folder>/checks/celt/check.mjs vendor/celt-0.11 <takes folder>`
+on the pushed branch. Expected: `vaudio_celt` identical at 292,351 of 292,352 samples (largest difference 1), and
+`vaudio_celt_high` at 292,789 of 292,864 (largest difference 1). Today's build gives 134,456 and 128,053.
+
+**The builder runs:** everything else in this order, and a public check that needs no private data: the new build's
+encoder and decoder reproduce hashes recorded from a native build of the same source with the same flag (as
+`tests/speex.verify.mjs` does for Speex), on synthetic signals that include a pitched one, so the filter is in use.
