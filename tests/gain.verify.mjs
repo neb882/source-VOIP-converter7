@@ -122,7 +122,9 @@ console.log('\n[1b] The 32-bit floats: cases where a rounding to 32 bits changes
     ['current = f32(next x scale)', meanPeak(1181, 8337), meanPeak(10893, 16183), { avgGain: 0.7, scale: 0.7 }, 256, 2593, 2585],
     ['den = f32(mean + f32((peak - mean) x avggain))', meanPeak(10895, 14646), probe, { avgGain: 0.7, scale: 0.7 }, 256, 1179, 1187],
     ['next = f32(t x scale)', meanPeak(2652, 15084), meanPeak(13378, 26915), { avgGain: 0.7, scale: 0.7 }, 256, 1406, 1414],
-    ['t = f32(32767 / den)', flat(25547), flat(3485), { avgGain: 0.5, scale: 0.7 }, 383, 5585, 6578]
+    ['t = f32(32767 / den)', flat(25547), flat(3485), { avgGain: 0.5, scale: 0.7 }, 383, 5585, 6578],
+    // The cap is a 32-bit float: two blocks of zeros take the target to it.
+    ['maxgain as a 32-bit float', flat(0), flat(0), { avgGain: 0.5, scale: 0.67, maxGain: 42.9 }, 256, 19257, 19250]
   ]) {
     const xs = blocks(b0, b1, probe), settings = { maxGain: 10, ...o };
     const want = engineGain(xs, settings).out, got = toInts(A.receiverAutoGain(toFloat(xs), settings));
@@ -182,8 +184,10 @@ console.log('\n[2] Each detail of the rule, with the order\'s numbers');
   // block of zeros leaves it held, and one that ends inside it does not.
   const late = run(zerosIn, { scale: 1, maxGain: 10, avgGain: 0.5 }, (i) => !(i >= 128 && i < 200));
   const early = run(zerosIn, { scale: 1, maxGain: 10, avgGain: 0.5 }, (i) => !(i >= 200 && i < 256));
+  const one = run(zerosIn, { scale: 1, maxGain: 10, avgGain: 0.5 }, (i) => i !== 128);   // only the block's first sample not decoded
   check('a block of zeros is held when its first sample was not decoded, and run when it was',
-    late.subarray(256, 384).every(v => v === 20) && differing(early, z) === 0, `${late[256]}..${late[383]}; ${early[256]}..${early[383]}`);
+    late.subarray(256, 384).every(v => v === 20) && differing(early, z) === 0 && one.subarray(256, 384).every(v => v === 20),
+    `${late[256]}..${late[383]}; ${early[256]}..${early[383]}; first sample alone not decoded: ${one[256]}..${one[383]}`);
   // Only an all-zero block is held: one sample of 1 in a block not decoded runs the rule.
   const notAllZero = run(blocks(block(16384), [1, ...block(0, 127)], block(10)), { scale: 1, maxGain: 10, avgGain: 0.5 }, (i) => !(i >= 128 && i < 256));
   check('a block not decoded but not all zeros is run by the rule', notAllZero[256] !== 20, `${notAllZero[256]}`);
@@ -330,6 +334,49 @@ console.log('\n[4] The gate\'s silences: process(), the Steam profile');
     !decoded(last * 128) && !decoded(first * 128) && peakOf(last) < 100 && peakOf(first) < 100 && t.fixedAt[first + 1] === cap * 128,
     `peaks ${peakOf(last)} and ${peakOf(first)}; the tail's ringing block starts at ${t.fixedAt[last]}, the next at ${t.fixedAt[last + 1]}`
     + ` and ramps to ${start}; then ${t.fixedAt[first + 1]}`);
+
+  // The mapping from the voice-rate timeline to frames (spec point 4),
+  // against the frame log's spans. On the codec-rate signal: every gated
+  // frame's span [f x size - lookahead, (f + 1) x size - lookahead) is exact
+  // zeros, and the first sample of each sent frame after a gated one is not,
+  // so the lookahead is exact here. Then TF2Audio.decodedFromFrames, at
+  // every voice-rate sample, against those spans.
+  const codecSent = new Uint8Array(trip.samples.length);
+  let gatedNonzero = 0, onsets = 0, onsetZero = 0;
+  for (let f = 0; f < log.length; f++) {
+    const a = Math.max(0, f * size - lookahead), b = Math.min(trip.samples.length, (f + 1) * size - lookahead);
+    if (log[f] !== 0) {
+      codecSent.fill(1, a, b);
+      if (f > 0 && log[f - 1] === 0 && a < b) { onsets++; if (trip.samples[a] === 0) onsetZero++; }
+    } else for (let c = a; c < b; c++) if (trip.samples[c] !== 0) gatedNonzero++;
+  }
+  const mapping = (fn, rateIn, rateOut, sent, n) => { let bad = 0; for (let m = 0; m < n; m++) if (fn(m) !== (sent[Math.floor(m * rateIn / rateOut)] === 1)) bad++; return bad; };
+  const mapped = mapping(A.decodedFromFrames(log, size, lookahead, codecRate, voiceRate), codecRate, voiceRate, codecSent, decodedVoice.length);
+  check('the lookahead is exact: gated spans are zeros on the codec timeline, and each sent frame after one starts with a sample',
+    gatedNonzero === 0 && onsets >= 2 && onsetZero === 0, `${onsets} onsets; lookahead ${lookahead}`);
+  check('decodedFromFrames follows the frame log\'s spans at every voice-rate sample (Steam, 24 to 44.1 kHz)', mapped === 0,
+    `${mapped} of ${decodedVoice.length} differ`);
+  // The same at Speex's rates (8 to 11.025 kHz), on a made-up log with a lookahead.
+  {
+    const fs = 160, la = 37, lg = Uint8Array.from({ length: 200 }, (_, f) => ((f * 7) % 11 < 4 ? 0 : 7)), len = 200 * fs - la;
+    const sent = new Uint8Array(len);
+    for (let f = 0; f < lg.length; f++) if (lg[f]) sent.fill(1, Math.max(0, f * fs - la), Math.min(len, (f + 1) * fs - la));
+    const bad = mapping(A.decodedFromFrames(lg, fs, la, 8000, 11025), 8000, 11025, sent, Math.floor(len * 11025 / 8000));
+    check('decodedFromFrames follows the spans at 8 to 11.025 kHz, with a lookahead of 37', bad === 0, `${bad} differ`);
+  }
+
+  // createRender on this source: its decoded() must use the codec's
+  // lookahead as process() does. Here the tail's target is under the cap,
+  // so the blocks just past a spurt's last frame show it: with no
+  // lookahead they would be counted as sent, run as decoded zeros and send
+  // the gain to the cap, where process() holds it.
+  const render = await A.createRender({ sampleRate: rate, length: n, numberOfChannels: 1 }, opts);
+  const streamed = [];
+  for (let o = 0; o < n; o += 4410) streamed.push(await render.push(x.subarray(o, Math.min(n, o + 4410))));
+  streamed.push((await render.finish()).samples);
+  const joined = new Float32Array(streamed.reduce((k, p) => k + p.length, 0));
+  streamed.reduce((o, p) => { joined.set(p, o); return o + p.length; }, 0);
+  check('createRender, in 0.1 s pushes, gives process()\'s samples bit for bit on this source', same(joined, r.samples));
 }
 
 /* ---------------- 5. the live chain ---------------- */
@@ -365,6 +412,32 @@ console.log('\n[5] The live chain: frames not sent hold the gain');
     after - gapStart > 30 * 256 && Math.abs(endPeak / startPeak - 1) < 0.02 && Math.abs(startPeak / before - 1) < 0.05,
     `gap ${after - gapStart} samples; peaks ${before.toFixed(4)} before it, ${startPeak.toFixed(4)} and ${endPeak.toFixed(4)} after`);
   chain.free();
+
+  // The flags last as long as one call needs: 20 ms blocks and 3 s blocks
+  // (a call that codes 150 Steam frames or 517 celt_44 frames before the
+  // gain sees any of them) give the same samples. A noise floor with four
+  // tone bursts, so the gate opens and closes.
+  const live = async (codecOpts, block, src) => {
+    const c = await A.createLiveChain(codecOpts, 48000), parts = [];
+    for (let o = 0; o < src.length; o += block) parts.push(await c.process(src.subarray(o, Math.min(src.length, o + block))));
+    c.free();
+    const out = new Float32Array(parts.reduce((k, p) => k + p.length, 0));
+    parts.reduce((o, p) => { out.set(p, o); return o + p.length; }, 0);
+    return out;
+  };
+  let s2 = 9;
+  const r2 = () => ((s2 = (Math.imul(s2, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const src = new Float32Array(48000 * 12);
+  for (let i = 0; i < src.length; i++) src[i] = 2e-4 * (r2() * 2 - 1);
+  for (const t0 of [0.3, 4.0, 4.9, 9.5]) for (let i = 0; i < 0.6 * 48000; i++) src[Math.round(t0 * 48000) + i] += 0.25 * Math.sin(i * 0.03) * (0.6 + 0.4 * r2());
+  for (const codecOpts of [{ codec: 'steam' }, { codec: 'celt_44', gate: true }]) {
+    const small = await live(codecOpts, 960, src), big = await live(codecOpts, 3 * 48000, src);
+    const n2 = Math.min(small.length, big.length);
+    let d = 0;
+    for (let i = 0; i < n2; i++) if (small[i] !== big[i]) d++;
+    check(`live chain, ${codecOpts.codec} with the gate: 3 s blocks give the samples of 20 ms blocks`, d === 0 && n2 > 11 * 44100,
+      `${d} of ${n2} differ`);
+  }
 }
 
 console.log(`\n${passed} gain checks passed, ${failed} failed`);

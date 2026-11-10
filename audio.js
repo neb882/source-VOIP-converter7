@@ -1189,19 +1189,42 @@
     if (decoderEq) after.push(streamFir(decoderEq));
     after.push(streamResampleSinc(codecRate, codec.voiceRate));
     // The gain's decoded(): whether the frame a voice-rate sample came from
-    // was sent, from the sent flags of the last 64 frames (no lookahead is
-    // trimmed here: frame f's decoded samples are f * frameSize onward,
-    // after the decoder EQ's delay). Frames not sent are the gate's, or
-    // push-to-talk's with the key up: in both nothing reaches the receiver.
-    const sentFlags = new Uint8Array(64);
-    let framesCoded = 0;
+    // was sent (no lookahead is trimmed here: frame f's decoded samples are
+    // f * frameSize onward, after the decoder EQ's delay). Frames not sent
+    // are the gate's, or push-to-talk's with the key up: in both nothing
+    // reaches the receiver. One call codes all its frames before any of
+    // their samples reach the gain, so the flags are kept, however many,
+    // until the gain has passed the block their samples begin in.
+    let sentFlags = new Uint8Array(64), flagBase = 0, framesCoded = 0, gainSamples = 0;
     const decoderDelay = decoderEq ? (decoderEq.length - 1) >> 1 : 0;
+    const frameOf = (m) => Math.floor(Math.max(0, Math.floor(m * codecRate / codec.voiceRate) - decoderDelay) / frameSize);
     const decoded = (m) => {
-      const f = Math.floor(Math.max(0, Math.floor(m * codecRate / codec.voiceRate) - decoderDelay) / frameSize);
-      return f < framesCoded - sentFlags.length || f >= framesCoded ? true : sentFlags[f % sentFlags.length] === 1;
+      const f = frameOf(m);
+      return f < flagBase || f >= framesCoded ? true : sentFlags[f - flagBase] === 1;
     };
-    if (autoGain) after.push(streamAutoGain({ avgGain, maxGain, scale: voiceScale, decoded }));
-    else after.push((x) => hardClip(x.map(v => v * voiceScale), INT16_FULL_SCALE));
+    const recordSent = (sent) => {
+      if (!autoGain) return;
+      if (framesCoded - flagBase === sentFlags.length) {
+        const grown = new Uint8Array(2 * sentFlags.length);
+        grown.set(sentFlags);
+        sentFlags = grown;
+      }
+      sentFlags[framesCoded++ - flagBase] = sent ? 1 : 0;
+    };
+    if (autoGain) {
+      const gain = streamAutoGain({ avgGain, maxGain, scale: voiceScale, decoded });
+      after.push((x) => {
+        const y = gain(x);
+        gainSamples += x.length;
+        // The gain asks only about the block it is in or later ones.
+        const keep = Math.min(framesCoded, frameOf(gainSamples - gainSamples % GAIN_BLOCK));
+        if (keep > flagBase) {
+          sentFlags.copyWithin(0, keep - flagBase, framesCoded - flagBase);
+          flagBase = keep;
+        }
+        return y;
+      });
+    } else after.push((x) => hardClip(x.map(v => v * voiceScale), INT16_FULL_SCALE));
     after.push(codec.mixer === 'linear' ? streamResampleLinear(codec.voiceRate, mixRate) : streamResampleSinc(codec.voiceRate, mixRate));
     if (listenerCfg && listenerCfg.extraLpf) after.push(streamBiquad(biquadCoefs('lowpass', mixRate, listenerCfg.extraLpf, 0.8)));
     if (engine.outputFir) after.push(streamFir(engine.outputFir));
@@ -1250,7 +1273,7 @@
 
     async function codecFrame(frame, sent) {
       stats.frames++;
-      sentFlags[framesCoded++ % sentFlags.length] = sent ? 1 : 0;
+      recordSent(sent);
       if (!voice) { stats.gateOpen = sent; codes.push(sent ? 2 : 0); return sent ? frame : new Float32Array(frame.length); }
       if (!sent) { open = false; stats.gateOpen = false; codes.push(0); return new Float32Array(frameSize); }
       if (!open) {
@@ -1805,6 +1828,7 @@
     hardClip,
     receiverAutoGain,
     createGain,
+    decodedFromFrames,
     biquadCoefs,
     applyBiquad,
     mulberry32,
