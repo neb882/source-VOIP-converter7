@@ -4,8 +4,7 @@ An investigation, 2026-11-10. No app code changed. Nothing of any binary is in t
 behaviour in its own words and cites constants with the place they were read. No leaked source was looked for, opened
 or used.
 
-**Status of this file:** written in stages and committed as each part was done. The Speex module (the order's point
-5) is the last section.
+**Status of this file:** written in stages and committed as each part was done.
 
 ## Summary
 
@@ -23,7 +22,7 @@ the resampler turned out to be an open-source library whose output counts match 
 | 2. The batches | One chunk is one packet. The encoder cuts 480-sample frames from the chunk plus what was left over from the last one and keeps the remainder (under 20 ms). So 62.5 ms gives 3 frames, now and then 4; 31.25 ms gives 1 or 2. Every packet starts with a sample-rate record. | Read: high. All 20 spurts of the demo and 2,326 packets of Set G fit chunks of whole multiples of 750 samples. |
 | 3. The encoder | libopus **1.1.4** (the version string is in the public Linux build). `opus_encoder_init(24000, 1, VOIP)`, then three settings only: bit rate **32000**, signal **voice**, DTX **on**. Everything else is the library's default: **complexity 9**, VBR on, **constrained** VBR, no FEC, 20 ms frames. No high-pass, gain control or noise suppression of Steam's own runs before it (`voice_preprocess` is 0). The capture is opened through DirectSound at 24 kHz mono 16-bit, so the resampling from the device's rate is Windows's, not Steam's. | Read: high. Version: read in the Linux build, inferred for Windows. |
 | 4. The decoder | Per frame: an end marker resets the decoder; a sequence number ahead of the expected one conceals up to **10** lost frames; one behind resets without concealing. A silence record becomes that many zero samples. Then 24 kHz to the game's 44.1 kHz with **FFmpeg's libswresample (8.1.2) at its default settings** (32 taps, 147 phases, Kaiser window), called once per packet. No gain or filter is applied to decoded sound (`voice_autogain` is 0). | Read: high. The open-source library, called the same way, gives the logs' sample counts exactly (7056, 2646, 882, and 2756 or 2757 for a silence record). |
-| 5. Speex | See the last section. | |
+| 5. Speex | The owner's `vaudio_speex` module: narrowband mode, the engine's quality 3 mapped to Speex quality **4** (20 bytes per 160-sample frame), constant bit rate, enhancement on. **No resampling:** the 11025 Hz samples go into the 8 kHz codec as they are, so a frame is 14.5 ms and the band reaches 5.5 kHz. The library inside is the old floating-point **Speex 1.0.x**, not 1.2. | Read: high. The release: inferred from the mode structure's layout. |
 
 **The largest finding for the owner:** Steam has console variables that would give a sample-exact test of the whole
 Steam path with no virtual cable: `mic_inputfile` (Steam reads a 24 kHz mono WAV instead of the microphone),
@@ -40,6 +39,7 @@ Steam path with no virtual cable: `mic_inputfile` (Steam reads a 24 kHz mono WAV
 | `video64.dll` | the same package | `e84cb3391b4206feb03e1162b0d6815316905034a7ae190c66d0fa7fb00d48ba` | the resampler object (`CreateAudioResampler`) |
 | `libswresample-6.dll` | `bins_codecs_win64.zip`, public | `2ed49e82c7cab6b197b5229759c4d4e1a9eaa74fa5a8303680b34436de74d399` | the resampler's defaults and version |
 | `linux64/steamclient.so` | `bins_sdk_ubuntu12.zip`, public (the same file as SteamCMD's) | `3e32119f473cb9c2615e1b282da8498b9986378e8b71537a4aed9f77e7b797e0` | the libopus version string |
+| `vaudio_speex.dll` (linked 2026-05-20) | the owner's, from a Source game install | `70d6643250a2010e79b79d727f9256a60f29317e5e2ad257d0721081afa9227f` | section 5 |
 
 - The owner's library has image base `0x138000000`; addresses below are virtual addresses in it. It keeps assertion
   texts with source file names (`p2pvoice.cpp`, `clientaudio.cpp`, `voiceencoder_opus.cpp`, `voice_decoder.cpp`,
@@ -468,4 +468,41 @@ tested (the code registers them without a hidden or cheat flag).
 
 ## 5. The Speex module
 
-To follow.
+Read from the `vaudio_speex.dll` the owner supplied (32-bit x86, linked 2026-05-20, SHA-256
+`70d6643250a2010e79b79d727f9256a60f29317e5e2ad257d0721081afa9227f`, image base `0x10000000`; its build path ends
+`engine\voice_codecs\speex\Retail`). It holds two classes, a generic frame wrapper (`VoiceCodec_Frame`, the same
+one W3-03 read around CELT) and `VoiceEncoder_Speex` (virtual table at `0x100281ec`), with the Speex library linked
+in. All of this is **read**.
+
+| The app's profile assumes | The module | |
+| --- | --- | --- |
+| Narrowband, 8 kHz | The mode object passed to both `speex_encoder_init` and `speex_decoder_init` (`0x10036d40`) is named `narrowband`: frames of 160 samples, sub-frames of 40, LPC order 10. Both sides are then told the sampling rate is **8000** (request 24, `mov dword [ebp-4], 0x1f40` at `0x10012121`). | Confirmed |
+| Quality 4 | The engine's argument is mapped by a switch (`0x1001208e`): 1 gives Speex quality 0, 2 gives 2, **3 gives 4**, 4 gives 6, 5 gives 8, anything else 0. The engine asks for 3 (W3-03). The quality is set with request 4 on the encoder. | Confirmed |
+| 160-sample frames in 20-byte packets | A table of bytes per frame by Speex quality (`0x10028204`): 6, 6, 15, 15, **20**, 20, 28, 28, 38, 38, 38. Each frame is written into exactly that many bytes. Quality 4 is Speex's 8 kbit/s sub-mode, 160 bits. | Confirmed |
+| Constant bit rate, no VAD, no DTX | The only requests the module ever makes are quality (4), sampling rate (24), enhancement (0, decoder) and reset (26). VBR, VAD, DTX and complexity are never touched: the library's defaults (off, off, off, complexity 2). | Confirmed |
+| Enhancement on | `speex_decoder_ctl(decoder, 0, &1)` at `0x10012119`: the perceptual enhancement is switched on. | Confirmed |
+| The receiver at 11025 Hz | The engine's business (W3-03: 11025 Hz for capture, gain and playback). **The module does not resample.** `EncodeFrame` (`0x10011f10`) turns 160 16-bit samples into floats and encodes them; `DecodeFrame` (`0x10011ea0`) decodes 160 floats and stores them as 16-bit. So the codec is handed 11025 Hz sound and told it is 8000 Hz. | **Corrects the picture:** nothing is converted to 8 kHz |
+| Speex 1.2.1 | The mode structure has the old layout: a buffer size (640) after the LPC order, then pitch range 17 to 144, gamma 0.9 and 0.6, lag factor 0.01, LPC floor 1.0001 and a **pre-emphasis field (0.0)**, a default sub-mode of 5, and the quality map 1, 8, 2, 3, 3, 4, 4, ... The samples are floats throughout. That is the **Speex 1.0.x** floating-point library, not 1.2. No version string is in the file. | **Corrects** (inferred from the layout, high confidence for "1.0.x", not for which 1.0.x) |
+
+What follows:
+
+- **Everything is scaled by 11025/8000 = 1.378.** A frame of 160 samples lasts **14.51 ms**, not 20; 20 bytes a frame
+  is **11.025 kbit/s** in real time, not 8; the codec's 4 kHz band reaches 5.5 kHz; its pitch range of 17 to 144
+  samples covers 77 to 649 Hz instead of 56 to 471 Hz. A model that resamples to 8 kHz, encodes, and resamples
+  back gets the band, the frame length and the pitch range wrong. The right model feeds the 11025 Hz samples to
+  the narrowband codec as they are and plays its output at 11025 Hz.
+- **Packets** (the wrapper's `Compress`, `0x10011a70`): every whole frame the engine's recorder has in hand on a
+  tick, back to back, with nothing added; the remainder waits; a final call pads the last frame with zeros. At
+  11025 Hz a 15 ms tick brings 165 samples, so nearly every packet is one frame (20 bytes) and about one in
+  thirty holds two. `Decompress` decodes each 20 bytes to 160 samples.
+- **Samples in and out:** to float with no scaling; back by truncation toward zero with **no clamp** (`cvttss2si`
+  then a 16-bit store at `0x10011ee0`), so a decoded sample beyond full scale wraps round. Speex 1.0's decoder does
+  not clip its float output.
+- **Reset** (`0x10012170`): request 26 on both sides.
+- **Against 1.2.1:** the bit-stream is the same (version 4), so the packets decode either way. What differs is the
+  encoder's search and, more audibly, the decoder: 1.0's enhancement is the older formant post-filter, and 1.2
+  added a high-pass on the decoder's output that 1.0 does not have. Speex 1.0.x is open source; its tags are in
+  Xiph's repository (`gitlab.xiph.org/xiph/speex`, reachable from this machine).
+- **Is this the module of TF2's Speex years?** It is a 2026 build from the engine's own source folder for the
+  module, so the settings above are the code's; the Speex library inside could in principle have been changed
+  since, but its old layout says it was not. Which game it came from is not known.
