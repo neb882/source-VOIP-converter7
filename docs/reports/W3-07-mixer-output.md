@@ -46,7 +46,7 @@ if ahead > 0:
     n = int(ahead * 86.1328 + 1.0)                        # 86.1328 = 44100 / 512  (0x42AC4400)
     n = min(n, device.buffers_free())
     repeat n times:
-        MIX_PaintChannels(paintedtime + 512)              # lea ebx, [rax+0x200]
+        MIX_PaintChannels(paintedtime + 512)
 ```
 
 So the unit of mixing is one device buffer of **512 samples at 44100 Hz** (11.6 ms), whatever the output device's own
