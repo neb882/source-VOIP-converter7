@@ -1,6 +1,6 @@
 # Legacy voice codecs: what is known
 
-Source's older engine codecs are `sv_voicecodec vaudio_celt`, `vaudio_celt_high` and `vaudio_speex`. The `celt_22` and `celt_44` profiles run the real codec, CELT 0.11 ([`vendor/celt-0.11`](../vendor/celt-0.11/README.md)), at the settings below. The `speex` profile runs the real Speex 1.2.1 ([`vendor/speex`](../vendor/speex/README.md)) at assumed settings. None of the three has been measured against a TF2 recording, and their receiver side (gate, auto-gain rate) is assumed. This file collects what public sources say about the real codecs.
+Source's older engine codecs are `sv_voicecodec vaudio_celt`, `vaudio_celt_high` and `vaudio_speex`. The `celt_22` and `celt_44` profiles run the real codec, CELT 0.11 ([`vendor/celt-0.11`](../vendor/celt-0.11/README.md)), built as the game's module is and at the settings it uses, both read from the owner's copy of the module (W3-03, W3-08) and checked against the game's own recording of its decoded voice (Set H, `tests/REFERENCE_2026.md` finding 31). The `speex` profile runs the real Speex 1.2.1 ([`vendor/speex`](../vendor/speex/README.md)) at assumed settings, not measured against a TF2 recording. The receiver side of all three (gate, auto-gain rate) is assumed. This file collects what is known about the real codecs.
 
 Leaked engine source was deliberately not used. Valve's public Source SDK 2013 has no voice-codec code: the codecs live in the engine's `vaudio_*` libraries.
 
@@ -8,28 +8,38 @@ Leaked engine source was deliberately not used. Valve's public Source SDK 2013 h
 
 | `sv_voicecodec` | Real codec (public evidence) | App profile | Evidence |
 |---|---|---|---|
-| `vaudio_celt` | **CELT 0.11** custom mode, mono. **22050 Hz**, **512-sample frames** (23.2 ms), **64-byte constant-size packets** = 22.05 kbps. Encoder complexity 10. | `celt_22`: CELT 0.11 with exactly these settings; decoded voice at 22.05 kHz | Strong: three independent decoders and two encoders agree |
-| `vaudio_celt_high` | CELT 0.11, **44100 Hz**, **256-sample frames** (5.8 ms), **120-byte packets** = 165.4 kbps | `celt_44`: CELT 0.11 with these settings | Weak: one reimplementation. The "44 kbps" on Valve's wiki does not match it and may mean 44 kHz. |
+| `vaudio_celt` | **CELT 0.11** custom mode, mono, pitch filter compiled in. **22050 Hz**, **512-sample frames** (23.2 ms), **64-byte constant-size packets** = 22.05 kbps. Complexity 5, the library's default. | `celt_22`: CELT 0.11 built and set as the game's module; decoded voice at 22.05 kHz | Read from the game's module (W3-03, W3-08). Set H: the packets are 512 samples at 22050 Hz, and the codec gives the game's decoded samples but for 1 of 292,352, one step off |
+| `vaudio_celt_high` | The same module and codec, the **44100 Hz mode** with **1024-sample frames** and **128-byte packets**, fed **22050 Hz sound**: 46.4 ms frames, 22.05 kbps, nothing above about 10 kHz. Complexity 5. | `celt_44`: the same, on 22050 Hz sound; decoded voice at 22.05 kHz | Read from the game's module (W3-03, W3-08). Set H: the packets are 1024 samples at 22050 Hz, and the codec gives the game's decoded samples but for 75 of 292,864, each one step off |
 | `vaudio_speex` | Speex, 8 kHz narrowband per one reimplementation. Source's quality setting is not public. | `speex`: Speex 1.2.1 narrowband, quality 4 (8 kbps, 20-byte packets), constant bitrate, no VAD or DTX: assumed settings; decoded voice at 11.025 kHz | Weak. It currently fails to load in TF2 ([Source-1-Games#7551](https://github.com/ValveSoftware/source-1-games/issues/7551)), so it cannot be recorded today. |
 
 ## vaudio_celt
 
-- **Decoders.** Three tools decode real CS:GO demo voice with a plain CELT 0.11 decoder: `celt_mode_create(22050, 512)`, `celt_decoder_create_custom(mode, 1)`, reading 64 bytes per frame.
-  - [ericek111's gist](https://gist.github.com/ericek111/abe5829f6e52e4b25b3b97a0efd0b22b)
-  - [FrozenFish259/csgo_demo_voicedata_decoder](https://github.com/FrozenFish259/csgo_demo_voicedata_decoder), which builds against [celt-0.11.0](https://github.com/mumble-voip/celt-0.11.0)
-  - [saiko-tech/csgo-demo-voice-capture-example](https://github.com/saiko-tech/csgo-demo-voice-capture-example), which plays the result as 22050 Hz, 16-bit mono
-- **Encoders.** Two SourceMod extensions that inject voice encode the same way: `celt_encoder_create_custom`, `CELT_SET_COMPLEXITY(10)`, `celt_encode(…, 512 samples, …, 64 bytes)`.
-  - [arthurdead/voicesend](https://github.com/arthurdead/voicesend/blob/master/voicecodec_celt.cpp)
-  - [Dolly132/sm-ext-voice](https://github.com/Dolly132/sm-ext-voice). It notes: "2009 Games with 22050 samplerate and 512 frames per packet -> 23.22ms per packet". TF2 was on the Source 2009 branch.
-- **Rate control.** A fixed packet size of 64 bytes makes CELT constant-rate, whatever the `CELT_SET_BITRATE` ceiling (64 kbps in both encoders).
+- **The game's module** (`vaudio_celt.dll`, read in W3-03 and W3-08). `vaudio_celt` and `vaudio_celt_high` are one module and one codec class. The engine passes 3 for `vaudio_celt` and 4 for `vaudio_celt_high`, and the module looks the number up in a table of five settings:
 
-**In the app.** Until this release the profile ran Opus's CELT layer, which is not the same codec: Opus changed the bitstream and the psychoacoustics after 0.11. It now runs CELT 0.11 itself, built from the tree the CS:GO decoders use, with 512-sample frames and 64-byte packets. Loss and jitter act on 23.2 ms frames. The codec's delay (64 samples, its MDCT overlap) is trimmed, so renders keep the source timeline.
+  | Row | Rate | Frame | Packet | Bit rate at that rate | Selected by |
+  | ---: | ---: | ---: | ---: | ---: | --- |
+  | 0 | 44100 | 256 | 120 bytes | 165.4 kbps | nothing in the engine |
+  | 1 | 22050 | 120 | 60 bytes | 88.2 kbps | nothing |
+  | 2 | 22050 | 256 | 60 bytes | 41.3 kbps | nothing |
+  | 3 | 22050 | 512 | 64 bytes | 22.05 kbps | `vaudio_celt` |
+  | 4 | 44100 | 1024 | 128 bytes | 44.1 kbps | `vaudio_celt_high` |
+
+  It creates the mode, a mono encoder and a mono decoder, and sends each request 8 (`CELT_RESET_STATE`). It sets nothing else: complexity, bit rate, VBR and prediction stay at the library's defaults, so the complexity is **5**. It codes with the library's 16-bit entry points, `celt_encode` and `celt_decode`. The engine resets the codec again each time recording starts.
+- **The build.** The module is the public CELT 0.11 tree the app pins ([mumble-voip/celt-0.11.0](https://github.com/mumble-voip/celt-0.11.0) at its last commit), a float build with **`OPUS_BUILD`** defined. That compiles in the pitch pre-filter in the encoder and the post-filter in the decoder (its table of tap gains is in the module), and two control requests the module also has. Without the filter the encoder is another encoder, and the decoder refuses every packet whose filter flag is set (`CELT_CORRUPTED_DATA`).
+- **Public tools.** Three tools decode real CS:GO demo voice with `celt_mode_create(22050, 512)`, `celt_decoder_create_custom(mode, 1)`, reading 64 bytes per frame: [ericek111's gist](https://gist.github.com/ericek111/abe5829f6e52e4b25b3b97a0efd0b22b), [FrozenFish259/csgo_demo_voicedata_decoder](https://github.com/FrozenFish259/csgo_demo_voicedata_decoder) (which builds against celt-0.11.0) and [saiko-tech/csgo-demo-voice-capture-example](https://github.com/saiko-tech/csgo-demo-voice-capture-example). To read pitched voice they must have the filter compiled in; their build files were not checked. Two SourceMod extensions that inject voice, [arthurdead/voicesend](https://github.com/arthurdead/voicesend/blob/master/voicecodec_celt.cpp) and [Dolly132/sm-ext-voice](https://github.com/Dolly132/sm-ext-voice), set `CELT_SET_COMPLEXITY(10)`. The game's module does not; the recordings cannot tell 5 from 10 (with the filter, 5 to 10 are one encoder), but 5 is what the module reads.
+- **Rate control.** A fixed packet size of 64 bytes makes CELT constant-rate.
+- **Set H** (finding 31): the owner set `sv_voicecodec vaudio_celt`, gave the game a 16-bit mono 22050 Hz file as its microphone (`voice_inputfromfile 1`) and recorded its decoded voice (`voice_recordtofile 1`). The packets are 512 samples at 22050 Hz. The game's file reader starts **two samples into the file**: it skips four bytes after the data length. That belongs to the file input, not to the codec, so the app does not do it; anyone repeating Set H against a render must start the render's input at the file's third sample. With that, the project's build gives the game's decoded voice at 292,351 of 292,352 samples; the one left is one step off.
+
+**In the app.** `celt_22` runs this codec as the module does: 512-sample frames, 64-byte packets, complexity 5, the reset after creation, 16-bit in (the float input rounded to nearest, ties to even) and out. Loss and jitter act on 23.2 ms frames. The codec's delay (64 samples, its MDCT overlap) is trimmed, so renders keep the source timeline. The WebAssembly build's packets and samples are bit for bit those of a native build of the same source (`node tests/celt011/build.mjs --native`, recorded in `tests/opus.verify.mjs`). Before W3-06 the app's build had the filter compiled out: it was 17.7 dB from the game's samples on Set H, and it could not decode the game's packets.
 
 ## vaudio_celt_high
 
-- The only concrete source is [voicesend](https://github.com/arthurdead/voicesend/blob/master/voicecodec_celt.cpp): 44100 Hz, 256 samples, 120 bytes.
-- That is 165 kbps with 5.8 ms frames, nearly transparent for voice.
-- Community descriptions call it "44 kHz and 44 kbps"; 44 kbps would be 32 bytes per 256-sample frame. Only a take can settle it.
+- **Row 4 of the table:** `celt_mode_create(44100, 1024)`, 128-byte packets. The game's help text calls it "44kHz, 44kbps": 128 bytes per 1024 samples is 44.1 kbps at 44.1 kHz.
+- **But the engine feeds it 22050 Hz sound.** The voice rate comes from the codec's name, and is 22050 for every codec but `steam` and `vaudio_speex` (W3-03). So a 1024-sample frame lasts **46.4 ms**, 128 bytes a frame is **22.05 kbps** in real time, the same as `vaudio_celt`, and the mode's 20 kHz band edge falls at about **10 kHz** of real sound. On 22050 Hz noise the band at 9 kHz comes back at −0.6 dB, and a 10.5 kHz tone at −69.5 dB (`tests/opus.verify.mjs`). A pure steady tone near the top of the band can come back a few dB off (+3.4 dB at 9 kHz, −4.4 dB at 8 kHz): the pitch filter acts on it.
+- The one public source, [voicesend](https://github.com/arthurdead/voicesend/blob/master/voicecodec_celt.cpp), uses row 0 (44100 Hz, 256 samples, 120 bytes), which the engine never selects.
+- **Set H** recorded it the same way as `vaudio_celt`: packets of 1024 samples at 22050 Hz. The project's build gives the game's decoded voice at 292,789 of 292,864 samples; the 75 left are each one step off, in five packets.
+
+**In the app.** `celt_44` (the key is kept, so saved settings keep working) runs the 44100 Hz mode on 22050 Hz sound: the mode is created at its `modeRate`, 44100, and everything else (frame times, the bitrate reported, the gate's frame counts, the loss model, the delay of 128 samples) uses 22050. The receiver runs at 22.05 kHz with the linear-interpolation mixer, as for `vaudio_celt`. Before W3-06 the profile ran row 0 on 44100 Hz sound (165 kbps), and the demo reader cut `vaudio_celt_high` voice into 120-byte packets, so none of it came out as sound.
 
 ## vaudio_speex
 
@@ -61,7 +71,7 @@ Next to the stand-in, at the default settings in a 48 kHz render:
 
 ## Takes that would settle it
 
-Record exactly as for the 2026 Steam takes ([testsignal/README.md](testsignal/README.md)), on a local server:
+Set H settled the CELT codecs' settings and sound with a file as the microphone, which leaves out the capture and the receiver. For those, record exactly as for the 2026 Steam takes ([testsignal/README.md](testsignal/README.md)), on a local server:
 
 1. `sv_voicecodec vaudio_celt`, then load a map. The codec is picked at map load.
 2. `voice_loopback 1`.
@@ -75,4 +85,4 @@ The test signal's segments answer the open questions:
 
 ## Done without takes
 
-CELT 0.11 is built to WebAssembly by [`tests/celt011/build.mjs`](celt011/build.mjs), the same way `tests/libopus11/` builds libopus 1.1.5, and both CELT profiles run it. `vaudio_celt_high` uses the one public source's 120-byte packets until a take confirms or corrects them. Speex 1.2.1 is built the same way by [`tests/speex/build.mjs`](speex/build.mjs) and runs in the `speex` profile at quality 4 until a public source or a take settles Source's setting. A take needs `vaudio_speex` to load again.
+CELT 0.11 is built to WebAssembly by [`tests/celt011/build.mjs`](celt011/build.mjs), the same way `tests/libopus11/` builds libopus 1.1.5, with `OPUS_BUILD` as the game's module is, and both CELT profiles run it. Speex 1.2.1 is built the same way by [`tests/speex/build.mjs`](speex/build.mjs) and runs in the `speex` profile at quality 4 until a public source or a take settles Source's setting. A take needs `vaudio_speex` to load again.

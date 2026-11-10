@@ -486,7 +486,7 @@ function updateSignalChain() {
   const steps = [
     ['Capture', `${channelLabel}mic ×${gain.toFixed(1)}${filters.length ? ' · ' + filters.join(' · ') : ''} · ${gateOn ? `gate > ${gateDb} dBFS` : 'no gate'}`, gain > 1 ? 'hot' : ''],
     ['Codec', !codecOn ? 'bypassed' : codec.engine === 'celt011'
-      ? `CELT 0.11 ${codec.codecRate / 1000} kHz · ${Math.max(8, Math.round(codec.packetBytes * bits / 16))}-byte packets of ${(1000 * codec.frameSize / codec.codecRate).toFixed(1)} ms`
+      ? `CELT 0.11 ${codec.modeRate ? `${codec.modeRate / 1000} kHz mode on ${codec.codecRate / 1000} kHz sound` : `${codec.codecRate / 1000} kHz`} · ${Math.max(8, Math.round(codec.packetBytes * bits / 16))}-byte packets of ${(1000 * codec.frameSize / codec.codecRate).toFixed(1)} ms`
       : codec.engine === 'speex' ? `Speex ${codec.codecRate / 1000} kHz narrowband · CBR ${speexBitrate(codec, bits) / 1000} kbps · 20 ms frames`
       : `Opus ${codec.codecRate / 1000} kHz · ${codec.encoder?.vbr ? 'VBR ' : ''}${kbps} kbps${codec.encoder?.dtx ? ' · DTX' : ''} · ${mode}`, codecOn ? '' : 'off'],
     ['Network', `${packetMs} ms packets · ${loss}% lost${jitter > 0 ? ` · ${jitter} ms jitter` : ''}`, loss > 0 || jitter > 0 ? 'hot' : ''],

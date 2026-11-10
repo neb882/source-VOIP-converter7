@@ -727,6 +727,48 @@ async function verifySpeexPage(page) {
   await render();
 }
 
+// The CELT profiles on the page (W3-06): the menu's labels, the chain strip,
+// and a render with each, as the game's module runs them. Ends back on the
+// Modern preset with a Steam render.
+async function verifyCeltPage(page) {
+  console.log('\n[Browser 3c3] The CELT profiles on the page');
+  const render = async () => {
+    const before = await page.evaluate(() => state.renderId);
+    await page.locator('#process').click();
+    await page.waitForFunction((id) => state.renderId > id, before, { timeout: 60000 });
+  };
+  const labels = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#codec option')].map(o => [o.value, o.textContent])));
+  check(labels.celt_22 === 'vaudio_celt (CELT 0.11, 22 kHz, 22 kbps)' && labels.celt_44 === 'vaudio_celt_high (CELT 0.11, 44 kHz mode, 22 kbps)',
+    'the codec menu names vaudio_celt and vaudio_celt_high at their real rates', `${labels.celt_22} / ${labels.celt_44}`);
+  const seen = {};
+  for (const codec of ['celt_22', 'celt_44']) {
+    await page.locator('#codec').selectOption(codec);
+    const consoleBefore = (await page.locator('#console-out').textContent()).length;
+    await render();
+    seen[codec] = await page.evaluate((from) => {
+      const chain = [...document.querySelectorAll('#signal-chain li')].find(li => li.querySelector('b').textContent === 'Codec');
+      const info = state.lastCodecInfo;
+      return { chain: chain ? chain.textContent : '', sVoice: document.getElementById('console-out').textContent.slice(from).split('\n').find(l => l.includes('S_Voice')) || '',
+        info: { backend: info.backend, version: info.version, sampleRate: info.sampleRate, modeRate: info.modeRate ?? null, frameSamples: info.frameSamples,
+          packetBytes: info.packetBytes, complexity: info.complexity, bitrate: info.bitrate, celt: info.modes.celt, frames: info.frames } };
+    }, consoleBefore);
+  }
+  const [a, b] = [seen.celt_22, seen.celt_44];
+  check(a.chain.includes('CELT 0.11 22.05 kHz · 64-byte packets of 23.2 ms') && b.chain.includes('CELT 0.11 44.1 kHz mode on 22.05 kHz sound · 128-byte packets of 46.4 ms'),
+    'the chain strip describes vaudio_celt, and vaudio_celt_high as the 44.1 kHz mode on 22.05 kHz sound', `${a.chain} / ${b.chain}`);
+  check(a.info.backend === 'celt' && a.info.sampleRate === 22050 && a.info.modeRate === null && a.info.frameSamples === 512 && a.info.packetBytes === 64
+    && a.info.complexity === 5 && a.info.celt > 0 && a.info.celt === a.info.frames,
+    'a celt_22 render runs CELT 0.11 at 22050 Hz, 512-sample frames, 64-byte packets, complexity 5', JSON.stringify(a.info));
+  check(b.info.backend === 'celt' && b.info.sampleRate === 22050 && b.info.modeRate === 44100 && b.info.frameSamples === 1024 && b.info.packetBytes === 128
+    && b.info.complexity === 5 && b.info.bitrate === 22050 && b.info.celt > 0 && b.info.celt === b.info.frames,
+    'a celt_44 render runs the 44100 Hz mode on 22050 Hz sound, 1024-sample frames, 128-byte packets, complexity 5', JSON.stringify(b.info));
+  check(/S_Voice: CELT 0\.11 \(celt-0\.11\.0, pitch filter in\), 22\.05 kbps CBR, 64-byte packets of 23\.2 ms/.test(a.sVoice)
+    && /S_Voice: CELT 0\.11 \(celt-0\.11\.0, pitch filter in\), 22\.05 kbps CBR, 128-byte packets of 46\.4 ms/.test(b.sVoice),
+    'the console names the CELT build and each profile\'s packets', `${a.sVoice} | ${b.sVoice}`);
+  await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
+  await render();
+}
+
 async function verifySourceDuringRender(page) {
   console.log('\n[Browser 3i] A new source during a render');
   await page.locator('#file').setInputFiles({ name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(30) });
@@ -850,6 +892,12 @@ async function verifyLiveMonitor(page) {
     && !speexTake.legend.some(t => /^(SILK|Hybrid|CELT|DTX) /.test(t))
     && ![speexTake.console, speexTake.status, ...speexTake.legend].some(t => /CELT|Opus|SILK/.test(t)),
     'the live panel and a recorded speex take name Speex, not CELT or Opus', `mode ${mode}; ${speexTake.console}; ${speexTake.legend.join(', ')}`);
+  // vaudio_celt_high live: the 44100 Hz mode on 22050 Hz sound, 46.4 ms frames.
+  await page.locator('#codec').selectOption('celt_44');
+  await page.waitForFunction(() => TF2Live.stats && TF2Live.stats.codec === 'celt_44' && TF2Live.stats.sent > 20, null, { timeout: 20000 });
+  const celtLive = await page.evaluate(() => ({ mode: document.getElementById('live-mode').textContent, stats: TF2Live.stats }));
+  check(celtLive.mode === 'CELT' && celtLive.stats.modes.celt > 20 && celtLive.stats.modes.celt === celtLive.stats.sent,
+    'the live chain runs celt_44: every frame sent is CELT', `mode ${celtLive.mode}; ${celtLive.stats.modes.celt} CELT of ${celtLive.stats.sent} sent`);
   await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
   await page.locator('#live-toggle').click();
   await page.waitForFunction(() => !TF2Live.running);
@@ -1205,6 +1253,7 @@ async function main() {
     await page.locator('#console-input').fill('net_graph 0');
     await page.locator('#console-input').press('Enter');
     await verifySpeexPage(page);
+    await verifyCeltPage(page);
 
     const parity = await page.evaluate(async () => {
       const data = Float32Array.from({ length: 24000 }, (_, i) => .2 * Math.sin(2 * Math.PI * 431 * i / 24000));

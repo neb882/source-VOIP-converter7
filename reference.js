@@ -468,7 +468,7 @@
   // options.reference, { samples, rate, frames, frameSeconds }: the app's
   // render of the source (same timeline) and, optionally, its codec's frame
   // log (one code per frame, opus-codec.mjs FRAME; frameSeconds is 0.02 for
-  // Opus and Speex, the default, and 512/22050 or 256/44100 for the CELT profiles).
+  // Opus and Speex, the default, and 512/22050 or 1024/22050 for the CELT profiles).
   // When given, the take is matched
   // against the render rather than the raw source: it has the take's
   // gating, comfort noise and codec phase, so envelopes and waveforms agree

@@ -768,6 +768,13 @@
     if (!firCache.has(key)) firCache.set(key, firwin2(eq.taps, eq.freqs, eq.gainsDb, codec.codecRate));
     return firCache.get(key);
   }
+  // A CELT profile's mode rate, as the option celtRoundTrip and
+  // createCeltStream take and the field their info gains; nothing for a
+  // profile without one (vaudio_celt_high is the 44100 Hz mode fed 22050 Hz
+  // sound).
+  function celtModeRate(codec) {
+    return codec.modeRate != null ? { modeRate: codec.modeRate } : {};
+  }
 
   function resolveRoom(opts) {
     let dspId = 0;
@@ -921,7 +928,7 @@
       };
       const result = codec.engine === 'celt011'
         ? await opus.celtRoundTrip(samples, codecRate, { ...common, frameSize: codec.frameSize, complexity: codec.complexity,
-          packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)) })
+          packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)), ...celtModeRate(codec) })
         : codec.engine === 'speex'
         ? await opus.speexRoundTrip(samples, codecRate, { ...common, bitrate: codec.bitrate * bits / 16 })
         : await opus.roundTrip(samples, codecRate, bitrate, { ...common,
@@ -1238,7 +1245,7 @@
       if (typeof opus.createVoiceStream !== 'function') throw new Error('This Opus build has no frame-by-frame interface.');
       voice = codec.engine === 'celt011'
         ? await opus.createCeltStream(codecRate, { frameSize: codec.frameSize, complexity: codec.complexity,
-          packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)) })
+          packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)), ...celtModeRate(codec) })
         : codec.engine === 'speex'
         ? await opus.createSpeexStream(codecRate, { bitrate: codec.bitrate * bits / 16 })
         : await opus.createVoiceStream(codecRate, Math.max(6000, Math.round(codec.bitrate * bits / 16)), {
@@ -1661,7 +1668,7 @@
       if (codec.engine === 'celt011') {
         kind = 'celt';
         packetBytes = Math.max(8, Math.round(codec.packetBytes * bits / 16));
-        voice = await opus.createCeltStream(codecRate, { frameSize: codec.frameSize, complexity: codec.complexity, packetBytes });
+        voice = await opus.createCeltStream(codecRate, { frameSize: codec.frameSize, complexity: codec.complexity, packetBytes, ...celtModeRate(codec) });
       } else if (codec.engine === 'speex') {
         kind = 'speex';
         voice = await opus.createSpeexStream(codecRate, { bitrate: codec.bitrate * bits / 16 });
@@ -1790,7 +1797,7 @@
     if (kind === 'celt') {
       return { backend: 'celt', version: voice.version, runtime: 'celt-0.11', sampleRate, bitrate: Math.round(packetBytes * 8 * sampleRate / size),
         application: 'celt', signal: 'auto', complexity: codec.complexity ?? 10, vbr: false, dtx: false,
-        frameSamples: size, frameMs: 1000 * size / sampleRate, packetBytes,
+        frameSamples: size, frameMs: 1000 * size / sampleRate, packetBytes, ...celtModeRate(codec),
         lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts, ...gateInfo,
         encodedBytes, modes, plc: 'celt', frameLog, frameBytes };
     }
