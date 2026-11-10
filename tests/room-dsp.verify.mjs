@@ -624,7 +624,7 @@ export async function main() {
       ['preset 6, then 17 at 30,000', 6, 17, false],
       ['preset 16 (two drawing processors), then none', 16, null, false],
       ['the tunnel under water, then preset 25', { h: L.auto.tunnel.h, p: L.auto.tunnel.p }, 25, true],
-      ['preset 131, then the water fades in', 131, 'water', false],
+      ['preset 131, then under water (switched at a block start)', 131, 'water', false],
       ['no room under water, then preset 14', null, 14, true],
     ];
     const voice = NOISE.concat(NOISE).slice(0, 40000);

@@ -20,8 +20,9 @@ from `main` at `59d2f64`. New files only, and one addition to the `test` line of
   R2's five echo tables (preset 6, the small room, the tunnel, 102 and 114 as written) and the order's two through
   `entry`, R2's and W3-15's pinned lines, AM 2's and AM 3's pinned numbers and AM 5's fourteen hashes. No
   difference from the reference had to be settled, and nothing in the reports was found wrong.
-- `tests/room-dsp.verify.mjs` has __N__ checks and is in `pnpm test`. It adds __T__ on this machine (the
-  order's limit is 30 s). __RUNS__ Every expected value comes from the reference's recorded outputs, the order or the
+- `tests/room-dsp.verify.mjs` has 127 checks and is in `pnpm test`. It adds 10.4 s inside `pnpm test` on this
+  machine (the order's limit is 30 s). `pnpm test` passed in full under the heavy lock on `595a1fc` (the fix round's
+  code; the first build's passed on `da54c10`, and CI on `296fed2`). Every expected value comes from the reference's recorded outputs, the order or the
   reports (the second read included), or `tests/roomdsp/lines.json`, which `lines.py` reads out of the model's own
   instances.
 - **Breaks**: in the first build 60 mutations, each made in a scratch copy and run against the whole suite: the
@@ -292,8 +293,8 @@ Where the order or the reports could be read more than one way. Where the report
 
 ## The checks
 
-`node tests/room-dsp.verify.mjs`; in `pnpm test`. Results on the head commit: __N__ checks, all pass, in
-__T__. By section (the table's comparison with `DSP_PRESETS` is skipped, with its reason printed, once part d strips
+`node tests/room-dsp.verify.mjs`; in `pnpm test`. Results on the head commit: 127 checks, all pass, in
+10.4 s inside `pnpm test`. By section (the table's comparison with `DSP_PRESETS` is skipped, with its reason printed, once part d strips
 the chains):
 
 - **The table** (11): the wrapped line's SHA-256 and length, byte equality with `room-presets.json`, the exported
@@ -330,7 +331,7 @@ the chains):
 - **The tails** (6): all 239 lengths of `tails.out`, through `createRoomPath` and `tailLeft()`; a hand case resting
   at -100 that ends 22,050 samples after the voice (the rule is a band, not a level); the band's width (a tail on
   -100 and -68 ends after 22,050 samples, one on -100 and -67 has not ended 60,000 later).
-- **Chunking** (1): five paths, each with a fade (a room change, the water fading in, a room under water), in
+- **Chunking** (1): five paths, each with a change (a room change, the water switched on, a room under water), in
   pieces of 1, 127, 512, 4096 and seeded random sizes against the whole run: the same samples, the same tail, the
   output as long as the voice and its tail.
 - **The slot** (15): the model's 0.2 s and 0.1 s ramps (486957, 973915; 2048 at the 4,411th call; done at
