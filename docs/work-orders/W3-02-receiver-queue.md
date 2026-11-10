@@ -97,9 +97,9 @@ What is known, from the Set G logs (2,375 packets) and the Set D demo (1,816 mes
 - **Deterministic:** a packet holds whole 20 ms frames in order (882 samples each at 44.1 kHz); a spurt's sound
   arrives in real time after its first packet; the end of a spurt is followed by one more packet, the silence
   record; at most one packet is added per tick.
-- **Drawn (seeded):** how many frames open a spurt (8 in 20 of 26 openings, 6 in 4, 7 and 9 once each); which
+- **Drawn (seeded):** how many frames open a spurt (8 in 17 of 23 openings after a pause, 6 in 4, 7 and 9 once each); which
   frames each later packet holds (3 frames in 65%, 2 in 14%, 4 in 11%, 1 in 10%) and its tick (3, 4 or 5 ticks
-  after the one before: 41%, 49%, 10%); the silence record's length (62.5 ms in 39 of 46, 31.25 ms in 7).
+  after the one before: 41%, 49%, 10%); the silence record's length (62.5 ms in 39 of 47, 31.25 ms in 8).
 - **Unknown:** what in Steam decides the pieces (its client is not among the owner's files); Steam's own hold
   (425 to 485 ms) and pre-roll (115 to 152 ms), which the gate model fixes at 440 and 120; why the takes' silences
   on speech run about 50 ms longer than the gate model's (W3-01). These decide which pauses near 0.4 s close, so a

@@ -121,7 +121,7 @@ ticks. The model's queue was compared with the log's on every tick.
   opening a channel. Broken on purpose: a ring one sample off fails on 4,933 ticks of the first run; a wait one
   tick off fails on about 500 of the 67 and 100 sections' ticks and 700 to 1,500 of the first run's.
 - **The frame-rate test.** `waitTicks = ceil(0.1 x fps)` gives 7, 10 and 30, and those are the lines each section
-  prints before the queue can fall, in all 11 channels of the three sections. The orchestrator's first count for
+  prints before the queue can fall, in all 9 channels of the three sections. The orchestrator's first count for
   100 (11, "one tick over") counts the line that shows the first fall; by the same count 67 gives 8 and 300
   gives 31. There is no tick over: the countdown starts on the packet's own tick, the sound starts on the 7th,
   10th or 30th, and the next line is the first that can show a pull. The frame-duration limits (0.001 to 0.1 s)
@@ -136,19 +136,19 @@ ticks. The model's queue was compared with the log's on every tick.
 ### What a restart throws away (first run, the rule replayed)
 
 At 300 fps a restart waits 435 ms and its spurt opens with 160 ms at once, so the ring overflows. Per restart:
-20 to 100 ms dropped while waiting and 2 to 123 ms after the sound starts, most of it in the first 15 ticks; 55 to
+0 to 100 ms dropped while waiting and 2 to 123 ms after the sound starts, most of it in the first 15 ticks; 55 to
 136 ms in all, mean 104. (Where an overflow and a pull fall between the same two lines the split is known to one
 block, 11.6 ms.) So a restarted spurt plays 440 ms less what it lost after its first packet: 305 to 385 ms. That is
 W3-01's L0 (350, 330 to 375), now from the log's own counts. At 67 and 100 fps nothing is dropped.
 
 ### The sender's packets
 
-- **Set G** (2,375 packets): 60 ms in 65%, 40 ms in 14%, 80 ms in 11%, 20 ms in 10%; 3, 4 or 5 ticks apart (41,
+- **Set G's first run** (1,520 packets): 60 ms in 65%, 40 ms in 14%, 80 ms in 11%, 20 ms in 10%; 3, 4 or 5 ticks apart (41,
   49, 10%), mean 55.5 ms; never two on one tick. A one-frame packet is usually followed by a four-frame one. An
-  opening is 8 frames in 20 of 26, 6 in 4, 7 and 9 once; four more spurts opened with 3 or 4 frames straight after
-  the previous spurt's silence record (Steam ended a spurt and began the next across a pause just over its hold).
-  The silence record is 2756 or 2757 samples 22 times and 1378 or 1379 six times, 3 to 5 ticks after the last
-  sound. Three empty packets, each opening a channel.
+  opening after a real pause is 8 frames in 17 of 23, 6 in 4, 7 and 9 once (the model draws 8 with 0.77); three
+  more spurts opened with 3 or 4 frames straight after the previous spurt's silence record or a key press (Steam
+  ended a spurt and began the next across a pause just over its hold). The silence record is 2756 or 2757 samples
+  22 times and 1378 or 1379 six times, 3 to 5 ticks after the last sound. Three empty packets, each opening a channel.
 - **Set D's demo** (1,816 messages; SourceTV writes voice every fourth tick): 1,540 ticks hold voice, 276 of them
   two messages; an opening tick holds 8 frames in 14 of 20 spurts (3, 4, 6, 9, 11, 11 in the others); silence
   records of 1500 samples 17 times and 750 twice.
@@ -240,7 +240,7 @@ Not applied. New findings in that document's manner, then the corrections.
 >
 > ### 25. Steam's packets as the receiver gets them
 >
-> From Set G's logs and Set D's demo: a spurt opens with one packet of 160 ms (8 frames in 20 of 26 openings; 6, 7 or 9 in the others); later packets hold 60 ms in 65%, 40 ms in 14%, 80 ms in 11% and 20 ms in 10%, 3 to 5 ticks apart; after the spurt's last sound comes the silence record, 62.5 ms (39 of 46) or 31.25 ms; a key press sends an empty packet, which opens a channel by itself (3 seen). The engine adds nothing: once a tick it sends whatever Steam returned as one message (read).
+> From Set G's logs and Set D's demo: a spurt opens with one packet of 160 ms (8 frames in 17 of 23 openings after a pause; 6, 7 or 9 in the others); later packets hold 60 ms in 65%, 40 ms in 14%, 80 ms in 11% and 20 ms in 10%, 3 to 5 ticks apart; after the spurt's last sound comes the silence record, 62.5 ms (39 of 47) or 31.25 ms; a key press sends an empty packet, which opens a channel by itself (3 seen). The engine adds nothing: once a tick it sends whatever Steam returned as one message (read).
 >
 > ### 26. The gain law, as the engine has it
 >
