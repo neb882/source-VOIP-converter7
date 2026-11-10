@@ -56,7 +56,10 @@ const engine = engineInThisRealm(), A = engine.audio;
 // entries: a decoder EQ (a zero-phase FIR after the codec) and a listener
 // low-pass without a room (the one shipped position with a low-pass, water,
 // also has a room).
+// The decoder EQ is a stage of the frame path, so the test profile keeps the
+// 20 ms frame gate (no rule 'steam', which since W3-11a has no such stage).
 engine.CODEC_PROFILES.test_decoder_eq = { ...engine.CODEC_PROFILES.steam, displayName: 'test only: Steam with a decoder EQ',
+  senderGate: { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 },
   decoderEq: { taps: 63, freqs: [0, 3000, 7000, 12000], gainsDb: [0, -1, -6, -12] } };
 engine.LISTENER_POSITIONS.test_lowpass = { label: 'test only: a low-pass, no room', dsp: 0, extraLpf: 1500 };
 
@@ -133,7 +136,26 @@ const PLANS = {
 };
 
 const CASES = [];
-const add = (name, rate, make, opts, plans = ['uneven']) => CASES.push({ name, rate, make, opts: { ...PAGE, ...opts }, plans });
+// Since W3-11a the page sends no threshold for `steam` at its control's
+// -39.5 (Steam's own gate); other profiles get the number.
+const pageFor = (opts) => {
+  const o = { ...PAGE, ...opts };
+  if (o.codec === 'steam' && o.gateThresholdDb === -39.5) delete o.gateThresholdDb;
+  return o;
+};
+// Every `steam` case with the codec on (Steam's sender and decoder since
+// W3-11a: the sender, the decoder's resets, the resampler and the gain all
+// carry state across pushes) also runs at chunks of 7, 960 and 12,345
+// samples and whole.
+const STEAM_PLANS = ['7', '960', '12345', 'whole'];
+const steamRule = (o) => {
+  const profile = Object.hasOwn(engine.CODEC_PROFILES, o.codec) ? engine.CODEC_PROFILES[o.codec] : engine.CODEC_PROFILES.steam;
+  return profile.senderGate?.rule === 'steam' && o.enableWarble !== false && !o.received;
+};
+const add = (name, rate, make, opts, plans = ['uneven']) => {
+  const o = pageFor(opts);
+  CASES.push({ name, rate, make, opts: o, plans: steamRule(o) ? [...new Set([...plans, ...STEAM_PLANS])] : plans });
+};
 const at48 = (seconds, seed) => () => voice(seconds, 48000, seed);
 
 // Each profile on 20 s of speech-like talk spurts at 48 kHz.
@@ -206,11 +228,16 @@ for (const [rate, length, plans] of [[24000, 192004, ['uneven', 'whole']], [3200
 // The gate measures the last, partial codec frame over the whole frame size,
 // as gatePlan does: a quarter frame of 0.02 sine at the very end is loud over
 // its own samples (-37 dBFS) but not over the frame (-43 dBFS), so it is gated.
-add('steam, silent but for a quarter frame of sine at the end', 48000, () => {
+const quarterFrame = () => {
   const x = new Float32Array(100 * 960 + 240);
   for (let i = x.length - 240; i < x.length; i++) x[i] = 0.02 * Math.sin(i * 0.2);
   return x;
-}, {}, ['whole', 'uneven']);
+};
+add('steam, silent but for a quarter frame of sine at the end', 48000, quarterFrame, {}, ['whole', 'uneven']);
+// Since W3-11a `steam` gates chunks (Steam's rule), so the frame gate's
+// partial last frame is held by its profile at 48 kHz, where a frame is 960
+// samples as in the case above (added in W3-11a, recorded in its own commit).
+add('steam_48, silent but for a quarter frame of sine at the end', 48000, quarterFrame, { codec: 'steam_48' }, ['whole', 'uneven']);
 // A demo's received voice past full scale (a decoder's float output is not
 // clamped): the capture's int16 clip applies to it as to any source.
 add('demo voice as received, past full scale', 24000, () => {
@@ -319,7 +346,7 @@ if (process.argv.includes('--memory')) {
   const minutes = Number(process.argv[process.argv.indexOf('--memory') + 1]) || 60, rate = 48000, MB = 1048576;
   const src = voice(minutes * 60, rate, 6);
   const t0 = performance.now();
-  const render = await A.createRender({ sampleRate: rate, length: src.length, numberOfChannels: 1 }, PAGE);
+  const render = await A.createRender({ sampleRate: rate, length: src.length, numberOfChannels: 1 }, pageFor({}));
   const out = new Float32Array(render.outputLength);
   let filled = 0;
   for (let o = 0; o < src.length; o += rate) {
@@ -389,7 +416,12 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
     ['celt_44', 'celt_44, gate on, loss 15%'].every(name => info(name).modeRate === 44100 && info(name).sampleRate === 22050 && info(name).frameSamples === 1024)
     && ['celt_22', 'celt_22, gate on, loss 15%, jitter 300 ms', 'celt_22, source at 22.05 kHz'].every(name => !('modeRate' in info(name))),
     `celt_44: ${info('celt_44').modeRate} Hz mode, ${info('celt_44').sampleRate} Hz sound`);
-  check('the gate-off case sends every frame as one spurt', info('steam, gate off').spurts === 1 && info('steam, gate off').gatedFrames === 0);
+  // Every 20 ms slot of the source is sent; since W3-11a the sender's frames
+  // end with the source, so a slot whose centre lies past its end (the codec's
+  // delay) can stay empty.
+  const offInfo = info('steam, gate off'), offLength = 15 * 24000;
+  check('the gate-off case sends every frame as one spurt', offInfo.spurts === 1 && offInfo.sender.gate === false
+    && Array.from(offInfo.frameLog).every((c, i) => c !== 0 || i * 480 + 240 - offInfo.lookahead >= offLength), `${offInfo.gatedFrames} slot(s) past the end`);
   check('the six-minute case has many spurts', info('steam, six minutes').spurts > 50, `${info('steam, six minutes').spurts}`);
   check('the received case is the demo\'s frames', info('demo voice as received').backend === 'demo'
     && info('demo voice as received').lostFrames === 1 && info('demo voice as received').dtxFrames === 1);
@@ -412,7 +444,8 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
   };
   check('the quarter frame at the end is loud over its own samples and not over a frame, so it is gated',
     rmsDb(tail.length - 240, tail.length) > -39.5 && rmsDb(tail.length - 960, tail.length) < -39.5
-    && info('steam, silent but for a quarter frame of sine at the end').spurts === 0,
+    && info('steam, silent but for a quarter frame of sine at the end').spurts === 0
+    && info('steam_48, silent but for a quarter frame of sine at the end').spurts === 0,
     `${rmsDb(tail.length - 240, tail.length).toFixed(1)} and ${rmsDb(tail.length - 960, tail.length).toFixed(1)} dBFS`);
   check('the received voice past full scale peaks above 1', sources.get('demo voice as received, past full scale').some(v => Math.abs(v) > 1.1));
 }

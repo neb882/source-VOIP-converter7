@@ -135,7 +135,12 @@ function renderOptions() {
     maxGain:     Number(els.maxGain.value),
     avgGain:     Number(els.avgGain.value),
     gate:        els.vad.value === 'auto' ? null : els.vad.value === '1',
-    gateThresholdDb: Number(els.vadThreshold.value),
+    // For `steam` the render runs Steam's own gate (W3-11a): at the control's
+    // -39.5 the page sends no number, so Steam's 1% of full scale (327.67) is
+    // used exactly. Left out (undefined), not null: the live chain, unchanged
+    // until W3-11b, reads a null as 0 dBFS and an absent value as its -39.5.
+    // W3-11b replaces this line (the profile's own default).
+    gateThresholdDb: els.codec.value === 'steam' && Number(els.vadThreshold.value) === -39.5 ? undefined : Number(els.vadThreshold.value),
     volume:      Number(els.volume.value),
     lossPct:     Number(els.loss.value),
     frameMs:     Number(els.frameMs.value),

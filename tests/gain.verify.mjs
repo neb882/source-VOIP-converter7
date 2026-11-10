@@ -255,7 +255,18 @@ console.log('\n[3] createGain: a reset, read with state()');
 
 /* ---------------- 4. the gate's silences, through process() ---------------- */
 
-console.log('\n[4] The gate\'s silences: process(), the Steam profile');
+console.log('\n[4] The gate\'s silences: process(), the frame gate');
+// A test-only profile since W3-11a: `steam` with its senderGate without the
+// rule 'steam', that is main's `steam` path before W3-11a (the 20 ms frame
+// gate, the float decode and the app's resampler at 24 kHz, with the capture
+// EQ). It is the frame-gate path that steam_48, the CELT profiles and Speex
+// still take with the gate on, at the geometry the checks below were written
+// for (the edge check needs the 24 kHz codec's ringing). The `steam` profile
+// runs Steam's own sender and decoder now, and its gain is fed the decoded
+// packets with no hold (held in tests/verify.js, [5c]). The equality with the
+// rebuild is checked once more on steam_48 itself, after this section.
+CODEC_PROFILES.test_frame_gate = { ...CODEC_PROFILES.steam, displayName: 'test only: steam on the 20 ms frame gate',
+  senderGate: { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 } };
 {
   // Two noise bursts 2 s apart over a noise floor under the gate's
   // threshold. The floor makes the gain visible on each side of the gap:
@@ -271,14 +282,14 @@ console.log('\n[4] The gate\'s silences: process(), the Steam profile');
   const floor = 10 ** (-18 / 20) * Math.sqrt(3), bursts = [[0.5, 1.0], [3.0, 3.5]];
   for (let i = 0; i < n; i++) x[i] = floor * (rnd() * 2 - 1);
   for (const [a, b] of bursts) for (let i = Math.round(a * rate); i < Math.round(b * rate); i++) x[i] = 0.9 * (rnd() * 2 - 1);
-  const cap = 10, opts = { codec: 'steam', maxGain: cap, gateThresholdDb: -12, volume: 1 };
+  const cap = 10, opts = { codec: 'test_frame_gate', maxGain: cap, gateThresholdDb: -12, volume: 1 };
   const r = await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => x }, opts);
   const gap = [Math.round((1.0 + 0.44 + 0.1) * rate), Math.round((3.0 - 0.12 - 0.1) * rate)];
   check('the gate closes between the bursts: two spurts, and the samples between them are zero',
     r.codecInfo.spurts === 2 && r.samples.subarray(gap[0], gap[1]).every(v => v === 0), `${r.codecInfo.spurts} spurts`);
 
   // The same decoded signal, made as process() makes it, at the voice rate.
-  const steam = CODEC_PROFILES.steam, codecRate = steam.codecRate, voiceRate = steam.voiceRate;
+  const steam = CODEC_PROFILES.test_frame_gate, codecRate = steam.codecRate, voiceRate = steam.voiceRate;
   let c = A.resampleSinc(A.hardClip(x, 32767 / 32768), rate, codecRate);
   c = A.applyFirZeroPhase(c, A.firwin2(steam.captureEq.taps, steam.captureEq.freqs, steam.captureEq.gainsDb, codecRate));
   const trip = await TF2Opus.roundTrip(c, codecRate, steam.bitrate, {
@@ -354,7 +365,7 @@ console.log('\n[4] The gate\'s silences: process(), the Steam profile');
   const mapped = mapping(A.decodedFromFrames(log, size, lookahead, codecRate, voiceRate), codecRate, voiceRate, codecSent, decodedVoice.length);
   check('the lookahead is exact: gated spans are zeros on the codec timeline, and each sent frame after one starts with a sample',
     gatedNonzero === 0 && onsets >= 2 && onsetZero === 0, `${onsets} onsets; lookahead ${lookahead}`);
-  check('decodedFromFrames follows the frame log\'s spans at every voice-rate sample (Steam, 24 to 44.1 kHz)', mapped === 0,
+  check('decodedFromFrames follows the frame log\'s spans at every voice-rate sample (24 to 44.1 kHz)', mapped === 0,
     `${mapped} of ${decodedVoice.length} differ`);
   // The same at Speex's rates (8 to 11.025 kHz), on a made-up log with a lookahead.
   {
@@ -377,6 +388,39 @@ console.log('\n[4] The gate\'s silences: process(), the Steam profile');
   const joined = new Float32Array(streamed.reduce((k, p) => k + p.length, 0));
   streamed.reduce((o, p) => { joined.set(p, o); return o + p.length; }, 0);
   check('createRender, in 0.1 s pushes, gives process()\'s samples bit for bit on this source', same(joined, r.samples));
+}
+
+// The same equality on steam_48, a profile the page offers, which keeps the
+// frame gate (no capture EQ, a 48 kHz codec): process() is receiverAutoGain on
+// the decoded signal with decoded() from the frame log, bit for bit.
+{
+  const rate = 44100, n = Math.round(4.5 * rate), x = new Float32Array(n);
+  let s = 77;
+  const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const floor = 10 ** (-18 / 20) * Math.sqrt(3);
+  for (let i = 0; i < n; i++) x[i] = floor * (rnd() * 2 - 1);
+  for (const [a, b] of [[0.5, 1.0], [3.0, 3.5]]) for (let i = Math.round(a * rate); i < Math.round(b * rate); i++) x[i] = 0.9 * (rnd() * 2 - 1);
+  const opts = { codec: 'steam_48', maxGain: 10, gateThresholdDb: -12, volume: 1 };
+  const r = await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => x }, opts);
+  const p = CODEC_PROFILES.steam_48, codecRate = p.codecRate, voiceRate = p.voiceRate;
+  const c = A.resampleSinc(A.hardClip(x, 32767 / 32768), rate, codecRate);
+  const trip = await TF2Opus.roundTrip(c, codecRate, p.bitrate, {
+    gate: { thresholdDb: opts.gateThresholdDb, prerollFrames: Math.round(p.senderGate.prerollMs / 20), holdFrames: Math.round(p.senderGate.holdMs / 20) },
+    makeLossMask: () => null, application: p.application, signal: p.signal,
+    runtime: p.encoder.runtime, complexity: p.encoder.complexity, vbr: p.encoder.vbr, dtx: p.encoder.dtx });
+  const log = trip.info.frameLog, size = trip.info.frameSamples, lookahead = trip.info.lookahead;
+  const decoded = (m) => {
+    const f = Math.floor((Math.floor(m * codecRate / voiceRate) + lookahead) / size);
+    return f < log.length && log[f] !== 0;
+  };
+  let y = A.receiverAutoGain(A.resampleSinc(trip.samples, codecRate, voiceRate), { avgGain: 0.5, maxGain: 10, scale: 1, decoded });
+  y = A.applyFirZeroPhase(A.resampleSinc(y, voiceRate, VOICE_ENGINE.mixRate), VOICE_ENGINE.outputFir);
+  const out = new Float32Array(n);
+  out.set(A.resampleSinc(y, VOICE_ENGINE.mixRate, rate).subarray(0, n));
+  const want = A.softLimit(out, 0.98);
+  const same = want.length === r.samples.length && Buffer.compare(Buffer.from(want.buffer), Buffer.from(r.samples.buffer, r.samples.byteOffset, r.samples.byteLength)) === 0;
+  check('steam_48: process() is receiverAutoGain on the decoded signal with decoded() from the frame log (bit for bit)',
+    same && r.codecInfo.spurts === 2 && log.every((v, i) => v === r.codecInfo.frameLog[i]), `${r.codecInfo.spurts} spurts`);
 }
 
 /* ---------------- 5. the live chain ---------------- */
