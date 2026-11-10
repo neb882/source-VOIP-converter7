@@ -640,8 +640,9 @@ new script in `ASSETS`; raise `CACHE`), `audio-worker.js` and `live-worker.js` (
     messages are what the order says: every `source` of a record is -1; a spurt's first `source` is
     `round((start - lookahead) x 44100 / 24000)`; within a spurt each `source` is the one before plus that
     `pcm.length`; every `pcm` value times 32768 is an integer; the ticks never fall.
-  - **The layouts.** Sources at 24 kHz: bursts of 2 s of a 1 kHz square wave of height 0.3 (every chunk that
-    holds a quarter of one is active), exact zeros between. **P:** silences of 300, 500 and 1200 ms. **Q:**
+  - **The layouts.** Sources at 24 kHz: bursts of 2 s of a 1 kHz square wave of height 1000 of 32768 (so, as
+    in W3-02b's own tests, a chunk is active when about a third of it is burst: the mean rule alone decides),
+    noise at -50 dBFS between (under the gate; it makes the pre-roll sound, not zeros). **P:** silences of 300, 500 and 1200 ms. **Q:**
     silences of 900, 600 and 1200 ms. Seeds 1 to 10. The figures in brackets are what W3-02b's build measured
     on the same layouts with the module alone, seeds 1 to 50 (its report, "The timeline's checks"); a codec and
     a filter stand between here, so the ranges are those, a little wider, and no exact count is asked.
