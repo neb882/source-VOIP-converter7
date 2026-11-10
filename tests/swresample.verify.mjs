@@ -112,11 +112,12 @@ async function main() {
   const { computeBank, bankBase64, bankSha256, BANK_SHA256 } = await import(
     pathToFileURL(join(root, 'tests/swresample/bank.mjs')).href);
 
+  // Every check runs, so a break shows all the checks it fails.
   let passed = 0;
+  const failed = [];
   function check(name, ok, detail = '') {
-    assert.ok(ok, `${name}${detail ? ` (${detail})` : ''}`);
-    passed++;
-    console.log(`  ok    ${name}${detail ? `   [${detail}]` : ''}`);
+    if (ok) passed++; else failed.push(name);
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${name}${detail ? `   [${detail}]` : ''}`);
   }
   const run = (kernel, packets) => {
     const rs = SW.createResampler({ kernel });
@@ -283,5 +284,6 @@ async function main() {
       !!rs && sha256(streamPackets('A').map((p) => rs.packet(p))) === HASHES.fma3.A);
   }
 
+  assert.deepEqual(failed, [], `${failed.length} swresample checks failed`);
   console.log(`\n${passed} swresample checks passed`);
 }

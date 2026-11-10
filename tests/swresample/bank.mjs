@@ -2,6 +2,16 @@
 // computed as build_filter() in libswresample/resample.c does it (FFmpeg
 // n8.1.2, the same in n6.1.1), with av_bessel_i0 of libavutil/mathematics.c.
 //
+// Like vendor/swresample/swresample.js, this is a modified part of FFmpeg:
+// those two functions translated to JavaScript on 2026-11-10, under the GNU
+// LGPL version 2.1 or later (vendor/swresample/COPYING.LGPLv2.1). Their files'
+// notices are in full at the head of swresample.js:
+//   resample.c: Copyright (c) 2004-2012 Michael Niedermayer <michaelni@gmx.at>
+//               bessel function: Copyright (c) 2006 Xiaogang Zhang
+//   mathematics.c: Copyright (c) 2005-2012 Michael Niedermayer <michaelni@gmx.at>
+//   av_bessel_i0: "Algorithm taken from the Boost project", under the Boost
+//   Software License, Version 1.0, whose text is in swresample.js.
+//
 // Defaults: filter size 32, exact rational on (147 phases, since 44100/24000
 // is 147/80), Kaiser window with beta 9, cut-off factor 1.0 (the output rate is
 // higher), float coefficients (the library works in float for this path).

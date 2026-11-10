@@ -11,9 +11,9 @@
  * code it comes from: see COPYING.LGPLv2.1 and README.md in this folder. The
  * notices of the files it comes from follow, as they stand there.
  *
- * ---- libswresample/resample.c (resample_template.c, resample_dsp.c and
- * ---- audioconvert.c carry the same lines, with "Copyright (c) 2006 Michael
- * ---- Niedermayer" in audioconvert.c and no Bessel line in the others)
+ * ---- libswresample/resample.c (resample_template.c and audioconvert.c
+ * ---- carry the same lines, with "Copyright (c) 2006 Michael Niedermayer" in
+ * ---- audioconvert.c and no Bessel line in either)
  *
  * audio resampling
  * Copyright (c) 2004-2012 Michael Niedermayer <michaelni@gmx.at>
@@ -528,7 +528,7 @@ DEALINGS IN THE SOFTWARE.
 
     function room(n) {
       if (len + n <= buf.length) return;
-      const next = new Float32Array(len + n);
+      const next = new Float32Array(Math.max(len + n, buf.length + (buf.length >> 1)));
       next.set(buf.subarray(0, len));
       buf = next;
     }

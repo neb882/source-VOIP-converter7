@@ -337,6 +337,7 @@ These tests establish implementation behavior; the accuracy claims rest on the p
 | `vendor/speex/` | Speex 1.2.1 WebAssembly for the vaudio_speex profile |
 | `vendor/libopus/` | libopus 1.6.1 (libopus-wasm) for a video's audio track |
 | `vendor/lame/` | LAME 3.100 WebAssembly, the MP3 encoder |
+| `vendor/swresample/` | libswresample's 24000 to 44100 Hz step, ported to JavaScript: the resampler of Steam's voice decoder (not loaded yet) |
 | `audio-worker.js` | cancellable background rendering, format conversion and metering |
 | `mic-capture.js` | PCM recording |
 | `constants.js` | presets, codec profiles, receiver model, room data |
@@ -352,4 +353,4 @@ These tests establish implementation behavior; the accuracy claims rest on the p
 
 Tests and local tooling are under `tests/`.
 
-Application code: MIT. Codec notices: `vendor/libopus/LICENSE`, `COPYING.opus` and `THIRD_PARTY_NOTICES.md`, `vendor/libopus-1.1/COPYING.opus` (libopus, BSD), `vendor/celt-0.11/COPYING.celt` (CELT, BSD), `vendor/speex/COPYING.speex` (Speex, BSD) and `COPYRIGHT.musl` (musl libm, MIT). The MP3 encoder is LAME 3.100, unmodified, under the GNU LGPL version 2 (`vendor/lame/COPYING.lame`). It is a separate module that loads only when an MP3 is saved and can be rebuilt or replaced with `tests/lame/build.mjs`; see `vendor/lame/README.md`. TF2, Source and Steam are Valve trademarks. This independent tool is not affiliated with Valve.
+Application code: MIT. Codec notices: `vendor/libopus/LICENSE`, `COPYING.opus` and `THIRD_PARTY_NOTICES.md`, `vendor/libopus-1.1/COPYING.opus` (libopus, BSD), `vendor/celt-0.11/COPYING.celt` (CELT, BSD), `vendor/speex/COPYING.speex` (Speex, BSD) and `COPYRIGHT.musl` (musl libm, MIT). The MP3 encoder is LAME 3.100, unmodified, under the GNU LGPL version 2 (`vendor/lame/COPYING.lame`). It is a separate module that loads only when an MP3 is saved and can be rebuilt or replaced with `tests/lame/build.mjs`; see `vendor/lame/README.md`. The resampler of Steam's voice decoder, `vendor/swresample/swresample.js`, is a modified part of FFmpeg: libswresample's 24000 to 44100 Hz path, translated to JavaScript from FFmpeg 8.1.2, under the GNU LGPL version 2.1 or later (`vendor/swresample/COPYING.LGPLv2.1`). It is one replaceable file with FFmpeg's notices kept, and it is its own source; see `vendor/swresample/README.md`. TF2, Source and Steam are Valve trademarks. This independent tool is not affiliated with Valve.
