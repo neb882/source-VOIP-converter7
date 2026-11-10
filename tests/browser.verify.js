@@ -1008,6 +1008,65 @@ async function activateServiceWorker(page, scriptPath) {
   }, scriptPath);
 }
 
+// The files the page needs to start and work offline, found without reading
+// sw.js: the page itself, what its markup links (scripts, style, icon,
+// manifest), the manifest's icons, and what the code loads at run time
+// (workers, audio worklets and the codec modules they import).
+const RUNTIME_FILES = ['audio-worker.js', 'mic-capture.js', 'live-worker.js', 'live-worklet.js', 'opus-codec.mjs',
+  'vendor/libopus/index.mjs', 'vendor/libopus/generated/libopus.generated.mjs',
+  'vendor/libopus-1.1/index.mjs', 'vendor/libopus-1.1/libopus-1.1.5.wasm.mjs',
+  'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs',
+  'vendor/speex/index.mjs', 'vendor/speex/speex-1.2.1.wasm.mjs',
+  'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs'];
+
+// A first visit: the service worker installs and takes control while the
+// page is open, and the page is not reloaded under it. Every file the page
+// needs offline must then already be in the cache (the worker caches what a
+// controlled page fetches, so a later check cannot tell the asset list is
+// short). Then offline, a reload starts the app, and a file loads and renders.
+async function verifyFirstVisitOffline(browser, base) {
+  console.log('\n[Browser 4b] A first visit leaves everything needed offline in the cache');
+  const root = path.join(__dirname, '..');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.webmanifest'), 'utf8'));
+  const assets = [...fs.readFileSync(path.join(root, 'sw.js'), 'utf8').match(/const ASSETS = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+)'/g)]
+    .map(m => m[1].replace(/^\.\//, ''));
+  const context = await browser.newContext({ serviceWorkers: 'allow' });
+  try {
+    const page = await context.newPage();
+    page.setDefaultTimeout(30000);
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`${base}/`, { waitUntil: 'networkidle' });
+    const linked = await page.evaluate(() => [...document.querySelectorAll('script[src], link[href]')]
+      .map(e => new URL(e.getAttribute('src') || e.getAttribute('href'), location.href).pathname.slice(1)));
+    const needed = [...new Set(['', 'index.html', ...linked, ...manifest.icons.map(i => i.src), ...RUNTIME_FILES])];
+    check(needed.every(f => !f || fs.existsSync(path.join(root, f))) && assets.every(a => needed.includes(a)),
+      'the files the page needs exist, and sw.js lists nothing else', `${needed.length} files`);
+    const missing = await page.evaluate(async ({ needed, shell }) => {
+      await navigator.serviceWorker.register('sw.js');
+      await navigator.serviceWorker.ready;
+      const cache = await caches.open(shell);
+      const hits = await Promise.all(needed.map(f => cache.match(new URL(f, location.href).href)));
+      return needed.filter((f, i) => !hits[i]);
+    }, { needed, shell: SHELL_CACHE });
+    check(missing.length === 0, 'after the first visit, before any reload, every file the page needs offline is cached', missing.join(', ') || `${needed.length} files`);
+    await context.setOffline(true);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('#file').setInputFiles({ name: 'first-visit-22050.wav', mimeType: 'audio/wav', buffer: wavTone(.5, 22050) });
+    await page.waitForFunction(() => /first-visit-22050\.wav|Could not/.test(els.status.textContent));
+    const loaded = await page.evaluate(() => els.status.textContent);
+    check(/22,050 Hz/.test(loaded), 'offline after the first visit, a file loads at its own rate', loaded);
+    await page.locator('#process').click();
+    await page.waitForFunction(() => /Ready|Could not|failed/i.test(els.status.textContent) && !state.processing, null, { timeout: 60000 });
+    const done = await page.evaluate(() => ({ status: els.status.textContent, log: document.getElementById('console-out').textContent }));
+    check(done.status.includes('Ready') && done.log.includes('libopus 1.1.5'), 'and renders with the bundled codec', done.status);
+    check(errors.length === 0, 'the first visit and the offline reload have no page errors', errors.join('; '));
+  } finally {
+    await context.setOffline(false).catch(() => {});
+    await context.close();
+  }
+}
+
 async function main() {
   const root = path.join(__dirname, '..');
   const server = await createStaticServer(root);
@@ -1285,6 +1344,7 @@ async function main() {
     await context.setOffline(false);
     check(pageErrors.length === 0, 'complete conversion and recording flow has no page errors', pageErrors.join('; '));
 
+    await verifyFirstVisitOffline(browser, base);
     await verifyBatchAndFormats(browser, base);
     await verifySampleRateMatrix(browser, base);
     await verifyNativeRate(browser, base);
