@@ -29,7 +29,7 @@ a new channel plays is counted in frames, so the replay needs it. Use `voice_sho
 per pull of the mixer, which the tool refuses). Keep to one speaker.
 
 To put several runs in one log, type `echo MARK67` (any word that starts with `MARK`) before each; the tool reads one
-marked part at a time.
+marked part at a time. Give each part its own word.
 
 ## Making a fixture
 
@@ -38,11 +38,17 @@ node tests/voicequeue/log-to-fixture.mjs voice_q.log --fps 300 > fixture.json
 node tests/voicequeue/log-to-fixture.mjs voice_q.log --fps 66.67 --section MARK67 > mark67.json
 ```
 
-`--fps` is the frame rate the run had; `--buffer-ms` is `voice_buffer_ms` if it was not 100; `--name` names the
-section (by default the marker, else `log`); `--section <marker>` reads only the lines after the first line that
-starts with the marker, up to the next line that starts with `MARK`. It prints a fixture with one section,
-`{ about, sections: [{ name, fps, bufferMs, events }] }`, and a one-line summary on stderr. `events` is a flat list of
-pairs:
+The options:
+- `--fps` is the frame rate the run had.
+- `--buffer-ms` is `voice_buffer_ms`, if it was not 100.
+- `--name` names the section (by default the marker, else `log`).
+- `--section <marker>` reads only the lines after the first line that *is* the marker (leading and trailing spaces
+  aside), up to the next line that starts with `MARK`. The order said "starts with the marker". That would let
+  `MARK6` read `MARK67`'s part, so the whole line is matched (decided 2026-11-10).
+- `--strict` refuses a pull that is not whole mixer blocks (below).
+
+It prints a fixture with one section, `{ about, sections: [{ name, fps, bufferMs, events }] }`, and a one-line summary
+on stderr. `events` is a flat list of pairs:
 
 | Pair | Means |
 | --- | --- |
@@ -59,14 +65,34 @@ the ring ran dry (the channel was kept: the grace) from one that came after the 
 printed nothing (a new channel, which waits). The rules in full are W3-02a's spec 5 in
 `docs/work-orders/W3-02-receiver-queue.md`.
 
-It stops with a message, never a guess, on a log that breaks them: two packets before a tick line, a packet line with
-no tick line, a tick line with no channel, a queue that moves while a channel waits or cannot come from its packets,
-a new channel whose queue is not its packet, a second channel while one is in use, pull lines. A queue line that is
-off by a sample while the channel plays only moves a sample of the mixer's demand from one tick to the next, which no
-log can tell from a true one.
+It stops with a message, never a guess, on a log that breaks them:
+- two packets before a tick line, or a packet line with no tick line;
+- a tick line with no channel;
+- a queue that moves while a channel waits, or that cannot come from its packets;
+- a new channel whose queue is not its packet;
+- a second channel or speaker while one is in use;
+- pull lines;
+- a line that begins like a voice line but does not read as one: a sign, more than 9 digits, something before or
+  after it, or a line cut short. Such a line would otherwise pass as an unrelated line and lose a tick.
+
+A byte-order mark before the first line is ignored. A last line with no line end is read as it stands, and the
+summary says so: a log cut off while it was written can end in a shortened number that still reads.
+
+**Pull sizes.** A queue line off by a sample while the channel plays only moves a sample of the mixer's demand from
+one tick to the next, and the rules cannot tell that from a true one. The mixer takes whole blocks of 512 samples, and
+513 or 1025 on its first pull after a channel starts. So the summary counts the pulls read from the log that are not
+whole blocks; one more is allowed on the first pull the log shows after a channel's wait. `--strict` refuses the first
+such pull, with its line number. Neither changes the fixture. The count is not a refusal by default, because the block
+is what the logs show at the owner's settings and might differ under others.
+
+**A known loud failure.** The order's test for an unseen free or a grace accepts a queue of up to 4096 bytes before
+the ring is found empty, but the pull it writes for that step is 1024 samples, which empties only 2048 bytes. On a log
+where the queue held 2050 to 4096 bytes there, the tool's fixture does not replay: the replay reports mismatching
+ticks rather than passing in silence.
 
 **Only numbers leave the log.** The tool keeps the numbers of the two voice lines and counts every other line without
-keeping it, and its messages quote no line. So a fixture holds no names, paths or IDs. To join fixtures into one file:
+keeping it, and its messages quote no line. So a fixture holds no names, paths or IDs. The replay prints nothing of a
+file it is given that is not JSON. To join fixtures into one file:
 
 ```sh
 node -e 'const fs = require("fs"), f = process.argv.slice(1).map((p) => JSON.parse(fs.readFileSync(p, "utf8")));

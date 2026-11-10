@@ -22,6 +22,7 @@ import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { logToFixture } from './voicequeue/log-to-fixture.mjs';
+import { createReferenceChannel, referenceWaitTicks, referenceLatency } from './voicequeue/reference-channel.mjs';
 
 const require = createRequire(import.meta.url);
 const V = require('../voice-channel.js');
@@ -230,6 +231,93 @@ function synthesize({ fps, seed }) {
   return { lines, marks, truth };
 }
 
+// ---------------------------------------------------------------------------------------
+// The channel against the second model (tests/voicequeue/reference-channel.mjs), on seeded
+// traffic in small rings, where every read, write and drop crosses the ring's end often.
+// After every operation the two must agree on the state, the count, what was dropped and the
+// gain's calls, and on every sample and tag of every pull; the full drops lists and gain
+// logs are compared at the end of each case. Returns the counts and the first disagreement.
+
+function differential(seeds) {
+  const RINGS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 64, 513, 4411];
+  const FPS = [5, 10, 30, 59.94, 66.67, 100, 144, 239.76, 300, 1000, 5000];
+  const BUF = [0, 1, 50, 70, 100, 499, 1000, 9000];
+  const FADE = [0.1, 0, 0.00002, 0.0001, 0.001, 0.05, 1];
+  const seen = { cases: 0, ops: 0, packets: 0, pulls: 0, ticks: 0, opens: 0, frees: 0, longPackets: 0, drops: 0, dropsAcrossTheEnd: 0, readsAcrossTheEnd: 0, fades: 0, underruns: 0 };
+  let bad = null;
+  for (let seed = 1; seed <= seeds && !bad; seed++) {
+    const r = mulberry32(0xD1FF0000 + seed), pick = (a) => a[Math.floor(r() * a.length)];
+    const size = RINGS[seed % RINGS.length];
+    const test = { ring: size };
+    if (r() < 0.1) test.waitTicks = Math.floor(r() * 4);
+    if (r() < 0.15) test.keepSample = true;
+    if (r() < 0.15) test.noGrace = true;
+    const opts = { fps: r() < 0.2 ? 5 + r() * 995 : pick(FPS), bufferMs: r() < 0.2 ? r() * 1200 : pick(BUF), fadeTime: pick(FADE), test };
+    const logA = [], logB = [];
+    const stub = (log) => ({ reset() { log.push('reset'); }, process(p) { log.push(`process ${p.length} ${p[0]}`); return Float32Array.from(p, (v) => v * 0.75); } });
+    const withGain = r() < 0.5;
+    const a = createChannel({ ...opts, gain: withGain ? stub(logA) : undefined });
+    const b = createReferenceChannel({ ...opts, gain: withGain ? stub(logB) : null });
+    seen.cases++;
+    let tagNo = 0, head = 0, wasInUse = false;                 // head: where the module's ring is read
+    const nOps = 100 + Math.floor(r() * 300);
+    for (let o = 0; o < nOps && !bad; o++) {
+      const u = r();
+      let what;
+      if (u < 0.3) {
+        const v = r();
+        let n = v < 0.1 ? 0 : v < 0.18 ? 1 : v < 0.25 ? 2 : v < 0.35 ? size + Math.floor(r() * 3) - 1
+          : v < 0.42 ? size + 2 + Math.floor(r() * size) : Math.floor(r() * (1.5 * size + 3));
+        if (v >= 0.35 && v < 0.42) seen.longPackets++;
+        n = Math.min(n, 7000);
+        const pcm = Float32Array.from({ length: n }, () => r() * 2 - 1);
+        const w = r(), tag = w < 0.05 ? undefined : w < 0.1 ? 16777216 + tagNo++ : w < 0.5 ? Math.floor(r() * 3) : tagNo++;
+        const before = b.count, droppedBefore = b.dropped, opened = !b.inUse;
+        a.add(pcm.slice(), tag); b.add(pcm.slice(), tag);
+        if (opened) head = 0;
+        const lostOld = Math.min(b.dropped - droppedBefore, opened ? 0 : before);
+        if (lostOld > 0) { seen.drops++; if (head + lostOld > size) seen.dropsAcrossTheEnd++; head = (head + lostOld) % size; }
+        seen.packets++;
+        what = `add ${n} tag ${tag}`;
+      } else if (u < 0.62) {
+        const k = r() < 0.05 ? 40 : 1;
+        for (let i = 0; i < k; i++) { a.tick(); b.tick(); }
+        seen.ticks += k;
+        what = `tick x${k}`;
+      } else {
+        const v = r();
+        const n = v < 0.06 ? 0 : v < 0.12 ? 1 : v < 0.18 ? 2 : v < 0.26 ? size - 1 : v < 0.34 ? size : v < 0.42 ? size + 1
+          : v < 0.5 ? 512 : v < 0.55 ? 513 : Math.floor(r() * (2 * size + 5));
+        const before = b.count, live = b.inUse && b.playing;
+        const pa = a.pull(n), pb = b.pull(n);
+        if (live) {
+          const got = Math.min(n, before);
+          if (got > 0 && head + got > size) seen.readsAcrossTheEnd++;
+          head = (head + got) % size;
+          if (got > 0 && before - got < Math.max(2, Math.floor(44100 * opts.fadeTime))) seen.fades++;
+          if (got > 0 && got < n) seen.underruns++;
+        }
+        seen.pulls++;
+        what = `pull ${n}`;
+        if (pa.samples.length !== n || pa.tags.length !== n) bad = { seed, o, what, why: 'a pull of the wrong length' };
+        for (let i = 0; !bad && i < n; i++) {
+          if (!Object.is(pa.samples[i], pb.samples[i]) || pa.tags[i] !== pb.tags[i]) bad = { seed, o, what, why: `sample ${i}: ${pa.samples[i]} tag ${pa.tags[i]}, the model ${pb.samples[i]} tag ${pb.tags[i]}` };
+        }
+      }
+      seen.ops++;
+      if (wasInUse && !b.inUse) seen.frees++;
+      wasInUse = b.inUse;
+      const sa = [a.inUse, a.playing, a.starved, a.count, a.opens, a.dropped, a.waitTicks, logA.length].join();
+      const sb = [b.inUse, b.playing, b.starved, b.count, b.opens, b.dropped, b.waitTicks, logB.length].join();
+      if (!bad && sa !== sb) bad = { seed, o, what, why: `state ${sa}, the model ${sb}` };
+    }
+    if (!bad && JSON.stringify(a.drops) !== JSON.stringify(b.drops)) bad = { seed, what: 'the drops list', why: `${JSON.stringify(a.drops).slice(0, 200)}, the model ${JSON.stringify(b.drops).slice(0, 200)}` };
+    if (!bad && logA.join('|') !== logB.join('|')) bad = { seed, what: 'the gain\'s calls', why: `${logA.slice(-3)}, the model ${logB.slice(-3)}` };
+    seen.opens += b.opens;
+  }
+  return { seen, bad };
+}
+
 // Runs the log tool on a file; returns { status, out, err, fixture }.
 function runTool(file, args) {
   const r = spawnSync(process.execPath, [TOOL, file, ...args], { encoding: 'utf8' });
@@ -433,6 +521,119 @@ function publicChecks() {
     check('without a gain the samples pass unchanged', plain.count === 9 && p[0] === 3);
   }
 
+  console.log('What the logs cannot show, case by case (the review\'s cases A to I)');
+  {
+    const ramp = (n, from) => Float32Array.from({ length: n }, (_, i) => from + i);
+    const toPlay = (ch) => { for (let k = 0; k < 1000 && !ch.playing; k++) ch.tick(); return ch; };
+    const list = (x) => Array.from(x).join(',');
+    // A: ring 10, a read that wraps the ring's end and the read after it.
+    {
+      const ch = createChannel({ fadeTime: 0, test: { ring: 10 } });
+      ch.add(ramp(9, 100), 1); toPlay(ch); ch.pull(6);
+      ch.add(ramp(9, 200), 2);
+      const across = list(ch.pull(6).samples);
+      ch.add(ramp(5, 300), 3);
+      const next = list(ch.pull(4).samples);
+      check('A. ring 10: a read across the ring\'s end, then the next read', `${across} | ${next}` === '107,108,201,202,203,204 | 205,206,207,208', `${across} | ${next}`);
+    }
+    // B: ring 10, an overflow whose oldest samples straddle the ring's end.
+    {
+      const ch = createChannel({ fadeTime: 0, test: { ring: 10 } });
+      ch.add(ramp(9, 100), 1); toPlay(ch); ch.pull(6);
+      ch.add(ramp(6, 200), 2); ch.pull(2);
+      ch.add(ramp(9, 300), 3);
+      const out = list(ch.pull(10).samples);
+      check('B. ring 10: an overflow that drops across the ring\'s end keeps the newest', out === '204,205,301,302,303,304,305,306,307,0'
+        && ch.dropped === 3 && JSON.stringify(ch.drops) === JSON.stringify([{ pulled: 8, count: 3, tag: 2 }]), `${out}; ${JSON.stringify(ch.drops)}`);
+    }
+    // C: an empty packet (a key press) opens a channel with nothing behind it.
+    {
+      const ch = createChannel({ fps: 66.67 });
+      ch.add(new Float32Array(0), 1);
+      for (let k = 0; k < 7; k++) ch.tick();
+      const playing = ch.playing;
+      ch.pull(512);
+      const starved = ch.starved;
+      ch.tick();
+      check('C. an empty packet, its wait, a pull that reads nothing: starved, then freed', playing && starved && !ch.inUse, `playing ${playing}, starved ${starved}, in use after the tick ${ch.inUse}`);
+      // pull(0) is the pseudo-code as written: an empty playing ring is starved by it too (a
+      // fixture's 2, 0 is replayed as no pull at all).
+      const zero = createChannel({ fps: 66.67 });
+      zero.add(new Float32Array(0), 1);
+      for (let k = 0; k < 7; k++) zero.tick();
+      zero.pull(0);
+      check('C. and so is a pull of 0 samples', zero.starved, `starved ${zero.starved}`);
+    }
+    // D, E, F: other voice_fadeouttime values: fade = max(2, floor(44100 x fadeTime)).
+    const fadeOut = (fadeTime, n, take) => {
+      const ch = createChannel({ fps: 300, fadeTime, test: { keepSample: true } });
+      ch.add(new Float32Array(n).fill(1));
+      toPlay(ch);
+      return ch.pull(take).samples;
+    };
+    {
+      const o = fadeOut(0.05, 2205, 2205);
+      check('D. fadeTime 0.05 fades 2205 samples: 2205 of 1.0 give 1, 2203/2204, ..., 0', o[0] === 1 && o[1] === f32(2203 / 2204) && o[2204] === 0, `${o[0]}, ${o[1]}, ${o[2204]}`);
+    }
+    {
+      const o = fadeOut(0.0999, 4405, 4405);
+      check('E. fadeTime 0.0999 fades floor(4405.59) = 4405 samples: sample 1 is 4403/4404', o[1] === f32(4403 / 4404), `${o[1]}`);
+    }
+    {
+      const o = fadeOut(0, 5, 5);
+      check('F. fadeTime 0 fades max(2, 0) = 2 samples: 5 of 1.0 give 1,1,1,1,0', list(o) === '1,1,1,1,0', list(o));
+    }
+    // G: the fade window's edge: 4408 left after a read is under the fade.
+    {
+      const o = fadeOut(0.1, 4410, 2);
+      check('G. 4410 of 1.0, pull(2): 4408 stay, so sample 1 is 4408/4409', o[0] === 1 && o[1] === f32(4408 / 4409), `${o[0]}, ${o[1]}`);
+    }
+    // H: a packet longer than the ring (none comes from the game: Steam's decoder writes at
+    // most 11264 samples): the queue goes, then the packet's oldest; the newest 5 stay.
+    {
+      const ch = createChannel({ fadeTime: 0, test: { ring: 5 } });
+      ch.add(ramp(4, 0), 1); toPlay(ch);
+      ch.add(ramp(9, 10), 2);
+      const out = list(ch.pull(5).samples);
+      check('H. ring 5: 3 queued, then a packet of 9 (8 kept): the 3, then the packet\'s oldest 3, are dropped', out === '14,15,16,17,0' && ch.dropped === 6
+        && JSON.stringify(ch.drops) === JSON.stringify([{ pulled: 0, count: 3, tag: 1 }, { pulled: 0, count: 3, tag: 2 }]), `${out}; ${JSON.stringify(ch.drops)}`);
+    }
+    // I: tags are kept as doubles: a sample position past 2^24 (a render of 6.3 minutes) comes back whole.
+    {
+      const ch = createChannel({ fps: 300 });
+      ch.add(ramp(22051, 0), 16777217); toPlay(ch);
+      ch.add(ramp(11, 0), 16777219);
+      const t = ch.pull(1).tags[0], d = ch.drops[0];
+      const other = createChannel({ fps: 300 });
+      other.add(ramp(3, 0), 'not a number'); toPlay(other);
+      check('I. a tag above 2^24 comes back exact, in a pull and in a drop; a tag that is not a number is -1', t === 16777217 && d.tag === 16777217 && other.pull(1).tags[0] === -1,
+        `${t}, ${d.tag}`);
+    }
+    {
+      const log = [];
+      const ch = createChannel({ gain: { reset() { log.push('reset'); }, process(p) { log.push(`process ${p.length}`); return p; } } });
+      ch.add(new Float32Array(0)); ch.add(new Float32Array(3));
+      check('the gain runs on an empty packet too: once per packet', log.join(', ') === 'reset, process 0, process 3', log.join(', '));
+    }
+  }
+
+  console.log('The channel against a second model, written with plain arrays (tests/voicequeue/reference-channel.mjs)');
+  {
+    let grid = 0;
+    for (const bm of [0, 0.5, 1, 33.3, 50, 70, 99.9999999, 100, 100.0000001, 499, 500, 1000, 4999, 5000, 9000]) {
+      for (const fps of [0.5, 5, 10, 30, 59.94, 60, 66.666, 66.67, 67, 100, 143.88, 143.9, 144, 200, 239.76, 240, 300, 999.9, 1000, 5000]) {
+        if (waitTicks(bm, fps) !== referenceWaitTicks(bm, fps) || latency(bm, fps) !== referenceLatency(bm, fps)) grid++;
+      }
+    }
+    check('waitTicks and latency agree with the model on a grid of 300 settings', grid === 0, `${grid} differ`);
+    const t0 = Date.now();
+    const { seen, bad } = differential(320);
+    check('320 seeded cases in rings of 1 to 13, 64, 513 and 4411 samples: every state and every pulled sample and tag agree', !bad && seen.readsAcrossTheEnd > 1000 && seen.dropsAcrossTheEnd > 100,
+      bad ? `seed ${bad.seed}, operation ${bad.o}, ${bad.what}: ${bad.why}` : `${seen.ops} operations: ${seen.packets} packets (${seen.longPackets} longer than the ring), ${seen.pulls} pulls, ${seen.ticks} ticks; `
+        + `${seen.opens} opens, ${seen.frees} frees, ${seen.drops} overflows (${seen.dropsAcrossTheEnd} across the ring's end), ${seen.readsAcrossTheEnd} reads across it, `
+        + `${seen.fades} fades, ${seen.underruns} underruns; ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  }
+
   console.log('The log tool, event for event, on three logs worked by hand');
   {
     const P = (n) => `Voice - ${n} incoming samples added to channel 0`, T = (b) => `Voice - chan 0, ent 1, bufsize: ${b}`;
@@ -468,6 +669,36 @@ function publicChecks() {
     check('a fixture section without a name or bufferMs replays at voice_buffer_ms 100', bare.name === 'section 1' && bare.waitTicks === 7 && bare.engine.bad === 0);
     const both = replayFixture({ sections: [g1.fixture.sections[0], g2.fixture.sections[0], g3.fixture.sections[0]] });
     check('and all three replay cleanly', both.every((r) => r.engine.bad === 0), both.map((r) => `${r.engine.ticks} ticks`).join(', '));
+
+    // The rules' edges, each a log worked by hand at 66.67 fps (a wait of 7) unless said.
+    const events = (lines, fps = 66.67) => JSON.stringify(logToFixture(lines.join('\n'), { fps }).fixture.sections[0].events);
+    const wait7 = [P(101), T(200), T(200), T(200), T(200), T(200), T(200), T(200)];
+    const made7 = [1, 101, 3, 200, 2, 512, 3, 200, 2, 1024, 3, 200, 2, 512, 3, 200, 2, 1024, 3, 200, 2, 512, 3, 200, 2, 1024, 3, 200];
+    const opens6000 = [P(3001), T(6000), T(6000), T(6000), T(6000), T(6000), T(6000), T(6000)];
+    const made6000 = [1, 3001, 3, 6000, 2, 512, 3, 6000, 2, 1024, 3, 6000, 2, 512, 3, 6000, 2, 1024, 3, 6000, 2, 512, 3, 6000, 2, 1024, 3, 6000];
+    // A queue of 4096 bytes before the ring is found empty is a grace (or a free); 4098 is not.
+    const at4096 = [...opens6000, T(4096), P(51), T(100), T(40)], at4098 = [...opens6000, T(4098), P(51), T(100), T(40)];
+    const e4096 = [...made6000, 2, 952, 3, 4096, 2, 1024, 1, 51, 3, 100, 2, 30, 3, 40];
+    const e4098 = [...made6000, 2, 951, 3, 4098, 2, 2049, 1, 51, 3, 100, 2, 30, 3, 40];
+    const replay4096 = replayFixture(logToFixture(at4096.join('\n'), { fps: 66.67 }).fixture)[0].engine.bad;
+    check('edge: a queue of 4096 bytes before it is found empty may be a grace, 4098 may not', events(at4096) === JSON.stringify(e4096) && events(at4098) === JSON.stringify(e4098)
+      && replay4096 > 0, `${events(at4096)}; ${events(at4098)}; the 4096 case's replay mismatches on ${replay4096} ticks (the order's 1024 cannot empty 2048 samples)`);
+    // An overflow that hides the demand, at 1024 and 2048 bytes over the ring and just under.
+    const over = [P(20001), T(40000), P(2563), T(44100), P(512), T(44100), P(1025), T(44100), P(1024), T(44100)];
+    const eOver = [1, 20001, 3, 40000, 2, 512, 1, 2563, 3, 44100, 2, 0, 1, 512, 3, 44100, 2, 1024, 1, 1025, 3, 44100, 2, 512, 1, 1024, 3, 44100];
+    check('edge: 1024 bytes over the ring is 512, 1022 is 0; 2048 is 1024, 2046 is 512', events(over, 10) === JSON.stringify(eOver), events(over, 10));
+    // The next three steps end at a session break: what follows it is another channel.
+    const atBreak = [...wait7, T(100), P(31), T(60), T(60), UNRELATED, UNRELATED, P(11), T(20), T(20)];
+    const eBreak = [...made7, 2, 50, 3, 100, 2, 1024, 3, -1, 1, 31, 3, 60, 2, 512, 3, 60, 0, 0, 1, 11, 3, 20, 2, 1024, 3, 20];
+    check('edge: the next three steps stop at a session break', events(atBreak) === JSON.stringify(eBreak), events(atBreak));
+    // A new channel that overflows while it waits does not fall: 44100 is not below the cap.
+    const atCap = [...wait7, T(100), P(20001), T(40000), P(3001), T(44100), T(44100), T(44100)];
+    const eCap = [...made7, 2, 50, 3, 100, 2, 1024, 3, -1, 1, 20001, 3, 40000, 2, 512, 1, 3001, 3, 44100, 2, 1024, 3, 44100, 2, 512, 3, 44100];
+    check('edge: a queue held at the 44100 cap does not fall', events(atCap) === JSON.stringify(eCap), events(atCap));
+    // The first step after the wait (the 8th tick line) is already a playing one.
+    const firstPlaying = [...wait7, P(101), T(200), T(100)];
+    const eFirst = [...made7, 2, 1024, 1, 101, 3, 200, 2, 50, 3, 100];
+    check('edge: the first tick line after the wait can show a grace', events(firstPlaying) === JSON.stringify(eFirst), events(firstPlaying));
   }
 
   console.log('The synthetic console log, the log tool and the replay');
@@ -546,12 +777,56 @@ function publicChecks() {
     refuse('a tick line before any packet', [T(198), P(100), T(396)].join('\n'), ['--fps', '300'], /no channel/);
     refuse('a session break between a packet and its tick line', [P(100), T(198), P(100), UNRELATED, UNRELATED, T(396)].join('\n'), ['--fps', '300'], /another session/);
     refuse('a second speaker', [P(100), T(198), 'Voice - chan 1, ent 3, bufsize: 198'].join('\n'), ['--fps', '300'], /second channel/);
+    refuse('a second speaker on the same channel number', [P(100), T(198), 'Voice - chan 0, ent 3, bufsize: 198'].join('\n'), ['--fps', '300'], /second channel/);
+    refuse('a grace at a wait of 3 ticks, which cannot be told from a new channel', [P(101), T(200), T(200), T(200), T(100), P(51), T(100), T(40)].join('\n'), ['--fps', '30'], /cannot be told/);
+    refuse('an odd number of bytes leaving the queue', [P(100), T(198), ...Array(29).fill(T(198)), T(197)].join('\n'), ['--fps', '300'], /cannot go/);
     refuse('pull lines (voice_showchannels 2)', [P(100), 'Voice - mixed 512 samples from channel 0', T(198)].join('\n'), ['--fps', '300'], /showchannels 2/);
     refuse('a marker that is not there', [P(100), T(198)].join('\n'), ['--fps', '300', '--section', 'MARK99'], /marker/);
     refuse('no frame rate', [P(100), T(198)].join('\n'), [], /--fps/);
     refuse('a new channel whose queue is not its packet', [P(100), T(200)].join('\n'), ['--fps', '300'], /new channel holds/);
     refuse('the queue falling while it waits', [P(100), T(198), T(196)].join('\n'), ['--fps', '300'], /during the wait/);
     refuse('a queue that cannot come from its packets', [P(100), T(198), ...Array(29).fill(T(198)), T(100), T(102)].join('\n'), ['--fps', '300'], /cannot go/);
+
+    // What a log may hold that the game does not write.
+    {
+      const base = [P(100), T(198), T(198)];
+      const twoParts = ['MARK67', ...base, 'MARK6 ', P(30), T(58), 'MARKEND'].join('\r\n');
+      const file = path.join(dir, 'markers.log');
+      fs.writeFileSync(file, twoParts);
+      const x = runTool(file, ['--fps', '300', '--section', 'MARK6']);
+      check('--section is the line that is the marker, trimmed: MARK6 does not read MARK67\'s part', x.status === 0
+        && JSON.stringify(x.fixture.sections[0].events) === JSON.stringify([1, 30, 3, 58]), x.status === 0 ? JSON.stringify(x.fixture.sections[0].events) : x.err.trim());
+      fs.writeFileSync(file, Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(`${base.join('\n')}\n`)]));
+      const bom = runTool(file, ['--fps', '300']);
+      check('a byte-order mark before the first line is not part of it', bom.status === 0 && JSON.stringify(bom.fixture.sections[0].events) === JSON.stringify([1, 100, 3, 198, 2, 512, 3, 198]), bom.err.trim());
+      fs.writeFileSync(file, base.join('\n'));
+      const cut = runTool(file, ['--fps', '300']);
+      fs.writeFileSync(file, `${base.join('\n')}\n`);
+      const whole = runTool(file, ['--fps', '300']);
+      check('a last line with no line end is read, and said', cut.status === 0 && cut.fixture.sections[0].events.length === 8 && /no line end/.test(cut.err)
+        && whole.status === 0 && !/no line end/.test(whole.err), cut.err.trim());
+      const secret = 'qXzPrivate';
+      for (const [what, line] of [['a negative number', 'Voice - chan 0, ent 1, bufsize: -2'], ['ten digits', 'Voice - chan 0, ent 1, bufsize: 1234567890'],
+        ['a space before it', ' Voice - chan 0, ent 1, bufsize: 198'], ['a tab before it', '\tVoice - 100 incoming samples added to channel 0'],
+        ['cut short', 'Voice - chan 0, ent 1, bufsiz'], ['text after it', `Voice - chan 0, ent 1, bufsize: 198 ${secret}`], ['a signed packet', `Voice - -5 incoming samples added to channel 0 ${secret}`]]) {
+        fs.writeFileSync(file, `${[P(100), T(198), line, T(198)].join('\n')}\n`);
+        const y = runTool(file, ['--fps', '300']);
+        check(`the tool stops on a voice line that does not read as one: ${what}`, y.status !== 0 && /line 3: a voice line that does not read/.test(y.err) && !y.err.includes(secret) && !y.err.includes('Voice -'), y.err.trim());
+      }
+    }
+    // The pulls the log shows are whole blocks of 512, but for one more on a channel's first.
+    {
+      const m = run300.marks, at = m.findIndex((x, j) => j > 60 && x.playedBefore && x.packet === null && m[j - 1].b - x.b === 1024 && m[j + 1].playedBefore);
+      const c = run300.lines.slice();
+      c[m[at].line] = `Voice - chan 0, ent 1, bufsize: ${m[at].b + 2}`;
+      const file = path.join(dir, 'grid.log');
+      fs.writeFileSync(file, `${c.join('\n')}\n`);
+      const lax = runTool(file, ['--fps', '300']), strict = runTool(file, ['--fps', '300', '--strict']), clean = runTool(log300, ['--fps', '300', '--strict']);
+      check('pulls off the 512-sample blocks are counted (0 in the synthetic logs; 2 with one bufsize 2 off), and --strict refuses them',
+        / 0 pulls off the 512-sample blocks/.test(tool.err) && / 0 pulls off/.test(tool67.err) && clean.status === 0
+        && lax.status === 0 && / 2 pulls off the 512-sample blocks/.test(lax.err) && JSON.stringify(lax.fixture.sections[0].events) !== JSON.stringify(section.events)
+        && strict.status !== 0 && new RegExp(`line ${m[at].line + 1}: a pull of 511 samples, not whole blocks of 512 \\(--strict\\)`).test(strict.err), `${lax.err.trim()} | ${strict.err.trim()}`);
+    }
 
     // This script's --fixture path, replay only.
     const fx300 = path.join(dir, 'fixture300.json'), fx67 = path.join(dir, 'fixture67.json'), both = path.join(dir, 'fixture-both.json'), broken = path.join(dir, 'fixture-broken.json');
@@ -567,6 +842,12 @@ function publicChecks() {
     check('--fixture: the synthetic fixture replays and passes', a.status === 0 && /\| `synthetic-300` \(\d+, \d+, \d+\) \| 30 \| 0 \|/.test(a.out) && /replay passed/.test(a.out));
     check('--fixture: two sections, a fault seen in one of them is enough', b.status === 0 && /replay passed/.test(b.out));
     check('--fixture: one tick off fails, naming the first mismatch', c.status !== 0 && /first mismatch at event pair \d+ \(tick \d+\): logged \d+, model \d+/.test(c.out));
+    const notJson = path.join(dir, 'not-a-fixture.log');
+    const privateLine = 'Player qPrivateNameq connected from qPrivateAddressq, STEAM_0:1:qPrivateIdq';
+    fs.writeFileSync(notJson, `${privateLine}\n${privateLine}\n`);
+    const e = runReplay(notJson);
+    check('--fixture: a file that is not JSON gives "not JSON" and nothing of the file', e.status !== 0 && /not JSON/.test(e.out)
+      && !/qPrivate|Player|connected|STEAM/.test(e.out) && !e.out.includes(privateLine.slice(0, 10)), e.out.trim());
     check('--fixture: a file in which a fault mismatches nowhere fails', d.status !== 0 && /mismatches nowhere/.test(d.out) && /\| `MARK67` .* \| 7 \| 0 \|/.test(d.out),
       (d.out.match(/fault "[^"]+" mismatches nowhere/g) || []).join('; '));
   } finally {
@@ -585,8 +866,11 @@ for (let i = 0; i < argv.length; i++) {
 }
 if (process.env[REPLAY_ONLY] !== '1') publicChecks();
 if (fixtureFile) {
-  let fixture;
-  try { fixture = validFixture(JSON.parse(fs.readFileSync(fixtureFile, 'utf8'))); } catch (e) { console.error(`cannot replay the fixture: ${e.message}`); process.exit(2); }
+  // Nothing of the file is printed: a console log given here by mistake holds names.
+  let text, fixture;
+  try { text = fs.readFileSync(fixtureFile, 'utf8'); } catch (e) { console.error(`cannot read the fixture (${e.code || 'error'})`); process.exit(2); }
+  try { fixture = JSON.parse(text); } catch { console.error('cannot replay the fixture: not JSON'); process.exit(2); }
+  try { fixture = validFixture(fixture); } catch (e) { console.error(`cannot replay the fixture: ${e.message}`); process.exit(2); }
   console.log(`\nReplay of a fixture of ${fixture.sections.length} section(s): mismatching ticks`);
   if (report(replayFixture(fixture)).length) process.exitCode = 1;
 }
