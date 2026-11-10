@@ -135,12 +135,13 @@ function renderOptions() {
     maxGain:     Number(els.maxGain.value),
     avgGain:     Number(els.avgGain.value),
     gate:        els.vad.value === 'auto' ? null : els.vad.value === '1',
-    // For `steam` the render runs Steam's own gate (W3-11a): at the control's
-    // -39.5 the page sends no number, so Steam's 1% of full scale (327.67) is
-    // used exactly. Left out (undefined), not null: the live chain, unchanged
-    // until W3-11b, reads a null as 0 dBFS and an absent value as its -39.5.
-    // W3-11b replaces this line (the profile's own default).
-    gateThresholdDb: els.codec.value === 'steam' && Number(els.vadThreshold.value) === -39.5 ? undefined : Number(els.vadThreshold.value),
+    // At the profile's own default (-40 for `steam`: Steam's 1% of full
+    // scale, 327.67, exactly; -39.5 for the others) the page sends no number,
+    // so the key a render is cached and batched by does not change at a
+    // default; a number otherwise (W3-11b).
+    // A blank control (or one that holds no number) is the profile's own too,
+    // as the engine reads it (gateThresholdDb() in audio.js), not 0 dBFS.
+    gateThresholdDb: typedGateDb() === null || typedGateDb() === gateDefaultDb(els.codec.value) ? undefined : typedGateDb(),
     // How long the sender's Steam had been running (W3-16): its float clock
     // sets the hold's real length. `steam` only; left out for other profiles.
     steamUptime: els.codec.value === 'steam' ? Number(els.steamUptime.value) : undefined,
@@ -248,7 +249,11 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
   if (realOpus && codecInfo.dtxFrames) {
     logLine(`S_Voice: ${codecInfo.dtxFrames} inactive frames sent as DTX comfort noise`, 'sys');
   }
-  if (realOpus && (codecInfo.lostFrames || codecInfo.underrunFrames)) {
+  if (realOpus && codecInfo.sender && codecInfo.sender.rule === 'steam' && (codecInfo.lostFrames || codecInfo.underrunFrames)) {
+    // Steam's decoder conceals a gap when the next frame arrives (at most
+    // ten frames); frames lost at a spurt's end are never played.
+    logLine(`S_Voice: ${codecInfo.lostFrames} frames concealed, ${codecInfo.underrunFrames || 0} late frames played as silence; frames lost at a spurt's end are not played`, 'sys');
+  } else if (realOpus && (codecInfo.lostFrames || codecInfo.underrunFrames)) {
     logLine(`S_Voice: ${codecInfo.lostFrames} frames lost and ${codecInfo.plc === 'zeros' ? 'played as zeros' : 'concealed'}, ${codecInfo.underrunFrames || 0} late frames played as silence`, 'sys');
   }
   logLine(`S_Voice: receiver auto-gain ${codecInfo.autoGain ? 'on' : 'off'} at ${codecInfo.voiceRate} Hz`, 'sys');

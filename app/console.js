@@ -46,6 +46,9 @@ function normalizeControlValue(el, raw) {
     return Array.from(el.options).some((option) => option.value === value) ? value : null;
   }
   if (el.type === 'number') {
+    // The threshold may be left blank: the profile's own (W3-11b). Elsewhere a
+    // blank number keeps the current setting.
+    if (value === '') return el === els.vadThreshold ? '' : null;
     const number = Number(value);
     if (!Number.isFinite(number)) return null;
     const min = el.min === '' ? -Infinity : Number(el.min);
@@ -300,6 +303,7 @@ const cvars = {
   'voice_avggain':   { help: 'Auto-gain normalizes each block between its mean (0) and peak (1) to full scale; 0.5 = TF2 default', link: 'avggain' },
   'voice_capture_channel': { help: 'Stereo input to the mono mic: left (measured through a virtual cable) / mix / right', link: 'capture_channel' },
   'voice_vad':       { help: 'Steam sender voice gate: auto (profile default) / 1 / 0', link: 'vad' },
+  // The help follows the profile (gateThresholdHelp, set by updateSignalChain).
   'voice_vad_threshold': { help: 'Gate opening level: 20 ms frame RMS in dBFS (measured -39.5); 120 ms pre-roll, 440 ms hold', link: 'vad_threshold' },
   'volume':          { help: 'Output volume of the rendered file (0.0 - 1.0)', link: 'volume' },
   'dsp_hpf':         { help: 'Optional sender high-pass cutoff (0 = off)', link: 'hp' },
@@ -454,10 +458,37 @@ function setActivePreset(name) {
   });
 }
 
+// The threshold control's meaning follows the profile (W3-11b): for `steam`
+// the mean of |x| over one of Steam's capture chunks; for the others the
+// 20 ms frame model's RMS. A typed number on `steam` reaches the real-take
+// check (app/realtake.js) as a frame RMS level, about 1 dB from the render's
+// gate (a sine's mean of |x| is 0.9 dB under its RMS); at the default
+// nothing is typed.
+function gateThresholdHelp(codecKey) {
+  if (!isSteamRule(codecKey)) return 'Gate opening level: 20 ms frame RMS in dBFS (measured -39.5); 120 ms pre-roll, 440 ms hold';
+  const S = TF2SteamSender.STEAM_SENDER;
+  return `Gate opening level: the mean of |x| over a capture chunk, in dBFS; Steam's own is -40 (1% of full scale); a sine opens at -39.1 dBFS RMS. `
+    + `Chunks · ${1000 * S.preroll / S.rate} ms kept · ${S.hold} s hold. A typed level reaches the real-take check as a 20 ms RMS level, about 1 dB from this gate`;
+}
+
+// The profile whose default the threshold control was last given: when the
+// codec changes and the control holds that profile's default, it takes the
+// new profile's.
+let gateProfile = els.codec.value;
+
 // Live, human-readable summary of the voice path the next render will use.
 function updateSignalChain() {
   // The sender's Steam age is a setting of the `steam` profile's sender only.
   if (els.steamUptime) els.steamUptime.closest('.control').hidden = els.codec.value !== 'steam';
+  if (els.codec.value !== gateProfile) {
+    if (Number(els.vadThreshold.value) === gateDefaultDb(gateProfile)) els.vadThreshold.value = String(gateDefaultDb(els.codec.value));
+    gateProfile = els.codec.value;
+  }
+  const help = gateThresholdHelp(els.codec.value);
+  cvars['voice_vad_threshold'].help = help;
+  const thresholdLabel = document.querySelector('label[for="vad_threshold"]');
+  if (thresholdLabel) thresholdLabel.title = help;
+  els.vadThreshold.title = help;
   if (!els.chain) return;
   const codec = CODEC_PROFILES[els.codec.value] || CODEC_PROFILES.steam;
   const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
@@ -465,7 +496,11 @@ function updateSignalChain() {
   const maxGain = num(els.maxGain, VOICE_ENGINE.autoGain.maxGain), volume = num(els.volume, VOICE_ENGINE.volume);
   const codecOn = els.warble.value === '1', agcOn = els.agc.value === '1';
   const gateOn = codecOn && (els.vad.value === 'auto' ? !!codec.senderGate : els.vad.value === '1');
-  const gateDb = num(els.vadThreshold, -39.5);
+  const gateDb = typedGateDb() ?? gateDefaultDb(els.codec.value);
+  // Steam's sender gates its capture chunks (W3-11a); the others, 20 ms frames.
+  const S = TF2SteamSender.STEAM_SENDER;
+  const gateText = isSteamRule(els.codec.value)
+    ? `gate > ${gateDb} dBFS · chunks · ${1000 * S.preroll / S.rate} ms kept · ${S.hold} s hold` : `gate > ${gateDb} dBFS`;
   const stereoIn = !!(state.decodedSource && state.decodedSource.left);
   const channelLabel = stereoIn ? ({ left: 'left ch · ', right: 'right ch · ', mix: 'L+R mix · ' })[els.captureChannel.value] || '' : '';
   const kbps = Math.round(Math.max(6000, codec.bitrate * bits / 16) / 1000);
@@ -479,7 +514,7 @@ function updateSignalChain() {
     : (LISTENER_POSITIONS[els.position.value] || LISTENER_POSITIONS.open).label;
   const filters = [num(els.hp, 0) > 10 ? `HP ${num(els.hp, 0)} Hz` : '', num(els.lp, 20000) < 20000 ? `LP ${num(els.lp, 20000)} Hz` : ''].filter(Boolean);
   const steps = [
-    ['Capture', `${channelLabel}mic ×${gain.toFixed(1)}${filters.length ? ' · ' + filters.join(' · ') : ''} · ${gateOn ? `gate > ${gateDb} dBFS` : 'no gate'}`, gain > 1 ? 'hot' : ''],
+    ['Capture', `${channelLabel}mic ×${gain.toFixed(1)}${filters.length ? ' · ' + filters.join(' · ') : ''} · ${gateOn ? gateText : 'no gate'}`, gain > 1 ? 'hot' : ''],
     ['Codec', !codecOn ? 'bypassed' : codec.engine === 'celt011'
       ? `CELT 0.11 ${codec.modeRate ? `${codec.modeRate / 1000} kHz mode on ${codec.codecRate / 1000} kHz sound` : `${codec.codecRate / 1000} kHz`} · ${Math.max(8, Math.round(codec.packetBytes * bits / 16))}-byte packets of ${(1000 * codec.frameSize / codec.codecRate).toFixed(1)} ms`
       // The game's module has one setting for vaudio_speex: snd_bits picks nothing.
@@ -534,7 +569,7 @@ function runPreset(name) {
   execCommand(`voice_avggain ${VOICE_ENGINE.autoGain.avgGain}`);
   execCommand('voice_capture_channel left');
   execCommand('voice_vad auto');
-  execCommand('voice_vad_threshold -39.5');
+  execCommand(`voice_vad_threshold ${gateDefaultDb(p.codec)}`);
   execCommand(`volume ${VOICE_ENGINE.volume}`);
   execCommand('net_split 20');
   execCommand(`net_fakejitter ${p.jitter || 0}`);
@@ -641,6 +676,12 @@ function applyConfig(cfg) {
     } catch (e) { /* invalid persisted value — retain the current setting */ }
   });
   if (els.position.value === 'manual' || els.env.value === '99') showAdvanced(true);
+  // A setting saved before W3-11b holds the frame model's -39.5 for `steam`:
+  // it reads as that profile's default, Steam's own -40.
+  if (cfg.vadthr != null && Number(cfg.vadthr) === -39.5 && isSteamRule(els.codec.value)) els.vadThreshold.value = String(gateDefaultDb(els.codec.value));
+  // A threshold given with the settings belongs to the codec given with it:
+  // no default is carried over from the profile the page had before.
+  if (cfg.vadthr != null) gateProfile = els.codec.value;
   if (applied) updateSignalChain();
   return applied;
 }

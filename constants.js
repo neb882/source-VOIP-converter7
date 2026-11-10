@@ -290,16 +290,20 @@ const CODEC_PROFILES = {
     // findings 5, 12 and 28) and decodes as its decoder does (finding 29). The
     // three numbers are the 20 ms frame model of finding 12, a fit: a frame
     // over -39.5 dBFS RMS sent with the 120 ms before it and the 440 ms after.
-    // The render does not read them. They stay for the tools that line a take
-    // up with that model (reference.js, app/realtake.js: they find a take's
-    // spurts within a few frames, and reference.js scores the registered
-    // predictions), and for the live chain until W3-11b.
+    // Neither the render nor the live chain reads them (the live chain runs
+    // the render's own stages since W3-11b). They stay for the tools that
+    // line a take up with that model (reference.js, app/realtake.js: they
+    // find a take's spurts within a few frames, and reference.js scores the
+    // registered predictions).
     senderGate: { rule: 'steam', thresholdDb: -39.5, prerollMs: 120, holdMs: 440 },
     voiceRate: 44100, mixer: 'sinc', status: 'measured'
   },
   // Optional fullband profile, NOT a verified TF2-era or native-rate preset.
   steam_48: {
-    displayName: 'Fullband Opus (48 kHz / 64 kbps, experimental)',
+    // Not the game's path: the 20 ms frame gate, the float decode and the
+    // app's own resampler (Steam's sender is 24 kHz into a 24000 to 44100 Hz
+    // resampler).
+    displayName: 'Fullband Opus (48 kHz / 64 kbps, experimental, not the game\'s path)',
     codecRate: 48000, bitrate: 64000, application: 'voip', signal: 'voice',
     encoder: { runtime: '1.1.5', complexity: 10, vbr: true, dtx: true },
     senderGate: { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 },

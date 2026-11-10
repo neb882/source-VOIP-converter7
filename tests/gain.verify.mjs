@@ -478,13 +478,16 @@ console.log('\n[5] The live chain: frames not sent hold the gain');
   const src = new Float32Array(48000 * 12);
   for (let i = 0; i < src.length; i++) src[i] = 2e-4 * (r2() * 2 - 1);
   for (const t0 of [0.3, 4.0, 4.9, 9.5]) for (let i = 0; i < 0.6 * 48000; i++) src[Math.round(t0 * 48000) + i] += 0.25 * Math.sin(i * 0.03) * (0.6 + 0.4 * r2());
-  for (const codecOpts of [{ codec: 'steam' }, { codec: 'celt_44', gate: true }]) {
+  // W3-11b: `steam` gives out per sample pushed to its sender, so the plan of
+  // blocks never changes its output, with loss too (the wait for the cursor
+  // over a run of lost frames).
+  for (const codecOpts of [{ codec: 'steam' }, { codec: 'steam', lossPct: 15, seed: 3 }, { codec: 'celt_44', gate: true }]) {
     const small = await live(codecOpts, 960, src), big = await live(codecOpts, 3 * 48000, src);
     const n2 = Math.min(small.length, big.length);
     let d = 0;
     for (let i = 0; i < n2; i++) if (small[i] !== big[i]) d++;
-    check(`live chain, ${codecOpts.codec} with the gate: 3 s blocks give the samples of 20 ms blocks`, d === 0 && n2 > 11 * 44100,
-      `${d} of ${n2} differ`);
+    check(`live chain, ${codecOpts.codec} with the gate${codecOpts.lossPct ? ` and ${codecOpts.lossPct}% loss` : ''}: 3 s blocks give the samples of 20 ms blocks`,
+      d === 0 && n2 > 11 * 44100 && small.length === big.length, `${d} of ${n2} differ; ${small.length} and ${big.length} samples`);
   }
 }
 

@@ -23,6 +23,9 @@ function enqueue(task) {
   queue = queue.then(task).catch(report);
 }
 
+// A settings change rebuilds the chain. For `steam` the new chain starts
+// with a silent sender, a new decoder, a resampler that has not flushed and a
+// reset gain: that is the app's own, not something Steam does.
 function configure(opts) {
   const mine = ++generation;
   enqueue(async () => {
@@ -34,7 +37,7 @@ function configure(opts) {
     chain.startTotal = null;   // global input sample of its first block
     chain.outTotal = 0;
     chain.frameTotal = 0;
-    self.postMessage({ type: 'ready', latencyMs: chain.stats.latencyMs, codec: chain.stats.codec });
+    self.postMessage({ type: 'ready', latencyMs: chain.stats.latencyMs, codec: chain.stats.codec, lowLatencySavingMs: chain.lowLatencySavingMs ?? null });
   });
 }
 
@@ -49,8 +52,10 @@ async function processBlock(block) {
     recording.dry.push(block);
     // Output sample j of this chain is its input sample j - contentDelay.
     if (out.length) recording.wet.push({ at: c.startTotal + c.outTotal - c.contentDelay - recording.start, samples: out.slice() });
-    // Codec frame k of this chain covers its input from k frame lengths on.
-    codes.forEach((code, k) => recording.frames.push({ at: c.startTotal / rate + (c.frameTotal + k) * c.frameSeconds - recording.start / rate, code }));
+    // Codec frame k of this chain covers its input from k frame lengths on;
+    // for `steam`, slot k from 480 k - lookahead codec samples on (the
+    // render's slot rule: slotOffsetSeconds).
+    codes.forEach((code, k) => recording.frames.push({ at: c.startTotal / rate + (c.frameTotal + k) * c.frameSeconds + (c.slotOffsetSeconds || 0) - recording.start / rate, code }));
     recording.chain = c;
   }
   c.outTotal += out.length;
