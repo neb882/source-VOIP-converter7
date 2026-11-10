@@ -1228,7 +1228,7 @@
   // printed line stands for (second read, section 4). The console prints each span as units / 12 rounded to a whole
   // foot, so a printed N is any whole number of units from 12N - 6 to 12N + 6 (which way a half foot goes was not
   // read): length = 12a (the first number), width = 12b, height = 12c (400 under an open sky: 4800, the ray's
-  // length). The reflectivity is printed to four decimals, so r stands for r - 0.00005 to r + 0.00005. `sky`: the
+  // length, the most a height can be). The reflectivity is printed to four decimals, so r stands for r - 0.00005 to r + 0.00005. `sky`: the
   // printed 1 or 0 (or a boolean). Optional: `mix`, the four values dsp_mix_min, dsp_mix_max, dsp_db_min and
   // dsp_db_mixdrop read after the build (the built preset's header: it tells an open-sided shape's pair, and a room's
   // copy), and `shape`, the console's shape line (or the module's name). Every space the printed numbers allow is
@@ -1264,8 +1264,8 @@
       for (let u = Math.max(0, 12 * feet - 6); u <= Math.min(max, 12 * feet + 6); u++) out.push(u);
       return out;
     };
-    const lengths = units(size[0], 9600), widths = units(size[1], 9600);
-    const heights = height === 400 && sky ? [4800] : units(height, 4800);
+    // Spans are two rays of 4800, a height one ray: 400 printed under an open sky is 4800, the nearest in its range.
+    const lengths = units(size[0], 9600), widths = units(size[1], 9600), heights = units(height, 4800);
     // The reflectivity: the printed value, and either side of a threshold within the printing's half step.
     const refls = [refl];
     const bits = new Float32Array(1), word = new Int32Array(bits.buffer);
@@ -1295,8 +1295,8 @@
                 if (!hd || !hd.every((v, i) => v === fround(mix[i]))) continue;
               }
               const key = [shapeNumber, classes.size, classes.width, classes.length, classes.height, classes.reflectivity, copy].join();
-              const dist = Math.abs(length - 12 * size[0]) + Math.abs(width - 12 * size[1]) +
-                Math.abs(h - (heights.length === 1 ? h : 12 * height)) + (reflectivity === refl ? 0 : 1);
+              const dist = Math.abs(length - 12 * size[0]) + Math.abs(width - 12 * size[1]) + Math.abs(h - 12 * height) +
+                (reflectivity === refl ? 0 : 1);
               const was = found.get(key);
               if (!was || openSides < was.measures.openSides || (openSides === was.measures.openSides && dist < was.dist)) {
                 found.set(key, { measures: m, shape: SHAPES[shapeNumber].name, shaft: isShaft(m), classes, copy, dist });

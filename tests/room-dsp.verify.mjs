@@ -1425,9 +1425,22 @@ export async function main() {
       return a.open.includes('copy') && b.candidates.every((x) => x.copy === 102 && x.classes.size <= 1) &&
         c.candidates.every((x) => x.copy === 103 && x.classes.size === 2) && b.candidates.length > 0 && c.candidates.length > 0;
     });
-    checkTry('a shaft in the log says so (size:(8,5) height:(66) indoors); printed numbers that are not feet, a sky of 2, an unknown shape line, or a shape the numbers cannot build are refused by name', () => {
+    // A printed N is 12N - 6 to 12N + 6 units; with R2 e2's hall rule (length over 2.5 widths, width 49 to 96):
+    // size:(11,5) is length 126 to 138 and width 54 to 66, and 136 > 2.5 x 54 = 135, so a hall or a room; size:(13,6)
+    // is 150 to 162 by 66 to 78, and 2.5 x 66 = 165 > 162, so a room only (by hand, from those two sentences).
+    checkTry('a printed foot is 12N - 6 to 12N + 6 units: size:(11,5) may be a hall or a room, size:(13,6) only a room',
+      () => {
+        const shapes = (size) => [...new Set(pd({ size, height: 1, refl: 0.4, sky: 0 }).candidates.map((c) => c.shape))].sort();
+        return same(shapes([11, 5]), ['hall', 'room']) && same(shapes([13, 6]), ['room']);
+      });
+    // size:(8,5) height:(66) indoors: length 90 to 102, width 54 to 66, height 786 to 798, a shaft throughout; by
+    // the second read's finding 1 the classes come from the exchanged record: width class 0, length class 3 (786 to
+    // 798), height class 1 (90 to 102), size class 1; the shape a hall (786 > 2.5 x 66, width 54 to 66); copy 110.
+    checkTry('a shaft in the log (size:(8,5) height:(66) indoors): a hall of classes 1, 0, 3, 1 from 110 (finding 1); printed numbers that are not feet, a sky of 2, an unknown shape line, or a shape the numbers cannot build are refused by name', () => {
       const refusedP = (line, word) => { try { R.placeFromDebug(line); return false; } catch (e) { return e.message.includes(word); } };
-      return pd({ size: [8, 5], height: 66, refl: 0.4, sky: 0 }).candidates.every((c) => c.shaft) &&
+      const sh = pd({ size: [8, 5], height: 66, refl: 0.4, sky: 0 });
+      return sh.candidates.length === 1 && sh.shaft && sh.shape === 'hall' && same(classList(sh.classes).slice(0, 4), [1, 0, 3, 1]) &&
+        sh.copy === 110 &&
         refusedP({ size: [33.5, 25], height: 13, refl: 0.9, sky: 0 }, 'size') && refusedP({ size: [33, 25], height: 13, refl: 0.9, sky: 2 }, 'sky') &&
         refusedP({ size: [33, 25], height: 13, refl: 0.9, sky: 0, shape: 'CAVE Detected' }, 'shape line') &&
         refusedP({ size: [33, 25], height: 13, refl: 0.9, sky: 0, shape: 'DUCT Detected' }, 'no space');
