@@ -27,11 +27,12 @@
   "in_flight": [
     {
       "order": "W3-18-speex-exact",
-      "state": "next",
-      "note": "docs/work-orders/W3-18-speex-exact.md. The investigation is done (stands.speex_module). W3-17c has merged, so the build can start; its float cosine and arc cosine are written afresh from a description in words and checked against vectors measured from the module (the investigator's own C of those two routines is kept private)."
+      "state": "building",
+      "note": "docs/work-orders/W3-18-speex-exact.md. Builder's branch claude/w3-18-speex-exact (build, tests, docs and report committed, first CI run green; not yet handed back at 07:10 UTC 2026-11-11). The orchestrator's private run on its build: the vendored module equals Set M's two recordings in every sample (145,920 of 145,920 at voice_maxgain 1; 146,080 of 146,080 at 10 after the app's gain on the whole decoded stream). Next: the review, fixes, merge, v29."
     }
   ],
   "next": [
+    "W3-19 (docs/work-orders/W3-19-gain-grid.md), straight after W3-18's merge: the receiver gain on the decoder's own samples. Found 2026-11-11 while scoring W3-18: the render drops the codec's delay (64 samples CELT, 80 Speex) before the gain, so the gain's 128-sample blocks fall off the game's. Nothing shows at voice_maxgain 1 (CELT 158,384 of 158,385 non-silent samples against Set H, Speex 145,840 of 145,840 against Set M); at the default 10 the whole render equals the game in 45,123 of 158,548 (CELT) and 86,171 of 145,966 (Speex), though codec and gain are each exact alone.",
     "Bad connections (plan of 2026-11-11): BC-1 (loss per packet and whole message with the 12-frame refusal, on the steam render and live chain; needs no recording; checked privately on Set C at 21.7, 37.0, 49.8%), BC-2 (the words: page, README, findings 8 and 9), then BC-3 (loss through the queue, after W3-02c), BC-4 (jitter as in-order delays through the queue), BC-5 (engine codecs), BC-6 (sender's side, after the two-PC block). Each is to be written as an order before it is built.",
     "Added 2026-11-11 by the owner's decisions: exact Speex (investigation running, then a build order), the Miles voice codec (waits for the owner's run), bad connections (a plan first: what is already read and measured in W3-01, W3-02, W3-03 and Set C, what is missing, which recordings the owner would make). These follow W3-17c; the page orders keep their place after audio work.",
     "Back in the queue since the owner withdrew the audible-only standard (2026-11-11), as investigations one at a time after the Speex one: the device stage's last unit, the 250 ms capture pattern, R3-3 placed to the sample. The emulator route (CLAUDE.md) is open for each module the owner has supplied.",
