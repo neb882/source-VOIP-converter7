@@ -28,7 +28,8 @@ reached: W3-10 as merged is shaped as Decision 3 says, and nothing needed a chan
 - **Gone**: `dspDFR`, `dspRVA`, `dspDLY`, `dspAMP`, `dspMDY`, `runDspChain` (and its export), `customChain`, the 0.45
   mix, the comb detuning hash, the old `resolveRoom`, the listener's low-pass (`extraLpf`) in `process()`,
   `createRender` and the live chain, and the float seam it sat in (`toMixInts`, `mixSeam`).
-- **Eleven golden room cases** recorded once, in a commit of their own, after every check of them passed: among them a
+- **Thirteen golden room cases** recorded once, in commits of their own (eleven, then two in the review round), after
+  every check of them passed: among them a
   model written in the test that rebuilds each render from its own gain output with the module by hand, bit for bit,
   before the clip and at the output, tail included.
 - **`ROOM_PLACES`** holds the amendment's five rows on `ctf_2fort`; each builds, through `placeFromDebug` and
@@ -46,7 +47,10 @@ reached: W3-10 as merged is shaped as Decision 3 says, and nothing needed a chan
 | `fdd693a` | `tests/accuracy.takes.json`: the seven rows' `room` |
 | `b926961` | `tests/REFERENCE_2026.md` (the app-today texts) and `tests/predictions/PREDICTIONS.md` (the dated note) |
 | `e6e606e` | two more checks, the tail rule holding inside the voice, written for mutations A7 and A8 when planning them (no other check sees either) |
-| (this report's commit) | the report; the custom room at its knobs' ends against the room by hand (after mutation A21 passed); the memory check's buffer sized for a tail |
+| `94d5e81`, `9002376` | the report; the custom room at its knobs' ends against the room by hand (after mutation A21 passed); the memory check's buffer sized for a tail |
+| `b09748b` | the review's fixes: the tail loop's bound, `dspRoom` strings, `opts.room` over the water position, two room cases (no hashes yet), README's one sentence |
+| `fa83612` | the two new cases' hashes, alone |
+| (this commit) | this report's "Review and fixes" and "Runs" |
 
 ## What was built
 
@@ -119,7 +123,8 @@ six cases rendered by an engine loaded without the module give their recorded ha
 
 ## The checks
 
-`node tests/render-stream.verify.mjs` (in `pnpm test`): 479 checks, all pass. The order's checks of part c:
+`node tests/render-stream.verify.mjs` (in `pnpm test`): 500 checks after the review round, all pass. The order's checks
+of part c:
 
 | Check | Where | Result |
 | --- | --- | --- |
@@ -227,6 +232,8 @@ heavy-job lock, one after another:
 | The browser suite (`node tests/browser.verify.js`, the installed Chromium) | exit 0, 246 checks |
 | `node tests/render-stream.verify.mjs` on this report's commit | exit 0, 479 checks, 268 s |
 | Mutations | 30 runs (29 mutations and the unmutated copy), then A21 again with the new check: all caught but A16, which cannot be |
+| **After the review's fixes** (`fa83612`, the code as pushed; this report's commit adds no code): `pnpm test:all` | exit 0, 665 s: `test:vendor` (all four builds match), then `pnpm test` (`verify.js` 214, gain 69, `gain-exact` ok, Opus 147, Speex 71, paired reference 42, formats 68, file rate 53, meter 50, video 46, demo 36, **render-stream 500**, output-stage 102, voice channel 129, Steam sender 109, swresample 43, room 216), then the browser suite (246) |
+| The review round's mutations | F1 to F5 and F3b, and the unmutated copy: each caught, as "Review and fixes" says |
 
 CI (`tests`, which runs `pnpm test:all`) on this branch:
 
@@ -242,6 +249,29 @@ this machine (the scratch folder is named only as "the builder's scratch folder"
 `Claude <noreply@anthropic.com>`, its message ending with the two trailer lines; no recording, take or `.wav` added; no
 engine source read or added; nothing downloaded. Every file changed is in part c's "Files" or the two the amendment
 adds (`room-dsp.js`, `tests/room-dsp.verify.mjs`), with the loaders' one line each.
+
+## Review and fixes
+
+The reviewer found no wrong sample: its own model equals `process()` on 11,582,872 of 11,582,872 samples over 34 cases
+and 107 streams, and 32 no-room cases are byte-identical on the base and the head. The orchestrator's private run on the
+takes: every no-room take unchanged to the last digit; Set C's level against the take +1.2 to 0.0 dB; its echoes equal
+(0.2363 against 0.2335 at 57.96 ms). Six things to fix, by the orchestrator's rulings; no recorded hash moved in any of
+them (`git diff` of the two hash tables from `9002376` shows the two new cases' lines added and only a comma added to
+the line before each).
+
+| # | Finding | What was done | Mutation, now |
+| --- | --- | --- | --- |
+| 1 | The render's seed is not pinned: every room case used the default seed, so both `resolveRoom` calls given `0xC0FFEE` passed everything | a golden case `steam, room: preset 17 (random taps), seed 7`, streamed whole and uneven; the by-hand model takes each case's seed; "one room path, the render's seed" checks each case's own seed and 7 in this one | F1 (both calls `0xC0FFEE`): 4 checks fail: the seed case's hash, its by-hand model (output and before the clip), "the render's seed" |
+| 2 | `maxTail` checked only at 48 kHz; the tail's conversion to the device's rate held by one check | a golden case `steam, room: preset 6, device at 96000 Hz`, streamed uneven and whole (the stream checks `maxTail` against the render's rate); `createRender`'s `maxTail` 1,920,000 at 96 kHz; the tail-length check uses the render's rate | F2 (`maxTail` at 48000): 3 fail: the 96 kHz case's two streams (`maxTail` against the render's rate) and `createRender`'s 1,920,000; F2b (the tail converted at 48000): 4 fail: the 96 kHz case's hash, its tail length, its by-hand model, and the square at 44.1 kHz as before |
+| 3 | The tail loop had no bound of its own: two wrong edits made the suites hang or run out of memory | `flush()` stops after `ceil(TAIL_CAP / 512) + 2` blocks past the voice with an error that names the cap; a check wraps the path so its `tailLeft()` never ends and sees `process()` and `createRender` stop after exactly that many blocks | F3 (the last block not zero-filled; hung before): the suite stops in 43 s on the first room case with the bound's error ("did not end within its cap of 882000 mixer samples (1725 blocks after the voice)"), where before the edit hung it; F3b (each push given to the path as it comes): 13 fail (the blocks check at every voice rate and chunking), the suite runs to its end |
+| 4 | `dspRoom` strings: `Number()` made `" 6"`, `"0x6"` and `"6e0"` room 6, where the old code gave no room | a whole number, or a string written as a number is; anything else no room, as before. The ruling said "a string of decimal digits"; I left out a leading zero too, since `"06"` was no room in the old code's lookup as well, so no render moves. The four strings and 6.5 are in the no-room checks | F4 (`Number()` again): 4 fail: `" 6"`, `"0x6"`, `"6e0"` and `"06"` as no room |
+| 5 | `{ listenerPos: 'water', room: { preset: 6 } }` rendered preset 6 under water, though `opts.room` wins | with `opts.room` given, under water is `opts.underwater` alone; checks: that case renders as `{ room: { preset: 6 } }`, `room: null` with the water position as no room, and with `underwater: true` as under water | F5 (the water position always): 2 fail: the water position with `room: { preset: 6 }` and with `room: null` |
+| 6 | README's mixer line said the room and an underwater low-pass "come next" | that one sentence now says what renders since part c and that the page's new room panel and the live monitor's room come later | none |
+
+Not changed, by the rulings: finding 5 (a number the table might hold needs the module to decide: reading 8 stands) and
+finding 7 (the room cases' two chunk plans each: the reviewer's own 107 streams, at chunk sizes 1, 127, 512, 4096 and
+whole over its 34 cases, cover what the extra plans would). The unmutated copy in the same runner failed nothing but the
+cut list's "every recorded render is a case of the matrix".
 
 ## Every reader of `outputLength`, and what it does with a tail
 
@@ -300,9 +330,11 @@ figures.
    from the header `[mix, mix, 0, 0, 0, 0]` in single precision, agree with them at every mix from 0.00001 to 1 in
    steps of 0.00001 (a sweep of mine), so the override is the order's text more than a difference. `path.shares()` is
    still asked at every block, so the block's update runs in the engine's order.
-10. **`opts.room` wins** whenever it is given (null included); otherwise `listenerPos` (a key of
-    `LISTENER_POSITIONS`, by `Object.hasOwn`), otherwise `dspRoom` (a number or a numeric string). Under water is
-    `opts.underwater`, or the position `water`. The custom room's defaults (1.5, 3, 0.25) live in `audio.js` as
+10. **`opts.room` wins** whenever it is given (null included), and then under water is `opts.underwater` alone (fixed
+    in the review round: the position `water` added it before). Otherwise `listenerPos` (a key of
+    `LISTENER_POSITIONS`, by `Object.hasOwn`), with its `water` meaning under water, otherwise `dspRoom`: a whole
+    number, or a string written as a number is (`/^(0|[1-9][0-9]*)$/`; fixed in the review round, where `Number()` had
+    made `" 6"`, `"0x6"` and `"6e0"` room 6). The custom room's defaults (1.5, 3, 0.25) live in `audio.js` as
     `CUSTOM_ROOM`, since W3-17d strips `DSP_PRESETS` to names.
 11. **`spurtStart()` is called once, as the path is made**, and the shares for `codecInfo.room` are read then: the same
     call the first block makes (the module's update is once per block). Leaving it out changes nothing, since
@@ -327,4 +359,7 @@ figures.
   would close this.
 - **Finding 32's under-water bullet** still ends "No take was made under water"; the same finding's dated paragraph of
   2026-11-11 gives Set K's take. Not changed: it is the game's side of the finding, the orchestrator's.
-- The page, the live chain, README: W3-17d.
+- **The tail's memory at the cap** (the review's figure): a render whose tail runs to the cap raises the heap in
+  `finish()` by 42 MB at 48 kHz and 79 MB at 192 kHz, since the tail's blocks are joined whole before the device stage.
+  Left as it is, by the coordinator's ruling; the loop is bounded (the review round), not restructured.
+- The page, the live chain and the rest of README: W3-17d.
