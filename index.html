@@ -51,9 +51,8 @@
         </div>
         <div class="live-controls">
           <button id="live-record" type="button" disabled title="Record the live session: the microphone and the TF2 voice, loaded into the app as a dry/wet pair (A/B, views, meter, download)">⏺ Record</button>
-          <label title="Send only while V (TF2's +voicerecord key) or the Talk button is held. This is the app's stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by its own hold. Steam's own key rules (it goes on sending for half a second after a release) are not built yet."><input id="live-ptt" type="checkbox"> Push-to-talk (hold <kbd>V</kbd>)</label>
+          <label title="Send only while V (TF2's +voicerecord key) or the Talk button is held. This is the app's stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by its own hold. Steam's own key rules (it goes on sending for half a second after a release) are not built yet."><input id="live-ptt" type="checkbox"> Push-to-talk (hold <kbd>V</kbd>) <code class="cvar">+voicerecord</code></label>
           <button id="live-talk" type="button" hidden title="Hold to talk">🎙 Hold to talk</button>
-          <label title="Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. Saves the figure shown once the monitor runs. Not how TF2 sounds."><input id="live-lowlat" type="checkbox"> Low latency (shorter pre-roll)</label>
         </div>
         <p id="live-note" class="live-note"></p>
       </div>
@@ -67,9 +66,9 @@
         <button class="preset-btn" type="button" data-cmd="exec preset_legacy" data-preset="legacy" aria-label="Legacy CELT">
           <span class="preset-name">Legacy CELT</span><span class="preset-desc">CELT-era codec, same receiver</span></button>
         <button class="preset-btn" type="button" data-cmd="exec preset_spam" data-preset="spam" aria-label="Mic Spam (Tunnel)">
-          <span class="preset-name">Mic Spam</span><span class="preset-desc">Overdriven mic in a tunnel</span></button>
-        <button class="preset-btn" type="button" data-cmd="exec preset_sewers" data-preset="sewers" aria-label="2fort Sewers">
-          <span class="preset-name">2fort Sewers</span><span class="preset-desc">Underwater, muffled</span></button>
+          <span class="preset-name">Mic Spam</span><span class="preset-desc">Overdriven mic in an automatic tunnel</span></button>
+        <button class="preset-btn" type="button" data-cmd="exec preset_underwater" data-preset="underwater" aria-label="Under water">
+          <span class="preset-name">Under water</span><span class="preset-desc">The game's water preset</span></button>
         <button class="preset-btn" type="button" data-cmd="exec preset_laggy" data-preset="laggy" aria-label="Laggy 18% Loss">
           <span class="preset-name">Laggy</span><span class="preset-desc">18% lost frames + 50 ms jitter</span></button>
       </div>
@@ -88,59 +87,29 @@
 
         <div class="control control-wide">
           <label for="listener_position">Listener position <code class="cvar">dsp_room</code></label>
-          <select id="listener_position">
-            <option value="open" selected>Open / Outdoor — dry (0)</option>
-            <option value="hallway">Hallway / Corridor (22)</option>
-            <option value="small_room">Small Room / Spawn (17)</option>
-            <option value="tunnel">Tunnel (6)</option>
-            <option value="tunnel_big">Big Tunnel (7)</option>
-            <option value="cavern">Cavern (24)</option>
-            <option value="hangar">Hangar / Warehouse (10)</option>
-            <option value="chamber">Concrete Chamber (19)</option>
-            <option value="water">Underwater (14)</option>
-            <option value="metal">Metal Room (4)</option>
-            <option value="manual">— Manual dsp_room below —</option>
-          </select>
+          <select id="listener_position" aria-describedby="room-detail room-evidence"></select>
+          <p id="room-detail" class="control-help"></p>
+          <p id="room-evidence" class="control-help room-evidence" hidden></p>
+        </div>
+        <div class="control">
+          <label class="check-label" for="underwater"><input id="underwater" type="checkbox"> Listener under water</label>
+          <p id="underwater-help" class="control-help">A state of the player, with no variable: the whole sound passes the game's water preset (14).</p>
         </div>
 
         <div class="mode-row">
           <button id="advanced-toggle" class="preset-btn" type="button" aria-expanded="false" aria-controls="controls-wrapper">Show advanced controls</button>
-          <span>Every stage of the voice path, in signal order.</span>
+          <span>Every stage of the voice path, in signal order; the app's own extras last.</span>
         </div>
 
         <fieldset class="chain-group advanced-control">
           <legend><span class="chain-index">A</span> Sender</legend>
           <div class="control">
-            <label for="capture_channel">Stereo capture <code class="cvar">voice_capture_channel</code></label>
+            <label for="capture_channel">Stereo capture</label>
             <select id="capture_channel">
               <option value="left" selected>Left (measured)</option>
               <option value="mix">Mix L+R</option>
               <option value="right">Right</option>
             </select>
-          </div>
-          <div class="control">
-            <label for="gain">Mic gain <code class="cvar">voice_micgain</code></label>
-            <input id="gain" type="number" value="1.0" min="0.5" max="5.0" step="0.1">
-          </div>
-          <div class="control">
-            <label for="hp">Hi-pass Hz, 0 = off <code class="cvar">dsp_hpf</code></label>
-            <input id="hp" type="number" value="0" min="0" max="1000">
-          </div>
-          <div class="control">
-            <label for="lp">Lo-pass Hz, 20000 = off <code class="cvar">dsp_lpf</code></label>
-            <input id="lp" type="number" value="20000" min="1000" max="20000">
-          </div>
-          <div class="control">
-            <label for="vad">Voice gate <code class="cvar">voice_vad</code></label>
-            <select id="vad">
-              <option value="auto" selected>Auto (Steam: on)</option>
-              <option value="1">On</option>
-              <option value="0">Off (always send)</option>
-            </select>
-          </div>
-          <div class="control">
-            <label for="vad_threshold" title="Gate opening level: the mean of |x| over a capture chunk, in dBFS; Steam's own is -40 (1% of full scale); a sine opens at -39.1 dBFS RMS. Chunks · 100 ms kept · 0.4 s hold. A typed level reaches the real-take check as a 20 ms RMS level, about 1 dB from this gate">Gate opens above dBFS <code class="cvar">voice_vad_threshold</code></label>
-            <input id="vad_threshold" type="number" value="-40" min="-70" max="-10" step="0.5">
           </div>
           <div class="control">
             <label for="steam_uptime" title="Steam stops sending 0.4 s after the last chunk loud enough to pass, timed on a clock that gets coarser the longer Steam has run: 0.40 s on a fresh start, anywhere from 0.38 to 0.50 s after two weeks.">Sender's Steam has been running</label>
@@ -155,22 +124,7 @@
         </fieldset>
 
         <fieldset class="chain-group advanced-control">
-          <legend><span class="chain-index">B</span> Codec &amp; network</legend>
-          <div class="control">
-            <label for="warble_on">Codec <code class="cvar">snd_codec</code></label>
-            <select id="warble_on">
-              <option value="1" selected>On</option>
-              <option value="0">Bypass (receiver remains)</option>
-            </select>
-          </div>
-          <div class="control">
-            <label for="bits">Bitrate, 16 = stock <code class="cvar">snd_bits</code></label>
-            <input id="bits" type="number" value="16" min="4" max="16">
-          </div>
-          <div class="control">
-            <label for="frameMs">Packet ms <code class="cvar">net_split</code></label>
-            <input id="frameMs" type="number" value="20" min="20" max="100" step="20">
-          </div>
+          <legend><span class="chain-index">B</span> Network</legend>
           <div class="control">
             <label for="loss">Frames lost % <code class="cvar">net_fakeloss</code></label>
             <input id="loss" type="number" value="0" min="0" max="60">
@@ -183,20 +137,6 @@
 
         <fieldset class="chain-group advanced-control">
           <legend><span class="chain-index">C</span> Receiver</legend>
-          <div class="control">
-            <label for="agc">Auto-gain <code class="cvar">voice_agc</code></label>
-            <select id="agc">
-              <option value="1" selected>On (measured)</option>
-              <option value="0">Off (unity gain)</option>
-            </select>
-          </div>
-          <div class="control">
-            <label for="retime" title="TF2's receiver starts some talk spurts early after a short silence (measured; which ones is random). Off keeps the source's timing for A/B.">Talk-spurt timing <code class="cvar">voice_retime</code></label>
-            <select id="retime">
-              <option value="0" selected>Source timing</option>
-              <option value="1">TF2 re-timing (random)</option>
-            </select>
-          </div>
           <div class="control">
             <label for="avggain">Mean → peak normalize <code class="cvar">voice_avggain</code></label>
             <input id="avggain" type="number" value="0.5" min="0" max="1" step="0.05">
@@ -214,40 +154,9 @@
         <fieldset class="chain-group advanced-control">
           <legend><span class="chain-index">D</span> Listener room &amp; output</legend>
           <div class="control control-wide">
-            <label for="env">Manual dsp_room <code class="cvar">dsp_room</code></label>
-            <select id="env">
-              <option value="0">0  – Off (NULL)</option>
-              <option value="1">1  – Generic (AUTO, dry)</option>
-              <option value="2">2  – Metal Small</option>
-              <option value="3">3  – Metal Medium</option>
-              <option value="4">4  – Metal Large</option>
-              <option value="5">5  – Tunnel Small</option>
-              <option value="6">6  – Tunnel Medium</option>
-              <option value="7">7  – Tunnel Large</option>
-              <option value="8">8  – Chamber Small</option>
-              <option value="9">9  – Chamber Medium</option>
-              <option value="10">10 – Chamber Large</option>
-              <option value="11">11 – Brite Small</option>
-              <option value="12">12 – Brite Medium</option>
-              <option value="13">13 – Brite Large</option>
-              <option value="14">14 – Water 1 (underwater)</option>
-              <option value="15">15 – Water 2</option>
-              <option value="16">16 – Water 3</option>
-              <option value="17">17 – Concrete Small</option>
-              <option value="18">18 – Concrete Medium</option>
-              <option value="19">19 – Concrete Large</option>
-              <option value="20">20 – Outside Small</option>
-              <option value="21">21 – Outside Medium</option>
-              <option value="22">22 – Outside Large</option>
-              <option value="23">23 – Cavern Small</option>
-              <option value="24">24 – Cavern Medium</option>
-              <option value="25">25 – Cavern Large</option>
-              <option value="26">26 – Weirdo 1</option>
-              <option value="27">27 – Weirdo 2</option>
-              <option value="28">28 – Weirdo 3</option>
-              <option value="29">29 – Weirdo 4</option>
-              <option value="99">99 – Custom (below)</option>
-            </select>
+            <label for="env">Manual room number <code class="cvar">dsp_room</code></label>
+            <select id="env" aria-describedby="env-detail"></select>
+            <p id="env-detail" class="control-help"></p>
           </div>
           <div class="control">
             <label for="volume">Output volume, 1 = the game's default <code class="cvar">volume</code></label>
@@ -255,25 +164,114 @@
             <p id="volume-note" class="reference-help">At 1, the game's default, a loud voice fills the whole range, as it does in the game.</p>
           </div>
           <div class="control">
-            <label for="device_rate" title="The listener's PC hands the game's 44.1 kHz sound to a device that usually runs at 48 kHz, converting it on the way by linear interpolation, which softens the top octave a little; at 44.1 kHz nothing is converted.">Listener's sound device <code class="cvar">snd_device_rate</code></label>
+            <label for="device_rate" title="The listener's PC hands the game's 44.1 kHz sound to a device that usually runs at 48 kHz, converting it on the way by linear interpolation, which softens the top octave a little; at 44.1 kHz nothing is converted.">Listener's sound device</label>
             <select id="device_rate">
               <option value="48000" selected>48000 Hz (usual)</option>
               <option value="44100">44100 Hz</option>
             </select>
           </div>
-          <div id="custom-env" class="control control-full advanced-control">
-            <div class="section-label">dsp_custom settings</div>
+          <div id="auto-env" class="control control-full">
+            <div class="section-label">The automatic room's measures (what the map would measure; units)</div>
             <div class="custom-row">
               <div class="custom-col">
-                <label for="c_dur">Time <code class="cvar">dsp_custom_time</code></label>
+                <label class="check-label" for="a_sky"><input id="a_sky" type="checkbox"> Under the sky</label>
+              </div>
+              <div class="custom-col">
+                <label for="a_w">Width</label>
+                <input id="a_w" type="number" value="300" min="0" max="100000" step="1">
+              </div>
+              <div class="custom-col">
+                <label for="a_l">Length</label>
+                <input id="a_l" type="number" value="400" min="0" max="100000" step="1">
+              </div>
+              <div class="custom-col">
+                <label for="a_h">Height</label>
+                <input id="a_h" type="number" value="160" min="0" max="4800" step="1">
+              </div>
+              <div class="custom-col">
+                <label for="a_open">Open sides</label>
+                <input id="a_open" type="number" value="0" min="0" max="4" step="1">
+              </div>
+              <div class="custom-col">
+                <label for="a_refl">Reflectivity</label>
+                <input id="a_refl" type="number" value="0.4" min="0" max="1" step="0.01">
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="chain-group advanced-control" id="extras">
+          <legend><span class="chain-index">+</span> Extras: not in the game</legend>
+          <div class="control">
+            <label for="gain">Mic gain</label>
+            <input id="gain" type="number" value="1.0" min="0.5" max="5.0" step="0.1">
+          </div>
+          <div class="control">
+            <label for="hp">Hi-pass Hz, 0 = off</label>
+            <input id="hp" type="number" value="0" min="0" max="1000">
+          </div>
+          <div class="control">
+            <label for="lp">Lo-pass Hz, 20000 = off</label>
+            <input id="lp" type="number" value="20000" min="1000" max="20000">
+          </div>
+          <div class="control">
+            <label for="vad">Voice gate</label>
+            <select id="vad">
+              <option value="auto" selected>Auto (Steam: on)</option>
+              <option value="1">On</option>
+              <option value="0">Off (always send)</option>
+            </select>
+          </div>
+          <div class="control">
+            <label for="vad_threshold" title="Gate opening level: the mean of |x| over a capture chunk, in dBFS; Steam's own is -40 (1% of full scale); a sine opens at -39.1 dBFS RMS. Chunks · 100 ms kept · 0.4 s hold. A typed level reaches the real-take check as a 20 ms RMS level, about 1 dB from this gate">Gate opens above dBFS</label>
+            <input id="vad_threshold" type="number" value="-40" min="-70" max="-10" step="0.5">
+          </div>
+          <div class="control">
+            <label for="warble_on">Codec</label>
+            <select id="warble_on">
+              <option value="1" selected>On</option>
+              <option value="0">Bypass (receiver remains)</option>
+            </select>
+          </div>
+          <div class="control">
+            <label for="bits">Bitrate, 16 = stock</label>
+            <input id="bits" type="number" value="16" min="4" max="16">
+          </div>
+          <div class="control">
+            <label for="frameMs">Packet ms</label>
+            <input id="frameMs" type="number" value="20" min="20" max="100" step="20">
+          </div>
+          <div class="control">
+            <label for="agc">Auto-gain</label>
+            <select id="agc">
+              <option value="1" selected>On (measured)</option>
+              <option value="0">Off (unity gain)</option>
+            </select>
+          </div>
+          <div class="control">
+            <label for="retime" title="TF2's receiver starts some talk spurts early after a short silence (measured; which ones is random). Off keeps the source's timing for A/B.">Talk-spurt timing</label>
+            <select id="retime">
+              <option value="0" selected>Source timing</option>
+              <option value="1">TF2 re-timing (random)</option>
+            </select>
+          </div>
+          <div class="control">
+            <label title="Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. Saves the figure shown once the monitor runs. Not how TF2 sounds." class="check-label"><input id="live-lowlat" type="checkbox"> Live monitor: low latency (shorter pre-roll)</label>
+          </div>
+          <div id="custom-env" class="control control-full">
+            <div class="section-label">The custom room (dsp_room 99)</div>
+            <p id="custom-help" class="control-help">The app's own room, not the game's. At a high mix its 32-bit sums can wrap, as some of the game's rooms do fully wet.</p>
+            <div class="custom-row">
+              <div class="custom-col">
+                <label for="c_dur">Time</label>
                 <input id="c_dur" type="number" value="1.5" step="0.1" min="0" max="6">
               </div>
               <div class="custom-col">
-                <label for="c_dec">Decay <code class="cvar">dsp_custom_decay</code></label>
+                <label for="c_dec">Decay</label>
                 <input id="c_dec" type="number" value="3.0" step="0.1" min="0.5" max="8">
               </div>
               <div class="custom-col">
-                <label for="c_mix">Mix % <code class="cvar">dsp_custom_mix</code></label>
+                <label for="c_mix">Mix %</label>
                 <input id="c_mix" type="number" value="25" min="0" max="100">
               </div>
             </div>
@@ -451,6 +449,7 @@
   <script src="filerate.js"></script>
   <script src="demo.js"></script>
   <script src="app/core.js"></script>
+  <script src="app/rooms.js"></script>
   <script src="app/console.js"></script>
   <script src="app/source.js"></script>
   <script src="app/render.js"></script>

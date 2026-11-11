@@ -3,6 +3,19 @@
  * answering with processed blocks for it to play. Settings changes rebuild
  * the chain; stats go to the page ten times a second.
  *
+ * The room (W3-17d) is a room path (room-dsp.js createRoomPath) kept here,
+ * outside the chain, so a rebuilt chain keeps the room's lines and the
+ * slot's count of blocks; the chain's mix stage runs it once per 512-sample
+ * block. A change of room or of the water alone does not rebuild the chain:
+ * setRoom takes the new room with the engine's 200 ms cross-fade, setWater
+ * switches the water at the next block with no fade (as the engine does).
+ * The path is made the first time a room or the water is asked for (settled,
+ * as the game would be, if the monitor starts so; with a cross-fade from no
+ * room otherwise), and dropped at a rebuild once it holds no room, has
+ * finished fading and is not under water: a chain without it holds nothing
+ * back. A number the table does not hold leaves the room as it was
+ * (Decision 11).
+ *
  * Recording keeps the microphone blocks (dry) and the chain's output (wet)
  * and lines them up: each chain's output is its own input contentDelay
  * samples later (a rebuilt chain starts its count afresh). On stop the pair
@@ -13,6 +26,9 @@ importScripts('constants.js', 'steam-sender.js', 'vendor/swresample/swresample.j
 
 let chain = null, port = null, rate = 48000, queue = Promise.resolve(), generation = 0;
 let talking = true, inputTotal = 0, recording = null;
+// The room path, and the key of the settings the chain was built with,
+// less the room's own (opts.room, opts.underwater).
+let roomPath = null, chainKey = null, probe = null;
 
 function report(error) {
   self.postMessage({ type: 'error', message: error && error.message ? error.message : String(error) });
@@ -23,21 +39,89 @@ function enqueue(task) {
   queue = queue.then(task).catch(report);
 }
 
-// A settings change rebuilds the chain. For `steam` the new chain starts
-// with a silent sender, a new decoder, a resampler that has not flushed and a
-// reset gain: that is the app's own, not something Steam does.
+const settingsKey = (opts) => JSON.stringify({ ...opts, room: undefined, underwater: undefined, roomProbe: undefined });
+
+// The room the settings ask for, set on the path: setRoom (taken at the
+// slot's next block once a fade has ended, with the 200 ms cross-fade; an
+// equal room is no change) and setWater (from the next block, no fade). A
+// number the table does not hold changes nothing.
+function setRoomOf(asked) {
+  if (asked.unheld === null) roomPath.setRoom(asked.preset);
+  roomPath.setWater(asked.water);
+  if (probe) probe.log.push({ call: 'set', preset: asked.unheld === null ? asked.preset : undefined, water: asked.water });
+}
+
+// Whether the path holds nothing: no room now or before, none asked for
+// but "none", no fade, no water.
+function roomIdle() {
+  const s = roomPath.state();
+  return s.room.preset === null && s.room.previous === null && (s.room.requested === undefined || s.room.requested === null)
+    && !s.room.fading && !s.water.on && !s.water.asked;
+}
+
+// tests only (opts.roomProbe, set when the monitor starts): the path wrapped
+// so every call on it is logged with its inputs and output, for the browser
+// suite to run the module by hand on the same samples.
+function probed(path) {
+  const copy = (x) => Int32Array.from(x);
+  return {
+    shares() { const s = path.shares(); probe.log.push({ call: 'shares', room: s.room, direct: s.direct }); return s; },
+    spurtStart() { probe.log.push({ call: 'spurtStart' }); path.spurtStart(); },
+    process(direct, room, out) {
+      const d = copy(direct), r = copy(room), t0 = performance.now();
+      const y = path.process(direct, room, out), ms = performance.now() - t0;
+      probe.ms += ms;
+      probe.samples += y.length;
+      probe.log.push({ call: 'process', direct: d, room: r, out: copy(y), fading: path.state().room.fading, ms });
+      return y;
+    },
+    tailLeft: () => path.tailLeft(),
+    state: () => path.state(),
+    setRoom: (p) => path.setRoom(p),
+    setWater: (on) => path.setWater(on)
+  };
+}
+
+// A settings change rebuilds the chain, unless only the room or the water
+// changed. For `steam` the new chain starts with a silent sender, a new
+// decoder, a resampler that has not flushed and a reset gain: that is the
+// app's own, not something Steam does.
 function configure(opts) {
   const mine = ++generation;
   enqueue(async () => {
-    const next = await TF2Audio.createLiveChain(opts, rate);
+    if (mine !== generation) return;   // a later change supersedes this one
+    const asked = TF2Audio.roomPreset(opts), wants = asked.preset !== null || asked.water;
+    const key = settingsKey(opts);
+    if (chain && key === chainKey && (roomPath || !wants)) {
+      if (roomPath) setRoomOf(asked);
+      return;
+    }
+    const starting = !chain;
+    if (!roomPath && wants) {
+      const seed = Number.isFinite(opts.seed) ? opts.seed >>> 0 : 0xC0FFEE;
+      if (opts.roomProbe && !probe) probe = { log: [], ms: 0, samples: 0 };
+      // Starting in a room is being in it already: the room settled, the
+      // water's amplifier settled (createRoomPath's pre-roll). Otherwise the
+      // room fades in from none and the water starts fresh, as in the game.
+      const made = TF2Room.createRoomPath(starting && asked.unheld === null ? { seed, room: asked.preset, water: asked.water } : { seed });
+      roomPath = probe ? probed(made) : made;
+      if (probe) probe.log.push({ call: 'create', seed, room: starting && asked.unheld === null ? asked.preset : null, water: starting && asked.water });
+      if (!starting) setRoomOf(asked);
+    } else if (roomPath) {
+      setRoomOf(asked);
+      if (!wants && roomIdle()) roomPath = null;
+    }
+    const next = await TF2Audio.createLiveChain({ ...opts, roomPath }, rate);
     if (mine !== generation) { next.free(); return; }
     if (chain) chain.free();
     chain = next;
+    chainKey = key;
     chain.setTalking(talking);
     chain.startTotal = null;   // global input sample of its first block
     chain.outTotal = 0;
     chain.frameTotal = 0;
-    self.postMessage({ type: 'ready', latencyMs: chain.stats.latencyMs, codec: chain.stats.codec, lowLatencySavingMs: chain.lowLatencySavingMs ?? null });
+    self.postMessage({ type: 'ready', latencyMs: chain.stats.latencyMs, codec: chain.stats.codec, lowLatencySavingMs: chain.lowLatencySavingMs ?? null,
+      room: !!roomPath });
   });
 }
 
@@ -123,6 +207,13 @@ self.onmessage = (event) => {
     enqueue(() => {
       if (message.on) recording = { start: inputTotal, dry: [], wet: [], frames: [], chain: null };
       else finishRecording();
+    });
+  } else if (message.type === 'roomprobe') {
+    // tests only: the probe's log so far (see probed()).
+    enqueue(() => {
+      const p = probe || { log: [], ms: 0, samples: 0 };
+      self.postMessage({ type: 'roomprobe', log: p.log, ms: p.ms, samples: p.samples, state: roomPath ? roomPath.state() : null });
+      if (probe) probe.log = [];
     });
   } else if (message.type === 'stop') {
     generation++;

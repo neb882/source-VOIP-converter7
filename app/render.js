@@ -112,18 +112,11 @@ function captureSource(source, channel) {
 
 // The render settings of the current controls (everything but progress).
 function renderOptions() {
-  const posKey = els.position.value;
-  const dspRoomId = parseInt(els.env.value);
   return {
     codec: els.codec.value,
-    // If user chose 'manual', respect the dsp_room dropdown; otherwise use listener position.
-    listenerPos: (posKey === 'manual') ? null : posKey,
-    dspRoom: dspRoomId,
-    customEnv: (dspRoomId === 99) ? {
-      duration: Number(els.cDur.value),
-      decay:    Number(els.cDec.value),
-      mix:      Number(els.cMix.value) / 100
-    } : null,
+    // The listener's room and under water (W3-17d, app/rooms.js): the room
+    // as audio.js takes it (null, { auto }, { preset } or { custom }).
+    ...roomSettings(),
     captureChannel: els.captureChannel.value,
     micGain:     Number(els.gain.value),
     voiceScale:  Number(els.voiceScale.value),
@@ -386,7 +379,7 @@ els.process.addEventListener('click', async () => {
     };
 
     logLine(demo ? `MIX: demo voice as received, codec=${opts.codec}, receiver only; vs=${opts.voiceScale}`
-      : `MIX: codec=${opts.codec} pos=${opts.listenerPos || 'manual:'+opts.dspRoom} gain=${opts.micGain} vs=${opts.voiceScale}`);
+      : `MIX: codec=${opts.codec} room=${roomSummary()} gain=${opts.micGain} vs=${opts.voiceScale}`);
 
     const t0 = performance.now();
     const result = await runAudioProcess(source, opts);

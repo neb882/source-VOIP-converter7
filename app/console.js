@@ -42,6 +42,11 @@ function tokenize(str) {
 function normalizeControlValue(el, raw) {
   if (!el || raw == null) return null;
   const value = String(raw).trim();
+  // A checkbox's value is 1 or 0 (on/off and true/false are taken too).
+  if (el.type === 'checkbox') {
+    const v = value.toLowerCase();
+    return ['1', 'on', 'true'].includes(v) ? '1' : ['0', 'off', 'false'].includes(v) ? '0' : null;
+  }
   if (el.tagName === 'SELECT') {
     return Array.from(el.options).some((option) => option.value === value) ? value : null;
   }
@@ -324,39 +329,79 @@ const cvars = {
     normalize: (v) => CODEC_PROFILES[v] ? v : null
   },
   'listener_position': {
-    help: 'Listener position (open/tunnel/hallway/...)',
+    help: `Where the listener stands: ${DEFAULT_LISTENER} (no room), auto_<shape>, place_<spot>, room_<n> or manual (see the page's list)`,
     link: 'listener_position',
-    normalize: (v) => (v === 'manual' || LISTENER_POSITIONS[v]) ? v : null,
+    // A position of the page before W3-17d lands where its share links do
+    // (migrateRoomConfig): its number in the manual panel, or no room under
+    // water for `water`.
+    normalize: (v) => {
+      const key = String(v).trim(), p = LISTENER_POSITIONS[key];
+      legacyPosition = p && p.legacy ? key : null;
+      if (legacyPosition) return key === 'water' ? 'open' : 'manual';
+      return (key === 'manual' || (p && !p.legacy)) ? key : null;
+    },
     action: (v) => {
-      if (v === 'manual') showAdvanced(true);
-      else if (v && LISTENER_POSITIONS[v]) {
-        logLine(` - ${LISTENER_POSITIONS[v].label}: ${LISTENER_POSITIONS[v].notes}`, 'help');
+      if (legacyPosition) {
+        const was = legacyPosition;
+        legacyPosition = null;
+        if (was === 'water') { els.underwater.checked = true; logLine(` - "water" is now no room with the listener under water (underwater 1)`, 'help'); }
+        else { els.env.value = String(LISTENER_POSITIONS[was].dsp); logLine(` - "${was}" is now the manual room number dsp_room ${els.env.value}`, 'help'); }
       }
+      if (v === 'manual') showAdvanced(true);
+      updateRoomControls();
+      if (v && v !== 'manual' && LISTENER_POSITIONS[v]) logLine(` - ${positionLabel(v)}: ${positionDetail(v)}`, 'help');
     }
   },
-  'dsp_custom_time':  { link: 'c_dur', help: 'Custom reverb duration (s)' },
-  'dsp_custom_decay': { link: 'c_dec', help: 'Custom reverb decay' },
-  'dsp_custom_mix':   { link: 'c_mix', help: 'Custom reverb mix %' },
+  'underwater': {
+    help: 'The listener under water (1) or not (0): the whole sound passes the game\'s water preset, 14. A state of the player, not a variable',
+    link: 'underwater'
+  },
+  'dsp_slow_cpu': {
+    help: 'The game\'s Sound quality at its lowest (1) turns rooms off: sets the listener position to no room. 0 leaves the position as it is',
+    action: (v) => {
+      if (v === undefined) { logLine(`"dsp_slow_cpu" = "${els.position.value === 'open' ? 1 : 0}"`, 'text'); return; }
+      if (parseInt(v, 10) === 1) execCommand(`listener_position ${DEFAULT_LISTENER}`, false, 1);
+      else logLine(' - pick a room with listener_position or dsp_room', 'help');
+    }
+  },
+  // The automatic room's measures for dsp_room 1: what the map would
+  // measure. The app's own names; the game has no variable for them.
+  'dsp_auto_sky':          { link: 'a_sky', help: 'The automatic room (dsp_room 1): under the sky (1) or indoors (0). The app\'s name' },
+  'dsp_auto_width':        { link: 'a_w', help: 'The automatic room: width in units. The app\'s name' },
+  'dsp_auto_length':       { link: 'a_l', help: 'The automatic room: length in units. The app\'s name' },
+  'dsp_auto_height':       { link: 'a_h', help: 'The automatic room: height in units. The app\'s name' },
+  'dsp_auto_opensides':    { link: 'a_open', help: 'The automatic room: open sides, 0 to 4, counted only under the sky. The app\'s name' },
+  'dsp_auto_reflectivity': { link: 'a_refl', help: 'The automatic room: the walls\' reflectivity, 0 to 1. The app\'s name' },
+  'dsp_custom_time':  { link: 'c_dur', help: 'The custom room (dsp_room 99, the app\'s own): its duration in seconds' },
+  'dsp_custom_decay': { link: 'c_dec', help: 'The custom room (dsp_room 99, the app\'s own): its decay' },
+  'dsp_custom_mix':   { link: 'c_mix', help: 'The custom room (dsp_room 99, the app\'s own): its share of the voice, %' },
   'dsp_room': {
-    help: 'Source dsp_room preset id (0-29, 99 = custom)',
+    help: 'The room by number: 0 none, 1 the automatic room (its measures: dsp_auto_*), 2-29 the game\'s presets, 99 the app\'s custom room; any whole number',
     link: 'env',
     normalize: (v) => {
-      let id = v;
-      if (ENV_ALIAS[String(v).toLowerCase()] !== undefined) id = ENV_ALIAS[String(v).toLowerCase()];
-      id = parseInt(id, 10);
-      return DSP_PRESETS[id] ? String(id) : null;
+      let id = String(v).trim();
+      if (ENV_ALIAS[id.toLowerCase()] !== undefined) id = String(ENV_ALIAS[id.toLowerCase()]);
+      if (!/^(0|[1-9][0-9]{0,8})$/.test(id)) return null;
+      return envOption(Number(id));
     },
     action: (v) => {
       if (v == null) return;
       const id = parseInt(v, 10);
-      els.customEnv.style.display = (id === 99) ? 'block' : 'none';
       // Setting dsp_room manually implies you're taking control away from
       // the listener-position preset, so flip the dropdown to "manual".
       els.position.value = 'manual';
       showAdvanced(true);
+      updateRoomControls();
+      // Decision 11, as the amendment after part a words it.
+      if (id !== 99 && !TF2Room.presetOf(id, TF2_ROOM_PRESETS)) {
+        logLine(`dsp_room ${id}: the app does not have this room. A render has none; the live monitor keeps the room it had.`, 'warn');
+      }
     }
   }
 };
+// A position of the page before W3-17d, between listener_position's
+// normalize and its action.
+let legacyPosition = null;
 
 // Reverse map: <input id> → cvar name (used by the 'change' handler)
 const idToCvarMap = {};
@@ -421,18 +466,20 @@ function execCommand(rawStr, isFromGui = false, depth = 0) {
   if (cvar.link) {
     const el = document.getElementById(cvar.link);
     if (!el) { if (cvar.action) cvar.action(arg); return; }
+    const current = () => (el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value);
     if (arg !== undefined) {
       const normalized = cvar.normalize ? cvar.normalize(arg) : normalizeControlValue(el, arg);
       if (normalized == null) {
-        logLine(`${cmdName}: invalid value "${arg}"; keeping "${el.value}"`, 'err');
+        logLine(`${cmdName}: invalid value "${arg}"; keeping "${current()}"`, 'err');
         return;
       }
-      if (el.value !== normalized) el.value = normalized;
+      if (el.type === 'checkbox') el.checked = normalized === '1';
+      else if (el.value !== normalized) el.value = normalized;
       if (cvar.action) cvar.action(normalized);
       logLine(`"${cmdName}" = "${normalized}"`, 'val');
       updateSignalChain();
     } else {
-      logLine(`"${cmdName}" = "${el.value}"`, 'text');
+      logLine(`"${cmdName}" = "${current()}"`, 'text');
       if (cvar.help) logLine(` - ${cvar.help}`, 'help');
     }
     return;
@@ -450,7 +497,7 @@ els.controls.addEventListener('change', (e) => {
   const target = e.target;
   if (idToCvarMap[target.id]) {
     const cmd = idToCvarMap[target.id];
-    execCommand(`${cmd} ${target.value}`, true);
+    execCommand(`${cmd} ${target.type === 'checkbox' ? (target.checked ? 1 : 0) : target.value}`, true);
   }
   // A hand-edited control no longer matches any quick preset.
   setActivePreset(null);
@@ -494,6 +541,7 @@ function updateSignalChain() {
   const thresholdLabel = document.querySelector('label[for="vad_threshold"]');
   if (thresholdLabel) thresholdLabel.title = help;
   els.vadThreshold.title = help;
+  updateRoomControls();
   if (!els.chain) return;
   const codec = CODEC_PROFILES[els.codec.value] || CODEC_PROFILES.steam;
   const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
@@ -515,9 +563,7 @@ function updateSignalChain() {
   // a packet lasts that many of the profile's own frames.
   const framesPerPacket = Math.min(10, Math.max(1, Math.round(num(els.frameMs, 20) / 20)));
   const packetMs = +(framesPerPacket * (codec.frameSize ? 1000 * codec.frameSize / codec.codecRate : 20)).toFixed(1);
-  const room = els.position.value === 'manual'
-    ? `dsp_room ${els.env.value}`
-    : (LISTENER_POSITIONS[els.position.value] || LISTENER_POSITIONS.open).label;
+  const room = roomSummary();
   const filters = [num(els.hp, 0) > 10 ? `HP ${num(els.hp, 0)} Hz` : '', num(els.lp, 20000) < 20000 ? `LP ${num(els.lp, 20000)} Hz` : ''].filter(Boolean);
   const steps = [
     ['Capture', `${channelLabel}mic ×${gain.toFixed(1)}${filters.length ? ' · ' + filters.join(' · ') : ''} · ${gateOn ? gateText : 'no gate'}`, gain > 1 ? 'hot' : ''],
@@ -546,7 +592,11 @@ function updateSignalChain() {
 
 function runPreset(name) {
   if (!name) return;
-  const cleanName = String(name).replace('exec ', '').replace('preset_', '').replace(/\.cfg$/, '');
+  let cleanName = String(name).replace('exec ', '').replace('preset_', '').replace(/\.cfg$/, '');
+  if (PRESET_ALIASES[cleanName]) {
+    logLine(`preset_${cleanName} is now preset_${PRESET_ALIASES[cleanName]}`, 'help');
+    cleanName = PRESET_ALIASES[cleanName];
+  }
   const p = PRESETS[cleanName];
   if (!p) {
     // Fall back to user presets saved via preset_save
@@ -563,6 +613,7 @@ function runPreset(name) {
   const tempCheats = state.sv_cheats; state.sv_cheats = 1;
   execCommand(`sv_voicecodec ${p.codec}`);
   execCommand(`listener_position ${p.position}`);
+  execCommand(`underwater ${p.underwater ? 1 : 0}`);
   execCommand(`dsp_hpf ${p.hp}`);
   execCommand(`dsp_lpf ${p.lp}`);
   execCommand(`voice_scale ${p.voice_scale}`);
@@ -602,7 +653,7 @@ function printStatus() {
   logLine(`hostname: Local Browser Environment`);
   logLine(`version : 2.0.0.1  / 24 ${CODEC_PROFILES[els.codec.value].codecRate} secure`);
   logLine(`codec   : ${CODEC_PROFILES[els.codec.value].displayName}`);
-  logLine(`listener: ${els.position.value} (dsp_room ${els.env.value})`);
+  logLine(`listener: ${els.position.value}: ${roomSummary()}`);
   logLine(`map     : ${state.mapName} at: 0 x, 0 y, 0 z`);
   if (els.file.files.length) {
     const f = els.file.files[0];
@@ -630,19 +681,29 @@ function getStoredPresets() {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-function configControl(key, el, afterSet) {
+function configControl(key, el, afterSet, normalize) {
+  const checkbox = el.type === 'checkbox';
   return [
     key,
-    () => el.value,
-    (v) => { el.value = v; if (afterSet) afterSet(v); },
-    (v) => normalizeControlValue(el, v)
+    () => (checkbox ? (el.checked ? '1' : '0') : el.value),
+    (v) => { if (checkbox) el.checked = v === '1'; else el.value = v; if (afterSet) afterSet(v); },
+    normalize || ((v) => normalizeControlValue(el, v))
   ];
 }
 
 const CONFIG_FIELDS = [
   configControl('codec', els.codec),
   configControl('pos', els.position),
-  configControl('dsp', els.env, (v) => { els.customEnv.style.display = (v === '99') ? 'block' : 'none'; }),
+  // Any whole number, as the console's dsp_room takes it (a number the
+  // select does not offer gets an option of its own).
+  configControl('dsp', els.env, null, (v) => (/^(0|[1-9][0-9]{0,8})$/.test(String(v).trim()) ? envOption(Number(String(v).trim())) : null)),
+  configControl('uw', els.underwater),
+  configControl('asky', els.autoSky),
+  configControl('aw', els.autoWidth),
+  configControl('al', els.autoLength),
+  configControl('ah', els.autoHeight),
+  configControl('aopen', els.autoOpen),
+  configControl('arefl', els.autoRefl),
   configControl('gain', els.gain),
   configControl('vs', els.voiceScale),
   configControl('hp', els.hp),
@@ -675,6 +736,8 @@ function collectConfig() {
 
 function applyConfig(cfg) {
   if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return 0;
+  // A position from before W3-17d lands on the new controls.
+  cfg = migrateRoomConfig(cfg);
   let applied = 0;
   CONFIG_FIELDS.forEach(([key, get, set, normalize]) => {
     if (cfg[key] == null) return;
@@ -690,6 +753,7 @@ function applyConfig(cfg) {
   // A threshold given with the settings belongs to the codec given with it:
   // no default is carried over from the profile the page had before.
   if (cfg.vadthr != null) gateProfile = els.codec.value;
+  updateRoomControls();
   if (applied) updateSignalChain();
   return applied;
 }
