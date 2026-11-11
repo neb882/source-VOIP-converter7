@@ -6,9 +6,15 @@
  * decoded floats (little-endian) and the 160 samples the game's module makes
  * of them, in its own way: a C conversion to int (truncation toward zero),
  * stored as 16 bits with no clamp. With an argument N, the codec is reset
- * (sx_reset: request 26 on the encoder and the decoder) before frame N. */
+ * (sx_reset: request 26 on the encoder and the decoder) before frame N.
+ * With the argument cosf or acosf, reads little-endian floats on stdin and
+ * writes vsx_cosf or vsx_acosf of each (vsx_math.c). */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+float vsx_cosf(float x);
+float vsx_acosf(float x);
 
 typedef struct Codec Codec;
 Codec *sx_create(void);
@@ -24,6 +30,15 @@ int main(int argc, char **argv) {
   float pcm[160];
   char packet[20];
   int i;
+  if (argc > 1 && (!strcmp(argv[1], "cosf") || !strcmp(argv[1], "acosf"))) {
+    float (*f)(float) = argv[1][0] == 'c' ? vsx_cosf : vsx_acosf, x;
+    while (fread(&x, sizeof x, 1, stdin) == 1) {
+      x = f(x);
+      fwrite(&x, sizeof x, 1, stdout);
+    }
+    sx_destroy(c);
+    return 0;
+  }
   if (!c) return 1;
   for (; fread(in, sizeof(short), 160, stdin) == 160; frame++) {
     if (frame == reset_at) sx_reset(c);

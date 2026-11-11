@@ -47,7 +47,7 @@ if (process.argv.includes('--check')) {
   // And the Speex 1.0.2 build (tests/speex102/build.mjs), the library of the
   // game's vaudio_speex module and of the speex profile.
   const speex102 = fs.readFileSync(path.join(root, 'vendor/speex-1.0.2/speex-1.0.2.wasm.mjs'));
-  if (createHash('sha256').update(speex102).digest('hex') !== 'e585e8d9e7d429468f5874f7526ecba19fc946fdf1b2289343f5365477047aca') {
+  if (createHash('sha256').update(speex102).digest('hex') !== '65dd8bcb81988f21e12d814b45c8860764fa20838168f46644b192b3f6c491b1') {
     throw new Error('vendor/speex-1.0.2/speex-1.0.2.wasm.mjs differs from the recorded build');
   }
   console.log('Speex 1.0.2 build matches its recorded hash.');

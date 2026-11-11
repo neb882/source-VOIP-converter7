@@ -1,15 +1,19 @@
 // Speex 1.0.2 as the game's vaudio_speex module runs it (vendor/speex-1.0.2,
-// tests/speex102/build.mjs), checked against a native build of the same source
-// and against the reading of the module (docs/reports/W3-09-steam-voice.md,
-// section 5), point by point; then the speex profile that runs it (W3-12b).
+// tests/speex102/build.mjs), checked against the game module's own output on
+// seven clips and its float cosine and arc cosine on every vector argument
+// (W3-18), against a native build of the same source, and against the reading
+// of the module (docs/reports/W3-09-steam-voice.md, section 5), point by point;
+// then the speex profile that runs it (W3-12b).
 //   node tests/speex102.verify.mjs
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import * as opus from '../opus-codec.mjs';
-import { createCodec, createFramer, toInt16, frameSize, packetBytes, version } from '../vendor/speex-1.0.2/index.mjs';
-import { testSignals, testRuns, wasmStream, digest, RESET_AT } from './speex102/native.mjs';
+import { createCodec, createFramer, toInt16, frameSize, packetBytes, version, mathFunctions } from '../vendor/speex-1.0.2/index.mjs';
+import { testSignals, testRuns, wasmStream, digest, RESET_AT, loadClips, scoreClip, loadVectors } from './speex102/native.mjs';
+import { NAMES, OUTPUT_CHANGES, UNSEEN_CHANGES } from './speex102/patch.mjs';
+import { generate, HEADER } from './speex102/gen-tables.mjs';
 
 let passed = 0;
 function check(name, ok, detail = '') {
@@ -67,24 +71,84 @@ function voiceBand(length) {
   return x;
 }
 
-console.log('[Speex 1.0.2] The WebAssembly build agrees with a native build (tests/speex102/native.mjs)');
+console.log('[Speex 1.0.2] The game module\'s arithmetic (W3-18): its output on seven clips, its cosf and acosf');
 {
-  // Recorded once from `node tests/speex102/native.mjs`: the pinned sources built
-  // natively with gcc 13.3 and glibc on x86-64 (SSE2, no contraction, no
-  // fast-math); a new codec per signal, and the speech-like signal again with
-  // reset() before frame 138. SHA-256 of the packets, of the decoded floats and
-  // of the 16-bit output the module makes of them.
+  // tests/speex102/vectors: synthetic clips run through the game's module (in a
+  // CPU emulator), with its packets and 16-bit output. A new codec per clip,
+  // each frame encoded and its packet decoded by the same codec, as the module
+  // does. Each clip fails when one of the changes of tests/speex102/patch.mjs
+  // that can alter output is left out (the report's mutation table).
+  let frames = 0, equal = 0;
+  for (const clip of loadClips()) {
+    const stream = await wasmStream(clip.input), score = scoreClip(stream, clip);
+    frames += score.frames; equal += score.equal;
+    check(`${clip.name}: every packet and every 16-bit sample equal the game module's`, score.equal === score.frames,
+      `${score.equal} of ${score.frames} frames${score.first >= 0 ? `, first differs at ${score.first}` : ''}`);
+  }
+  check('the seven clips: 147 of 147 frames', frames === 147 && equal === 147, `${equal} of ${frames}`);
+  // The float cosine and arc cosine of the module's C runtime, as the
+  // WebAssembly build has them (vsx_math.c, exported for this), on every
+  // argument the module was measured on: equal bit patterns.
+  const math = await mathFunctions(), bits = new Uint32Array(1), asFloat = new Float32Array(bits.buffer);
+  for (const [name, f, count] of [['cosf', math.cosf, 21389], ['acosf', math.acosf, 22155]]) {
+    const { args, out } = loadVectors(name), want = new Uint32Array(out.buffer);
+    let bad = 0, first = '';
+    for (let i = 0; i < args.length; i++) {
+      asFloat[0] = f(args[i]);
+      if (bits[0] !== want[i] && !bad++) first = `; first at ${args[i]}: ${asFloat[0]}, the module ${out[i]}`;
+    }
+    check(`vsx_${name} gives the module's result, bit for bit, on all ${count} arguments of vectors/${name}`,
+      args.length === count && bad === 0, `${args.length - bad} of ${args.length}${first}`);
+  }
+  // The tables of those two routines are generated from their mathematical
+  // definitions (pi, sines, arc sines, square roots) by gen-tables.mjs, which
+  // also checks them against the specification's hashes; the committed header
+  // is what it makes.
+  check('vsx_tables.h is what tests/speex102/gen-tables.mjs computes from the definitions',
+    fs.readFileSync(HEADER, 'utf8') === generate());
+  // The 25 changes. These 11 can alter the codec's output, and each, left out,
+  // fails at least one clip (`node tests/speex102/native.mjs --mutations`):
+  // wld-odd, wld-error, autocorr, interp-whole, acosf, cosf, k3, olp-energy0,
+  // cb-energy, cb-err, comb-energy. The other 14 cannot be shown by output, so
+  // no test here can fail without them: qe-log, qe-exp, ener-logf, ener-expf,
+  // dec-ener, window, lagwindow (the double functions and constants give the
+  // same values; stated as read), gain-first, gain-halves, err2, vq-nbest,
+  // lsp-quant, comb-g, comb-gain (no output differed in 606,658 frames; values
+  // read inside the running module equal the patched build's only with them).
+  check('patch.mjs names 25 changes: 11 that can alter output, and the 14 that cannot be shown by it',
+    NAMES.length === 25 && OUTPUT_CHANGES.length === 11 && UNSEEN_CHANGES.length === 14
+    && JSON.stringify(UNSEEN_CHANGES) === JSON.stringify(['qe-log', 'qe-exp', 'ener-logf', 'ener-expf', 'dec-ener', 'window',
+      'lagwindow', 'gain-first', 'gain-halves', 'err2', 'vq-nbest', 'lsp-quant', 'comb-g', 'comb-gain']));
+  // Two facts of the investigation. A zero frame on a new codec gives this
+  // packet and silence.
+  const codec = await createCodec(), packet = codec.encode(new Int16Array(160)), out = codec.decode(packet);
+  codec.free();
+  check('a zero frame on a new codec gives the module\'s packet 1e9d6600…739ce and silence',
+    Buffer.from(packet).toString('hex') === '1e9d66000039ce70001ce738000e739c000739ce' && out.every(v => v === 0),
+    Buffer.from(packet).toString('hex'));
+}
+
+console.log('\n[Speex 1.0.2] The WebAssembly build agrees with a native build (tests/speex102/native.mjs)');
+{
+  // Recorded from `node tests/speex102/native.mjs` (W3-18): the pinned sources
+  // with patch.mjs's changes and vsx_math.c, built natively with gcc 13.3 and
+  // glibc on x86-64 (SSE2, no contraction, no fast-math); a new codec per
+  // signal, and the speech-like signal again with reset() before frame 138.
+  // SHA-256 of the packets, of the decoded floats and of the 16-bit output the
+  // module makes of them. The packets are those of the unchanged sources
+  // (W3-12a); the 16-bit output is the game module's, run in a CPU emulator on
+  // the same signals (the order's five values).
   const NATIVE = {
     speech: [276, '6892b0435185a87350f4e25113d5555c105db884c74f76e530f6b0dc5b093daf',
-      'e1a5ce6e673baa0c163e044ecb6539daafb30d1227e6fe2622db56783647de5f', 'dd3443590a45aa5c7ace86858f9e0a0183567b264a5904735a0dfd90e2159e21'],
+      'ad1a373bdbde356020caf7d9762fc5fadf2bcb2630afa9f6521a82eb1777c054', '40230d9926f322c0f3346380c1d14f0d374be62bf10c17423863565c018b610f'],
     square: [100, '5133a8131899b9940b969dc07e2c50e7e29a9c107015ceda475f639186ffe930',
-      '819e3457f21d8c03bd49016f52271855b419584d03629b02d60680286fd34b41', '923fca5e620d615f60a4182800c858e7a38332b195d130af807cf7ce785e4e41'],
+      'f6d20081696a8b9da53d842a0b85c2f6f585069977ef9d0be51a33a8703d9c86', 'dbf8c3b788f6371b4d2a6729027d161ff3f87abaf88a32925c32b906444cbf7a'],
     silence: [40, 'd584f088de8f8f1e50cb2f09cdd9b38ea531deaac3ebc1b535e68aea56aed0e1',
       'c65206769723a13afe80c0d925531639ceef9c2eb97eee3b1b542739ec40597f', '59ec91dcb7dc65b5f928091cb0e25c26729a0a4453ebe7d8244fc1ceae7d9712'],
     noise: [100, 'c06f01fbebf29af8d7535a0d2d42c59c49eccd719f08c44b592057c6f301b1a7',
-      '08d9358482294a39c536ede86eec919f8e4c42f48ee2f3adf4e5fec7acccc7f2', 'b3e57a538ac7ab3344111b6c4ae845d3124c24786d1090e676bf0266c4c18903'],
+      '302264195e139b974babf776743c66f25cd16a031e87e225a3278afa1052be5e', '10c44c6dec1c439b60b4e4bf49db8c67dd60ea6e1eb16d23838398bf3c7c0e10'],
     speechReset: [276, 'c105432d886f024fdd2d7ecbab934f5f5eabc89ff44f91fe9ba8a656b810de66',
-      '74f0b71c19f806d24846999ac794bb3a33f540b2774b9552d114e4f6124f4266', '57172332a339ebdb3f2bf5d70342aa6f1472ce109866f14c0f13aa180f3c1594']
+      '6e9b2588eae801023b830b2d18070dbfb0ff54327020cf0d7e5d93e6fc958c0f', '394dcb7bac8013fb835a5e7b85c5c73b8da639e577400744e0e1407c90ca1b31']
   };
   const label = (name) => (name === 'speechReset' ? `speech with reset() before frame ${RESET_AT}` : name);
   for (const { name, signal, resetAt } of testRuns()) {
@@ -251,11 +315,20 @@ console.log('\n[Speex 1.0.2] Reset and delay');
   const parts = frames(signal);
   parts.slice(0, half).forEach(frame => used.decode(used.encode(frame)));
   used.reset();
-  const after = parts.slice(half).map(frame => used.encode(frame)), anew = parts.slice(half).map(frame => fresh.encode(frame));
+  const after = [], anew = [], usedOut = [], freshOut = [];
+  for (const frame of parts.slice(half)) {
+    after.push(used.encode(frame)); usedOut.push(used.decode(after.at(-1)));
+    anew.push(fresh.encode(frame)); freshOut.push(fresh.decode(anew.at(-1)));
+  }
   used.free(); fresh.free();
   const differ = after.filter((p, f) => !sameBytes(p, anew[f])).length;
   check('after reset() the same input gives the same packets as a new codec', differ === 0,
     `${differ} of ${after.length} packets differ`);
+  // The decoder's reset is partial in 1.0.2 (W3-12a): its frames equal a new
+  // decoder's in 136 of 138, as the game module's do (W3-18's investigation).
+  const decodedSame = usedOut.filter((o, f) => sameBytes(o, freshOut[f])).length;
+  check('after reset() the decoder gives a new decoder\'s frames in 136 of 138 (part of its state survives)',
+    decodedSame === 136 && usedOut.length === 138, `${decodedSame} of ${usedOut.length}`);
   // The encode and decode pair's delay, which 1.0.2 has no request for: the
   // decoded voice lines up with its source 80 samples later.
   const x = voiceBand(200 * 160), { floats } = await code(x);

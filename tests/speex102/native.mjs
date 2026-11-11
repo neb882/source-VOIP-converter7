@@ -1,18 +1,25 @@
 // Compare the Speex 1.0.2 WebAssembly module with a native build of the same
-// sources.
+// sources, and the native build with the game module's measured output.
 //
-//   node tests/speex102/native.mjs [speex-1.0.2-checkout] [musl-1.2.5-checkout]
+//   node tests/speex102/native.mjs [--without=name,...] [speex-1.0.2-checkout] [musl-1.2.5-checkout]
+//   node tests/speex102/native.mjs --mutations [speex-1.0.2-checkout] [musl-1.2.5-checkout]
 //
 // Compiles the pinned Speex 1.0.2 sources that tests/speex102/build.mjs builds,
-// with the same defines and api.c, natively with the machine's C compiler (`cc`,
-// its own C library and libm) plus native.c. The flags keep the native
-// arithmetic to the WebAssembly module's: no contraction into fused
-// multiply-adds, no fast-math, and on x86 SSE2 for floats and doubles (not the
-// x87 unit). Then codes each test signal below with both, a fresh codec per
-// signal, and compares the packets, the decoded floats and the 16-bit output
-// bit for bit, printing the SHA-256 of each. They are recorded in
-// tests/speex102.verify.mjs. A one-off: it needs git, a C compiler and network
-// access, which the test suite does not.
+// with the same changes (patch.mjs), the same math file (vsx_math.c), defines
+// and api.c, natively with the machine's C compiler (`cc`, its own C library
+// and libm) plus native.c. The flags keep the native arithmetic to the
+// WebAssembly module's: no contraction into fused multiply-adds, no fast-math,
+// and on x86 SSE2 for floats and doubles (not the x87 unit). Then:
+// - codes each test signal below with both, a fresh codec per signal, and
+//   compares the packets, the decoded floats and the 16-bit output bit for bit,
+//   printing the SHA-256 of each (recorded in tests/speex102.verify.mjs);
+// - codes the seven clips of ./vectors and compares the packets and 16-bit
+//   output with the game module's;
+// - runs vsx_cosf and vsx_acosf on every argument of ./vectors.
+// --without leaves changes of patch.mjs out of the native build. --mutations
+// builds it once without each change that can alter output, in turn, and
+// prints which clips each one fails (the report's mutation table). A one-off:
+// it needs git, a C compiler and network access, which the test suite does not.
 import { execFileSync, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -20,7 +27,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createCodec } from '../../vendor/speex-1.0.2/index.mjs';
-import { DEFINES, cloneSpeex, cloneMusl, sourceFiles } from './build.mjs';
+import { DEFINES, cloneSpeex, cloneMusl, patchedSources } from './build.mjs';
+import { OUTPUT_CHANGES, parseWithout } from './patch.mjs';
 
 export const RATE = 11025;   // what the game feeds the module, which believes it is 8000 Hz
 
@@ -98,6 +106,45 @@ export function digest(stream) {
     samples: samples.digest('hex') };
 }
 
+// The seven clips the game's module was run on (tests/speex102/vectors): 16-bit
+// input at 160 samples a frame (.s16), the module's 20-byte packets (.pk) and
+// its 16-bit output (.pcm), a new codec each. Each pins at least one change of
+// patch.mjs; its name says which (the order's table).
+const VECTORS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'vectors');
+export const CLIPS = ['clip-acosf', 'clip-autocorr', 'clip-cb-energy', 'clip-cb-err', 'clip-cosf', 'clip-interp-whole',
+  'clip-olp-energy0'];
+export function loadClips() {
+  const read = (name, ext) => fs.readFileSync(path.join(VECTORS, `${name}.${ext}`));
+  return CLIPS.map(name => {
+    const raw = read(name, 's16');
+    const input = new Int16Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
+    return { name, input, packets: read(name, 'pk'), pcm: read(name, 'pcm') };
+  });
+}
+// A stream (packet, floats, 16-bit output per frame, as native.c and wasmStream
+// write it) against a clip: the frames whose packet and 16-bit output both
+// equal the module's, and the first frame that does not.
+export function scoreClip(stream, clip) {
+  const frames = clip.input.length / 160;
+  let equal = 0, first = -1;
+  for (let f = 0; f < frames; f++) {
+    const at = f * FRAME_BYTES;
+    const ok = stream.length >= at + FRAME_BYTES
+      && stream.subarray(at, at + 20).equals(clip.packets.subarray(f * 20, f * 20 + 20))
+      && stream.subarray(at + 660, at + FRAME_BYTES).equals(clip.pcm.subarray(f * 320, f * 320 + 320));
+    if (ok) equal++; else if (first < 0) first = f;
+  }
+  return { frames, equal, first };
+}
+// The arguments and the module's results for cosf or acosf (little-endian floats).
+export function loadVectors(name) {
+  const floats = (ext) => {
+    const raw = fs.readFileSync(path.join(VECTORS, `${name}.${ext}.f32`));
+    return new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
+  };
+  return { args: floats('args'), out: floats('out') };
+}
+
 // Where two streams first differ: the frame, and the packet byte or the sample.
 function firstDifference(a, b) {
   for (let at = 0; at < Math.min(a.length, b.length); at++) {
@@ -119,33 +166,78 @@ function firstDifference(a, b) {
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const run = (cmd, args) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'inherit'] }).toString();
+  const { rest, without } = parseWithout(process.argv.slice(2));
+  const mutations = rest.includes('--mutations'), checkouts = rest.filter(a => a !== '--mutations');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'speex102-native-'));
+  const x86 = ['x64', 'ia32'].includes(os.arch()) ? ['-msse2', '-mfpmath=sse'] : [];
   try {
-    const src = cloneSpeex(process.argv[2], tmp);
-    cloneMusl(process.argv[3], tmp);   // not used natively; checked so both builds name the same inputs
-    const binary = path.join(tmp, 'speex102-native');
-    const x86 = ['x64', 'ia32'].includes(os.arch()) ? ['-msse2', '-mfpmath=sse'] : [];
-    run('cc', ['-O2', '-ffp-contract=off', '-fno-fast-math', ...x86, '-w', `-I${path.join(src, 'libspeex')}`, ...DEFINES,
-      ...sourceFiles(src), path.join(here, 'api.c'), path.join(here, 'native.c'), '-lm', '-o', binary]);
+    const src = cloneSpeex(checkouts[0], tmp);
+    cloneMusl(checkouts[1], tmp);   // not used natively; checked so both builds name the same inputs
+    const build = (leaveOut, name) => {
+      const patched = patchedSources(src, path.join(tmp, name), leaveOut);
+      const binary = path.join(tmp, name, 'speex102-native');
+      run('cc', ['-O2', '-ffp-contract=off', '-fno-fast-math', ...x86, '-w', `-I${patched.dir}`, ...DEFINES,
+        ...patched.files, path.join(here, 'api.c'), path.join(here, 'native.c'), '-lm', '-o', binary]);
+      return binary;
+    };
+    const code = (binary, signal, resetAt = -1) => {
+      const result = spawnSync(binary, resetAt >= 0 ? [String(resetAt)] : [], { input: Buffer.from(signal.buffer, signal.byteOffset, signal.byteLength), maxBuffer: 1 << 26 });
+      if (result.status !== 0) throw new Error(`The native build failed (status ${result.status})`);
+      return result;
+    };
+    const clips = loadClips(), clipFrames = clips.reduce((n, c) => n + c.input.length / 160, 0);
+    const scoreClips = (binary) => clips.map(clip => ({ name: clip.name, ...scoreClip(code(binary, clip.input).stdout, clip) }));
     const compiler = run('cc', ['--version']).split('\n')[0];
-    const runs = testRuns();
-    const frames = runs.reduce((n, r) => n + r.signal.length / 160, 0);
-    console.log(`Native: ${compiler}, ${os.arch()}, -O2 -ffp-contract=off -fno-fast-math ${x86.join(' ')}. ` +
-      `${frames} frames of test signal (${runs.map(r => r.name).join(', ')}).`);
-    let same = true;
-    for (const { name, signal, resetAt } of runs) {
-      const result = spawnSync(binary, resetAt >= 0 ? [String(resetAt)] : [], { input: Buffer.from(signal.buffer), maxBuffer: 1 << 26 });
-      if (result.status !== 0) throw new Error(`The native build failed on ${name} (status ${result.status})`);
-      const stderr = result.stderr.toString().trim();
-      const native = result.stdout, wasm = await wasmStream(signal, resetAt);
-      const n = digest(native), w = digest(wasm), match = native.equals(wasm);
-      same &&= match;
-      console.log(`${name}: ${n.frames} frames; packets ${n.packets}, floats ${n.floats}, 16-bit ${n.samples}` +
-        (match ? ' (WebAssembly identical)' : `\n  WebAssembly packets ${w.packets}, floats ${w.floats}, 16-bit ${w.samples} DIFFER;` +
-          ` first difference: ${firstDifference(native, wasm)}`) + (stderr ? `\n  native stderr: ${stderr}` : ''));
+    console.log(`Native: ${compiler}, ${os.arch()}, -O2 -ffp-contract=off -fno-fast-math ${x86.join(' ')}.`);
+
+    if (mutations) {
+      // Each change that can alter output, left out in turn: the clips it fails.
+      const full = scoreClips(build([], 'full'));
+      console.log(`All changes: ${full.filter(c => c.equal === c.frames).length} of ${clips.length} clips equal the module.`);
+      let caught = 0;
+      for (const name of OUTPUT_CHANGES) {
+        const failing = scoreClips(build([name], `without-${name}`)).filter(c => c.equal !== c.frames);
+        if (failing.length) caught++;
+        console.log(`without ${name}: ${failing.length ? failing.map(c => `${c.name} (${c.frames - c.equal} of ${c.frames} frames differ, from frame ${c.first})`).join(', ') : 'NO CLIP FAILS'}`);
+      }
+      console.log(`${caught} of ${OUTPUT_CHANGES.length} changes left out fail at least one clip.`);
+      process.exitCode = caught === OUTPUT_CHANGES.length && full.every(c => c.equal === c.frames) ? 0 : 1;
+    } else {
+      const binary = build(without, 'build');
+      if (without.length) console.log(`Without ${without.join(', ')}.`);
+      const runs = testRuns();
+      const frames = runs.reduce((n, r) => n + r.signal.length / 160, 0);
+      console.log(`${frames} frames of test signal (${runs.map(r => r.name).join(', ')}).`);
+      let same = true;
+      for (const { name, signal, resetAt } of runs) {
+        const result = code(binary, signal, resetAt);
+        const stderr = result.stderr.toString().trim();
+        const native = result.stdout, wasm = await wasmStream(signal, resetAt);
+        const n = digest(native), w = digest(wasm), match = native.equals(wasm);
+        same &&= match;
+        console.log(`${name}: ${n.frames} frames; packets ${n.packets}, floats ${n.floats}, 16-bit ${n.samples}` +
+          (match ? ' (WebAssembly identical)' : `\n  WebAssembly packets ${w.packets}, floats ${w.floats}, 16-bit ${w.samples} DIFFER;` +
+            ` first difference: ${firstDifference(native, wasm)}`) + (stderr ? `\n  native stderr: ${stderr}` : ''));
+      }
+      console.log(same ? 'The WebAssembly module matches the native build bit for bit.' : 'The builds differ.');
+      const scored = scoreClips(binary);
+      for (const c of scored) console.log(`${c.name}: ${c.equal} of ${c.frames} frames equal the module's${c.first >= 0 ? ` (first differs at ${c.first})` : ''}`);
+      const clipsEqual = scored.every(c => c.equal === c.frames);
+      console.log(`Clips: ${scored.reduce((n, c) => n + c.equal, 0)} of ${clipFrames} frames equal the game module's packets and 16-bit output.`);
+      let vectorsEqual = true;
+      for (const name of ['cosf', 'acosf']) {
+        const { args, out } = loadVectors(name);
+        const result = spawnSync(binary, [name], { input: Buffer.from(args.buffer), maxBuffer: 1 << 26 });
+        const mine = new Uint32Array(result.stdout.buffer.slice(result.stdout.byteOffset, result.stdout.byteOffset + result.stdout.length));
+        const want = new Uint32Array(out.buffer);
+        let bad = 0, firstBad = -1;
+        for (let i = 0; i < want.length; i++) if (mine[i] !== want[i]) { bad++; if (firstBad < 0) firstBad = i; }
+        vectorsEqual &&= bad === 0 && mine.length === want.length;
+        console.log(`vsx_${name}: ${want.length - bad} of ${want.length} results equal the module's` +
+          (firstBad >= 0 ? ` (first differs at argument ${args[firstBad]})` : ''));
+      }
+      process.exitCode = same && (without.length || (clipsEqual && vectorsEqual)) ? 0 : 1;
     }
-    console.log(same ? 'The WebAssembly module matches the native build bit for bit.' : 'The builds differ.');
-    process.exitCode = same ? 0 : 1;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
