@@ -107,6 +107,21 @@ export const INDEX_MUTATIONS = {
     to: '      const frames = Math.ceil(bytes.length / packetBytes), out = new Int16Array(frames * frameSize);\n' +
       '      for (let f = 0; f < frames; f++) { const p = new Uint8Array(packetBytes); p.set(bytes.subarray(f * packetBytes, (f + 1) * packetBytes)); out.set(codec.decode(p), f * frameSize); }'
   },
+  'decompress-offset-zero': {
+    fact: 'decompress: every frame written at the start of the output',
+    from: 'packetBytes)), f * frameSize);',
+    to: 'packetBytes)), 0);'
+  },
+  'decompress-first-only': {
+    fact: 'decompress: only the first whole frame decoded',
+    from: 'for (let f = 0; f < frames; f++)',
+    to: 'for (let f = 0; f < Math.min(frames, 1); f++)'
+  },
+  'decompress-first-bytes': {
+    fact: 'decompress: every frame decoded from the first 12 bytes',
+    from: 'codec.decode(bytes.subarray(f * packetBytes, (f + 1) * packetBytes))',
+    to: 'codec.decode(bytes.subarray(0, packetBytes))'
+  },
   'lost-frame-path': {
     fact: 'a lost frame: decompress without bytes gives a frame of silence',
     from: "      if (!bytes) throw new TypeError('VR12 has no lost-frame path: decompress needs bytes');",

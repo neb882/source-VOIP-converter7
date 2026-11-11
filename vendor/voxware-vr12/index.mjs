@@ -2,11 +2,15 @@
 // the engine's vaudio_miles module wraps, compiled to WebAssembly with the
 // wrapper by tests/vr12/build.mjs: the vendored C implementation in this
 // folder (vr12.c, unchanged) and the wrapper as read from the game's module
-// (tests/vr12/api.c). A codec of the engine family: current TF2 ships the
-// module and refuses its name. Nothing in the app loads this yet.
+// (tests/vr12/api.c). A codec of the engine family (selectable in the Source
+// engines of 2006 and 2007, where the default was already vaudio_speex);
+// current TF2 ships it and refuses it. Nothing in the app loads this yet.
 //
-// createCodec() is the wrapper's frame codec: 360 samples at 8000 Hz to 12
-// bytes and back (two VR12 frames of 180 samples and 6 bytes). The encoder
+// createCodec() is the wrapper's frame codec: 360 samples to 12 bytes and
+// back (two VR12 frames of 180 samples and 6 bytes). The codec's nominal rate
+// is 8000 Hz (45 ms and 2133 bit/s a frame); the engines that accepted it ran
+// voice at 11025 Hz and resampled nothing, so there a frame was 32.65 ms and
+// 2940 bit/s. The encoder
 // sees each sample cut to its top 8 bits; decoded samples are the codec's, as
 // they come. A new codec has coded one block of zeros (the game codes a block
 // of uninitialised memory there). reset() is the wrapper's: two blocks of
@@ -21,6 +25,7 @@
 import wasmBase64 from './voxware-vr12.wasm.mjs';
 
 export const version = 'Voxware VR12 (voxware-vr12 eedf465)';
+// The codec's own nominal rate, not the rate an engine fed it (11025 Hz).
 export const sampleRate = 8000;
 export const frameSize = 360, packetBytes = 12;
 export const codecFrameSize = 180, codecPacketBytes = 6;

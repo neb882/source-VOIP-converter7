@@ -263,6 +263,26 @@ await guard('compress and decompress', async () => {
   const thirteen = d.decompress(whole.subarray(0, 13)), first = ref.decompress(whole.subarray(0, 12));
   check('decompress: 11 bytes give no samples, 13 give 360 (the 12 whole bytes)', eleven.length === 0 && thirteen.length === 360 && same(thirteen, first),
     `${eleven.length} and ${thirteen.length} samples`);
+  // As many whole frames as fit, each from its own 12 bytes, in order: 0, 24,
+  // 25 and 36 bytes in turn on a new framer (frames 0-1, 2-3 and a byte left
+  // over, 4-6 of tones' packets) against decode() frame by frame on a new
+  // codec.
+  const many = createFramer(await createCodec()), byFrame = await createCodec();
+  const calls = [[0, 0, 0], [0, 24, 2], [24, 25, 2], [48, 36, 3]];
+  const got = calls.map(([at, n]) => many.decompress(whole.subarray(at, at + n)));
+  const wantFrames = [];
+  for (let f = 0; f < 7; f++) wantFrames.push(byFrame.decode(whole.subarray(f * 12, (f + 1) * 12)));
+  byFrame.free();
+  let next = 0;
+  const want = calls.map(([, , frames]) => {
+    const out = new Int16Array(frames * 360);
+    for (let i = 0; i < frames; i++) out.set(wantFrames[next++], i * 360);
+    return out;
+  });
+  const distinct = wantFrames.every((w, i) => i === 0 || !same(w, wantFrames[i - 1]));
+  check('decompress: 0, 24, 25 and 36 bytes give 0, 720, 720 and 1080 samples, frame by frame as decode() gives them',
+    distinct && got.every((g, i) => g.length === want[i].length && same(g, want[i])),
+    `${got.map(g => g.length).join(', ')} samples`);
   let threw = false;
   try { d.decompress(null); } catch { threw = true; }
   const codec = await createCodec();

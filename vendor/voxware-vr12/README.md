@@ -1,10 +1,11 @@
 # Voxware VR12 (WebAssembly)
 
-This folder holds the codec of the engine's `vaudio_miles` module: Voxware's MetaVoice VR12, a harmonic vocoder at
-8000 Hz, which the module reaches through a Miles Sound System plug-in. **It is a codec of the engine family, not one
-a TF2 player can hear: current TF2 ships the module, Miles and the plug-in in its 32-bit folder and refuses the
-name** ("Voice_Init Failed: invalid voice codec vaudio_miles.", `tests/REFERENCE_2026.md` finding 31). Nothing in the
-app loads it yet; a profile is a later order (W3-20b), once the rate an engine gave this codec is known.
+This folder holds the codec of the engine's `vaudio_miles` module: Voxware's MetaVoice VR12, a harmonic vocoder at a
+nominal 8000 Hz, which the module reaches through a Miles Sound System plug-in. **It is a codec of the engine family
+(selectable in the Source engines of 2006 and 2007, where the default was already `vaudio_speex`); current TF2 ships it
+and refuses it**: its 32-bit folder has the module, Miles and the plug-in, and asked for the name it prints
+"Voice_Init Failed: invalid voice codec vaudio_miles." (`tests/REFERENCE_2026.md` finding 31). Nothing in the app
+loads it yet; a profile is a later order (W3-20b).
 
 ## Where it comes from
 
@@ -37,12 +38,12 @@ reverse):
   `0784374d561435f7c787a555aeab8ede699ed298`. It has no imports, so it gives the same output in every browser.
 - `index.mjs`:
   - `createCodec()` is the wrapper's frame codec: `{ frameSize: 360, packetBytes: 12, sampleRate: 8000, encode,
-    decode, reset, free }`. `encode` takes an `Int16Array` of 360 and gives 12 bytes; `decode` takes 12 bytes and gives
+    decode, reset, free }` (`sampleRate` is the codec's own nominal rate; the engines that ran it fed it 11025 Hz). `encode` takes an `Int16Array` of 360 and gives 12 bytes; `decode` takes 12 bytes and gives
     an `Int16Array` of 360.
   - `createFramer(codec)` is the wrapper's Compress and Decompress: `compress(samples, final)` keeps what does not
     fill a frame, writes whole 12-byte frames end to end with no header, and on the final call pads a part frame with
     zeros and codes it; `decompress(bytes)` decodes as many whole 12-byte frames as fit (11 bytes give nothing, 13
-    give 360 samples).
+    give 360 samples, 25 give 720).
   - `createPluginEncoder()` and `createPluginDecoder()` are the plug-in level, for the tests: one 180-sample frame of
     full 16-bit input to 6 bytes and back, no wrapper.
 - `COPYRIGHT.musl`: musl's licence (MIT).
@@ -52,16 +53,24 @@ reverse):
 Read from the owner's copy of the game's `vaudio_miles.dll` and checked by running it in a CPU emulator
 (`tests/LEGACY_CODECS.md`, `vaudio_miles`):
 
-- **A frame is 360 samples in and 12 bytes out:** two VR12 frames of 180 samples and 6 bytes. At the codec's 8000 Hz
-  that is 45 ms and 2133 bit/s on the wire (the plug-in states 1244).
+- **A frame is 360 samples in and 12 bytes out:** two VR12 frames of 180 samples and 6 bytes. The engines that
+  accepted the codec (Source SDK Base 2006 and 2007) ran voice at 11025 Hz for every codec and resampled nothing, so
+  there a frame was **32.65 ms and 2940 bit/s** on the wire, and the codec's nominal 4000 Hz band covered about
+  5512 Hz of real sound (read from those engines). At the codec's nominal 8000 Hz the same frame is 45 ms and
+  2133 bit/s (the plug-in states 1244).
 - **Before the codec each sample is cut to its top 8 bits:** the wrapper keeps the high byte, and the plug-in reads it
   back sign-extended and shifted left by 8. **Nothing is done to decoded samples.**
 - **Start:** the encoder first encodes one block of 360 samples whose 12 bytes are thrown away (zeros here); the
   decoder is untouched.
 - **Reset:** twice over, 360 zero samples are encoded and the 12 bytes that come out are decoded. Nothing is cleared,
   so what follows still depends on what came before.
-- **No lost frame:** the wrapper has no path for one (given no data, it copies its 12 bytes from address 0; whether
-  the engine ever does that was not read), so the module offers none.
+- **No lost frame:** the wrapper has no path for one (given no data, it copies its 12 bytes from address 0). The 2006
+  and 2007 engines never call it without data, so a lost packet gets no decoder call at all (read). The module offers
+  no lost-frame path.
+
+The wrappers of the 2006 and 2007 engines with their plug-in (Miles 6.6a, 2004) give the vectors' packets and samples
+exactly on the eight signals, and that plug-in equals TF2's (Miles 9.3a, 2012) on every codec frame and sample
+(measured). So the vectors stand for the wrappers and plug-ins of 2006, 2008 and 2024 alike.
 
 ## Build and tests
 
@@ -95,4 +104,6 @@ clipped signals; the figures for all eight signals the plug-in and the wrapper w
 The plug-in is x87 code that inherits the caller's precision. It gives the same output at 53-bit and at 64-bit
 precision on every vector, so this build's double arithmetic needs nothing more (measured).
 
-Not known: the rate an engine that accepted the codec gave it, and what a listener heard for a lost frame.
+Not known: nothing of a running engine with this codec has been recorded; the encoder's real start-up block
+(uninitialised memory in all three wrappers); how many frames a packet held in a running engine; what the listener
+heard at a lost packet, beyond that the decoder is not called.

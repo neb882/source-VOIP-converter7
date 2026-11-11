@@ -79,7 +79,7 @@ one step off, the builds do not differ, and the wrapper as described reproduces 
 
 ## What the suite checks
 
-`node tests/vr12.verify.mjs` (30 checks; every check runs and the failures are listed at the end):
+`node tests/vr12.verify.mjs` (31 checks since the fix round; every check runs and the failures are listed at the end):
 
 1. The four vendored files have their upstream SHA-256; `tests/vr12/vectors/SHA256SUMS` has its recorded hash, lists
    all 15 files, and each file has its listed hash.
@@ -90,7 +90,7 @@ one step off, the builds do not differ, and the wrapper as described reproduces 
    (84, 1, 37); and the SHA-256 of both levels' packets and samples equal to the native build's (recorded from
    `native.mjs`).
 3. The wrapper, fact by fact:
-   - the frame: 360 samples, 12 bytes, two VR12 frames of 180 and 6, 2133 bit/s;
+   - the frame: 360 samples, 12 bytes, two VR12 frames of 180 and 6, 2133 bit/s at the codec's nominal 8000 Hz;
    - the 8-bit cut: a new codec's packets equal a new plug-in encoder's after one block of zeros on `floor(x / 256) * 256`
      (on the noise signal, which opens at amplitude 30, so the cut takes most samples to 0 or -256: truncation toward
      zero or rounding would differ); other low bytes give the same packets; the uncut samples other packets;
@@ -103,7 +103,9 @@ one step off, the builds do not differ, and the wrapper as described reproduces 
    - compress keeps left-overs (pieces of 1, 359, 361, 100, 7, 1000 and 2492 samples give the frame-by-frame bytes,
      nothing until 360 are there, and the kept counts 1, 0, 1, 101, 108, 28, 0); the final flag pads a part frame with
      zeros and codes it (400 samples give 24 bytes, the second frame equal to 40 samples and 320 zeros); 11 bytes
-     decompress to nothing and 13 to the 360 samples of the first 12; no lost-frame path.
+     decompress to nothing and 13 to the 360 samples of the first 12; since the fix round, 0, 24, 25 and 36 bytes in
+     turn on a new framer give 0, 720, 720 and 1080 samples, equal to `decode()` frame by frame on a new codec (as many
+     whole frames as fit, each from its own 12 bytes, in order); no lost-frame path.
 
 `tests/vendor-opus.mjs --check` checks the module's hash.
 
@@ -113,7 +115,7 @@ one step off, the builds do not differ, and the wrapper as described reproduces 
 change) and runs the suite on it through `VR12_INDEX`. Every mutation fails at least one check, and in each case the
 check of the fact it breaks:
 
-| Mutation | Fact broken | Checks failing (of 30) | The fact's own check fails |
+| Mutation | Fact broken | Checks failing (of 31) | The fact's own check fails |
 |---|---|---|---|
 | `cut-none` | the codec gets full 16-bit samples | 8: game packets of all three signals, native hashes of all three, both cut checks | the 8-bit cut (both) |
 | `cut-round` | rounded to the nearest multiple of 256 | 9: as above, and clipped's game samples | the 8-bit cut (both) |
@@ -131,7 +133,10 @@ check of the fact it breaks:
 | `final-ignored` | final flag ignored | 1: final flag | final flag |
 | `final-not-zeros` | part frame padded with stale samples | 1: final flag | final flag |
 | `compress-header` | a count byte after the frames | 2: compress, final flag | compress |
-| `decompress-part-frame` | a part frame padded and decoded | 1: decompress 11/13 | decompress |
+| `decompress-part-frame` | a part frame padded and decoded | 2: decompress 11/13, decompress 0/24/25/36 | decompress (both) |
+| `decompress-offset-zero` | every frame written at the start of the output (fix round) | 1: decompress 0/24/25/36 | decompress |
+| `decompress-first-only` | only the first whole frame decoded (fix round) | 1: decompress 0/24/25/36 | decompress |
+| `decompress-first-bytes` | every frame decoded from the first 12 bytes (fix round) | 1: decompress 0/24/25/36 | decompress |
 | `lost-frame-path` | decompress without bytes gives silence | 1: no lost-frame path | no lost-frame path |
 
 The plug-in-level checks fail for none of these, as they should: the wrapper is not on that path. The vendored files'
@@ -139,15 +144,43 @@ and vectors' hash checks are file checks and fail for none.
 
 ## Checks run
 
-- `node tests/vr12.verify.mjs`: 30 passed, 0 failed.
+- `node tests/vr12.verify.mjs`: 30 passed, 0 failed; 31 passed, 0 failed after the fix round.
 - `node tests/vendor-opus.mjs --check`: "VR12 build matches its recorded hash." with the other four.
 - `node tests/vr12/native.mjs --vectors=<input folder> <musl checkout>`: "The WebAssembly module matches the native
   build bit for bit on every signal."; the table above. On the committed folder, the same for its three signals.
-- `node tests/vr12/mutations.mjs <musl checkout>`: "Every mutation fails at least one check."
+- `node tests/vr12/mutations.mjs <musl checkout>`: "Every mutation fails at least one check." (18 mutations; 21 after the
+  fix round).
 - `node tests/vr12/build.mjs` twice (scratch musl, fresh clone): the same hash.
 - `pnpm test:all` under the heavy lock (with `CHROMIUM_EXECUTABLE` set): exit 0; the vendor check, the Node suites
   (VR12: "30 passed, 0 failed") and "246 browser checks passed". CI on the pushed head: see the summary handed back
   with this report.
+
+## Fix round (after review)
+
+- **Decompress, whole frames.** The review found three mutations of `index.mjs` that passed all 30 checks (every frame
+  written at offset 0; only the first frame decoded; every frame decoded from the first 12 bytes). A check now
+  decompresses 0, 24, 25 and 36 bytes in turn on a new framer and compares with `decode()` frame by frame on a new
+  codec; the three are in `tests/vr12/mutations.mjs` and each fails it (table above).
+- **Wording.** The inverse-transform sentence in `tests/LEGACY_CODECS.md` now says it was seen on the four signals
+  traced (1,892 codec frames).
+- **The engine's rate, given by the orchestrator** from its private investigation of the owner's older engine files
+  (not measured or read in this order; written in the docs as given):
+  - read from the engines of Source SDK Base 2006 and 2007: `sv_voicecodec` defaults to `vaudio_speex` and loads any
+    name as a library, with no list and no fall-back, so `vaudio_miles` was accepted; voice is captured, coded, decoded
+    and played at 11025 Hz for every codec, with no resampling to the codec's 8000 Hz. So a frame was 32.65 ms and
+    2940 bit/s on the wire (45 ms and 2133 bit/s at the codec's nominal 8000 Hz), and the nominal 4000 Hz band covered
+    about 5512 Hz;
+  - read: a packet is the codec's frames end to end behind a 16-bit count of bits; the receiver runs the auto-gain on
+    the decoded samples in 128-sample blocks; Decompress is never called without data;
+  - measured: those engines' wrappers with their plug-in (Miles 6.6a) give the vectors exactly (2,505 of 2,505 frames,
+    901,800 of 901,800 samples), and that plug-in equals TF2's on every codec frame and sample at 53 and 64 bits;
+  - read: SDK Base 2013's 32-bit engine refuses the name as TF2 does.
+
+  The label is now "a codec of the engine family (selectable in the Source engines of 2006 and 2007, where the default
+  was already `vaudio_speex`); current TF2 ships it and refuses it", in `tests/LEGACY_CODECS.md`, the vendor README,
+  `index.mjs` and finding 31. `sampleRate = 8000` stays in `index.mjs`, commented as the codec's own nominal rate.
+  Still not known: nothing of a running engine with this codec has been recorded; the real start-up block; how many
+  frames a packet held; what the listener heard at a lost packet beyond "no decoder call".
 
 ## Read differently, or not done
 
