@@ -1077,6 +1077,104 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
     }
   }
 
+  // Review round, S1: re-timing (opts.retime) under loss and jitter moves
+  // each sender's spurt whole, its frame log with its samples, a spurt with
+  // empty time inside it (frames past ten concealed, or a refused packet)
+  // included: every slot that holds one of a spurt's frames without
+  // re-timing holds it, with its size, the same number of slots earlier with
+  // it (0, or a move's frames). Without retimeSpurts' merge of runs whose
+  // spans meet, such a spurt's frames after the hole stay behind.
+  {
+    const x = talk(20, 3);
+    let moved = 0, holed = 0, spurts = 0, broken = [];
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const o = { seed, lossPct: 49.8, jitterMs: 100 };
+      const r0 = (await render(x, o)).codecInfo, r1 = (await render(x, { ...o, retime: true })).codecInfo, L = r0.lookahead;
+      const shifts = [0, ...r1.retimed.map((m) => Math.round(Math.round(m.shiftMs * VR / 1000) / SLOT))];
+      for (const sp of r0.sender.spurts) {
+        const slots = [];
+        for (let i = 0; i < r0.frameLog.length; i++) {
+          const c = 480 * i + 240 - L;
+          if (c >= sp.start && c < sp.start + 480 * sp.frames && r0.frameLog[i]) slots.push(i);
+        }
+        if (!slots.length) continue;
+        spurts++;
+        const hole = slots.some((v, j) => j > 0 && v - slots[j - 1] > 1);
+        const d = shifts.find((dd) => slots.every((i) => i - dd >= 0 && r1.frameLog[i - dd] === r0.frameLog[i] && r1.frameBytes[i - dd] === r0.frameBytes[i]));
+        if (d === undefined) broken.push(`seed ${seed} from ${sp.start}`);
+        else if (d > 0) { moved++; if (hole) holed++; }
+      }
+    }
+    check('re-timing under loss (49.8%, jitter 100 ms, seeds 1 to 6) moves each sender\'s spurt whole, its frame log with it, those with empty time inside them included',
+      broken.length === 0 && moved >= 4 && holed >= 1, `${spurts} spurts, ${moved} moved, ${holed} of them with a hole${broken.length ? `; split: ${broken.join(', ')}` : ''}`);
+  }
+
+  // Review round, S3: an end marker alone is a message and takes a draw
+  // (decision 1). With the sender's own clock it comes only from finish()
+  // with the gate off and nothing kept, as the last message, so the decoder
+  // state it leaves (rule C) is shown on the codec module's stream with a
+  // second spurt put after it.
+  {
+    const exact = talk(4, 17).subarray(0, 96000), o = { seed: 0xC0FFEE, gate: false };
+    const { msgs } = senderOf(exact, o), k = msgs.length - 1, marker = msgs[k];
+    const calls = [], plain = await render(exact, o);
+    const r = await render(exact, { ...o, loseMessage: (i) => { calls.push(i); return i === k; } });
+    const u = TF2Audio.mulberry32(((0xC0FFEE >>> 0) ^ 0x4C4F5353) >>> 0), us = msgs.map(() => u());
+    const pct = Math.floor(us[k] * 10000 + 1) / 100, want = us.filter((v) => v < pct / 100).length;
+    const rd = await render(exact, { ...o, lossPct: pct });
+    check('an end marker alone takes a draw: loseMessage is asked for it and can lose it (messages and lostMessages count it), and at a loss just above its own draw the draw counts it lost',
+      marker.end && marker.last === marker.first - 1 && marker.pcm.length === 0 && calls.length === msgs.length && calls.every((v, i) => v === i)
+      && r.codecInfo.network.messages === msgs.length && r.codecInfo.network.lostMessages === 1 && same(Array.from(r.samples), Array.from(plain.samples))
+      && pct < 100 && us[k] < pct / 100 && rd.codecInfo.network.lostMessages === want && rd.codecInfo.network.messages === msgs.length,
+      `${msgs.length} messages, the marker's draw ${us[k].toFixed(4)}; at ${pct}%: ${rd.codecInfo.network.lostMessages} lost (want ${want})`);
+    // A second spurt after it on the stream: its first frame to arrive is
+    // above the expected number of the first spurt (N, all of whose frames
+    // arrived), so with the marker lost the gap from N is concealed from the
+    // old state; with it delivered, a fresh decoder conceals ten (zeros).
+    const steamP = vm.runInContext('CODEC_PROFILES.steam', sandbox);
+    const streamOf = () => sandbox.TF2Opus.createSteamStream(steamP.bitrate, { application: steamP.application, signal: steamP.signal,
+      runtime: steamP.encoder?.runtime, complexity: steamP.encoder?.complexity, vbr: steamP.encoder?.vbr, dtx: steamP.encoder?.dtx });
+    const N = marker.first, b = senderOf(talk(8, 19), { seed: 3, gate: false }).msgs;
+    const seq = [...msgs, ...b.map((m) => ({ ...m, spurt: m.spurt + 1, first: m.first + N, last: m.last + N }))];
+    const lostB = new Set();
+    let c = 0, j = k + 1;
+    while (c < N) { lostB.add(j); c += size(seq[j++]); }
+    lostB.add(j); c += size(seq[j++]);
+    const arriving = j;
+    const run = async (markerLost) => {
+      const st = await streamOf();
+      let out = null;
+      try { for (let i = 0; i <= arriving; i++) { const made = await st.message(seq[i], () => 0, i === k ? markerLost : lostB.has(i)); if (i === arriving) out = made; } }
+      finally { await st.free(); }
+      return out;
+    };
+    const carried = await run(true), fresh = await run(false);
+    const concealed = (made) => made.blocks.filter((x) => x.code === 5).length;
+    const head = (made, n) => made.pcm.subarray(0, 480 * n);
+    const n1 = concealed(carried);
+    check(`the decoder after a lost end marker alone (rule C): the next spurt's first frame to arrive, number ${c}, is above the old expected number ${N}: ${Math.min(10, c - N)} concealed from the old state; with the marker delivered, 10 from a fresh decoder (zeros)`,
+      c > N && n1 === Math.min(10, c - N) && concealed(fresh) === 10 && head(fresh, 10).every((v) => v === 0) && n1 > 0 && head(carried, n1).some((v) => v !== 0),
+      `${n1} and ${concealed(fresh)} concealed`);
+  }
+
+  // Review round, N1: jitter's late frame inside a gap of more than ten lost
+  // frames, in front of a one-frame message (a hand-made frame mask): the
+  // arriving frame is laid at its own slot, and nothing after it moves.
+  // (The order's formula, anchor + 882 x the first block's frame, puts it a
+  // slot early here: the late frame is not among the concealed blocks.)
+  {
+    const x = talk(8, 13, 0.3), { msgs } = senderOf(x, { gate: false });
+    const m = msgs.find((e) => e.first >= 60 && size(e) === 1 && e !== msgs[msgs.length - 1]), g = m.first - 13;
+    const mask = (count) => Uint8Array.from({ length: count }, (_, f) => (f >= g && f < m.first ? (f === g + 5 ? 2 : 1) : 0));
+    const plain = (await render(x, { gate: false })).codecInfo, got = (await withMask(mask, () => render(x, { gate: false }))).codecInfo;
+    const L = plain.lookahead, slotOf = (f) => Math.ceil((-2400 + 480 * f + L - 240) / 480), s = slotOf(m.first), end = plain.frameLog.length;
+    const tail = (info, code) => Array.from(code ? info.frameLog.subarray(s, end) : info.frameBytes.subarray(s, end));
+    check('jitter and a gap of more than ten: 12 lost and 1 late frame in front of a one-frame message, the arriving frame at its own slot and nothing after it moved',
+      plain.frameBytes[s] > 0 && same(tail(got, 0), tail(plain, 0)) && same(tail(got, 1), tail(plain, 1)) && got.underrunFrames === 1
+      && Array.from(got.frameLog.subarray(s - 10, s)).filter((v) => v === 5).length >= 9 && got.network === undefined,
+      `the arriving frame ${m.first} at slot ${s}`);
+  }
+
   // Test 11 (with test 8's renders in the live section): no record passes 16.
   check('no record passes 16 frames over the loss renders of tests 1 and 3', records.length > 1000 && Math.max(...records) <= 16,
     `${records.length} records, the longest ${Math.max(...records)} frames`);
@@ -1570,6 +1668,26 @@ async function liveSteamSection() {
     check('no record passes 16 frames over the renders of the live checks', records > 500 && longest <= 16, `${records} records, the longest ${longest} frames`);
     check('a played packet that is not a spurt\'s first starts at most 6,239 codec samples before the last sample pushed (the order\'s figure)',
       worst > 0 && worst <= 6239, `at most ${worst}; a spurt's first laid packet up to ${worstFirst}`);
+  }
+  // Review round, S2: opts.loseMessage in the live chain. The chain fed a
+  // loseMessage is process() fed the same function at the mix point (full
+  // latency, two plans), and counts the messages it lost.
+  {
+    const lose = (k, m) => k % 4 === 2 || (m.silence === undefined && m.last - m.first + 1 === 5);
+    const whole = [];
+    const ref = await TF2Audio.process({ sampleRate: 24000, length: x8.length, numberOfChannels: 1, getChannelData: () => x8 },
+      { codec: 'steam', volume: 1, seed, loseMessage: lose, onGain: (g) => whole.push(Float32Array.from(g)) });
+    const laid = join(whole);
+    for (const [plan, sizes] of plans(x8.length, seed).filter(([p]) => ['uneven', '480'].includes(p))) {
+      const tl = await withBlockTally(() => liveRun(x8, 24000, { seed, loseMessage: lose }, sizes)), live = tl.result;
+      const handled = tl.mades[0].length;
+      const want = dryMessages(x8, { seed }).events.slice(0, handled).filter((e, k) => lose(k, e.m)).length;
+      const diff = firstDiff(live.laid, laid);
+      check(`the live chain with loseMessage is process() with the same function (blocks of ${plan}): the laid signal, nothing moved, the messages it lost`,
+        diff === -1 && live.laid.length > 0.9 * laid.length && live.stats.movedLate === 0 && live.stats.lostMessages === want && want > 10
+        && ref.codecInfo.network.lostMessages >= want,
+        `${live.laid.length} samples, first difference ${diff}; ${live.stats.lostMessages} lost (want ${want})`);
+    }
   }
   // contentDelay: the chain's whole output against a render of the same
   // audio; latencyMs less contentDelay is the hold-back.

@@ -453,6 +453,23 @@ check('Invalid PCM is rejected before encoding', true);
   fresh.free();
   check(`Steam's decoder, carry(): the next spurt's first frame above the old expected number conceals the gap from the old state (blocks ${above.length}); below it, a reset (blocks ${below.length})`,
     above.length === 3 && above.every((blk, i) => sameBlock(blk, want[i])) && below.length === 1 && sameBlock(below[0], reset));
+  // carry() forgets the late frames counted before it: one at or above the
+  // expected number late in the spurt whose marker was lost is no part of
+  // the next spurt's gap. (Reachable in the app only with jitter and loss
+  // together; shown here on the decoder alone.)
+  const one3 = await dec11({ sampleRate: 24000, channels: 1 }), want3 = [];
+  for (let f = 0; f < 8; f++) one3.decodeInt16(packets[f], { frameSize: 480 });
+  for (let c = 0; c < 3; c++) want3.push(one3.decodePacketLossInt16(480));
+  want3.push(one3.decodeInt16(packets[12], { frameSize: 480 }));
+  one3.free();
+  const e = await opus.createSteamDecoder();
+  for (let f = 0; f < 8; f++) await e.receive(f, packets[f]);
+  e.late(9);
+  e.carry();
+  const forgot = await e.receive(11, packets[12]);                // 11 - 8, the late 9 forgotten: 3 concealed
+  e.free();
+  check(`Steam's decoder, carry(): late frames counted before it are forgotten (blocks ${forgot.length})`,
+    forgot.length === 4 && forgot.every((blk, i) => sameBlock(blk, want3[i])));
 }
 // Sequence numbers are 16 bits, as the packets carry them (W3-16 section 3):
 // after 65535 comes 0, with no reset and nothing concealed. The numbers are

@@ -203,6 +203,15 @@ first 10 as now). A packet is laid whole with its first block at
 `anchor + 882 x (that block's frame - the spurt's first frame)`, the anchor as today. A packet of F
 frames is 882 F samples, so with nothing lost this is today's laying, sample for sample.
 
+*Corrected 2026-11-11, after the build and its review:* the formula above is replaced by **the cursor (where the
+spurt's last packet, laid or refused, ended; the anchor at first) plus 882 samples for each lost frame in front of
+the packet's first arriving frame that no block stands for** (past the ten concealed, or lost before a reset). The
+two agree whenever no late frame is in play. With jitter a late frame's block can stand before concealed blocks, so
+the first block's frame is not the earliest: the formula above then lays a packet a slot off, moves renders at loss 0
+with jitter, and under jitter of 200 ms and more put arriving frames at the wrong slot in the prototype. The
+replacement is today's laying whenever no gap passes ten, and puts every arriving frame at its own slot (the review
+checked each one).
+
 After a gap of more than ten frames the time of the frames that were not concealed stays empty: zeros in
 the output, 0 in the frame log. So does a refused packet's time. The cursor (createRender's bound, the
 live chain's give-out) moves past a refused packet's place. `steamGiveOut` and its ten-frame wait do not
