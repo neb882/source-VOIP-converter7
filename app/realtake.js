@@ -123,7 +123,7 @@ async function alignReferenceTake(job = ++referenceJob) {
       if (!els.audio.paused) els.audioReal.play().catch(() => {});
     }
     if (els.referenceClear) els.referenceClear.hidden = false;
-    setReferenceStatus(`${name}: ${describeTiming(timeline)} It plays as the third A/B version (B cycles wet, dry, real).`, 'reference-good');
+    setReferenceStatus(`${name}: ${describeTiming(timeline)} It plays as the third A/B version (B cycles render, original, real take).`, 'reference-good');
     const first = timeline.segments[0];
     logLine(`Reference: aligned "${name}" in ${timeline.segments.length} segment${timeline.segments.length === 1 ? '' : 's'} `
       + `(delay ${first.delayMs.toFixed(1)} ms first, clock ${first.clockPpm.toFixed(1)} ppm, ${timeline.points} windows, r ${timeline.correlation.toFixed(3)})`, 'sys');

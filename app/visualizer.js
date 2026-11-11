@@ -1055,10 +1055,10 @@ function drawHover(L, buffer, range) {
   } else if (region === 'lufs') {
     const stats = state.meterStats || {};
     const fmt = (v) => (v === null ? '—' : Number.isFinite(v) ? v.toFixed(1) : '−∞');
-    for (const [label, s] of [['wet', stats.wet], ['dry', stats.dry], ['real', stats.real]]) {
+    for (const [label, s] of [['WET', stats.wet], ['DRY', stats.dry], ['REAL', stats.real]]) {
       if (!s || !s.history) continue;
       const v = lufsAt(s, t);
-      text += ` · ${label} M ${fmt(v.m)} S ${fmt(v.s)}`;
+      text += ` · ${versionName(label)} M ${fmt(v.m)} S ${fmt(v.s)}`;
     }
     text += ' LUFS';
   } else if (region === 'lane') {
@@ -1151,19 +1151,19 @@ function drawBarsView(buffer, w, h, now) {
     let peak = 0, sq = 0;
     for (const v of wave) { peak = Math.max(peak, Math.abs(v)); sq += v * v; }
     const toDb = (v) => (v > 0 ? (20 * Math.log10(v)).toFixed(1) : '-inf');
-    drawLabel(`${buffer.label}  peak ${toDb(peak)}  rms ${toDb(Math.sqrt(sq / wave.length))} dBFS`, 30, 4);
+    drawLabel(`${versionName(buffer.label)}  peak ${toDb(peak)}  rms ${toDb(Math.sqrt(sq / wave.length))} dBFS`, 30, 4);
   } else {
-    drawLabel(`${buffer.label}  spectrum at ${els.audio.currentTime.toFixed(2)} s`, 30, 4);
+    drawLabel(`${versionName(buffer.label)}  spectrum at ${els.audio.currentTime.toFixed(2)} s`, 30, 4);
   }
-  if (other) drawLabel(`— ${other.label}`, 30, 16, 'rgba(235, 235, 235, 0.85)');
+  if (other) drawLabel(`— ${versionName(other.label)}`, 30, 16, 'rgba(235, 235, 235, 0.85)');
   if (state.abMatch && state.abOffsetDb) drawLabel('levels matched', 30, 28, 'rgba(164, 208, 7, 0.9)');
 
   if (vizHover) {
     const i = Math.min(count - 1, Math.max(0, Math.floor(vizHover.x / (w / count))));
     const [lo, hi] = bands.bands[i], binHz = rate / VIZ.fftSize;
     const hz = Math.sqrt(Math.max(lo, 0.5) * hi) * binHz;
-    let text = `${formatHz(hz)} · ${buffer.label} ${bands.levels[i].toFixed(1)} dB`;
-    if (other && bands.smoothed) text += ` · ${other.label} ${bands.smoothed[i].toFixed(1)} dB`;
+    let text = `${formatHz(hz)} · ${versionName(buffer.label)} ${bands.levels[i].toFixed(1)} dB`;
+    if (other && bands.smoothed) text += ` · ${versionName(other.label)} ${bands.smoothed[i].toFixed(1)} dB`;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(Math.round(vizHover.x) + 0.5, 0); ctx.lineTo(Math.round(vizHover.x) + 0.5, h); ctx.stroke();
     drawTag(text, vizHover.x + 10, Math.max(40, Math.min(h - 32, vizHover.y - 20)), w);
@@ -1344,7 +1344,7 @@ function drawAverageView(w, h) {
     if (y - 5 < specH + 2 || y + 5 > h) continue;
     drawLabel(`${d > 0 ? '+' : '−'}${Math.abs(d)}`, 4, y - 5, 'rgba(200, 210, 220, 0.6)');
   }
-  drawLabel(`Δ wet − ${refLabel.toLowerCase()}`, w - 6, diffY + 2, 'rgba(255, 184, 34, 0.8)', 'right');
+  drawLabel(`Δ ${versionName('WET')} − ${versionName(refLabel)}`, w - 6, diffY + 2, 'rgba(255, 184, 34, 0.8)', 'right');
   const where = vizSel || state.realTake ? `${formatTime(range.t0, 2)}–${formatTime(range.t1, 2)}` : 'whole file';
   drawPlate(`AVERAGE SPECTRUM · ${where}${v.fft ? ` · ${v.fft}-pt, ${v.windows} windows, 1/6 oct` : ''}`, 30, 3);
   if (v.curves) {
@@ -1353,12 +1353,12 @@ function drawAverageView(w, h) {
       const c = v.curves[label];
       if (!c) continue;
       const shift = c.match ? ` (${c.offset >= 0 ? '+' : '−'}${Math.abs(c.offset).toFixed(1)} dB)` : '';
-      const text = `— ${label}${shift}`;
+      const text = `— ${versionName(label)}${shift}`;
       drawLabel(text, x, 17, label === 'DRY' && refLabel === 'REAL' ? 'rgba(235, 235, 235, 0.5)' : STYLE[label][0]);
       ctx.font = '9px Verdana, sans-serif';
       x += ctx.measureText(text).width + 12;
     }
-    if (Object.values(v.curves).some(c => c.match)) drawLabel(`${Object.values(v.curves).find(c => c.match).match} matched to wet`, x, 17, 'rgba(200, 210, 220, 0.55)');
+    if (Object.values(v.curves).some(c => c.match)) drawLabel(`${Object.values(v.curves).find(c => c.match).match} matched to the render`, x, 17, 'rgba(200, 210, 220, 0.55)');
   }
   els.canvas.dataset.view = v.pending ? '' : `avg:${refLabel.toLowerCase()}:${range.t0.toFixed(4)}-${range.t1.toFixed(4)}`;
 
@@ -1367,7 +1367,7 @@ function drawAverageView(w, h) {
     const hz = VIZ.minHz * Math.pow(v.top / VIZ.minHz, (x + 0.5) / w);
     const fmt = (d) => (Number.isFinite(d) ? d.toFixed(1) : '−∞');
     let text = formatHz(hz);
-    for (const label of ['WET', 'REAL', 'DRY']) if (v.curves[label]) text += ` · ${label.toLowerCase()} ${fmt(v.curves[label].values[x])}`;
+    for (const label of ['WET', 'REAL', 'DRY']) if (v.curves[label]) text += ` · ${versionName(label)} ${fmt(v.curves[label].values[x])}`;
     if (v.diff && Number.isFinite(v.diff[x])) text += ` · Δ ${v.diff[x] >= 0 ? '+' : '−'}${Math.abs(v.diff[x]).toFixed(1)} dB`;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, h); ctx.stroke();
@@ -1412,7 +1412,7 @@ function drawVisualizer(now = performance.now()) {
   drawSelection(L, range);
   const zoom = range.zoomed ? `  ${formatTime(range.t0, 2)}–${formatTime(range.t1, 2)}` : '';
   const resolution = spec && vizImage && vizImage.tiers && vizImage.base === imageBase(buffer) ? `  ·  ${describeResolution(vizImage)}` : '';
-  drawPlate(`${buffer.label}${zoom}${resolution}`, spec ? VIZ.freqRulerW : 6, 3);
+  drawPlate(`${versionName(buffer.label)}${zoom}${resolution}`, spec ? VIZ.freqRulerW : 6, 3);
   drawPlayhead(w, L.rulerY, range);
   drawHover(L, buffer, range);
 }
@@ -1486,8 +1486,8 @@ function updateLegend() {
     head.title = 'BS.1770 loudness over time: momentary (400 ms) and short-term (3 s), each at the centre of its window';
     items.push(head);
     for (const label of ['WET', 'DRY', ...(state.realTake ? ['REAL'] : [])]) {
-      items.push(item(line(LUFS_STYLE[label], 2, false), `${label.toLowerCase()} S`, `${label.toLowerCase()} short-term (3 s)`));
-      items.push(item(line(LUFS_STYLE[label], 1, false), `${label.toLowerCase()} M`, `${label.toLowerCase()} momentary (400 ms)`));
+      items.push(item(line(LUFS_STYLE[label], 2, false), `${versionName(label)} S`, `${versionName(label)} short-term (3 s)`));
+      items.push(item(line(LUFS_STYLE[label], 1, false), `${versionName(label)} M`, `${versionName(label)} momentary (400 ms)`));
     }
     items.push(item(line('180, 180, 180', 1, true), 'integrated', 'Integrated loudness of the whole file'));
   }

@@ -6,8 +6,8 @@
 /* ------------------------------------------------------------------ */
 /* Meter and loudness-matched A/B (meter.js)                          */
 /*                                                                    */
-/* The meter lists loudness and levels of the wet render and the dry  */
-/* source, or of the time range selected in the visualizer. Matching  */
+/* The meter lists loudness and levels of the render (TF2) and the    */
+/* original, or of the time range selected in the visualizer. Matching */
 /* plays the louder of the two quieter by their difference in         */
 /* integrated loudness over the whole file, so an A/B compares sound  */
 /* rather than level.                                                 */
@@ -23,6 +23,16 @@ els.abMatch = document.getElementById('ab-match');
 state.abMatch = LS.get('tf2ve_ab_match', false) === true;
 state.abOffsetDb = 0;         // gain applied to the louder version, dB (<= 0)
 state.abLouder = null;        // 'WET' or 'DRY'
+
+// The versions' internal labels are WET (the render), DRY (the original)
+// and REAL (a take); the page shows them as these (W4-01a: no element says
+// wet or dry).
+// One neutral name for the render, whatever the codec (the owner,
+// 2026-11-11): a render with vaudio_miles or Fullband Opus is not TF2's voice.
+const VERSION_NAMES = { WET: 'RENDER', DRY: 'ORIGINAL', REAL: 'REAL', SOURCE: 'SOURCE' };
+const versionName = (label) => VERSION_NAMES[label] || label;
+// In a sentence: "the render", "the original", "the real take".
+const VERSION_WORDS = { WET: 'the render', DRY: 'the original', REAL: 'the real take' };
 
 // TF2Meter.analyze on a copy of `samples`, in a worker when there is one.
 function analyzeCopy(samples, rate) {
@@ -94,6 +104,8 @@ function meterWarning(key, value) {
 
 let meterGeneration = 0, meterSourcesKey = '';
 async function updateMeter() {
+  // Hear's buttons follow the versions there are (a take loaded or removed).
+  if (typeof updateAbButtons === 'function') updateAbButtons();
   const sources = meterSources();
   const generation = ++meterGeneration;
   const selection = vizSel;
@@ -118,7 +130,7 @@ async function updateMeter() {
     if (cls) tr.className = cls;
     const th = document.createElement('th');
     th.scope = 'row';
-    th.textContent = label;
+    th.textContent = versionName(label);
     tr.appendChild(th);
     cells.forEach((text, i) => {
       const td = document.createElement('td');
@@ -147,7 +159,7 @@ async function updateMeter() {
   // where a difference means something.
   const diff = new Set(['integrated', 'truePeak', 'samplePeak', 'rms', 'plr', 'lra']);
   const byLabel = (label) => results[sources.findIndex(src => src.label === label)] || null;
-  for (const [label, other, title] of [['Δ', 'DRY', 'wet minus dry'], ['Δ real', 'REAL', 'wet minus the real take']]) {
+  for (const [label, other, title] of [['Δ', 'DRY', 'the render minus the original'], ['Δ real', 'REAL', 'the render minus the real take']]) {
     const a = byLabel('WET'), b = byLabel(other);
     if (!a || !b) continue;
     const tr = row(label, METER_COLUMNS.map(([key]) => {
@@ -190,10 +202,10 @@ function applyAbMatch() {
     els.abMatch.setAttribute('aria-pressed', String(state.abMatch));
     els.abMatch.classList.toggle('active', state.abMatch);
     const lowered = Object.entries(state.abGains).filter(([, g]) => g < -0.05)
-      .map(([label, g]) => `${label.toLowerCase()} ${g.toFixed(1).replace('-', '−')}`);
+      .map(([label, g]) => `${VERSION_WORDS[label]} ${g.toFixed(1).replace('-', '−')}`);
     els.abMatch.textContent = !state.abMatch || !state.abLouder ? 'Match loudness'
       : 'REAL' in levels ? `Matched: ${lowered.join(', ') || 'all equal'} dB`
-        : `Matched: ${state.abLouder.toLowerCase()} ${state.abOffsetDb.toFixed(1).replace('-', '−')} dB`;
+        : `Matched: ${VERSION_WORDS[state.abLouder]} ${state.abOffsetDb.toFixed(1).replace('-', '−')} dB`;
   }
 }
 
@@ -204,18 +216,22 @@ if (els.abMatch) els.abMatch.addEventListener('click', () => {
   refreshVisualizer();
 });
 
-// Space plays and pauses the preview, B switches A/B and L loops, outside
-// text fields and buttons.
+// Space plays and pauses the preview, B switches what is heard (Hear) and L
+// loops, outside text fields and buttons. On the player, which takes the
+// focus after a first render (W4-01a), B and L work too; Space there is the
+// player's own (handled here as well, it would act twice).
 document.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
   const target = event.target;
-  if (target && target.closest && target.closest('input, textarea, select, button, audio, summary, [contenteditable]')) return;
+  const onPlayer = target === els.audio;
+  if (onPlayer && event.key === ' ') return;
+  if (!onPlayer && target && target.closest && target.closest('input, textarea, select, button, audio, summary, [contenteditable]')) return;
   if (event.key === ' ' && els.audio.src) {
     event.preventDefault();
     if (els.audio.paused) els.audio.play().catch(() => {}); else els.audio.pause();
-  } else if ((event.key === 'b' || event.key === 'B') && !els.abToggle.disabled) {
+  } else if ((event.key === 'b' || event.key === 'B') && canHear()) {
     event.preventDefault();
-    els.abToggle.click();
+    cycleAbMode();
   } else if ((event.key === 'l' || event.key === 'L') && els.vizLoop && !els.vizLoop.disabled) {
     event.preventDefault();
     toggleLoop();
