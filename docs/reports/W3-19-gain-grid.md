@@ -137,4 +137,26 @@ Re-recorded (old, then new):
 
 ## Checks run
 
-(Filled in below as they are run.)
+- `pnpm test:all` under `flock /tmp/tf2ve-heavy.lock` (with `CHROMIUM_EXECUTABLE` set as CLAUDE.md gives it), on commit 82d9fea, exit 0, in 11 min 41 s. Results:
+  - vendor: the Opus runtime and the libopus 1.1.5, CELT 0.11 and Speex 1.0.2 builds match their recorded hashes;
+  - verify.js 214 passed, 0 failed;
+  - gain 88 passed, 0 failed;
+  - opus 147 passed;
+  - speex102 86 passed;
+  - reference 42 passed;
+  - formats 68 passed, 0 failed;
+  - filerate 53 passed;
+  - meter 50 passed, 0 failed;
+  - video 46 passed;
+  - demo 36 passed;
+  - render-stream 520 passed, 0 failed;
+  - output-stage 102 passed, 0 failed;
+  - voice-channel 129 passed;
+  - steam-sender 109 passed;
+  - swresample 43 passed;
+  - room-dsp 216 passed;
+  - browser 246 passed.
+- `node tests/render-stream.verify.mjs` with `TF2_DIR` at main's sources (W3-18's merge) and the five new cases: 520 passed, 0 failed (commit 1).
+- `node tests/gain.verify.mjs` with `TF2_DIR` at main's sources: 82 passed, 6 failed (the six named above).
+- The mutation runs in the table above.
+- CI: given in the hand-back and the line below once read.
