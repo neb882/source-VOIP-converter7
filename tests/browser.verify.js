@@ -956,6 +956,8 @@ async function verifySourceDuringRender(page) {
   // The dropped file is made first, so the drop comes the moment the long
   // file's render has begun (a minute of sound: it is still rendering).
   await page.evaluate((bytes) => { window.__dropShort = new File([new Uint8Array(bytes)], 'short.wav', { type: 'audio/wav' }); }, [...wavTone(1, 48000, 880)]);
+  // No render of the step before is still running.
+  await page.waitForFunction(() => renderIdle(), null, { timeout: 60000 });
   const before = await page.evaluate(() => state.renderId);
   await page.locator('#file').setInputFiles({ name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(60, 16000) });
   await page.waitForFunction(() => state.sourceName === 'long.wav' && state.processing);
@@ -970,7 +972,7 @@ async function verifySourceDuringRender(page) {
   const after = await page.evaluate(() => ({ renders: state.renderId, seconds: state.processedBuffer.length / state.processedRate, download: !els.dl.disabled,
     process: !els.process.disabled, status: els.status.textContent, log: document.getElementById('console-out').textContent }));
   check(after.renders === before + 1 && Math.abs(after.seconds - 1) < .01 && after.download && after.process && after.status.startsWith('short.wav')
-    && /render of the previous source stopped|the source changed during the render/.test(after.log),
+    && /render of the previous source stopped/.test(after.log) && !/the source changed during the render/.test(after.log),
     'a source dropped during a render stops that render, and renders as itself', `${after.seconds.toFixed(3)} s; ${after.renders - before} render shown; ${after.status}`);
   // Presets reset every receiver setting, re-timing included.
   const retime = await page.evaluate(() => { execCommand('voice_retime 1'); execCommand('exec preset_modern'); return els.retime.value; });
