@@ -225,7 +225,7 @@ const PRESETS = {
  * `steam` is calibrated against a real TF2 recording; the CELT profiles'
  * settings are read from the game's own module (W3-03) and their codec is
  * the game's build (W3-08); Speex's codec and settings are read from the
- * game's module (W3-09) and cannot be recorded.
+ * game's module (W3-09) and reproduce a 32-bit game's recording (W3-18).
  *
  *   engine      : 'celt011' for CELT 0.11 (frameSize samples per packetBytes
  *                 packet, scaled by snd_bits / 16); 'speex' for the game's
