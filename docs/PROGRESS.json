@@ -27,8 +27,8 @@
   "in_flight": [
     {
       "order": "W3-19-gain-grid",
-      "state": "next",
-      "note": "docs/work-orders/W3-19-gain-grid.md. Small; a builder is started when W3-18's merge is live and usage allows."
+      "state": "building",
+      "note": "docs/work-orders/W3-19-gain-grid.md. Builder's branch claude/w3-19-gain-grid, from main at W3-18's merge (v29 confirmed live 08:31 UTC 2026-11-11). After the hand-back: the orchestrator's private re-run on Sets H and M at voice_maxgain 1 and 10, the review, fixes, merge, v30."
     }
   ],
   "next": [
