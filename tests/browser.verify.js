@@ -709,7 +709,9 @@ async function verifySpeexPage(page) {
     'the console line names Speex 1.0.2, its frames, and zeros for a lost frame', sVoice);
   check(/Ready · Speex 1\.0\.2 · 11\.025 kbps/.test(seen.status), 'the status line names Speex 1.0.2', seen.status);
   const words = 'Speex 1.0.2 on 11.025 kHz sound · 20-byte frames of 14.51 ms · 11.025 kbit/s';
-  check(seen.chain === `Codec${words}` && seen.option === `vaudio_speex (${words})`, 'the chain strip and the codec menu describe the game\'s Speex module',
+  // W4-01d: the menu's entry is the plain name with its figures shortened
+  // (it fits a 390 px screen); the chain strip keeps the module's figures.
+  check(seen.chain === `Codec${words}` && seen.option === 'vaudio_speex (Speex, 11 kHz)', 'the chain strip describes the game\'s Speex module, and the codec menu names it',
     `${seen.chain} / ${seen.option}`);
   const texts = [...seen.legend, ...seen.legendTitles, sVoice, seen.status, seen.chain, seen.option];
   check(texts.every(t => !/CELT|Opus|SILK/.test(t)), 'nothing on the page calls a speex render CELT, Opus or SILK', texts.filter(t => /CELT|Opus|SILK/.test(t)).join(' / '));
@@ -767,7 +769,7 @@ async function verifyCeltPage(page) {
     await page.waitForFunction((id) => state.renderId > id, before, { timeout: 60000 });
   };
   const labels = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#codec option')].map(o => [o.value, o.textContent])));
-  check(labels.celt_22 === 'vaudio_celt (CELT 0.11, 22 kHz, 22 kbps)' && labels.celt_44 === 'vaudio_celt_high (CELT 0.11, 44 kHz mode, 22 kbps)',
+  check(labels.celt_22 === 'vaudio_celt (CELT, 22 kHz)' && labels.celt_44 === 'vaudio_celt_high (44 kHz mode)',
     'the codec menu names vaudio_celt and vaudio_celt_high at their real rates', `${labels.celt_22} / ${labels.celt_44}`);
   const seen = {};
   for (const codec of ['celt_22', 'celt_44']) {
@@ -989,6 +991,463 @@ async function verifyLiveMonitor(page) {
   await page.locator('#live-toggle').click();
   await page.waitForFunction(() => !TF2Live.running);
   check(await page.locator('#live-toggle').getAttribute('aria-pressed') === 'false', 'the live monitor stops');
+}
+
+// W3-17d: the rule for which controls are the game's, which the two PCs'
+// and which the app's own extras (the order's part d, item 4), copied from
+// the order, not made from the page. Ids of the page's controls.
+const CONTROLS_GAME = ['codec', 'listener_position', 'env', 'a_sky', 'a_w', 'a_l', 'a_h', 'a_open', 'a_refl', 'underwater',
+  'avggain', 'maxgain', 'voice_scale', 'volume', 'loss', 'jitter', 'live-ptt'];
+const CONTROLS_PCS = ['capture_channel', 'steam_uptime', 'device_rate', 'live-input', 'live-output'];
+const CONTROLS_EXTRAS = ['gain', 'hp', 'lp', 'vad', 'vad_threshold', 'warble_on', 'bits', 'frameMs', 'agc', 'retime',
+  'c_dur', 'c_dec', 'c_mix', 'live-lowlat'];
+// The game's controls whose label shows the game's variable (`class="cvar"`).
+const CONTROLS_NAMED = { codec: 'sv_voicecodec', listener_position: 'dsp_room', env: 'dsp_room', avggain: 'voice_avggain',
+  maxgain: 'voice_maxgain', voice_scale: 'voice_scale', volume: 'volume', loss: 'net_fakeloss', jitter: 'net_fakejitter', 'live-ptt': '+voicerecord' };
+
+async function verifyRoomsPage(page) {
+  console.log('\n[Browser 3c4] Rooms on the page (W3-17d)');
+  await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
+  // The listener position's choices, in the order's order, the first chosen.
+  const list = await page.evaluate(() => {
+    const select = els.position;
+    return { value: select.value, first: select.options[0].value, def: DEFAULT_LISTENER,
+      groups: [...select.querySelectorAll('optgroup')].map((g) => [g.label, [...g.querySelectorAll('option')].map((o) => o.value)]),
+      loose: [...select.children].filter((c) => c.tagName === 'OPTION').map((o) => `${o.value}: ${o.textContent}`),
+      cases: TF2Room.ROOM_CASES.map((r) => r.key), measured: TF2Room.ROOM_CASES.filter((r) => r.measured).map((r) => r.key),
+      places: TF2Room.ROOM_PLACES.map((r) => r.key), presets: PRESETS.modern.position + PRESETS.legacy.position + PRESETS.laggy.position };
+  });
+  const group = (label) => (list.groups.find(([l]) => l === label) || [null, []])[1];
+  const examples = list.cases.filter((k) => !list.measured.includes(k));
+  check(list.def === 'open' && list.value === 'open' && list.first === 'open' && list.presets === 'openopenopen'
+    && list.loose.join(' | ') === 'open: No room effect (the game\'s Sound quality: Low) | manual: Manual: number or measures below',
+    'the listener position starts on DEFAULT_LISTENER, no room (the game\'s Sound quality: Low), which the built-in presets use; manual is last', list.loose.join(' | '));
+  check(JSON.stringify(group('Automatic room, as recorded')) === JSON.stringify(['auto_set_c_room', 'auto_set_d_street'])
+    && JSON.stringify(group('Automatic room: examples by shape')) === JSON.stringify(examples.map((k) => `auto_${k}`)) && examples.length === 14
+    && JSON.stringify(group('Automatic room: places measured on 2Fort')) === JSON.stringify(list.places.map((k) => `place_${k}`)) && list.places.length === 5
+    && JSON.stringify(group('A room the map sets by number')) === JSON.stringify([2, 3, 4, 5, 11, 17, 18, 21, 25, 26].map((n) => `room_${n}`)),
+    'its groups: the two rooms as recorded, the 14 examples by shape, the five places on 2Fort, the ten numbers the soundscape scripts set',
+    list.groups.map(([l, v]) => `${l} (${v.length})`).join(', '));
+  // The lines under it.
+  const lines = await page.evaluate(() => {
+    const at = (key, water) => {
+      els.position.value = key; els.underwater.checked = !!water; updateSignalChain();
+      const ev = document.getElementById('room-evidence');
+      return { detail: document.getElementById('room-detail').textContent, evidence: ev.hidden ? null : ev.textContent, room: renderOptions().room,
+        water: renderOptions().underwater, mixer: [...document.querySelectorAll('#signal-chain li')].find((l) => l.querySelector('b').textContent === 'Mixer').textContent };
+    };
+    const out = { open: at('open'), water: at('open', true), recorded: at('auto_set_c_room'), example: at('auto_tunnel'), place: at('place_2fort_spawn_long'), number: at('room_17') };
+    // The custom room (the app's own) and a number the table does not hold
+    // (no room), through the manual number.
+    const manualAt = (n, water) => { execCommand(`dsp_room ${n}`); els.underwater.checked = !!water; updateSignalChain(); const ev = document.getElementById('room-evidence');
+      return { evidence: ev.hidden ? null : ev.textContent, text: ev.textContent, described: els.position.getAttribute('aria-describedby') }; };
+    out.custom = manualAt(99); out.unheld = manualAt(40); out.unheldWater = manualAt(40, true);
+    at('open');
+    return out;
+  });
+  // What a screen reader is given at the default: the position's own line
+  // and no hidden sentence (the browser's computed description).
+  {
+    const cdp = await page.context().newCDPSession(page);
+    const { root } = await cdp.send('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#listener_position' });
+    const { nodes } = await cdp.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+    const described = (nodes[0].description && nodes[0].description.value) || '';
+    await cdp.detach();
+    check(/dsp_slow_cpu 1/.test(described) && !/water|recording|Room effects/.test(described),
+      'at the default the listener position\'s accessible description is its own line only: nothing of the hidden water or room sentences', described);
+  }
+  check(lines.custom.evidence === 'The custom room is the app\'s own, not the game\'s: no recording can check it.'
+    && lines.unheld.evidence === null && lines.unheld.text === '' && lines.unheld.described === 'room-detail'
+    && /^Read from the game's code\. One recording under water/.test(lines.unheldWater.evidence || ''),
+    'the custom room\'s line says it is the app\'s own; a number that renders no room has no line (under water, the water\'s)', lines.custom.evidence);
+  check(lines.open.evidence === null && /dsp_slow_cpu 1/.test(lines.open.detail) && lines.open.room === null && lines.open.water === false
+    && /no room$/.test(lines.open.mixer),
+    'no room: no line about the recordings, the help names dsp_slow_cpu 1, the render is asked for no room', lines.open.detail);
+  check(lines.water.evidence === 'Read from the game\'s code. One recording under water matches its level (0.77 of the dry voice) and its lack of tremolo.'
+    && lines.water.room === null && lines.water.water === true && /under water$/.test(lines.water.mixer),
+    'under water alone: its own line, and the render is asked for no room under water', lines.water.evidence);
+  const evidence = 'Room effects follow the game\'s own code. The two rooms marked "as recorded" match recordings of the game in echo times and level, '
+    + 'and room 6 matches a recording echo by echo. The 2Fort places use the measures the game printed there; the other shapes are examples. '
+    + 'No room has been checked sample for sample yet.';
+  check([lines.recorded, lines.example, lines.place, lines.number].every((l) => l.evidence === evidence),
+    'with a room, the line about what the recordings show', lines.recorded.evidence);
+  check(JSON.stringify(lines.recorded.room) === '{"auto":"set_c_room"}' && /room; size class 2; from presets 102 and 103; 41\/256 to the room/.test(lines.recorded.detail)
+    && JSON.stringify(lines.example.room) === '{"auto":"tunnel"}' && /tunnel; size class 2; from presets 114 and 115; 72\/256 to the room/.test(lines.example.detail)
+    && /^An example: indoors, 200 × 1000 × 150 units, reflectivity 0\.3/.test(lines.example.detail)
+    && JSON.stringify(lines.place.room) === '{"auto":"2fort_spawn_long"}' && /^Measured by the game on ctf_2fort/.test(lines.place.detail)
+    && JSON.stringify(lines.number.room) === '{"preset":17}' && /dsp_room 17 \(Concrete Small\): 26\/256/.test(lines.number.detail),
+    'each choice asks the render for its room and says what the engine builds (shape, size class, the pair, the share)', lines.example.detail);
+  // Manual: dsp_room 0 to 29 (1 the automatic room from six measures), 99,
+  // any typed number; under water its own checkbox.
+  await page.locator('#advanced-toggle').evaluate((b) => { if (b.getAttribute('aria-expanded') !== 'true') b.click(); });
+  const manual = await page.evaluate(() => {
+    const out = {};
+    out.options = [...els.env.options].filter((o) => !o.dataset.typed).map((o) => o.value).join(',');
+    out.one = els.env.querySelector('option[value="1"]').textContent;
+    execCommand('dsp_room 1');
+    out.autoShown = getComputedStyle(els.autoEnv).display !== 'none';
+    out.position = els.position.value;
+    els.autoWidth.value = '200'; els.autoLength.value = '1000'; els.autoHeight.value = '150'; els.autoRefl.value = '0.3';
+    updateSignalChain();
+    out.line = document.getElementById('env-detail').textContent;
+    out.room = JSON.stringify(renderOptions().room);
+    execCommand('dsp_auto_width 48'); execCommand('dsp_auto_length 400'); execCommand('dsp_auto_height 64'); execCommand('dsp_auto_reflectivity 0.4');
+    out.duct = document.getElementById('env-detail').textContent;
+    execCommand('dsp_room 40');
+    out.typed = { value: els.env.value, line: document.getElementById('env-detail').textContent, room: JSON.stringify(renderOptions().room),
+      console: document.getElementById('console-out').textContent.slice(-300) };
+    execCommand('dsp_room 99');
+    out.custom = { shown: getComputedStyle(els.customEnv).display !== 'none', room: renderOptions().room };
+    execCommand('exec preset_modern');
+    return out;
+  });
+  check(manual.options === [...Array(30).keys(), 99].join(',') && manual.one === '1: automatic (the map measures the room; give the measures)'
+    && manual.autoShown && manual.position === 'manual',
+    'manual: dsp_room 0 to 29 and 99, 1 reading "automatic (the map measures the room; give the measures)" and showing its six measures', manual.one);
+  check(manual.line === 'The engine would build: tunnel; size class 2; from presets 114 and 115; 72/256 to the room.'
+    && manual.room === '{"auto":{"sky":false,"width":200,"length":1000,"height":150,"reflectivity":0.3,"openSides":0}}'
+    && /duct; size class 1; from presets 106 and 107; 51\/256 to the room/.test(manual.duct),
+    'the six measures go to the render, with a line that says what the engine would build', manual.line);
+  check(manual.typed.value === '40' && manual.typed.room === '{"preset":40}' && /the app does not have this room/.test(manual.typed.line)
+    && /dsp_room 40: the app does not have this room/.test(manual.typed.console),
+    'the console\'s dsp_room takes any whole number; one the table does not hold: "the app does not have this room"', manual.typed.line);
+  check(manual.custom.shown && manual.custom.room && manual.custom.room.custom && manual.custom.room.custom.mix === 0.25,
+    'dsp_room 99, the app\'s custom room, shows its three knobs and sends them');
+  // Saved settings and share links: each old position lands as item 3 says.
+  const links = await page.evaluate(() => {
+    const out = {};
+    for (const [pos, n] of Object.entries({ hallway: 22, small_room: 17, tunnel: 6, tunnel_big: 7, cavern: 24, hangar: 10, chamber: 19, metal: 4 })) {
+      execCommand('exec preset_modern'); els.underwater.checked = true;
+      history.replaceState(null, '', `#codec=steam&pos=${pos}`); applyHashConfig();
+      out[pos] = els.position.value === 'manual' && els.env.value === String(n) && !els.underwater.checked
+        && JSON.stringify(renderOptions().room) === `{"preset":${n}}` && renderOptions().underwater === false;
+    }
+    execCommand('exec preset_modern');
+    history.replaceState(null, '', '#codec=steam&pos=water'); applyHashConfig();
+    out.water = els.position.value === 'open' && els.underwater.checked && renderOptions().room === null && renderOptions().underwater === true;
+    const cfg = collectConfig();
+    out.saved = cfg.pos === 'open' && cfg.uw === '1';
+    history.replaceState(null, '', '#codec=steam&pos=auto_great_hall&uw=1&dsp=1&aw=700&al=1300&ah=400&arefl=0.4&asky=0&aopen=0'); applyHashConfig();
+    out.newLink = els.position.value === 'auto_great_hall' && els.underwater.checked && els.autoWidth.value === '700';
+    // dsp_room 1 rendered no room before W3-17d: an old link with it and no
+    // measures renders none; a new one carries its measures.
+    history.replaceState(null, '', '#codec=steam&pos=manual&dsp=1'); applyHashConfig();
+    out.oldAuto = els.position.value === 'open' && renderOptions().room === null;
+    history.replaceState(null, '', '#codec=steam&pos=manual&dsp=1&asky=0&aw=200&al=1000&ah=150&aopen=0&arefl=0.3'); applyHashConfig();
+    out.newAuto = els.position.value === 'manual' && JSON.stringify(renderOptions().room) === '{"auto":{"sky":false,"width":200,"length":1000,"height":150,"reflectivity":0.3,"openSides":0}}';
+    execCommand('exec preset_modern'); execCommand('dsp_room 1');
+    const saved = collectConfig();
+    execCommand('exec preset_modern'); applyConfig(saved);
+    out.savedAuto = els.position.value === 'manual' && renderOptions().room && typeof renderOptions().room.auto === 'object';
+    history.replaceState(null, '', location.pathname);
+    execCommand('exec preset_sewers');
+    out.sewers = els.position.value === 'open' && els.underwater.checked
+      && document.querySelector('.preset-btn[aria-pressed="true"]').dataset.preset === 'underwater'
+      && /preset_sewers is now preset_underwater/.test(document.getElementById('console-out').textContent);
+    execCommand('exec preset_spam');
+    out.spam = els.position.value === 'auto_tunnel' && !els.underwater.checked;
+    execCommand('exec preset_modern');
+    return out;
+  });
+  check(Object.values(links).every(Boolean),
+    'old share links: hallway, small_room, tunnel, tunnel_big, cavern, hangar, chamber, metal become manual with 22, 17, 6, 7, 24, 10, 19, 4; water becomes no room under water; manual dsp_room 1 without measures renders no room, as it did; new links keep their keys and measures',
+    JSON.stringify(links));
+  check(links.sewers && links.spam, 'the built-in preset that was "2fort sewers" is "under water" (exec preset_sewers answers with the new name); Mic Spam takes the automatic tunnel');
+  // Every control classified: the extras fieldset holds exactly the extras,
+  // and a variable's name is shown only where the game has it.
+  const classified = await page.evaluate(({ game, pcs, extras, named }) => {
+    const box = document.getElementById('extras');
+    const inBox = [...box.querySelectorAll('select, input')].map((el) => el.id);
+    const label = (id) => { const el = document.getElementById(id); return el && el.labels && el.labels[0]; };
+    const cvar = (id) => { const l = label(id); return l ? [...l.querySelectorAll('.cvar')].map((c) => c.textContent).join(' ') : 'no label'; };
+    return { legend: box.querySelector('legend').textContent, inBox, missing: [...game, ...pcs, ...extras].filter((id) => !document.getElementById(id)),
+      wrongCvar: [...game, ...pcs, ...extras].filter((id) => cvar(id) !== (named[id] || '')).map((id) => `${id}: "${cvar(id)}"`),
+      fullband: document.querySelector('#codec option[value="steam_48"]').textContent };
+  }, { game: CONTROLS_GAME, pcs: CONTROLS_PCS, extras: CONTROLS_EXTRAS, named: CONTROLS_NAMED });
+  check(/Extras: not in the game/.test(classified.legend) && classified.missing.length === 0
+    && JSON.stringify([...classified.inBox].sort()) === JSON.stringify([...CONTROLS_EXTRAS].sort())
+    && !classified.inBox.some((id) => CONTROLS_GAME.includes(id) || CONTROLS_PCS.includes(id)),
+    'the fieldset "Extras: not in the game" holds exactly the order\'s extras, and none of the game\'s or the PCs\' controls', classified.inBox.join(', '));
+  check(classified.wrongCvar.length === 0 && /not (in )?the game/.test(classified.fullband),
+    'a control shows a variable\'s name only if the game has that variable; the Fullband Opus option says it is not in the game', classified.wrongCvar.join('; ') || classified.fullband);
+  // The labels of item 5.
+  const labels5 = await page.evaluate(() => ({ avg: document.querySelector('label[for="avggain"]').textContent.replace(/\s+/g, ' ').trim(),
+    agc: document.querySelector('#agc option[value="1"]').textContent }));
+  check(labels5.avg === 'Gain target: mean (0) to peak (1) voice_avggain' && labels5.agc === 'On (the game\'s rule)',
+    'the labels: "Gain target: mean (0) to peak (1)" with voice_avggain; the auto-gain "On (the game\'s rule)"', `${labels5.avg}; ${labels5.agc}`);
+  // A render with each group's first entry plays and downloads with its tail.
+  await page.locator('#file').setInputFiles({ name: 'room-tone.wav', mimeType: 'audio/wav', buffer: wavTone(0.5) });
+  await page.waitForFunction(() => state.sourceName === 'room-tone.wav' && !els.process.disabled);
+  for (const [key, setup] of [['open'], ['auto_set_c_room'], ['auto_closet'], ['place_2fort_spawn_room'], ['room_2'], ['manual', 'dsp_room 1']]) {
+    await page.evaluate(([k, cmd]) => { execCommand('exec preset_modern'); execCommand(`listener_position ${k}`); if (cmd) execCommand(cmd); }, [key, setup]);
+    const before = await page.evaluate(() => state.renderId);
+    await page.locator('#process').click();
+    await page.waitForFunction((id) => state.renderId > id && !state.processing, before, { timeout: 60000 });
+    const got = await page.evaluate(async () => {
+      const a = els.audio;
+      if (!(a.duration > 0)) await new Promise((r) => a.addEventListener('loadedmetadata', r, { once: true }));
+      a.muted = true; await a.play(); await new Promise((r) => setTimeout(r, 150));
+      const played = a.currentTime; a.pause(); a.currentTime = 0; a.muted = false;
+      const info = state.lastCodecInfo.room || null;
+      return { length: state.processedBuffer.length, rate: state.processedRate, source: Math.round(state.decodedSource.length * state.processedRate / state.decodedSource.sampleRate),
+        duration: a.duration, played, room: info && { shares: info.shares, tail: info.tail, auto: info.auto, preset: info.preset } };
+    });
+    const wav = await readRenderedWav(page);
+    const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#download').click()]);
+    const saved = fs.readFileSync(await download.path());
+    const tail = got.length - got.source;
+    const roomed = key !== 'open';
+    check(wav.frames === got.length && saved.length === 44 + 2 * got.length && saved.equals(Buffer.from(await page.evaluate(async () => [...new Uint8Array(await state.lastWav.arrayBuffer())])))
+      && Math.abs(got.duration - got.length / got.rate) < 0.01 && got.played > 0
+      && (roomed ? got.room && got.room.tail > 0 && tail === Math.round(got.room.tail * got.rate / 44100) : !got.room && tail === 0),
+      `${key}${setup ? ` (${setup})` : ''}: the render plays, and it and its download carry ${roomed ? 'the room\'s tail' : 'no tail'}`,
+      `${got.length} samples, ${tail} of them tail${got.room ? `, ${got.room.shares.room}/${got.room.shares.direct}` : ''}`);
+  }
+  await page.evaluate(() => execCommand('exec preset_modern'));
+}
+
+// W3-17d: the live chain's room. The live monitor's worker, started at
+// 44.1 kHz (no device stage) with its tests-only probe, logs the voice at
+// its mix point (the gain's output) and every call on its room path. Here
+// the mix is made again from that voice alone, independently of audio.js:
+// each sample as a 16-bit value, entered by the module's law
+// (TF2Room.entry) at 256 with no room, or at the shares a room path run by
+// hand gives for its block, each part upsampled by the engine's rule written
+// here, the hand-run path's sum, the clip. The worker's own output must be
+// that, sample for sample. The voice: noise bursts of 1.2 s every 2 s, so
+// the 0.8 s pauses end each talk spurt (Steam's hold is 0.4 s).
+async function verifyLiveRoom(page) {
+  console.log('\n[Browser 3f2] The room in the live chain (W3-17d)');
+  const run = (spec) => page.evaluate(async ({ codec, first, steps, seconds }) => {
+    const rate = 44100, block = 882;
+    let seed = 7;
+    const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+    const total = rate * seconds, mic = new Float32Array(total);
+    for (let i = 0; i < total; i++) mic[i] = (i / rate) % 2 < 1.2 ? 0.3 * (2 * rnd() - 1) : 0.0003 * (2 * rnd() - 1);
+    const worker = new Worker('live-worker.js'), channel = new MessageChannel();
+    const outs = [], readies = [], latencies = [];
+    let probe = null;
+    channel.port1.onmessage = (e) => { if (e.data.type === 'out') outs.push(new Float32Array(e.data.samples)); };
+    worker.onmessage = (e) => {
+      if (e.data.type === 'ready') readies.push(e.data);
+      if (e.data.type === 'stats') latencies.push(e.data.stats.latencyMs);
+      if (e.data.type === 'roomprobe') probe = e.data;
+    };
+    const opts = { ...renderOptions(), codec, volume: 1, ...first, roomProbe: true, seed: 11 };
+    const heard = () => outs.reduce((n, o) => n + o.length, 0);
+    const until = async (f) => { const t = performance.now(); while (!f() && performance.now() - t < 30000) await new Promise((r) => setTimeout(r, 20)); };
+    let fed = 0;
+    const feedTo = async (seconds) => {
+      const to = Math.round(seconds * rate);
+      for (; fed < to; fed += block) { const b = mic.slice(fed, Math.min(to, fed + block)); channel.port1.postMessage({ type: 'in', samples: b.buffer }, [b.buffer]); }
+      fed = to;
+      await until(() => heard() >= fed - rate * (codec === 'steam' ? 0.3 : 0.1));
+    };
+    worker.postMessage({ type: 'start', rate, port: channel.port2, opts }, [channel.port2]);
+    await until(() => readies.length > 0);
+    for (const [at, change] of steps) {
+      await feedTo(at);
+      worker.postMessage({ type: 'config', opts: { ...opts, ...change } });
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    await feedTo(seconds);
+    await new Promise((r) => setTimeout(r, 250));
+    worker.postMessage({ type: 'roomprobe' });
+    await until(() => probe);
+    worker.terminate();
+    // The mix made again from the voice at the mix point.
+    const stages = { 44100: 0, 22050: 1, 11025: 2 }[CODEC_PROFILES[codec].voiceRate], per = 512 >> stages;
+    const voice = [];
+    for (const g of probe.gain) for (const v of g) {
+      let r = Math.round(v * 32768);
+      if (Math.abs(v * 32768 - Math.trunc(v * 32768)) === 0.5) r = 2 * Math.round(v * 32768 / 2);
+      voice.push(Math.max(-32768, Math.min(32767, r)));
+    }
+    const directState = Array.from({ length: stages }, () => ({ prev: 0 })), roomState = Array.from({ length: stages }, () => ({ prev: 0 }));
+    const up = (e, states) => {
+      for (const st of states) {
+        const y = [];
+        for (const x of e) { y.push((st.prev + x) >> 1, x); st.prev = x; }
+        e = y;
+      }
+      return e;
+    };
+    const mix = [];
+    const sets = [];
+    let next = 0, hand = null, share = null, sharesSeen = [], spurts = 0, setAt = [], attach = [], detach = [], blocks = 0, current = null;
+    const add = (y) => { for (const v of y) mix.push(v); };
+    const dryTo = (to) => { if (to > next) { add(up(voice.slice(next, to).map((v) => TF2Room.entry(v, 256)), directState)); next = to; } };
+    for (const c of probe.log) {
+      if (c.call === 'create') hand = TF2Room.createRoomPath({ seed: c.seed, room: c.room, water: c.water, table: TF2_ROOM_PRESETS });
+      else if (c.call === 'set') { setAt.push(blocks); sharesSeen.push('set'); sets.push({ preset: c.preset, fading: hand.state().room.fading }); if (c.preset !== undefined) hand.setRoom(c.preset); hand.setWater(c.water); }
+      else if (c.call === 'spurtStart') { spurts++; sharesSeen.push('spurt'); hand.spurtStart(); }
+      else if (c.call === 'attach') { attach.push(c.at); dryTo(c.at); }
+      else if (c.call === 'detach') { detach.push(c.at); next = Math.max(next, c.at); }
+      else if (c.call === 'block') { dryTo(c.at); current = c.at; }
+      else if (c.call === 'shares') { share = hand.shares(); sharesSeen.push(share.room); }
+      else if (c.call === 'process') {
+        const v = voice.slice(current, current + per);
+        while (v.length < per) v.push(0);
+        const y = hand.process(Int32Array.from(up(v.map((x) => TF2Room.entry(x, share.direct)), directState)),
+          Int32Array.from(up(v.map((x) => TF2Room.entry(x, share.room)), roomState)));
+        add(y);
+        next = current + per;
+        blocks++;
+      }
+    }
+    dryTo(voice.length);
+    const out = [];
+    for (const o of outs) for (const v of o) out.push(v);
+    const m = Math.min(mix.length, out.length);
+    let same = 0;
+    for (let i = 0; i < m; i++) if (Math.max(-32767, Math.min(32767, mix[i])) / 32768 === out[i]) same++;
+    const loud = (at) => voice.slice(Math.max(0, at - 4410), at).some((v) => Math.abs(v) > 300);
+    return { blocks, same, m, mixLength: mix.length, outLength: out.length, readies: readies.map((r) => r.room), spurts, senderSpurts: probe.stats.spurts,
+      sharesSeen, setAt, attach, detach, attachLoud: attach.map(loud), latencies, final: { holding: probe.holding, attached: probe.attached, latencyMs: probe.stats.latencyMs },
+      state: probe.state, created: probe.log.find((c) => c.call === 'create'), sets };
+  }, spec);
+  const hold = 1000 * 511 / 44100;
+  // steam: no room at the start, a room switched on mid-spurt, the great
+  // hall mid-spurt, then none.
+  const steam = await run({ codec: 'steam', first: { room: null, underwater: false }, seconds: 7,
+    steps: [[1.0, { room: { preset: 6 } }], [3.0, { room: { auto: 'great_hall' } }], [5.0, { room: null }]] });
+  check(steam.m > 0.9 * steam.mixLength && steam.same === steam.m && steam.blocks > 100,
+    'steam live: the worker\'s output is the mix made again from its voice alone: the entries at the module\'s shares, each part upsampled, the room path by hand, the clip',
+    `${steam.same} of ${steam.m} samples, ${steam.blocks} blocks through the room`);
+  check(steam.readies.length === 1 && steam.attach.length === 1 && steam.attachLoud[0] && steam.detach.length === 1 && steam.detach[0] > steam.attach[0],
+    'from no room, a room switched on mid-spurt and off again: one chain throughout (Steam\'s sender and the gain run on), the path run from the next block and let go after its fade to none',
+    `${steam.readies.length} chain, attached at voice sample ${steam.attach[0]}, let go at ${steam.detach[0]}`);
+  // After the great hall is taken (mid-spurt) the shares stay preset 6's
+  // until the next spurt starts.
+  const seen = steam.sharesSeen, hall = seen.indexOf('set', seen.indexOf('set') + 1), firstNew = seen.indexOf(41, hall);
+  const lastOld = seen.lastIndexOf(26, firstNew), oldRun = seen.slice(hall, firstNew).filter((v) => v === 26).length;
+  check(steam.spurts === steam.senderSpurts && steam.spurts >= 3 && hall > 0 && firstNew > hall && seen.slice(lastOld, firstNew).includes('spurt') && oldRun > 40,
+    'a voice channel starts at each talk spurt and nowhere else, and a new room\'s shares come with the next spurt, not at once',
+    `${steam.spurts} spurt starts for ${steam.senderSpurts} spurts; 26/256 for ${oldRun} blocks after the hall, then 41/256 after a spurt start`);
+  check(Math.abs(Math.max(...steam.latencies) - steam.final.latencyMs - hold) < 1e-6 && !steam.final.holding && !steam.final.attached,
+    'stats.latencyMs counts the room\'s 11.6 ms only while the chain holds a block: none once the room has faded to none',
+    `${Math.max(...steam.latencies).toFixed(2)} ms with the room, ${steam.final.latencyMs.toFixed(2)} ms after`);
+  // celt_22 (the frame path, a 22050 Hz voice): started under water with a
+  // number the table does not hold; preset 17; then that number again,
+  // which leaves preset 17, with the water off.
+  const celt = await run({ codec: 'celt_22', first: { room: { preset: 40 }, underwater: true }, seconds: 4.5,
+    steps: [[1.5, { room: { preset: 17 }, underwater: true }], [3.0, { room: { preset: 40 }, underwater: false }]] });
+  check(celt.created.water === true && celt.created.room === null && celt.attach[0] === 0 && celt.m > 0.9 * celt.mixLength && celt.same === celt.m
+    && celt.readies.length === 1 && celt.state.room.preset === 17 && celt.state.water.on === false && celt.spurts === celt.senderSpurts,
+    'celt_22 live: started under water with dsp_room 40 (under water, no room), then preset 17, then 40 again (the room stays 17) and the water off: the mix made again, sample for sample',
+    `${celt.same} of ${celt.m} samples, ${celt.blocks} blocks, room ${celt.state.room.preset}`);
+  // Preset 6, none, and before the fade to none has ended dsp_room 40 (not
+  // held): the room still fades to none, and then the path is let go.
+  const late = await run({ codec: 'celt_22', first: { room: { preset: 6 }, underwater: false }, seconds: 3,
+    steps: [[1.0, { room: null }], [1.15, { room: { preset: 40 } }]] });
+  check(late.sets.some((x) => x.preset === 40 && x.fading) && late.m > 0.9 * late.mixLength && late.same === late.m && late.detach.length === 1 && !late.final.attached && !late.final.holding
+    && late.state.room.preset === null && Math.abs(Math.max(...late.latencies) - late.final.latencyMs - hold) < 1e-6,
+    'none, then dsp_room 40 during the fade: the room fades to none and the path is let go (no 11.6 ms kept for the session)',
+    `let go at voice sample ${late.detach[0]}; ${late.final.latencyMs.toFixed(2)} ms after`);
+  // A rebuild for another setting keeps the path, its room and its count.
+  const rebuilt = await run({ codec: 'steam', first: { room: { preset: 6 }, underwater: false }, seconds: 3,
+    steps: [[1.0, { room: { preset: 6 }, micGain: 1.5 }]] });
+  check(rebuilt.readies.length === 2 && rebuilt.readies.every(Boolean) && rebuilt.state.room.preset === 6 && rebuilt.state.count >= 2 * 44100,
+    'a rebuild for another setting keeps the room path: its room and its count of blocks run on', `room ${rebuilt.state.room.preset}, ${rebuilt.state.count} samples`);
+}
+
+// W4-01d: the settings' words. The test walks the settings panel and
+// carries no list of ids, so a control added later without help fails it.
+async function verifySettingsWords(page) {
+  console.log('\n[Browser 3c5] The settings\' words (W4-01d)');
+  const words = await page.evaluate(() => {
+    const panel = document.getElementById('controls-wrapper');
+    const controls = [...panel.querySelectorAll('select, input')];
+    const helpOf = (el) => (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).map((id) => document.getElementById(id));
+    const labelText = (el) => (el.labels && el.labels[0] ? el.labels[0].textContent.replace(/\s+/g, ' ').trim() : '');
+    const firstSentence = (t) => t.split(/(?<=[a-z0-9)%])\. /)[0].replace(/\.$/, '');
+    const dynamic = ['listener_position', 'env', 'vad_threshold'];
+    const sharedBy = { 'auto-help': ['a_sky', 'a_w', 'a_l', 'a_h', 'a_open', 'a_refl'], 'custom-help': ['c_dur', 'c_dec', 'c_mix'] };
+    return {
+      count: controls.length,
+      noHelp: controls.filter((el) => { const h = helpOf(el); return !h.length || h.some((x) => !x) || h[0].textContent.trim().length < 20; }).map((el) => el.id),
+      // Each control's sentence is its own: no other control points at it,
+      // but for the two groups that share one sentence by design.
+      shared: controls.filter((el) => {
+        const h = helpOf(el)[0];
+        if (!h) return false;
+        const group = Object.entries(sharedBy).find(([, ids]) => ids.includes(el.id));
+        const users = controls.filter((o) => helpOf(o)[0] === h).map((o) => o.id);
+        return group ? h.id !== group[0] || users.some((id) => !group[1].includes(id)) : users.length > 1;
+      }).map((el) => `${el.id} -> ${helpOf(el)[0].id}`),
+      long: controls.map((el) => helpOf(el)[0]).filter((h) => h && !h.id.match(/^(room-detail|env-detail)$/)
+        && h.textContent.split(/(?<=\.) /).some((x) => x.length > 115)).map((h) => h.id),
+      measured: [...document.querySelectorAll('option')].filter((o) => /\(measured\)/.test(o.textContent)).map((o) => o.textContent),
+      labels: controls.map(labelText),
+      // The console's help says what the page says: each linked command's
+      // help holds the first sentence of its control's help.
+      console: controls.filter((el) => idToCvarMap[el.id] && !dynamic.includes(el.id) && helpOf(el)[0])
+        .filter((el) => !cvars[idToCvarMap[el.id]].help.includes(firstSentence(helpOf(el)[0].textContent.trim())))
+        .map((el) => `${idToCvarMap[el.id]}: "${firstSentence(helpOf(el)[0].textContent.trim())}"`),
+      table: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'gain', 'bits', 'frameMs', 'loss', 'jitter', 'retime', 'maxgain', 'voice_scale', 'volume', 'hp', 'lp']
+        .map((id) => [id, [labelText(document.getElementById(id)), (helpOf(document.getElementById(id))[0] || { textContent: '' }).textContent.trim()]])),
+      options: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'retime'].map((id) => [id, [...document.getElementById(id).options].map((o) => o.textContent)]))
+    };
+  });
+  check(words.count >= 30 && words.noHelp.length === 0,
+    'every select and input of the settings panel has aria-describedby naming a sentence of at least 20 characters', `${words.count} controls${words.noHelp.length ? `; without: ${words.noHelp.join(', ')}` : ''}`);
+  check(words.shared.length === 0, 'each control\'s sentence is its own; only the six measures share one, and the custom room\'s three knobs another',
+    words.shared.join(', '));
+  check(words.long.length === 0, 'each sentence of help is at most about 110 characters (115)', words.long.join(', '));
+  check(words.measured.length === 0, 'no option text says "(measured)"', words.measured.join(', '));
+  const dup = words.labels.filter((l, i) => words.labels.indexOf(l) !== i);
+  check(dup.length === 0 && words.labels.every(Boolean), 'no two controls in the panel have the same label text', dup.join(', '));
+  const t = words.table;
+  check(t.codec[0] === 'Voice codec sv_voicecodec' && t.codec[1] === 'What the game sends voice with. Steam voice is today\'s; the vaudio_ ones are the game\'s older codecs.'
+    && JSON.stringify(words.options.codec) === JSON.stringify(['Steam voice (Opus, 32 kbps)', 'Fullband Opus: not in the game', 'vaudio_celt (CELT, 22 kHz)', 'vaudio_celt_high (44 kHz mode)', 'vaudio_speex (Speex, 11 kHz)'])
+    && t.warble_on[0] === 'Skip the codec' && JSON.stringify(words.options.warble_on) === '["Off","On"]'
+    && t.warble_on[1] === 'For comparison only: the sound goes to the receiver without being coded.'
+    && t.capture_channel[0] === 'Channel of a stereo file' && words.options.capture_channel[0] === 'Left'
+    && t.capture_channel[1] === 'Which channel the game\'s microphone gets. Left is what one stereo cable gave it; a mono file is not affected.'
+    && t.gain[1] === 'Loudness into the game. Above 1 the sender clips, as an overdriven microphone does.'
+    && t.bits[0] === 'Bitrate, in sixteenths' && t.bits[1] === '16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex has one bitrate and ignores this.'
+    && t.frameMs[0] === 'Frames per packet, as ms' && t.frameMs[1] === 'How much voice one network packet carries. A lost packet loses all of it.'
+    && t.loss[1] === 'The share of voice frames that never arrive. Not the game\'s own number: its net_fakeloss 5 lost about 22% of them.'
+    && t.jitter[1] === 'Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that.'
+    && JSON.stringify(words.options.retime) === '["The file\'s own timing","Some phrases start early (random)"]'
+    && t.retime[1] === 'The game plays some phrases early after a short silence. Which ones is random.'
+    && t.maxgain[1] === 'The most the receiver\'s auto-gain may amplify. The game\'s default is 10.'
+    && t.voice_scale[1] === 'The game\'s voice_scale. Not a plain volume: below 1 it lowers the voice by more than its number.'
+    && t.volume[1] === 'The game\'s volume setting; it sets the loudest the file can get. 1.0 is the game\'s default. The recordings behind the model were made at 0.15.'
+    && t.hp[1] === 'Not in the game: a filter before the codec. 0 is off.' && t.lp[1] === 'Not in the game: a filter before the codec. 20000 is off.',
+    'the labels, options and sentences the audit settled are on the page', JSON.stringify(t.codec));
+  check(words.console.length === 0, 'each command\'s console help says what the page says under its control', words.console.join('; '));
+  // The chain strip names what it left out.
+  const strip = await page.evaluate(() => {
+    const receiver = () => [...document.querySelectorAll('#signal-chain li')].find((li) => li.querySelector('b').textContent === 'Receiver').textContent;
+    execCommand('exec preset_modern');
+    const plain = receiver();
+    execCommand('voice_scale 0.5');
+    const scaled = receiver();
+    execCommand('voice_avggain 0.25');
+    const both = receiver();
+    execCommand('exec preset_modern');
+    return { plain, scaled, both };
+  });
+  check(!/voice_scale|gain target/.test(strip.plain) && strip.scaled.includes('voice_scale 0.5') && strip.both.includes('voice_scale 0.5') && strip.both.includes('gain target 0.25'),
+    'the chain strip\'s Receiver cell holds "voice_scale 0.5" after that setting, and the gain target when voice_avggain is not 0.5', `${strip.plain} | ${strip.both}`);
+  // At 390 px the codec's chosen text fits its box, for every option (with
+  // 20 px left for the menu's arrow).
+  const viewport = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const fit = await page.evaluate(() => {
+    const select = document.getElementById('codec'), was = select.value, style = getComputedStyle(select);
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const room = select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 20;
+    const out = [...select.options].map((o) => { select.value = o.value; return [o.textContent, Math.ceil(ctx.measureText(select.selectedOptions[0].textContent).width)]; });
+    select.value = was;
+    return { room, out };
+  });
+  await page.setViewportSize(viewport);
+  check(fit.out.every(([, w]) => w <= fit.room), 'at 390 px the codec\'s chosen text fits its box for every option',
+    `${fit.out.map(([t, w]) => `${w}`).join(', ')} px of ${fit.room}`);
 }
 
 // A minimal reader for the stored ZIPs the batch writes.
@@ -1248,7 +1707,8 @@ async function main() {
     console.log('\n[Browser 2] Accessibility, disclosure, and safe console');
     const controlIds = ['codec', 'listener_position', 'gain', 'voice_scale', 'hp', 'lp', 'env',
       'c_dur', 'c_dec', 'c_mix', 'agc', 'maxgain', 'avggain', 'volume', 'device_rate', 'bits', 'frameMs', 'loss', 'warble_on',
-      'capture_channel', 'vad', 'vad_threshold', 'steam_uptime', 'jitter'];
+      'capture_channel', 'vad', 'vad_threshold', 'steam_uptime', 'jitter',
+      'underwater', 'a_sky', 'a_w', 'a_l', 'a_h', 'a_open', 'a_refl', 'live-lowlat'];
     const unlabeled = await page.evaluate((ids) => ids.filter((id) => {
       const element = document.getElementById(id);
       return !element || !element.labels || element.labels.length === 0;
@@ -1349,6 +1809,8 @@ async function main() {
     await page.locator('#console-input').press('Enter');
     await verifySpeexPage(page);
     await verifyCeltPage(page);
+    await verifyRoomsPage(page);
+    await verifySettingsWords(page);
 
     const parity = await page.evaluate(async () => {
       const data = Float32Array.from({ length: 24000 }, (_, i) => .2 * Math.sin(2 * Math.PI * 431 * i / 24000));
@@ -1421,9 +1883,10 @@ async function main() {
         label: document.querySelector('label[for="device_rate"]').textContent, title: document.querySelector('label[for="device_rate"]').title,
         sent: renderOptions().deviceRate, help: cvars['snd_device_rate'].help, link: cvars['snd_device_rate'].link }));
       check(fresh.value === '48000' && fresh.sent === 48000 && fresh.options.join() === '48000:48000 Hz (usual),44100:44100 Hz'
-        && /Listener's sound device/.test(fresh.label) && /snd_device_rate/.test(fresh.label) && fresh.title.length > 40
+        && /Listener's sound device/.test(fresh.label) && !/snd_device_rate/.test(fresh.label) && fresh.title.length > 40
         && /not a TF2 variable/.test(fresh.help) && fresh.link === 'device_rate' && (await chainOutput()).includes('48 kHz device'),
-        'the choice "Listener\'s sound device: 48000 Hz (usual) / 44100 Hz" is on the page as snd_device_rate (the app\'s own, not a TF2 variable), sent as deviceRate, shown in the chain strip',
+        // W3-17d: a setting of the listener's PC shows no variable's name; snd_device_rate stays the console's.
+        'the choice "Listener\'s sound device: 48000 Hz (usual) / 44100 Hz" is on the page (its console name snd_device_rate, the app\'s own, not a TF2 variable, is not on its label), sent as deviceRate, shown in the chain strip',
         JSON.stringify(fresh.options));
       await page.locator('#console-input').fill('snd_device_rate 44100');
       await page.locator('#console-input').press('Enter');
@@ -1452,7 +1915,8 @@ async function main() {
       const vol = await page.evaluate(() => ({ engine: VOICE_ENGINE.volume, note: document.getElementById('volume-note').textContent,
         label: document.querySelector('label[for="volume"]').textContent, inHtml: document.getElementById('volume').getAttribute('value') }));
       check(vol.engine === 1 && vol.inHtml === '1' && /the game's default/.test(vol.label)
-        && vol.note === 'At 1, the game\'s default, a loud voice fills the whole range, as it does in the game.',
+        // The owner's sentence (W4-01, "The owner's answers"), in place of W3-10's.
+        && vol.note === 'The game\'s volume setting; it sets the loudest the file can get. 1.0 is the game\'s default. The recordings behind the model were made at 0.15.',
         'volume defaults to 1, the game\'s default, with the sentence beside it', vol.note);
       // A render's download is at the chosen rate.
       await page.locator('#device_rate').selectOption('44100');
@@ -1572,7 +2036,7 @@ async function main() {
         'a blank threshold sends none (the profile\'s own); a saved or shared blank restores as blank; a share link with celt_22 and -40 keeps -40; one with celt_22 alone takes -39.5',
         JSON.stringify(blank));
       const labels = await page.evaluate(() => ({ option: document.querySelector('#codec option[value="steam_48"]').textContent, name: CODEC_PROFILES.steam_48.displayName }));
-      check(/not the game's path/.test(labels.option) && labels.option === labels.name, 'steam_48 is named as not the game\'s path', labels.option);
+      check(labels.option === 'Fullband Opus: not in the game' && /not the game's path/.test(labels.name), 'steam_48 is named as not in the game, on the page and in its profile', labels.option);
       const liveTexts = async (codec) => {
         await page.locator('#codec').selectOption(codec);
         return page.evaluate(() => ({ latency: document.getElementById('live-latency').closest('.live-stat').title,
@@ -1593,6 +2057,7 @@ async function main() {
     }
     await verifyAverageAndRealTake(page);
     await verifyLiveMonitor(page);
+    await verifyLiveRoom(page);
     await verifyVideo(page);
     await verifyDemo(page);
     await verifySourceDuringRender(page);

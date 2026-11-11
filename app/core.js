@@ -6,14 +6,15 @@
  * net_graph and boot. All heavy audio lives in audio.js.
  *
  * It is split into page scripts in app/, loaded in order by index.html
- * (core, console, source, render, meter, realtake, visualizer, netgraph,
- * boot). They are classic scripts sharing their top-level names, as when
+ * (core, rooms, console, source, render, meter, realtake, visualizer,
+ * netgraph, boot). They are classic scripts sharing their top-level names, as when
  * they were one file (script.js); code that runs at load time only uses
  * what an earlier file or its own defines.
  *
  * Depends on globals defined by constants.js + audio.js:
  *   TF2_DATA, PRESETS, CODEC_PROFILES, VOICE_ENGINE, DSP_PRESETS,
- *   LISTENER_POSITIONS, ENV_ALIAS, FCVAR, TF2Audio
+ *   DEFAULT_LISTENER, LISTENER_POSITIONS, ROOM_NUMBERS, ENV_ALIAS, FCVAR,
+ *   TF2Audio; and on room-dsp.js's TF2Room and TF2_ROOM_PRESETS
  * =========================================================================
  */
 
@@ -81,7 +82,17 @@ const els = {
   warble:    document.getElementById('warble_on'),
   cDur:      document.getElementById('c_dur'),
   cDec:      document.getElementById('c_dec'),
-  cMix:      document.getElementById('c_mix')
+  cMix:      document.getElementById('c_mix'),
+  // The listener's room (W3-17d, app/rooms.js): under water, and the
+  // automatic room's six measures for dsp_room 1.
+  underwater: document.getElementById('underwater'),
+  autoEnv:   document.getElementById('auto-env'),
+  autoSky:   document.getElementById('a_sky'),
+  autoWidth: document.getElementById('a_w'),
+  autoLength: document.getElementById('a_l'),
+  autoHeight: document.getElementById('a_h'),
+  autoOpen:  document.getElementById('a_open'),
+  autoRefl:  document.getElementById('a_refl')
 };
 
 const state = {

@@ -154,8 +154,19 @@ input[type=number], input[type=range], select {
 }
 select { cursor: pointer; }
 
-/* Custom Reverb Panel */
-#custom-env { display: none; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--accent); }
+/* A sentence of help under a control */
+.control-help { margin: 7px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.control-help.room-evidence { color: #c9d6e2; }
+.control-help[hidden] { display: none; }
+/* A checkbox with its label on one line */
+.check-label { display: flex; align-items: center; gap: 8px; margin-bottom: 0; cursor: pointer; }
+.check-label input[type=checkbox] { width: 18px; height: 18px; margin: 0; flex: 0 0 auto; accent-color: var(--accent); }
+
+/* The extras: the app's own controls, not in the game */
+#extras { border-style: dashed; }
+
+/* The automatic room's measures (dsp_room 1) and the custom room (99) */
+#auto-env, #custom-env { display: none; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--accent); }
 .custom-row { display: flex; gap: 15px; flex-wrap: wrap; }
 .custom-col { flex: 1; min-width: 100px; }
 
