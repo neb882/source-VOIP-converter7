@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>TF2 Voice Emulator</title>
-  <meta name="description" content="Make any audio or video sound like Team Fortress 2 voice chat: real Opus, the in-game receiver auto-gain and clipping measured from a TF2 recording, and Source room DSP. Runs locally in your browser.">
+  <meta name="description" content="Make any audio or video sound like Team Fortress 2 voice chat: real Opus, and the game's receiver auto-gain and clipping, measured against recordings of the game. Rooms are off by default; they follow the game's own code, and two of them match recordings in echo times and level. Runs locally in your browser.">
   <meta name="theme-color" content="#171a21">
   <link rel="icon" href="favicon.ico" type="image/x-icon">
   <link rel="manifest" href="manifest.webmanifest">
@@ -17,23 +17,26 @@
     <header class="app-header">
       <h1>TF2 Voice Emulator</h1>
       <p class="tagline">Make any audio or video sound like it came through Team Fortress 2 voice chat.</p>
-      <ul class="facts" aria-label="What the emulator models">
-        <li><b>Real Opus</b> 24 kHz · VBR + DTX · SILK/CELT hybrid</li>
-        <li><b>Receiver auto-gain</b> with the in-game int16 clip</li>
-        <li><b>Measured</b> against real TF2 recordings</li>
-        <li><b>Video in, video out</b> MP4 · MOV, picture untouched</li>
-        <li><b>Local</b> — nothing is uploaded</li>
+      <ul class="facts" aria-label="What the emulator is">
+        <li>Measured against recordings of the game</li>
+        <li>Video in, video out (MP4, MOV)</li>
+        <li>Nothing is uploaded: it runs in your browser</li>
       </ul>
     </header>
+
+    <!-- W4-01a: shown when a newer service worker takes over a page that had
+         one; the page never reloads itself (see the script at the end). -->
+    <p id="update-notice" class="update-notice" role="status" hidden>A newer version of this page is ready. Reload to use it; a loaded file and its render are not kept across a reload.</p>
 
     <section class="panel" aria-labelledby="step-source">
       <h2 id="step-source"><span class="step" aria-hidden="true">1</span> Source</h2>
       <div class="upload-row">
-        <input id="file" type="file" accept="audio/*,video/*,.mkv,.dem" multiple aria-label="Audio or video file or TF2 demo to process (choose several to batch them)">
+        <input id="file" type="file" accept="audio/*,video/*,.mkv,.dem" multiple aria-label="Audio or video file or TF2 demo to render (choose several to batch them)" aria-describedby="drop-hint">
+        <span id="drop-hint" class="drop-hint">or drop a file anywhere on the page</span>
         <select id="demo-speaker" class="demo-speaker" hidden aria-label="Speaker in the demo" title="Whose voice to take from the demo"></select>
         <button id="mic" type="button" title="Record from microphone (+voicerecord)">🎤 Record</button>
         <button id="live-toggle" type="button" aria-pressed="false" title="Live monitor: hear your microphone through the TF2 voice chain in real time, with the current settings (use headphones)">🎧 Live</button>
-        <div id="source-status" class="source-status" role="status" aria-live="polite">Choose or drop an audio or video file or a TF2 demo, or record. MP4 and MOV come back as video; several files go to the batch (step 4).</div>
+        <div id="source-status" class="source-status" role="status" aria-live="polite">Choose or drop an audio or video file or a TF2 demo, or record: it renders by itself. MP4 and MOV come back as video; several files go to the batch (step 4).</div>
       </div>
       <div id="live-panel" class="live-panel" hidden>
         <div class="live-devices">
@@ -50,7 +53,7 @@
           <span class="live-meter" title="Output peak"><span class="live-meter-label">out</span><span class="live-meter-bar"><span id="live-out"></span></span></span>
         </div>
         <div class="live-controls">
-          <button id="live-record" type="button" disabled title="Record the live session: the microphone and the TF2 voice, loaded into the app as a dry/wet pair (A/B, views, meter, download)">⏺ Record</button>
+          <button id="live-record" type="button" disabled title="Record the live session: the microphone and its TF2 voice, loaded into the app together (Hear, views, meter, download)">⏺ Record</button>
           <label title="Send only while V (TF2's +voicerecord key) or the Talk button is held. This is the app's stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by its own hold. Steam's own key rules (it goes on sending for half a second after a release) are not built yet."><input id="live-ptt" type="checkbox"> Push-to-talk (hold <kbd>V</kbd>) <code class="cvar">+voicerecord</code></label>
           <button id="live-talk" type="button" hidden title="Hold to talk">🎙 Hold to talk</button>
         </div>
@@ -72,6 +75,9 @@
         <button class="preset-btn" type="button" data-cmd="exec preset_laggy" data-preset="laggy" aria-label="Laggy 18% Loss">
           <span class="preset-name">Laggy</span><span class="preset-desc">18% of voice packets lost + 50 ms jitter</span></button>
       </div>
+      <!-- W4-01a: what differs from the defaults, named against the preset
+           that was last lit (app/console.js, updatePresetLine). -->
+      <p id="preset-line" class="preset-line" hidden><span id="preset-line-text"></span> <span aria-hidden="true">·</span> <button id="preset-reset" class="button-quiet preset-reset" type="button" title="Every setting back to its default (the Modern preset, the 48000 Hz device, the left channel, a week of Steam)">Reset</button></p>
 
       <div class="controls" id="controls-wrapper">
         <div class="control control-wide">
@@ -312,7 +318,7 @@
     <section class="panel" aria-labelledby="step-listen">
       <h2 id="step-listen"><span class="step" aria-hidden="true">3</span> Render &amp; listen</h2>
       <div class="action-row">
-        <button id="process" type="button" disabled>Process Audio</button>
+        <button id="process" type="button" disabled>Render</button>
         <button id="cancel-process" class="button-secondary" type="button" hidden>Cancel</button>
         <button id="download" type="button" disabled>Download WAV</button>
         <select id="format" class="format-select" aria-label="Download format" title="File format for downloads, here and in the batch. At volume 1, the game's default, a loud render fills the whole range, so an MP3 (or a video's AAC or Opus) can clip when it is decoded: lower volume for those.">
@@ -321,10 +327,27 @@
           <option value="mp3">MP3 · V0, ~⅕ size</option>
         </select>
         <button id="download-video" type="button" hidden disabled title="The source video with its audio replaced by the render. The video is copied as is, not re-encoded; the audio is AAC where the browser can encode it, otherwise Opus (MP4) or PCM (MOV). At volume 1 a loud render can clip in AAC or Opus: lower volume for those.">Download video</button>
-        <button id="ab-toggle" class="preset-btn ab-button" type="button" disabled title="Switch playback between processed (Wet) and original (Dry). Shortcut: B; Space plays and pauses">A/B: Wet</button>
-        <button id="ab-match" class="preset-btn ab-button" type="button" disabled aria-pressed="false" title="Loudness-matched A/B: plays the louder version quieter by the difference in integrated loudness (LUFS), so the comparison is about sound, not level">Match loudness</button>
-        <progress id="process-progress" max="100" value="0" hidden aria-label="Audio processing progress"></progress>
+        <progress id="process-progress" max="100" value="0" hidden aria-label="Render progress"></progress>
       </div>
+
+      <div class="player-row">
+        <audio id="preview" controls aria-label="The render, or the version chosen under Hear"></audio>
+        <div class="hear-row">
+          <div id="ab-group" class="ab-group" role="group" aria-labelledby="ab-label">
+            <span id="ab-label" class="ab-label">Hear (B):</span>
+            <button class="ab-choice" type="button" data-ab="wet" aria-pressed="true" disabled title="The render: the source as it comes through TF2 voice chat. B switches">TF2 voice</button>
+            <button class="ab-choice" type="button" data-ab="dry" aria-pressed="false" disabled title="The source as it is, at the same place. B switches">Original</button>
+            <button class="ab-choice" type="button" data-ab="real" aria-pressed="false" disabled hidden title="The real TF2 take loaded below, lined up with the source. B switches">Real take</button>
+          </div>
+          <!-- Which version plays, for a screen reader (the B key moves no focus). -->
+          <span id="ab-now" class="visually-hidden" aria-live="polite"></span>
+          <div class="ab-match-wrap">
+            <button id="ab-match" class="preset-btn ab-button" type="button" disabled aria-pressed="false" aria-describedby="ab-match-help" title="Loudness-matched A/B: plays the louder version quieter by the difference in integrated loudness (LUFS), so the comparison is about sound, not level">Match loudness</button>
+            <span id="ab-match-help" class="ab-match-help">Loudness-matched A/B: plays the louder version quieter by the difference in integrated loudness (LUFS), so the comparison is about sound, not level.</span>
+          </div>
+        </div>
+      </div>
+      <p id="render-status" class="render-status" role="status" aria-live="polite"></p>
 
       <div class="viz-container" id="viz-container">
         <div class="viz-toolbar">
@@ -402,7 +425,6 @@
         </table>
       </div>
 
-      <audio id="preview" controls aria-label="Processed audio preview"></audio>
       <!-- Hidden dry twin: plays muted in sync with the main player so the
            A/B toggle is an instant unmute instead of a src swap. -->
       <audio id="preview-dry" hidden></audio>
@@ -411,7 +433,7 @@
 
       <details id="reference" class="reference" hidden>
         <summary>Compare with a real TF2 take</summary>
-        <p class="reference-help">Record this source through TF2 with <code>voice_loopback 1</code> (steps in <a href="https://github.com/neb882/source-VOIP-converter7/blob/main/tests/testsignal/README.md" target="_blank" rel="noopener">tests/testsignal</a>) and load the recording here. The source is found in it and the take is lined up automatically, offset and clock drift corrected. It then plays as a third A/B version and appears in the views and the meter. Render with the settings it was recorded with (<code>volume</code>, <code>voice_scale</code>, …) for a fair comparison.</p>
+        <p class="reference-help">Record this source through TF2 with <code>voice_loopback 1</code> (steps in <a href="https://github.com/neb882/source-VOIP-converter7/blob/main/tests/testsignal/README.md" target="_blank" rel="noopener">tests/testsignal</a>) and load the recording here. The source is found in it and the take is lined up automatically, offset and clock drift corrected. It then plays as a third version under Hear and appears in the views and the meter. Render with the settings it was recorded with (<code>volume</code>, <code>voice_scale</code>, …) for a fair comparison.</p>
         <div class="reference-controls">
           <input id="reference-file" type="file" accept="audio/*" aria-label="Real TF2 recording of this source">
           <select id="reference-channel" class="format-select" aria-label="Channel of the take to use" title="Channel of the take to use">
@@ -457,7 +479,7 @@
     </details>
 
     <footer>
-      Runs entirely in your browser · Opus via bundled libopus · MP3 via <a href="https://lame.sourceforge.io">LAME</a> (LGPL) · Steam's 24 to 44.1 kHz step via <a href="https://ffmpeg.org">FFmpeg</a>'s libswresample (<a href="vendor/swresample/COPYING.LGPLv2.1">LGPL</a>; translated to JavaScript, modified) · Not affiliated with Valve
+      <span id="version-line" hidden></span>Runs entirely in your browser · Opus via bundled libopus · MP3 via <a href="https://lame.sourceforge.io">LAME</a> (LGPL) · Steam's 24 to 44.1 kHz step via <a href="https://ffmpeg.org">FFmpeg</a>'s libswresample (<a href="vendor/swresample/COPYING.LGPLv2.1">LGPL</a>; translated to JavaScript, modified) · Not affiliated with Valve
     </footer>
   </main>
 

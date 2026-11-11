@@ -45,6 +45,19 @@ h1 { margin: 0 0 6px; font-size: clamp(22px, 5vw, 30px); font-weight: 300; lette
 }
 .facts b { color: var(--accent); font-weight: 600; }
 
+/* A newer version is ready (W4-01a): shown above step 1 */
+.update-notice {
+  margin: 0 0 16px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: 6px;
+  background: rgba(102, 192, 244, 0.1); color: #dfe7ee; font-size: 13px; line-height: 1.45;
+}
+.update-notice[hidden] { display: none; }
+
+/* Read by a screen reader, not shown */
+.visually-hidden {
+  position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
 /* Sections */
 .panel {
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
@@ -71,6 +84,14 @@ input[type="file"]::file-selector-button {
   background: var(--btn-bg); border: none; color: white;
   padding: 9px 14px; border-radius: 4px; cursor: pointer; margin-right: 10px;
 }
+/* The file is step 1's main action (W4-01a): its button is the page's primary one. */
+#file { flex-grow: 0; min-width: 0; max-width: 100%; }
+#file::file-selector-button {
+  background: linear-gradient(to bottom, var(--lime) 5%, #536904 95%);
+  padding: 12px 20px; font-size: 14px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+}
+#file:hover::file-selector-button { filter: brightness(1.1); }
+.drop-hint { flex: 1 1 auto; color: var(--muted); font-size: 12.5px; }
 
 /* Buttons */
 button, .button {
@@ -90,8 +111,8 @@ button:focus-visible, .button:focus-visible, select:focus-visible, input:focus-v
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 
-/* Mic record button states */
-#mic { flex-grow: 0; background: var(--btn-bg); }
+/* Mic record button states; Live has Record's plain style (W4-01a) */
+#mic, #live-toggle { flex-grow: 0; background: var(--btn-bg); }
 #mic.recording {
   background: linear-gradient(to bottom, #d04007 5%, #692204 95%);
   animation: rec-pulse 1.2s ease-in-out infinite;
@@ -112,6 +133,13 @@ button:focus-visible, .button:focus-visible, select:focus-visible, input:focus-v
   border-color: var(--lime); background: linear-gradient(to bottom, #36571b, #25391a);
 }
 .preset-row .preset-btn[aria-pressed="true"] .preset-desc { color: #cfe7a1; }
+/* What differs from the defaults, under the presets (W4-01a) */
+.preset-line {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: -4px 0 14px; font-size: 12.5px; line-height: 1.45; color: #c9d6e2;
+}
+.preset-line[hidden] { display: none; }
+.preset-line .preset-reset { flex: 0 0 auto; padding: 4px 12px; font-size: 12px; }
 
 .mode-row {
   grid-column: 1 / -1; display: flex; align-items: center; gap: 12px;
@@ -189,7 +217,27 @@ select { cursor: pointer; }
 
 /* Render & listen */
 .action-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+/* The player, with Hear and Match loudness beside it (W4-01a) */
+.player-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 12px; }
+.player-row audio { flex: 1 1 320px; width: auto; min-width: 0; margin-top: 0; }
+.hear-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; flex: 1 1 auto; }
+.ab-group { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.ab-label { display: inline-flex; align-items: center; padding: 0 10px; font-size: 12px; font-weight: bold; color: var(--accent); background: rgba(14, 18, 24, 0.85); }
+.ab-choice {
+  flex: 0 0 auto; padding: 9px 14px; font-size: 13px; font-weight: normal; border-radius: 0;
+  background: var(--btn-bg); box-shadow: none; border-left: 1px solid var(--border);
+}
+.ab-choice[aria-pressed="true"] { background: linear-gradient(to bottom, #36571b, #25391a); color: #fff; box-shadow: inset 0 -2px 0 var(--lime); }
+.ab-match-wrap { display: flex; align-items: center; gap: 8px; flex: 1 1 260px; min-width: 0; }
+.ab-match-wrap .ab-button { flex: 0 0 auto; padding: 9px 14px; font-size: 13px; }
+.ab-match-help { font-size: 11.5px; line-height: 1.4; color: var(--muted); }
 .action-row .ab-button { flex: 0 0 auto; min-width: 130px; padding: 12px 16px; font-size: 14px; }
+/* The render's status, under the player (W4-01a) */
+.render-status { margin: 8px 0 0; min-height: 1.4em; font-size: 12.5px; line-height: 1.45; color: #9ae66e; }
+.render-status.error { color: #ff7777; }
+.render-status.stale { color: var(--amber); }
+/* A render made with other settings than the controls hold, dimmed */
+.viz-container.stale, .viz-legend.stale, .meter.stale { opacity: 0.45; }
 .format-select { width: auto; flex: 0 0 auto; padding: 11px 8px; }
 .demo-speaker { width: auto; flex: 0 1 16em; min-width: 0; padding: 11px 8px; }
 .button-quiet { flex-grow: 0; background: var(--btn-bg); }
@@ -348,6 +396,7 @@ canvas { width: 100%; height: 100%; display: block; }
 }
 
 audio { width: 100%; margin-top: 12px; height: 40px; filter: invert(0.9) hue-rotate(180deg); }
+audio:focus-visible { outline: 2px solid #c9910b; outline-offset: 2px; }
 
 /* net_graph HUD, drawn over the visualizer like the in-game overlay */
 #net-graph {

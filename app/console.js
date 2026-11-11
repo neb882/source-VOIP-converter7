@@ -69,6 +69,8 @@ function showAdvanced(show) {
     els.advancedToggle.setAttribute('aria-expanded', String(!!show));
     els.advancedToggle.textContent = show ? 'Hide advanced controls' : 'Show advanced controls';
   }
+  // Remembered between visits, as the settings are (W4-01a).
+  if (state.settingsRestored) LS.set('tf2ve_advanced', !!show);
 }
 
 function setStatus(message, kind = '') {
@@ -501,16 +503,10 @@ els.controls.addEventListener('change', (e) => {
     const cmd = idToCvarMap[target.id];
     execCommand(`${cmd} ${target.type === 'checkbox' ? (target.checked ? 1 : 0) : target.value}`, true);
   }
-  // A hand-edited control no longer matches any quick preset.
-  setActivePreset(null);
+  // A preset is lit when the controls match it (updatePresetLine), whatever
+  // changed them.
   updateSignalChain();
 });
-
-function setActivePreset(name) {
-  document.querySelectorAll('.preset-row .preset-btn').forEach((button) => {
-    button.setAttribute('aria-pressed', String(button.dataset.preset === name));
-  });
-}
 
 // The threshold control's meaning follows the profile (W3-11b): for `steam`
 // the mean of |x| over one of Steam's capture chunks; for the others the
@@ -554,7 +550,7 @@ function updateSignalChain() {
     const ids = (els.codec.getAttribute('aria-describedby') || '').split(/\s+/).filter((id) => id && id !== 'codec-note');
     els.codec.setAttribute('aria-describedby', [...ids, ...(shown ? ['codec-note'] : [])].join(' '));
   }
-  if (!els.chain) return;
+  if (!els.chain) { settingsChanged(); return; }
   const codec = CODEC_PROFILES[els.codec.value] || CODEC_PROFILES.steam;
   const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
   const gain = num(els.gain, 1), bits = num(els.bits, 16), loss = num(els.loss, 0), jitter = num(els.jitter, 0);
@@ -591,7 +587,9 @@ function updateSignalChain() {
     // What differs from the game's defaults is named, so the strip is a full
     // account (W4-01d): voice_scale when it is not 1, the gain target when
     // voice_avggain is not 0.5.
-    ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · int16 clip` : 'unity gain · int16 clip'}`
+    // "16-bit clip": the receiver's clamp to 16 bits (W4-01a: the page's
+    // words, not the code's "int16").
+    ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · 16-bit clip` : 'unity gain · 16-bit clip'}`
       + `${voiceScale !== 1 ? ` · voice_scale ${voiceScale}` : ''}${agcOn && avgGain !== VOICE_ENGINE.autoGain.avgGain ? ` · gain target ${avgGain}` : ''}`
       + `${els.retime && els.retime.value === '1' ? ' · spurts re-timed' : ''}`, ''],
     ['Mixer', `44.1 kHz · ${room}`, ''],
@@ -606,7 +604,17 @@ function updateSignalChain() {
     li.append(b, span);
     return li;
   }));
-  // The batch queue marks renders made with other settings.
+  settingsChanged();
+}
+
+// After any change of the settings (updateSignalChain): the preset that
+// matches is lit and the line under the presets says what differs from the
+// defaults (W4-01a); the settings are remembered once boot has applied the
+// ones remembered before; the batch queue marks renders made with other
+// settings and the page's render follows (app/render.js), on tf2:settings.
+function settingsChanged() {
+  updatePresetLine();
+  if (state.settingsRestored) LS.set('tf2ve_settings', collectConfig());
   document.dispatchEvent(new Event('tf2:settings'));
 }
 
@@ -623,7 +631,7 @@ function runPreset(name) {
     const user = LS.get('tf2ve_presets', {});
     if (user[cleanName]) {
       applyConfig(user[cleanName]); logLine(`exec user_${cleanName}.cfg`, 'cmd');
-      setActivePreset(null); updateSignalChain(); return;
+      updateSignalChain(); return;
     }
     logLine(`Error: preset "${name}" not found.`, 'err');
     return;
@@ -645,14 +653,17 @@ function runPreset(name) {
   execCommand('voice_retime 0');
   execCommand(`voice_maxgain ${VOICE_ENGINE.autoGain.maxGain}`);
   execCommand(`voice_avggain ${VOICE_ENGINE.autoGain.avgGain}`);
-  execCommand('voice_capture_channel left');
   execCommand('voice_vad auto');
   execCommand(`voice_vad_threshold ${gateDefaultDb(p.codec)}`);
   execCommand(`volume ${VOICE_ENGINE.volume}`);
   execCommand('net_split 20');
   execCommand(`net_fakejitter ${p.jitter || 0}`);
+  // Every field a preset sets, the manual room and the custom room's knobs
+  // included (W4-01a); the capture channel, the device and the sender's
+  // Steam are the PCs' and stay.
+  applyConfig(presetConfig(cleanName));
   state.sv_cheats = tempCheats;
-  setActivePreset(cleanName);
+  state.lastLitPreset = cleanName;
   updateSignalChain();
 }
 
@@ -707,7 +718,8 @@ function configControl(key, el, afterSet, normalize) {
     key,
     () => (checkbox ? (el.checked ? '1' : '0') : el.value),
     (v) => { if (checkbox) el.checked = v === '1'; else el.value = v; if (afterSet) afterSet(v); },
-    normalize || ((v) => normalizeControlValue(el, v))
+    normalize || ((v) => normalizeControlValue(el, v)),
+    el
   ];
 }
 
@@ -753,6 +765,130 @@ function collectConfig() {
   CONFIG_FIELDS.forEach(([key, get]) => out[key] = get());
   return out;
 }
+
+/* ------------------------------------------------------------------ */
+/* Defaults, presets lit by matching, what differs (W4-01a)           */
+/* ------------------------------------------------------------------ */
+
+// A control's value as the markup gives it (its default attributes, which a
+// browser's restoring of form values does not change); a select with no
+// option marked takes its first, as the room's selects built by
+// app/rooms.js do.
+function markupDefault(el) {
+  if (el.type === 'checkbox') return el.defaultChecked ? '1' : '0';
+  if (el.tagName === 'SELECT') {
+    const option = [...el.options].find((o) => o.defaultSelected) || el.options[0];
+    return option ? option.value : '';
+  }
+  return el.defaultValue;
+}
+// The defaults, recorded before a share link or remembered settings are applied.
+const DEFAULT_CONFIG = Object.fromEntries(CONFIG_FIELDS.map(([key, , , , el]) => [key, markupDefault(el)]));
+const fieldElement = (key) => (CONFIG_FIELDS.find(([k]) => k === key) || [])[4] || null;
+
+// A setting's value in a form two values can be compared in: numbers as
+// numbers ("1.0" is "1"); the threshold blank or at the codec's own default
+// is the codec's own (it follows the codec, as updateSignalChain moves it).
+function settingValue(key, value, codec) {
+  const text = String(value == null ? '' : value).trim();
+  const n = text === '' ? NaN : Number(text);
+  if (key === 'vadthr') return !Number.isFinite(n) || n === gateDefaultDb(codec) ? 'own' : String(n);
+  return Number.isFinite(n) ? String(n) : text;
+}
+const sameSetting = (key, a, b) => settingValue(key, a[key], a.codec) === settingValue(key, b[key], b.codec);
+
+// The settings a built-in preset gives every preset-set field: its own value,
+// or the default where it names none, and its codec's gate threshold.
+function presetConfig(name) {
+  const preset = PRESETS[name], cfg = {};
+  for (const key of PRESET_SET_FIELDS) cfg[key] = DEFAULT_CONFIG[key];
+  for (const [field, key] of Object.entries(PRESET_KEYS)) {
+    if (preset[field] !== undefined) cfg[key] = typeof preset[field] === 'boolean' ? (preset[field] ? '1' : '0') : String(preset[field]);
+  }
+  cfg.vadthr = String(gateDefaultDb(cfg.codec));
+  return cfg;
+}
+
+// The built-in preset the controls match on every preset-set field, the one
+// last lit first; null when none does.
+function matchingPreset(current = collectConfig()) {
+  const names = Object.keys(PRESETS).sort((a, b) => (b === state.lastLitPreset) - (a === state.lastLitPreset));
+  return names.find((name) => {
+    const cfg = { ...current, ...presetConfig(name) };
+    return PRESET_SET_FIELDS.every((key) => sameSetting(key, current, cfg));
+  }) || null;
+}
+
+// A field's name on the line: its label without the variable's name, up to
+// its first comma or colon; the automatic room's measures and the custom
+// room's knobs say whose they are.
+function fieldName(key) {
+  const el = fieldElement(key), label = el && el.labels && el.labels[0];
+  if (!label) return key;
+  const copy = label.cloneNode(true);
+  copy.querySelectorAll('.cvar, input, select').forEach((node) => node.remove());
+  const text = copy.textContent.replace(/\s+/g, ' ').trim().split(/[,:]/)[0].trim();
+  const group = el.closest('#auto-env') ? 'Automatic room: ' : el.closest('#custom-env') ? 'Custom room: ' : '';
+  return group ? `${group}${text.charAt(0).toLowerCase()}${text.slice(1)}` : text;
+}
+function fieldText(key, value) {
+  const el = fieldElement(key);
+  if (!el) return String(value);
+  if (el.type === 'checkbox') return value === '1' ? 'on' : 'off';
+  if (el.tagName === 'SELECT') {
+    const option = [...el.options].find((o) => o.value === String(value));
+    return option ? option.textContent : String(value);
+  }
+  if (key === 'vadthr' && String(value).trim() === '') return 'blank (the codec\'s own)';
+  return String(value);
+}
+
+function setActivePreset(name) {
+  document.querySelectorAll('.preset-row .preset-btn').forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.preset === name));
+  });
+}
+
+// Light the preset the controls match, and say on the line under the
+// presets what differs from the defaults: each preset-set control that
+// differs from the preset last lit, by its label and value, and after
+// "also" the PCs' settings that differ from theirs. Hidden at the defaults.
+function updatePresetLine() {
+  const current = collectConfig(), lit = matchingPreset(current);
+  setActivePreset(lit);
+  if (lit) state.lastLitPreset = lit;
+  if (!els.presetLine) return;
+  const differs = CONFIG_FIELDS.some(([key]) => !sameSetting(key, current, DEFAULT_CONFIG));
+  els.presetLine.hidden = !differs;
+  if (!differs) { els.presetLineText.textContent = ''; return; }
+  const base = PRESETS[state.lastLitPreset] ? state.lastLitPreset : 'modern';
+  const preset = { ...current, ...presetConfig(base) };
+  const describe = (key) => `${fieldName(key)} ${fieldText(key, current[key])}`;
+  const changed = PRESET_SET_FIELDS.filter((key) => !sameSetting(key, current, preset)).map(describe);
+  const kept = KEPT_ACROSS_PRESETS.filter((key) => !sameSetting(key, current, DEFAULT_CONFIG)).map(describe);
+  const button = document.querySelector(`.preset-btn[data-preset="${base}"] .preset-name`);
+  const name = button ? button.textContent : base;
+  els.presetLineText.textContent = `${name}${changed.length ? `, changed: ${changed.join(' · ')}` : kept.length ? '' : ', as the preset sets it'}`
+    + `${kept.length ? `${changed.length ? ' ·' : ','} also ${kept.join(' · ')}` : ''}`;
+}
+
+// Every control as the markup gives it (boot, before the remembered and the
+// shared settings; the line's Reset).
+function applyDefaults() {
+  CONFIG_FIELDS.forEach(([key, , set]) => set(DEFAULT_CONFIG[key]));
+  gateProfile = els.codec.value;
+  updateRoomControls();
+  updateSignalChain();
+}
+
+// Every control back to its default: the line's Reset.
+function resetSettings() {
+  applyDefaults();
+  state.lastLitPreset = 'modern';
+  logLine('Reset: every setting is back to its default.', 'sys');
+  updateSignalChain();
+}
+if (els.presetReset) els.presetReset.addEventListener('click', resetSettings);
 
 function applyConfig(cfg) {
   if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return 0;

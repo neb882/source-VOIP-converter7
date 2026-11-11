@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 const { chromium } = require('playwright');
@@ -90,6 +91,29 @@ function wavProbe(seconds = 12, rate = 48000) {
   return buffer;
 }
 
+// W4-01a: a source renders by itself, and a changed setting renders by itself
+// 400 ms after the last change (a source of a minute or less). These wait for
+// that: the source on the page has its render on screen, and no render is
+// running or waiting to start.
+const waitRendered = (page, timeout = 60000) => page.waitForFunction(
+  () => !!state.decodedSource && state.renderedSource === state.decodedSource && renderIdle(), null, { timeout });
+// Choose a file in step 1 and wait for its own render.
+async function chooseFile(page, file, timeout = 60000) {
+  await page.evaluate(() => { window.__sourceBefore = state.decodedSource; });
+  await page.locator('#file').setInputFiles(file);
+  await page.waitForFunction(() => !!state.decodedSource && state.decodedSource !== window.__sourceBefore
+    && state.renderedSource === state.decodedSource && renderIdle(), null, { timeout });
+}
+// Press Render (no render running or waiting first) and wait for its result.
+async function renderNow(page, timeout = 60000) {
+  await page.waitForFunction(() => !state.processing, null, { timeout });
+  const before = await page.evaluate(() => state.renderId);
+  await page.locator('#process').click();
+  await page.waitForFunction((id) => state.renderId > id && renderIdle(), before, { timeout });
+}
+// The render's status line under the player.
+const renderStatus = (page) => page.locator('#render-status').textContent();
+
 async function readRenderedWav(page) {
   return page.evaluate(async () => {
     const response = await fetch(document.getElementById('preview').src);
@@ -167,13 +191,11 @@ async function verifySampleRateMatrix(browser, base) {
       await page.goto(base, { waitUntil: 'domcontentloaded' });
       for (const fileRate of [44100, 48000]) {
         const label = `${fileRate} Hz file -> ${decodeRate} Hz browser`;
-        await page.locator('#file').setInputFiles({ name: `tone-${fileRate}.wav`, mimeType: 'audio/wav', buffer: wavTone(.5, fileRate) });
-        await page.waitForFunction(() => !document.getElementById('process').disabled);
+        // The file renders by itself (W4-01a).
+        await chooseFile(page, { name: `tone-${fileRate}.wav`, mimeType: 'audio/wav', buffer: wavTone(.5, fileRate) });
         const source = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, length: state.decodedSource.length }));
         check(await deviceRateOf(page) === decodeRate && source.rate === fileRate,
           `${label}: the device runs at ${decodeRate} Hz and the file is decoded at its own rate`, `${source.rate} Hz`);
-        await page.locator('#process').click();
-        await page.waitForFunction(() => !document.getElementById('download').disabled, null, { timeout: 60000 });
         checkRenderedTone(await readRenderedWav(page), source, label);
         const log = await page.locator('#console-out').textContent();
         check(log.includes('libopus 1.1.5, 32 kbps VBR + DTX') && !log.includes('compatibility path'),
@@ -326,8 +348,7 @@ async function verifyNativeRate(browser, base) {
     const rendered = [];
     for (const rate of [8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000]) {
       await load({ name: `render-${rate}.wav`, mimeType: 'audio/wav', buffer: wavTone(.5, rate) });
-      await page.locator('#process').click();
-      await page.waitForFunction(() => !els.dl.disabled && state.processedBuffer, null, { timeout: 60000 });
+      await waitRendered(page);
       // Since W3-10 the render is at the device's rate, 48000 Hz by default,
       // whatever the source's rate, with the source's whole duration.
       const wav = await readRenderedWav(page), length = await page.evaluate(() => state.decodedSource.length);
@@ -339,8 +360,7 @@ async function verifyNativeRate(browser, base) {
 
     // A take loaded for comparison is decoded at its own rate too.
     await load({ name: 'speech-48000.wav', mimeType: 'audio/wav', buffer: wavSpeech(6) });
-    await page.locator('#process').click();
-    await page.waitForFunction(() => !els.dl.disabled && state.processedBuffer, null, { timeout: 60000 });
+    await waitRendered(page);
     const take = Buffer.from(await page.evaluate(async () => {
       const sim = state.processedBuffer, rate = state.processedRate;
       const shifted = TF2Reference.warp(sim, rate, { offsetSeconds: .25, scale: 1 }, rate, sim.length + rate);
@@ -411,20 +431,28 @@ async function verifyVisualizerTools(page) {
     && !document.getElementById('meter-rows').textContent.includes('…'), null, { timeout: 60000 });
   const meter = await page.evaluate(() => [...document.querySelectorAll('#meter-rows tr')].map(r => [...r.children].map(c => c.textContent)));
   const lufs = (row) => Number(row[1].replace('−', '-'));
-  check(meter[0][0] === 'WET' && meter[1][0] === 'DRY' && Number.isFinite(lufs(meter[0])) && Number.isFinite(lufs(meter[1])),
-    'meter lists integrated loudness for the render and the source', `${meter[0][1]} / ${meter[1][1]} LUFS`);
+  // W4-01a: the rows are named TF2 and ORIGINAL (no element says wet or dry).
+  check(meter[0][0] === 'TF2' && meter[1][0] === 'ORIGINAL' && Number.isFinite(lufs(meter[0])) && Number.isFinite(lufs(meter[1])),
+    'meter lists integrated loudness for the render (TF2) and the source (ORIGINAL)', `${meter[0][1]} / ${meter[1][1]} LUFS`);
   await page.locator('#ab-match').click();
   const matched = await page.locator('#ab-match').textContent();
   const gains = await page.evaluate(() => ({ louder: state.abLouder, offset: state.abOffsetDb }));
-  check(/^Matched: (wet|dry) −?\d+\.\d dB$/.test(matched) && gains.offset <= 0
+  check(/^Matched: (TF2 voice|original) −?\d+\.\d dB$/.test(matched) && gains.offset <= 0
     && Math.abs(Math.abs(gains.offset) - Math.abs(lufs(meter[0]) - lufs(meter[1]))) < 0.11,
     'loudness matching lowers the louder version by the LUFS difference', matched);
   await page.locator('#ab-match').click();
   await page.locator('h1').click();
-  const before = await page.locator('#ab-toggle').textContent();
+  const hearing = () => page.evaluate(() => ({ mode: state.abMode, pressed: document.querySelector('#ab-group [aria-pressed="true"]').dataset.ab,
+    now: document.getElementById('ab-now').textContent }));
+  const before = await hearing();
   await page.keyboard.press('b');
-  check(await page.locator('#ab-toggle').textContent() !== before, 'the B key switches A/B');
+  const after = await hearing();
+  check(before.mode === 'wet' && after.mode === 'dry' && after.pressed === 'dry' && after.now === 'Hearing the original',
+    'the B key switches Hear from the TF2 voice to the original', JSON.stringify(after));
+  // With the player focused (as after a first render), B switches too.
+  await page.locator('#preview').focus();
   await page.keyboard.press('b');
+  check((await hearing()).mode === 'wet', 'and with the player focused, back to the TF2 voice');
 }
 
 async function verifyLanesAndSelection(page) {
@@ -555,10 +583,7 @@ async function verifyLanesAndSelection(page) {
 async function verifyAverageAndRealTake(page) {
   console.log('\n[Browser 3e] Average spectrum and the real-take comparison');
   const view = () => page.evaluate(() => document.getElementById('visualizer').dataset.view || '');
-  await page.locator('#file').setInputFiles({ name: 'speech.wav', mimeType: 'audio/wav', buffer: wavSpeech(6) });
-  await page.waitForFunction(() => state.sourceName === 'speech.wav' && !document.getElementById('process').disabled);
-  await page.locator('#process').click();
-  await page.waitForFunction(() => !document.getElementById('download').disabled, null, { timeout: 60000 });
+  await chooseFile(page, { name: 'speech.wav', mimeType: 'audio/wav', buffer: wavSpeech(6) });
   await page.locator('#viz-bars').click();
   if (await page.locator('#viz-avg').getAttribute('aria-pressed') !== 'true') await page.locator('#viz-avg').click();
   await page.waitForFunction(() => (document.getElementById('visualizer').dataset.view || '').startsWith('avg:dry'), null, { timeout: 60000 });
@@ -584,17 +609,21 @@ async function verifyAverageAndRealTake(page) {
     'a real take is found in the source and lined up (delay and clock)', `${take.segments} segment, ${(take.delay * 1000).toFixed(2)} ms, ${take.ppm.toFixed(1)} ppm; ${take.status}`);
   const within = take.bands.slice(0, 13).map(t => Math.abs(Number(t.replace('−', '-'))));
   check(within.every(d => d <= .3), 'the report finds the take and the render alike, band by band up to 12 kHz', take.bands.join(' '));
-  check(take.rows.includes('REAL') && take.rows.includes('Δ real'), 'the meter adds the real take and wet minus real');
-  await page.locator('#ab-toggle').click();
-  await page.locator('#ab-toggle').click();
-  check(await page.locator('#ab-toggle').textContent() === 'A/B: Real' && await page.evaluate(() => audibleBuffer().label) === 'REAL',
-    'A/B cycles to the real take');
+  check(take.rows.includes('REAL') && take.rows.includes('Δ real'), 'the meter adds the real take and the TF2 voice minus the real take');
+  // Hear gains "Real take" once a take is loaded; B cycles to it.
+  check(!(await page.locator('#ab-group [data-ab="real"]').isHidden()), 'Hear offers "Real take" once a take is loaded');
+  await page.locator('h1').click();
+  await page.keyboard.press('b');
+  await page.keyboard.press('b');
+  check(await page.locator('#ab-group [data-ab="real"]').getAttribute('aria-pressed') === 'true' && await page.evaluate(() => audibleBuffer().label) === 'REAL',
+    'B cycles Hear to the real take');
   await page.waitForFunction(() => (document.getElementById('visualizer').dataset.view || '').startsWith('avg:real'), null, { timeout: 60000 });
   check(true, 'AVG compares the render with the real take once one is loaded');
   await page.locator('#reference-clear').click();
-  check(await page.evaluate(() => !state.realTake) && await page.locator('#ab-toggle').textContent() === 'A/B: Wet'
+  check(await page.evaluate(() => !state.realTake && state.abMode === 'wet') && await page.locator('#ab-group [data-ab="wet"]').getAttribute('aria-pressed') === 'true'
+    && await page.locator('#ab-group [data-ab="real"]').isHidden()
     && !(await page.evaluate(() => [...document.querySelectorAll('#meter-rows tr th')].some(th => th.textContent === 'REAL'))),
-    'removing the take restores wet/dry A/B and the meter');
+    'removing the take returns Hear to the TF2 voice and the original, and the meter to two rows');
   await page.locator('#viz-avg').click();
   await page.locator('#viz-wave').click();
 }
@@ -606,14 +635,12 @@ async function verifyVideo(page) {
   const TF2Video = require('../video.js');
   for (const name of ['vp9_opus.mp4', 'h264_pcm.mov']) {
     const file = path.join(__dirname, 'video', name);
-    await page.locator('#file').setInputFiles(file);
-    await page.waitForFunction((n) => state.sourceName === n && !document.getElementById('process').disabled
-      && !document.getElementById('download-video').hidden, name);
+    // It renders by itself (W4-01a), and then offers the video download.
+    await chooseFile(page, file);
+    await page.waitForFunction(() => !document.getElementById('download-video').disabled);
     const shown = await page.evaluate(() => ({ hidden: document.getElementById('download-video').hidden,
       disabled: document.getElementById('download-video').disabled, label: document.getElementById('download-video').textContent }));
-    check(!shown.hidden && shown.disabled, `${name}: a video source offers the video download once rendered`, shown.label);
-    await page.locator('#process').click();
-    await page.waitForFunction(() => !document.getElementById('download-video').disabled, null, { timeout: 60000 });
+    check(!shown.hidden && !shown.disabled, `${name}: a video source renders by itself and then offers the video download`, shown.label);
     const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#download-video').click()]);
     const bytes = new Uint8Array(fs.readFileSync(await download.path()));
     const a = TF2Video.parse(new Uint8Array(fs.readFileSync(file))), b = TF2Video.parse(bytes);
@@ -652,7 +679,7 @@ async function verifyDemo(page) {
   const loaded = await page.evaluate(() => ({ name: state.sourceName, codec: els.codec.value, rate: state.decodedSource.sampleRate,
     seconds: state.decodedSource.duration, status: els.status.textContent, speakers: [...els.demoSpeaker.options].map(o => o.value), shown: !els.demoSpeaker.hidden }));
   check(loaded.name === 'synthetic_4503603922337793.dem' && loaded.codec === 'steam' && loaded.rate === 24000 && Math.abs(loaded.seconds - 3.2) < .01
-    && /Process plays it through TF2's receiver/.test(loaded.status),
+    && /rendered through TF2's receiver alone/.test(loaded.status),
     'a demo loads the first speaker\'s voice as the source, at 24 kHz, with the Steam codec', `${loaded.name}, ${loaded.seconds.toFixed(2)} s`);
   check(loaded.shown && loaded.speakers.length === 2, 'with two speakers, a select picks whose voice to take', loaded.speakers.join(', '));
   await page.locator('#demo-speaker').selectOption('4503603922337794');
@@ -660,12 +687,16 @@ async function verifyDemo(page) {
   await page.locator('#demo-speaker').selectOption('4503603922337793');
   await page.waitForFunction(() => state.sourceDemo && state.sourceDemo.speaker.id === '4503603922337793' && !document.getElementById('process').disabled);
   check(true, 'switching speakers reloads the voice from the same demo');
-  await page.locator('#process').click();
-  await page.waitForFunction(() => state.processedBuffer && state.lastCodecInfo, null, { timeout: 60000 });
+  // The demo's voice renders by itself, through the receiver only.
+  await waitRendered(page);
   const info = await page.evaluate(() => ({ backend: state.lastCodecInfo.backend, frames: state.lastCodecInfo.frames, lost: state.lastCodecInfo.lostFrames,
     dtx: state.lastCodecInfo.dtxFrames, log: [...document.querySelectorAll('#console-log .line, #console-log div')].map(e => e.textContent).join('\n') }));
   check(info.backend === 'demo' && info.frames === 160 && info.lost === 1 && info.dtx === 1,
-    'Process runs the receiver only, and the codec lane shows the demo\'s own frames', `${info.frames} frames, ${info.lost} lost, ${info.dtx} DTX`);
+    'the render runs the receiver only, and the codec lane shows the demo\'s own frames', `${info.frames} frames, ${info.lost} lost, ${info.dtx} DTX`);
+  // W4-01a: a demo's codec in the render's status line is the demo's own.
+  const demoStatus = await renderStatus(page);
+  check(/^Rendered in \d+\.\d s · 3\.\d s of sound at [\d,]+ Hz · Steam voice, as the demo carries it/.test(demoStatus),
+    'the render\'s status line names the codec the demo carries', demoStatus);
   // The lane places frame f at (f * frame - lookahead) / rate.
   const lane = await page.evaluate(() => ({ at: frameAt(state.lastCodecInfo, 1.0), frame: Math.floor(1.0 * state.lastCodecInfo.sampleRate / state.lastCodecInfo.frameSamples) }));
   check(lane.at === lane.frame, 'the codec lane finds the demo\'s frame at a given time', `frame ${lane.at} at 1 s`);
@@ -685,11 +716,7 @@ async function verifyDemo(page) {
 // snd_bits the page allows. Ends back on the Modern preset with a Steam render.
 async function verifySpeexPage(page) {
   console.log('\n[Browser 3c2] The speex profile on the page');
-  const render = async () => {
-    const before = await page.evaluate(() => state.renderId);
-    await page.locator('#process').click();
-    await page.waitForFunction((id) => state.renderId > id, before, { timeout: 60000 });
-  };
+  const render = () => renderNow(page);
   await page.locator('#viz-wave').click();
   await page.locator('#codec').selectOption('speex');
   const consoleBefore = (await page.locator('#console-out').textContent()).length;
@@ -699,7 +726,7 @@ async function verifySpeexPage(page) {
     const items = [...document.querySelectorAll('#viz-legend .lg-item')].filter(e => e.querySelector('.lg-box'));
     const chain = [...document.querySelectorAll('#signal-chain li')].find(li => li.querySelector('b').textContent === 'Codec');
     return { legend: items.map(e => e.textContent), legendTitles: items.map(e => e.title || e.querySelector('[title]')?.title || ''),
-      console: document.getElementById('console-out').textContent.slice(from), status: document.getElementById('source-status').textContent,
+      console: document.getElementById('console-out').textContent.slice(from), status: document.getElementById('render-status').textContent,
       chain: chain ? chain.textContent : '', option: document.getElementById('codec').selectedOptions[0].textContent,
       frames: state.lastCodecInfo.frames, color: FRAME_STYLE[7].color };
   }, consoleBefore);
@@ -707,7 +734,8 @@ async function verifySpeexPage(page) {
   check(seen.legend.length === 1 && seen.legend[0] === `Speex ${seen.frames}`, 'a speex render\'s codec lane counts every frame as Speex', seen.legend.join(', '));
   check(/S_Voice: Speex 1\.0\.2, 11\.025 kbps CBR, 20-byte packets of 14\.5 ms, a lost frame plays as zeros \(Speex 100%\)/.test(seen.console),
     'the console line names Speex 1.0.2, its frames, and zeros for a lost frame', sVoice);
-  check(/Ready · Speex 1\.0\.2 · 11\.025 kbps/.test(seen.status), 'the status line names Speex 1.0.2', seen.status);
+  // W4-01a: the render's status line names the codec by the codec menu's words.
+  check(/^Rendered in \d+\.\d s · .* · vaudio_speex \(Speex, 11 kHz\)/.test(seen.status), 'the render\'s status line names vaudio_speex', seen.status);
   const words = 'Speex 1.0.2 on 11.025 kHz sound · 20-byte frames of 14.51 ms · 11.025 kbit/s';
   // W4-01d: the menu's entry is the plain name with its figures shortened
   // (it fits a 390 px screen); the chain strip keeps the module's figures.
@@ -815,11 +843,9 @@ async function verifyMilesPage(page) {
     'the control\'s accessible description is its help alone on a TF2 profile (no note), and the help and the note on miles',
     `steam: "${notes.steam.description}"; miles: "${notes.miles.description}"`);
   // A render: the console, the status line, the chain strip and the lane.
-  const before = await page.evaluate(() => state.renderId);
   const consoleFrom = 'test: the miles render starts here';
   await page.evaluate((n) => logLine(n, 'sys'), consoleFrom);
-  await page.locator('#process').click();
-  await page.waitForFunction((id) => state.renderId > id && !state.processing, before, { timeout: 60000 });
+  await renderNow(page);
   await page.waitForFunction(() => [...document.querySelectorAll('#viz-legend .lg-item')].some(e => e.querySelector('.lg-box')));
   const seen = await page.evaluate((from) => {
     const items = [...document.querySelectorAll('#viz-legend .lg-item')].filter(e => e.querySelector('.lg-box'));
@@ -827,7 +853,7 @@ async function verifyMilesPage(page) {
     return { legend: items.map(e => e.textContent), legendTitles: items.map(e => e.title || e.querySelector('[title]')?.title || ''),
       // The console's lines (one element each) after the marker.
       console: (() => { const all = [...document.getElementById('console-out').children].map(e => e.textContent); return all.slice(all.lastIndexOf(from) + 1); })(),
-      status: document.getElementById('source-status').textContent,
+      status: document.getElementById('render-status').textContent,
       chain: chain ? chain.textContent : '', frames: state.lastCodecInfo.frames, codes: [...state.lastCodecInfo.frameLog] };
   }, consoleFrom);
   const lines = seen.console.filter(l => l.includes('S_Voice'));
@@ -835,7 +861,9 @@ async function verifyMilesPage(page) {
   check(first >= 0 && /S_Voice: Voxware VR12 \(voxware-vr12 eedf465\), 2\.94 kbps CBR, 12-byte packets of 32\.7 ms, a lost frame plays as zeros \(VR12 100%\)/.test(lines[first])
     && /S_Voice: vaudio_miles is not a TF2 codec \(Source engines of 2006 and 2007\); not checked against any recording/.test(lines[first + 1] || ''),
     'the S_Voice line names Voxware VR12, its 12-byte frames and zeros for a lost frame, and the next line says it is not a TF2 codec', lines.join(' | '));
-  check(/Ready · Voxware VR12 \(not in TF2\) · 2\.94 kbps/.test(seen.status), 'the status line names Voxware VR12, not in TF2', seen.status);
+  // W4-01a: the render's status line names the codec by the menu's words,
+  // which keep "not in TF2" for vaudio_miles.
+  check(/^Rendered in \d+\.\d s · .* · vaudio_miles: not in TF2/.test(seen.status), 'the render\'s status line names vaudio_miles, not in TF2', seen.status);
   const words = 'VR12 on 11.025 kHz sound · 12-byte frames of 32.65 ms · 2.94 kbit/s · not a TF2 codec';
   check(seen.chain === `Codec${words}`, 'the chain strip\'s Codec cell describes VR12 on 11.025 kHz sound and says it is not a TF2 codec', seen.chain);
   check(seen.legend.length === 1 && seen.legend[0] === `VR12 ${seen.frames}` && seen.codes.every(c => c === 8),
@@ -885,11 +913,7 @@ async function verifyMilesPage(page) {
 
 async function verifyCeltPage(page) {
   console.log('\n[Browser 3c3] The CELT profiles on the page');
-  const render = async () => {
-    const before = await page.evaluate(() => state.renderId);
-    await page.locator('#process').click();
-    await page.waitForFunction((id) => state.renderId > id, before, { timeout: 60000 });
-  };
+  const render = () => renderNow(page);
   const labels = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#codec option')].map(o => [o.value, o.textContent])));
   check(labels.celt_22 === 'vaudio_celt (CELT, 22 kHz)' && labels.celt_44 === 'vaudio_celt_high (44 kHz mode)',
     'the codec menu names vaudio_celt and vaudio_celt_high at their real rates', `${labels.celt_22} / ${labels.celt_44}`);
@@ -927,25 +951,24 @@ async function verifyCeltPage(page) {
 
 async function verifySourceDuringRender(page) {
   console.log('\n[Browser 3i] A new source during a render');
+  // The long file renders by itself; a file dropped while it renders stops
+  // that render and renders as itself (W4-01a).
+  const before = await page.evaluate(() => state.renderId);
   await page.locator('#file').setInputFiles({ name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(30) });
-  await page.waitForFunction(() => state.sourceName === 'long.wav' && !els.process.disabled);
-  await page.locator('#process').click();
-  await page.waitForFunction(() => state.processing);
+  await page.waitForFunction(() => state.sourceName === 'long.wav' && state.processing);
   // Dropped outside the batch panel, one file becomes the source (batch.js).
   await page.evaluate((bytes) => {
     const transfer = new DataTransfer();
     transfer.items.add(new File([new Uint8Array(bytes)], 'short.wav', { type: 'audio/wav' }));
     document.body.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
   }, [...wavTone(1, 48000, 880)]);
-  await page.waitForFunction(() => state.sourceName === 'short.wav' && !state.processing, null, { timeout: 60000 });
-  const after = await page.evaluate(() => ({ render: !!state.processedBuffer, download: !els.dl.disabled, process: !els.process.disabled,
-    status: els.status.textContent }));
-  check(!after.render && !after.download && after.process && after.status.startsWith('short.wav'),
-    'a source dropped during a render stops that render; the new source waits to be processed', after.status);
-  await page.locator('#process').click();
-  await page.waitForFunction(() => state.processedBuffer && !state.processing, null, { timeout: 60000 });
-  const seconds = await page.evaluate(() => state.processedBuffer.length / state.processedRate);
-  check(Math.abs(seconds - 1) < .01, 'and then renders as itself', `${seconds.toFixed(3)} s`);
+  await page.waitForFunction(() => state.sourceName === 'short.wav', null, { timeout: 60000 });
+  await waitRendered(page);
+  const after = await page.evaluate(() => ({ renders: state.renderId, seconds: state.processedBuffer.length / state.processedRate, download: !els.dl.disabled,
+    process: !els.process.disabled, status: els.status.textContent, log: document.getElementById('console-out').textContent }));
+  check(after.renders === before + 1 && Math.abs(after.seconds - 1) < .01 && after.download && after.process && after.status.startsWith('short.wav')
+    && /render of the previous source stopped|the source changed during the render/.test(after.log),
+    'a source dropped during a render stops that render, and renders as itself', `${after.seconds.toFixed(3)} s; ${after.status}`);
   // Presets reset every receiver setting, re-timing included.
   const retime = await page.evaluate(() => { execCommand('voice_retime 1'); execCommand('exec preset_modern'); return els.retime.value; });
   check(retime === '0', 'a preset turns talk-spurt re-timing back off', `voice_retime ${retime}`);
@@ -1011,6 +1034,8 @@ async function verifyLiveMonitor(page) {
     // Wait for this take, not the one before it (W3-11b: the steam_48 take
     // was read before it was mounted, against the steam take's buffers, which
     // lined up only while both live chains ran the frame path).
+    // A render of the source on the page (the codec changed) is not this take's.
+    await page.waitForFunction(() => renderIdle(), null, { timeout: 30000 });
     await page.evaluate(() => { window.__takeBefore = state.decodedSource; });
     await page.locator('#live-record').click();
     await page.waitForTimeout(3000);
@@ -1047,7 +1072,7 @@ async function verifyLiveMonitor(page) {
       for (const v of dry) { low = Math.min(low, v); high = Math.max(high, v); }
       return { seconds: dry.length / rate, same: dry.length === wet.length, lag, rate, r: ea > 0 && eb > 0 ? br[(lag + size) % size] / Math.sqrt(ea * eb) : 0, low, high,
         lane: !!(state.lastCodecInfo && state.lastCodecInfo.frameLog && state.lastCodecInfo.frameLog.some(c => c > 0)),
-        ab: !els.abToggle.disabled };
+        ab: !document.querySelector('#ab-group [data-ab="dry"]').disabled };
     });
   }
   const take = await recordTake('steam');
@@ -1089,6 +1114,7 @@ async function verifyLiveMonitor(page) {
   const mode = await page.locator('#live-mode').textContent();
   // The console keeps a bounded number of lines, so a length taken now can
   // point into later text once older lines go: mark the place with a line.
+  await page.waitForFunction(() => renderIdle(), null, { timeout: 30000 });
   await page.evaluate(() => logLine('test: the speex take starts here', 'sys'));
   const consoleFrom = 'test: the speex take starts here';
   await page.locator('#live-record').click();
@@ -1096,10 +1122,10 @@ async function verifyLiveMonitor(page) {
   await page.locator('#live-record').click();
   await page.waitForFunction((n) => document.getElementById('console-out').textContent.split(n).pop().includes('S_Voice'), consoleFrom, { timeout: 20000 });
   const speexTake = await page.evaluate((n) => ({ console: document.getElementById('console-out').textContent.split(n).pop().split('\n').filter(l => l.includes('S_Voice')).join(' | '),
-    status: document.getElementById('source-status').textContent,
+    status: document.getElementById('render-status').textContent,
     legend: [...document.querySelectorAll('#viz-legend .lg-item')].filter(e => e.querySelector('.lg-box')).map(e => e.textContent) }), consoleFrom);
   check(mode === 'Speex' && /S_Voice: Speex 1\.0\.2, 11\.025 kbps CBR, 14\.5 ms, a lost frame plays as zeros \(Speex 100%\)/.test(speexTake.console)
-    && /Speex 1\.0\.2 · 11\.025 kbps/.test(speexTake.status) && speexTake.legend.some(t => /^Speex \d+$/.test(t))
+    && /^Recorded live · .* · vaudio_speex \(Speex, 11 kHz\)$/.test(speexTake.status) && speexTake.legend.some(t => /^Speex \d+$/.test(t))
     && !speexTake.legend.some(t => /^(SILK|Hybrid|CELT|DTX) /.test(t))
     && ![speexTake.console, speexTake.status, ...speexTake.legend].some(t => /CELT|Opus|SILK/.test(t)),
     'the live panel and a recorded speex take name Speex, not CELT or Opus', `mode ${mode}; ${speexTake.console}; ${speexTake.legend.join(', ')}`);
@@ -1107,6 +1133,7 @@ async function verifyLiveMonitor(page) {
   await page.locator('#codec').selectOption('miles');
   await page.waitForFunction(() => TF2Live.stats && TF2Live.stats.codec === 'miles' && TF2Live.stats.sent > 15, null, { timeout: 20000 });
   const milesMode = await page.locator('#live-mode').textContent();
+  await page.waitForFunction(() => renderIdle(), null, { timeout: 30000 });
   await page.evaluate(() => logLine('test: the miles take starts here', 'sys'));
   const milesFrom = 'test: the miles take starts here';
   await page.locator('#live-record').click();
@@ -1114,12 +1141,12 @@ async function verifyLiveMonitor(page) {
   await page.locator('#live-record').click();
   await page.waitForFunction((n) => document.getElementById('console-out').textContent.split(n).pop().includes('S_Voice'), milesFrom, { timeout: 20000 });
   const milesTake = await page.evaluate((n) => ({ console: document.getElementById('console-out').textContent.split(n).pop().split('\n').filter(l => l.includes('S_Voice')).join(' | '),
-    status: document.getElementById('source-status').textContent,
+    status: document.getElementById('render-status').textContent,
     legend: [...document.querySelectorAll('#viz-legend .lg-item')].filter(e => e.querySelector('.lg-box')).map(e => e.textContent),
     backend: state.lastCodecInfo.backend, plc: state.lastCodecInfo.plc }), milesFrom);
   check(milesMode === 'VR12' && /S_Voice: Voxware VR12 \(voxware-vr12 eedf465\), 2\.94 kbps CBR, 32\.7 ms, a lost frame plays as zeros \(VR12 100%\)/.test(milesTake.console)
     && /S_Voice: vaudio_miles is not a TF2 codec/.test(milesTake.console)
-    && /Voxware VR12 \(not in TF2\) · 2\.94 kbps/.test(milesTake.status) && milesTake.legend.some(t => /^VR12 \d+$/.test(t)) && milesTake.backend === 'vr12' && milesTake.plc === 'zeros'
+    && /^Recorded live · .* · vaudio_miles: not in TF2/.test(milesTake.status) && milesTake.legend.some(t => /^VR12 \d+$/.test(t)) && milesTake.backend === 'vr12' && milesTake.plc === 'zeros'
     && ![milesTake.console, milesTake.status, ...milesTake.legend].some(t => /CELT|Opus|SILK|Speex/.test(t)),
     'the live panel\'s mode reads VR12 with miles, and a recorded take names Voxware VR12, not CELT, Opus, SILK or Speex',
     `mode ${milesMode}; ${milesTake.console}; ${milesTake.legend.join(', ')}`);
@@ -1325,9 +1352,7 @@ async function verifyRoomsPage(page) {
   await page.waitForFunction(() => state.sourceName === 'room-tone.wav' && !els.process.disabled);
   for (const [key, setup] of [['open'], ['auto_set_c_room'], ['auto_closet'], ['place_2fort_spawn_room'], ['room_2'], ['manual', 'dsp_room 1']]) {
     await page.evaluate(([k, cmd]) => { execCommand('exec preset_modern'); execCommand(`listener_position ${k}`); if (cmd) execCommand(cmd); }, [key, setup]);
-    const before = await page.evaluate(() => state.renderId);
-    await page.locator('#process').click();
-    await page.waitForFunction((id) => state.renderId > id && !state.processing, before, { timeout: 60000 });
+    await renderNow(page);
     const got = await page.evaluate(async () => {
       const a = els.audio;
       if (!(a.duration > 0)) await new Promise((r) => a.addEventListener('loadedmetadata', r, { once: true }));
@@ -1597,6 +1622,337 @@ async function verifySettingsWords(page) {
     `${fit.out.map(([t, w]) => `${w}`).join(', ')} px of ${fit.room}`);
 }
 
+// W4-01a: the journey. A file renders by itself and the result comes into
+// view; a changed setting renders by itself (a minute or less) or marks the
+// result (longer); a re-render keeps the place; presets are lit by matching
+// and the line under them says what differs; settings are remembered; the
+// words; the version line. Each in a page of its own, on fresh storage.
+const STALE_TEXT = 'These settings are not rendered yet. What you see and hear was made with the earlier ones.';
+// The rendered WAV's SHA-256, as hex.
+const wavHash = (page) => page.evaluate(async () => {
+  const bytes = await (await fetch(document.getElementById('preview').src)).arrayBuffer();
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
+});
+// A control of the settings set by its own control, as a user does (the
+// advanced controls opened first when it is one of them).
+async function setControl(page, id, value) {
+  await page.evaluate((id) => { if (document.getElementById(id).closest('.advanced-control') && !document.body.classList.contains('advanced')) showAdvanced(true); }, id);
+  const el = page.locator(`#${id}`);
+  if (await el.evaluate((e) => e.tagName === 'SELECT')) await el.selectOption(String(value));
+  else { await el.fill(String(value)); await el.dispatchEvent('change'); }
+}
+// How many renders have started since `mark` was logged.
+const rendersStartedSince = (page, mark) => page.evaluate((m) => {
+  const lines = [...document.getElementById('console-out').children].map((e) => e.textContent);
+  return lines.slice(lines.lastIndexOf(m) + 1).filter((l) => l.startsWith('S_StartSound: initializing render')).length;
+}, mark);
+
+async function verifyJourney(browser, base) {
+  console.log('\n[Browser 8] The journey (W4-01a): a file to its sound, changed settings, presets, memory, words, version');
+  const errors = [];
+  const fresh = async (viewport = { width: 1280, height: 720 }, options = {}) => {
+    const context = await browser.newContext({ serviceWorkers: 'block', viewport, ...options });
+    const page = await context.newPage();
+    page.setDefaultTimeout(30000);
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto(base, { waitUntil: 'domcontentloaded' });
+    return { context, page };
+  };
+
+  // 1. A chosen file and nothing else: rendered, in view, focused, paused.
+  for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 664 }]) {
+    const { context, page } = await fresh(viewport);
+    try {
+      await page.locator('#file').setInputFiles({ name: 'first.wav', mimeType: 'audio/wav', buffer: wavSpeech(3) });
+      await page.waitForFunction(() => state.renderId === 1 && renderIdle(), null, { timeout: 60000 });
+      // The scroll may be smooth: wait until the page has stopped moving.
+      await page.evaluate(() => new Promise((resolve) => {
+        let last = -1, still = 0;
+        const step = () => { const y = window.scrollY; still = y === last ? still + 1 : 0; last = y; if (still >= 10) resolve(); else requestAnimationFrame(step); };
+        step();
+      }));
+      const seen = await page.evaluate(() => {
+        const r = els.audio.getBoundingClientRect(), h = document.getElementById('step-listen').getBoundingClientRect();
+        return { download: !els.dl.disabled, renders: state.renderId, box: [r.top, r.bottom, r.left, r.right].map(Math.round), height: window.innerHeight, width: window.innerWidth,
+          focused: document.activeElement === els.audio, paused: els.audio.paused, scrolled: Math.round(window.scrollY), heading: Math.round(h.top) };
+      });
+      check(seen.download && seen.renders === 1 && seen.box[0] >= 0 && seen.box[1] <= seen.height && seen.box[2] >= 0 && seen.box[3] <= seen.width
+        && seen.focused && seen.paused && seen.scrolled > 0 && Math.abs(seen.heading) <= 2,
+        `${viewport.width} × ${viewport.height}: a chosen file renders by itself; step 3's heading comes to the top, the player is wholly in view, has the focus and does not play`,
+        `player ${seen.box[0]}–${seen.box[1]} of ${seen.height} px, heading at ${seen.heading} px, page scrolled ${seen.scrolled} px`);
+      if (viewport.width === 1280) {
+        // Space plays it, from the player (the page's key, not twice).
+        await page.keyboard.press(' ');
+        await page.waitForFunction(() => !els.audio.paused, null, { timeout: 5000 }).catch(() => {});
+        const playing = await page.evaluate(() => !els.audio.paused);
+        await page.keyboard.press(' ');
+        check(playing && await page.evaluate(() => els.audio.paused), 'Space on the focused player plays it, and Space again pauses it');
+        // A render started with the button: the focus goes to the player too.
+        await page.locator('#process').focus();
+        await page.locator('#process').press('Enter');
+        await page.waitForFunction(() => state.renderId === 2 && renderIdle(), null, { timeout: 60000 });
+        check(await page.evaluate(() => document.activeElement === els.audio), 'after a render started with the button, the player has the focus');
+      }
+    } finally { await context.close(); }
+  }
+
+  const { context, page } = await fresh();
+  try {
+    // 2. A 10 s source: a changed setting renders by itself; three changes
+    // within 300 ms give one render.
+    await chooseFile(page, { name: 'ten.wav', mimeType: 'audio/wav', buffer: wavSpeech(10) });
+    const first = await wavHash(page), r1 = await page.evaluate(() => state.renderId);
+    await setControl(page, 'voice_scale', '0.5');
+    await page.waitForFunction((r) => state.renderId === r + 1 && renderIdle(), r1, { timeout: 60000 });
+    const second = await wavHash(page);
+    check(second !== first, 'a 10 s source: voice_scale set to 0.5 by its control renders again with no press, and the WAV differs', `${first.slice(0, 12)} → ${second.slice(0, 12)}`);
+    const mark = 'test: three changes';
+    await page.evaluate((m) => logLine(m, 'sys'), mark);
+    const r2 = await page.evaluate(() => state.renderId), t0 = Date.now();
+    for (const v of ['0.6', '0.7', '0.8']) await page.evaluate((v) => { els.voiceScale.value = v; els.voiceScale.dispatchEvent(new Event('change', { bubbles: true })); }, v);
+    const spread = Date.now() - t0;
+    await page.waitForFunction((r) => state.renderId > r && renderIdle(), r2, { timeout: 60000 });
+    await page.waitForTimeout(600);
+    check(spread < 300 && await page.evaluate(() => state.renderId) === r2 + 1 && await rendersStartedSince(page, mark) === 1
+      && await page.evaluate(() => els.voiceScale.value === '0.8' && state.renderedKey === settingsKey()),
+      'three changes within 300 ms give one render, of the last', `${spread} ms apart; ${await rendersStartedSince(page, mark)} render started`);
+
+    // 3. A re-render keeps the place: position, playing, the version heard.
+    // (A click first: the page has had a user's gesture, so it may play.)
+    await page.locator('#ab-group [data-ab="wet"]').click();
+    await page.evaluate(async () => {
+      const a = els.audio;
+      if (!(a.duration > 0)) await new Promise((r) => a.addEventListener('loadedmetadata', r, { once: true }));
+      a.currentTime = 4;
+      await a.play();
+    });
+    await page.locator('#ab-group [data-ab="dry"]').click();
+    await page.waitForFunction(() => els.audio.currentTime > 4.3 && !els.audio.paused);
+    // Where playback had got to when the new render takes the player's place.
+    await page.evaluate(() => {
+      const proto = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+      window.__place = null; window.__restored = null;
+      Object.defineProperty(els.audio, 'src', { configurable: true, get() { return proto.get.call(this); },
+        set(v) { window.__place = { at: this.currentTime, playing: !this.paused };
+          this.addEventListener('seeked', () => { window.__restored = this.currentTime; }, { once: true }); proto.set.call(this, v); } });
+    });
+    const r3 = await page.evaluate(() => state.renderId);
+    await setControl(page, 'voice_scale', '0.9');
+    await page.waitForFunction((r) => state.renderId === r + 1 && window.__restored !== null && !els.audio.paused, r3, { timeout: 60000 });
+    await page.waitForTimeout(300);
+    const place = await page.evaluate(() => ({ place: window.__place, restored: window.__restored, now: els.audio.currentTime, paused: els.audio.paused,
+      mode: state.abMode, pressed: document.querySelector('#ab-group [aria-pressed="true"]').dataset.ab, dryMuted: els.audioDry.muted, wetMuted: els.audio.muted }));
+    await page.evaluate(() => { delete els.audio.src; els.audio.pause(); });
+    check(place.place && place.place.playing && Math.abs(place.restored - place.place.at) < 0.15 && !place.paused && place.now > place.restored,
+      'a re-render while playing goes on playing from where playback had got to', `at ${place.place && place.place.at.toFixed(3)} s, on from ${place.restored && place.restored.toFixed(3)} s`);
+    check(place.mode === 'dry' && place.pressed === 'dry' && !place.dryMuted && place.wetMuted, 'with "Original" chosen before the re-render, "Original" is chosen after');
+    await page.locator('#ab-group [data-ab="wet"]').click();
+
+    // 5. Presets lit by matching, the line under them, Reset.
+    await page.locator('#preset-reset').click();
+    await waitRendered(page);
+    const presetState = () => page.evaluate(() => ({ lit: [...document.querySelectorAll('.preset-row .preset-btn[aria-pressed="true"]')].map((b) => b.dataset.preset),
+      line: els.presetLine.hidden ? null : els.presetLine.textContent.replace(/\s+/g, ' ').trim() }));
+    const atDefaults = await presetState();
+    check(JSON.stringify(atDefaults.lit) === '["modern"]' && atDefaults.line === null, 'at the defaults Modern is lit and the line under the presets is hidden', JSON.stringify(atDefaults));
+    const typed = async (command) => { await page.locator('#console-input').fill(command); await page.locator('#console-input').press('Enter'); };
+    await page.locator('#console-details summary').click();
+    await typed('voice_scale 0.5');
+    const scaled = await presetState();
+    check(scaled.lit.length === 0 && /^Modern, changed: Voice scale 0\.5 · Reset$/.test(scaled.line),
+      'voice_scale 0.5 from the console: no preset is lit, and the line names Voice scale and 0.5', scaled.line);
+    await typed('voice_scale 1');
+    await typed('net_fakeloss 18');
+    check((await presetState()).lit.length === 0, 'Laggy\'s loss alone lights nothing');
+    await typed('net_fakejitter 50');
+    const laggy = await presetState();
+    check(JSON.stringify(laggy.lit) === '["laggy"]' && /^Laggy, as the preset sets it · Reset$/.test(laggy.line),
+      'the console commands that set Laggy\'s values one by one light Laggy, with no click', laggy.line);
+    await typed('volume 0.15');
+    const laggyChanged = await presetState();
+    check(laggyChanged.lit.length === 0 && /^Laggy, changed: Output volume 0\.15 · Reset$/.test(laggyChanged.line),
+      'a change after that names the preset last lit and what differs from it', laggyChanged.line);
+    // The preset that was "2fort sewers" lights by matching like any other.
+    await typed('exec preset_modern');
+    await typed('underwater 1');
+    await typed('voice_micgain 2');
+    check(JSON.stringify((await presetState()).lit) === '["underwater"]', 'under water and a mic gain of 2 light "Under water", with no click');
+    // A preset sets every preset-set field: the manual room number and the
+    // custom room's knobs too.
+    await typed('dsp_room 99');
+    await typed('dsp_custom_mix 60');
+    await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
+    const reset = await page.evaluate(() => ({ dsp: els.env.value, mix: els.cMix.value, pos: els.position.value }));
+    check(reset.dsp === '0' && reset.mix === '25' && reset.pos === 'open', 'a preset click sets the manual room number and the custom room\'s knobs back too', JSON.stringify(reset));
+    await typed('snd_device_rate 44100');
+    const device = await presetState();
+    check(JSON.stringify(device.lit) === '["modern"]' && /^Modern, also Listener's sound device 44100 Hz · Reset$/.test(device.line),
+      'with the sound device at 44100 Hz Modern is still lit, and the line names the device after "also"', device.line);
+    await typed('voice_scale 0.5');
+    await typed('voice_capture_channel mix');
+    const both = await presetState();
+    check(/^Modern, changed: Voice scale 0\.5 · also (Channel of a stereo file Mix L\+R · Listener's sound device 44100 Hz|Listener's sound device 44100 Hz · Channel of a stereo file Mix L\+R) · Reset$/.test(both.line),
+      'the line gives the preset-set changes, then the PC\'s after "also"', both.line);
+    await page.locator('#preset-reset').click();
+    const back = await page.evaluate(() => {
+      const cfg = collectConfig();
+      return { differ: Object.keys(DEFAULT_CONFIG).filter((k) => !sameSetting(k, cfg, DEFAULT_CONFIG)), raw: Object.keys(DEFAULT_CONFIG).filter((k) => cfg[k] !== DEFAULT_CONFIG[k]) };
+    });
+    const afterReset = await presetState();
+    check(JSON.stringify(afterReset.lit) === '["modern"]' && afterReset.line === null && back.differ.length === 0 && back.raw.length === 0,
+      '"Reset" lights Modern and every CONFIG_FIELDS value equals its default', back.raw.join(', ') || 'all at their defaults');
+    const lists = await page.evaluate(() => ({ keys: CONFIG_FIELDS.map(([k]) => k), set: PRESET_SET_FIELDS, kept: KEPT_ACROSS_PRESETS,
+      fields: [...new Set(Object.values(PRESETS).flatMap((p) => Object.keys(p)))], mapped: Object.keys(PRESET_KEYS), targets: Object.values(PRESET_KEYS) }));
+    const placed = lists.keys.map((k) => [k, lists.set.filter((x) => x === k).length + lists.kept.filter((x) => x === k).length]);
+    check(placed.every(([, n]) => n === 1) && [...lists.set, ...lists.kept].every((k) => lists.keys.includes(k))
+      && JSON.stringify(lists.kept) === '["uptime","dev","chan"]',
+      'every key of CONFIG_FIELDS is in exactly one of the two lists (set by a preset, or kept across presets: uptime, dev, chan)',
+      placed.filter(([, n]) => n !== 1).map(([k, n]) => `${k}: ${n}`).join(', ') || `${lists.keys.length} keys`);
+    check(lists.fields.every((f) => lists.mapped.includes(f)) && lists.targets.every((k) => lists.set.includes(k)),
+      'every field a built-in preset names maps to a preset-set key', lists.fields.join(', '));
+
+    // 7. Words.
+    await page.locator('#advanced-toggle').evaluate((b) => { if (b.getAttribute('aria-expanded') !== 'true') b.click(); });
+    await page.locator('#reference summary').click();
+    const visible = await page.evaluate(() => document.body.innerText);
+    const found = ['Process Audio', '\\bWet\\b', '\\bDry\\b', 'int16'].filter((p) => new RegExp(p).test(visible));
+    check(found.length === 0, 'no visible text says "Process Audio", "Wet", "Dry" or "int16" (every panel open)', found.join(', '));
+    const wav = await readRenderedWav(page), status = await renderStatus(page);
+    check(status.startsWith('Rendered in ') && status.includes(` at ${wav.rate.toLocaleString('en-US')} Hz `),
+      'the render\'s status line says "Rendered in" and the rate the WAV\'s header has', `${status}; header ${wav.rate} Hz`);
+    // The gate's part, only when the gate held frames: 1 s of speech, 2 s quiet.
+    const gated = Buffer.concat([wavSpeech(1), Buffer.alloc(2 * 48000 * 2)]);
+    gated.writeUInt32LE(gated.length - 8, 4); gated.writeUInt32LE(gated.length - 44, 40);
+    await chooseFile(page, { name: 'gated.wav', mimeType: 'audio/wav', buffer: gated });
+    const gate = await page.evaluate(() => ({ status: els.renderStatus.textContent, held: state.lastCodecInfo.gatedFrames * state.lastCodecInfo.frameMs / 1000 }));
+    check(gate.held > 0.5 && gate.status.endsWith(` · ${gate.held.toFixed(2)} s not sent (too quiet for the gate)`),
+      'with frames the gate held, the line ends with the time not sent', gate.status);
+  } finally { await context.close(); }
+
+  // 4. A 61 s source: a changed setting waits for the button, and the page says so.
+  {
+    const { context, page } = await fresh();
+    try {
+      await chooseFile(page, { name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(61, 8000) }, 120000);
+      const r = await page.evaluate(() => state.renderId), mark = 'test: the long source changed';
+      await page.evaluate((m) => logLine(m, 'sys'), mark);
+      await setControl(page, 'voice_scale', '0.5');
+      await page.waitForTimeout(2000);
+      const marks = () => page.evaluate(() => ({ status: els.renderStatus.textContent, button: els.process.textContent, download: els.dl.textContent,
+        stale: ['viz-container', 'viz-legend', 'meter'].map((id) => document.getElementById(id).classList.contains('stale')), renders: state.renderId, processing: state.processing }));
+      const waiting = await marks();
+      check(waiting.renders === r && !waiting.processing && await rendersStartedSince(page, mark) === 0,
+        'a 61 s source and a changed setting: no render starts within 2 s', `${await rendersStartedSince(page, mark)} started`);
+      check(waiting.status === STALE_TEXT && waiting.button === 'Render again' && waiting.download === 'Download WAV (earlier settings)' && waiting.stale.every(Boolean),
+        'the status line, "Render again" and "(earlier settings)" say so, and the views and the table are marked stale', JSON.stringify(waiting));
+      await setControl(page, 'voice_scale', '1.0');
+      const back = await marks();
+      check(back.renders === r && back.status !== STALE_TEXT && back.status.startsWith('Rendered in') && back.button === 'Render' && back.download === 'Download WAV' && !back.stale.some(Boolean),
+        'the value set back removes the marks, with no render', JSON.stringify(back));
+      await setControl(page, 'voice_scale', '0.5');
+      await page.locator('#process').click();
+      // While it renders: "Rendering… N%" and "Rendering 61.0 s…".
+      await page.waitForFunction(() => /^Rendering… \d+%$/.test(els.process.textContent), null, { timeout: 30000 });
+      const during = await page.evaluate(() => ({ button: els.process.textContent, status: els.renderStatus.textContent }));
+      check(during.status === 'Rendering 61.0 s…', 'while it renders the button reads "Rendering… N%" and the line "Rendering 61.0 s…"', `${during.button}; ${during.status}`);
+      await waitRendered(page, 120000);
+      const done = await marks();
+      check(done.renders === r + 1 && done.status.startsWith('Rendered in') && done.button === 'Render' && !done.stale.some(Boolean),
+        'a press on "Render again" renders and removes the marks', done.status);
+      // A steady tone: the gate held nothing, and the line says nothing of it.
+      check(await page.evaluate(() => state.lastCodecInfo.gatedFrames === 0) && !done.status.includes('not sent'),
+        'with no frames held by the gate, the line says nothing of it', done.status);
+    } finally { await context.close(); }
+  }
+
+  // 8. Remembered settings.
+  {
+    const { context, page } = await fresh();
+    try {
+      await setControl(page, 'voice_scale', '0.5');
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const kept = await page.evaluate(() => ({ vs: els.voiceScale.value, advanced: document.body.classList.contains('advanced'), line: els.presetLine.hidden ? null : els.presetLineText.textContent }));
+      check(kept.vs === '0.5' && kept.advanced && /Voice scale 0\.5/.test(kept.line || ''), 'a changed setting survives a reload, as does the open advanced panel, and the line says what is not the default', JSON.stringify(kept));
+      await page.goto(`${base}/#vs=0.75`, { waitUntil: 'domcontentloaded' });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      check(await page.evaluate(() => els.voiceScale.value) === '0.75', 'a share link\'s value wins over the remembered one');
+      await page.goto(base, { waitUntil: 'domcontentloaded' });
+      await page.evaluate(() => localStorage.setItem('tf2ve_settings', JSON.stringify('x')));
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const junk = await page.evaluate(() => Object.keys(DEFAULT_CONFIG).filter((k) => collectConfig()[k] !== DEFAULT_CONFIG[k]));
+      check(junk.length === 0, 'with tf2ve_settings holding "x" the page boots on its defaults', junk.join(', '));
+    } finally { await context.close(); }
+    const blocked = await browser.newContext({ serviceWorkers: 'block' });
+    try {
+      await blocked.addInitScript(() => { Storage.prototype.setItem = () => { throw new DOMException('refused by the test', 'QuotaExceededError'); }; });
+      const page = await blocked.newPage();
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(base, { waitUntil: 'domcontentloaded' });
+      await setControl(page, 'voice_scale', '0.5');
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const left = await page.evaluate(() => Object.keys(DEFAULT_CONFIG).filter((k) => collectConfig()[k] !== DEFAULT_CONFIG[k]));
+      check(left.length === 0, 'with localStorage.setItem throwing, the page boots on its defaults', left.join(', '));
+    } finally { await blocked.close(); }
+  }
+  check(errors.length === 0, 'the journey has no page errors', errors.join('; '));
+}
+
+// W4-01a: which version this is. The footer gives the service worker's cache
+// number; a newer worker taking over a page that had one shows the notice,
+// and the page is not reloaded under it.
+async function verifyVersionLine(browser) {
+  console.log('\n[Browser 8b] The version line and the newer-version notice (W4-01a)');
+  const swSource = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
+  const number = Number(/CACHE_PREFIX\}v(\d+)/.exec(swSource)[1]);
+  // The page's files through a route of this test's own, which can serve a
+  // newer sw.js (a browser fetches a service worker's script itself, past
+  // Playwright's routes).
+  const upstream = await createStaticServer(path.join(__dirname, '..'));
+  let newerWorker = null;
+  const proxy = http.createServer((request, response) => {
+    if (newerWorker && new URL(request.url, 'http://localhost').pathname === '/sw.js') {
+      response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache' });
+      response.end(newerWorker);
+      return;
+    }
+    const forward = http.request({ host: '127.0.0.1', port: upstream.address().port, path: request.url, method: request.method, headers: request.headers },
+      (reply) => { response.writeHead(reply.statusCode, reply.headers); reply.pipe(response); });
+    forward.on('error', () => { response.writeHead(502).end(); });
+    request.pipe(forward);
+  });
+  await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${proxy.address().port}`;
+  const context = await browser.newContext({ serviceWorkers: 'allow' });
+  try {
+    const page = await context.newPage();
+    page.setDefaultTimeout(30000);
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto(`${base}/`, { waitUntil: 'networkidle' });
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForFunction(() => !document.getElementById('version-line').hidden);
+    const footer = await page.evaluate(() => ({ text: document.getElementById('version-line').textContent, controlled: !!navigator.serviceWorker.controller,
+      notice: document.getElementById('update-notice').hidden }));
+    check(footer.controlled && footer.text === `version ${number} · ` && footer.notice, 'the footer shows the service worker\'s cache number, and no notice', footer.text);
+    newerWorker = swSource.replace(/CACHE = `\$\{CACHE_PREFIX\}v\d+`/, `CACHE = \`\${CACHE_PREFIX}v${number + 1}\``);
+    await page.evaluate(() => { window.__marker = 'still this page'; });
+    await page.evaluate(async () => { const registration = await navigator.serviceWorker.getRegistration(); await registration.update(); });
+    await page.waitForFunction(() => !document.getElementById('update-notice').hidden, null, { timeout: 30000 });
+    const after = await page.evaluate(async () => ({ marker: window.__marker, text: document.getElementById('update-notice').textContent, keys: await caches.keys(),
+      footer: document.getElementById('version-line').textContent }));
+    check(after.marker === 'still this page' && after.keys.includes(`tf2ve-v${number + 1}`)
+      && after.text === 'A newer version of this page is ready. Reload to use it; a loaded file and its render are not kept across a reload.',
+      'a newer sw.js taking over shows the notice above step 1, and the page is not reloaded under it', `${after.keys.join(', ')}; footer "${after.footer}"`);
+    check(errors.length === 0, 'the version line has no page errors', errors.join('; '));
+  } finally {
+    await context.close();
+    await new Promise((resolve) => proxy.close(resolve));
+    if (upstream.closeAllConnections) upstream.closeAllConnections();
+    await new Promise((resolve) => upstream.close(resolve));
+  }
+}
+
 // A minimal reader for the stored ZIPs the batch writes.
 function readZip(buffer) {
   const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -1703,10 +2059,7 @@ async function verifyBatchAndFormats(browser, base) {
     check((await summary()) === 'No files queued.' && (await page.locator('.batch-item').count()) === 0, 'Clear empties the queue');
 
     // Single render saved as FLAC through the format picker.
-    await page.locator('#file').setInputFiles({ name: 'solo.wav', mimeType: 'audio/wav', buffer: wavTone(0.4) });
-    await page.waitForFunction(() => !document.getElementById('process').disabled);
-    await page.locator('#process').click();
-    await page.waitForFunction(() => !document.getElementById('download').disabled, null, { timeout: 60000 });
+    await chooseFile(page, { name: 'solo.wav', mimeType: 'audio/wav', buffer: wavTone(0.4) });
     await page.locator('#format').selectOption('flac');
     check(await page.locator('#download').textContent() === 'Download FLAC', 'download button follows the format');
     const [single] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.locator('#download').click()]);
@@ -1800,10 +2153,9 @@ async function verifyFirstVisitOffline(browser, base) {
     await page.waitForFunction(() => /first-visit-22050\.wav|Could not/.test(els.status.textContent));
     const loaded = await page.evaluate(() => els.status.textContent);
     check(/22,050 Hz/.test(loaded), 'offline after the first visit, a file loads at its own rate', loaded);
-    await page.locator('#process').click();
-    await page.waitForFunction(() => /Ready|Could not|failed/i.test(els.status.textContent) && !state.processing, null, { timeout: 60000 });
-    const done = await page.evaluate(() => ({ status: els.status.textContent, log: document.getElementById('console-out').textContent }));
-    check(done.status.includes('Ready') && done.log.includes('libopus 1.1.5'), 'and renders with the bundled codec', done.status);
+    await page.waitForFunction(() => /Rendered in|failed/i.test(document.getElementById('render-status').textContent) && !state.processing, null, { timeout: 60000 });
+    const done = await page.evaluate(() => ({ status: document.getElementById('render-status').textContent, log: document.getElementById('console-out').textContent }));
+    check(done.status.startsWith('Rendered in') && done.log.includes('libopus 1.1.5'), 'and renders by itself with the bundled codec', done.status);
     check(errors.length === 0, 'the first visit and the offline reload have no page errors', errors.join('; '));
   } finally {
     await context.setOffline(false).catch(() => {});
@@ -1882,12 +2234,14 @@ async function main() {
       && await page.locator('#maxgain').inputValue() === '10' && await page.locator('#avggain').inputValue() === '0.5'
       && await page.locator('#volume').inputValue() === '1',
       'preset resets quality, receiver auto-gain and output overrides (volume to the game\'s default, 1)');
-    // A built-in preset leaves the listener's device alone (W3-10).
-    check(await page.locator('#device_rate').inputValue() === '44100', 'a built-in preset keeps the listener\'s sound device');
+    // A built-in preset leaves the listener's device alone (W3-10), and the
+    // capture channel: both are properties of a PC (W4-01a).
+    check(await page.locator('#device_rate').inputValue() === '44100' && await page.locator('#capture_channel').inputValue() === 'mix',
+      'a built-in preset keeps the listener\'s sound device and the capture channel');
     await page.locator('#device_rate').selectOption('48000');
-    check(await page.locator('#vad').inputValue() === 'auto' && await page.locator('#vad_threshold').inputValue() === '-40'
-      && await page.locator('#capture_channel').inputValue() === 'left',
-      'preset restores the measured voice gate (Steam\'s own, -40) and left-channel capture');
+    await page.locator('#capture_channel').selectOption('left');
+    check(await page.locator('#vad').inputValue() === 'auto' && await page.locator('#vad_threshold').inputValue() === '-40',
+      'preset restores the measured voice gate (Steam\'s own, -40)');
     await page.locator('#console-details summary').click();
     await page.locator('#console-input').fill('echo <img src=x onerror="window.__consoleXss=1">');
     await page.locator('#console-input').press('Enter');
@@ -1895,13 +2249,11 @@ async function main() {
     check(await page.evaluate(() => !window.__consoleXss), 'console input cannot execute markup');
 
     console.log('\n[Browser 3] Worker render and cancellation');
-    await page.locator('#file').setInputFiles({ name: 'tone.wav', mimeType: 'audio/wav', buffer: wavTone(0.5) });
-    await page.waitForFunction(() => !document.getElementById('process').disabled);
+    // The chosen file renders by itself (W4-01a).
+    await chooseFile(page, { name: 'tone.wav', mimeType: 'audio/wav', buffer: wavTone(0.5) });
     const decodedSource = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, length: state.decodedSource.length }));
-    await page.locator('#process').click();
-    await page.waitForFunction(() => !document.getElementById('download').disabled, null, { timeout: 60000 });
     check((await page.locator('#preview').getAttribute('src') || '').startsWith('blob:'), 'worker render creates playable output');
-    check((await page.locator('#source-status').textContent()).includes('Ready'), 'completed render reports ready');
+    check((await renderStatus(page)).startsWith('Rendered in'), 'completed render reports itself under the player', await renderStatus(page));
     checkRenderedTone(await readRenderedWav(page), decodedSource, 'Default browser');
     const consoleText = await page.locator('#console-out').textContent();
     check(!consoleText.includes('compatibility path'), 'dedicated audio worker completed the render');
@@ -1934,7 +2286,7 @@ async function main() {
     await page.locator('#loss').fill('12');
     await page.locator('#loss').dispatchEvent('change');
     check((await page.locator('#signal-chain').textContent()).includes('12% lost'), 'signal chain follows control edits');
-    check(await page.locator('.preset-row .preset-btn[aria-pressed="true"]').count() === 0, 'a hand-edited control clears the active preset');
+    check(await page.locator('.preset-row .preset-btn[aria-pressed="true"]').count() === 0, 'with a hand-edited control matching no preset, none is lit');
     await page.getByRole('button', { name: 'Laggy 18% Loss', exact: true }).click();
     check(await page.locator('.preset-btn[data-preset="laggy"]').getAttribute('aria-pressed') === 'true'
       && (await page.locator('#signal-chain').textContent()).includes('18% lost · 50 ms jitter')
@@ -1942,6 +2294,8 @@ async function main() {
     await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
     check(await page.locator('#jitter').inputValue() === '0', 'presets reset jitter');
     await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
+    // The render on screen follows the settings (W4-01a); net_graph reads it.
+    await waitRendered(page);
     await page.locator('#console-input').fill('net_g');
     await page.locator('#console-input').press('Tab');
     check(await page.locator('#console-input').inputValue() === 'net_graph ', 'Tab completes a unique command');
@@ -2069,9 +2423,8 @@ async function main() {
         'volume defaults to 1, the game\'s default, with the sentence beside it', vol.note);
       // A render's download is at the chosen rate.
       await page.locator('#device_rate').selectOption('44100');
-      const src = await page.evaluate(() => { window.__wavBefore = state.lastWav; return { rate: state.decodedSource.sampleRate, length: state.decodedSource.length }; });
-      await page.locator('#process').click();
-      await page.waitForFunction(() => state.lastWav && state.lastWav !== window.__wavBefore && !els.process.disabled && !els.dl.disabled, null, { timeout: 60000 });
+      const src = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, length: state.decodedSource.length }));
+      await renderNow(page);
       const at44 = await readRenderedWav(page);
       check(at44.rate === 44100 && at44.frames === Math.round(src.length * 44100 / src.rate) && await page.evaluate(() => state.processedRate === 44100),
         'with the device at 44100 Hz the render and its download are at 44100 Hz, the source\'s duration at that rate', `${at44.rate} Hz, ${at44.frames} frames`);
@@ -2211,19 +2564,21 @@ async function main() {
     await verifyDemo(page);
     await verifySourceDuringRender(page);
 
+    // Cancel the render a chosen file starts by itself.
     await page.locator('#file').setInputFiles({ name: 'long-tone.wav', mimeType: 'audio/wav', buffer: wavTone(20) });
-    await page.waitForFunction(() => !document.getElementById('process').disabled);
-    await page.locator('#process').click();
     await page.locator('#cancel-process').waitFor({ state: 'visible' });
     await page.locator('#cancel-process').click();
-    await page.waitForFunction(() => document.getElementById('source-status').textContent.includes('cancelled'));
-    check(!(await page.locator('#process').isDisabled()), 'cancel restores processing controls');
+    await page.waitForFunction(() => document.getElementById('render-status').textContent.includes('cancelled'));
+    check(!(await page.locator('#process').isDisabled()) && await page.locator('#process').textContent() === 'Render',
+      'cancel restores the render controls', await renderStatus(page));
 
     await page.locator('#mic').click();
     await page.waitForFunction(() => document.getElementById('source-status').textContent.includes('Recording uncompressed'));
     await page.waitForTimeout(1100); // Accumulate a meaningful fake-microphone recording.
     await page.locator('#mic').click();
-    await page.waitForFunction(() => !document.getElementById('process').disabled);
+    // The recording becomes the source, and renders by itself (W4-01a).
+    await page.waitForFunction(() => state.sourceName === 'microphone');
+    await waitRendered(page);
     check((await page.locator('#source-status').textContent()).includes('microphone'), 'uncompressed microphone recording loads successfully');
     const recording = await page.evaluate(() => {
       const pcm = state.decodedSource.getChannelData(0);
@@ -2231,9 +2586,9 @@ async function main() {
     });
     check(recording.duration > .5 && recording.duration < 3 && recording.power > 1e-8,
       'PCM microphone capture contains the synthetic input at the expected duration');
-    await page.locator('#process').click();
-    await page.waitForFunction(() => !document.getElementById('download').disabled);
-    check((await page.locator('#source-status').textContent()).includes('Ready'), 'microphone PCM passes through real Opus');
+    await waitRendered(page);
+    check((await renderStatus(page)).startsWith('Rendered in') && (await page.locator('#console-out').textContent()).includes('libopus 1.1.5'),
+      'a microphone recording renders by itself, through real Opus', await renderStatus(page));
 
     console.log('\n[Browser 4] Responsive and offline behavior');
     await page.setViewportSize({ width: 390, height: 844 });
@@ -2244,6 +2599,8 @@ async function main() {
     check(mobile.fits, 'mobile layout has no horizontal overflow');
     check(mobile.presetHeights.every((height) => height >= 44), 'mobile preset targets are at least 44px');
 
+    // The defaults again, not the settings the checks above left remembered.
+    await page.evaluate(() => localStorage.removeItem('tf2ve_settings'));
     await page.goto(`${base}/`, { waitUntil: 'networkidle' });
     check(await page.evaluate(() => 'serviceWorker' in navigator), 'service worker is available');
     await activateServiceWorker(page, 'sw.js');
@@ -2266,7 +2623,7 @@ async function main() {
     check(afterUpdate.controller !== beforeUpdate.controller, 'regression test performs a real service-worker replacement');
     check(afterUpdate.sameSource && afterUpdate.frames === beforeUpdate.frames && afterUpdate.sourceName === 'update-survival.wav',
       'worker replacement preserves the loaded audio without reloading');
-    check(afterUpdate.processEnabled, 'worker replacement leaves Process Audio enabled');
+    check(afterUpdate.processEnabled, 'worker replacement leaves Render enabled');
     check(afterUpdate.keys.includes('unrelated-test-cache'), 'activation preserves unrelated origin caches');
     check(afterUpdate.keys.includes(SHELL_CACHE), 'current app shell cache is populated', SHELL_CACHE);
     // Worker and worklet scripts follow the page's code: with stale copies in
@@ -2311,8 +2668,7 @@ async function main() {
     check((await page.locator('h1').textContent()) === 'TF2 Voice Emulator', 'app shell starts offline');
     await page.locator('#file').setInputFiles({ name: 'offline-tone.wav', mimeType: 'audio/wav', buffer: wavTone(.3) });
     await page.waitForFunction(() => state.sourceName === 'offline-tone.wav' && state.decodedSource && !document.getElementById('process').disabled);
-    await page.locator('#process').click();
-    await page.waitForFunction(() => !document.getElementById('download').disabled);
+    await waitRendered(page);
     check((await page.locator('#console-out').textContent()).includes('libopus 1.1.5'), 'bundled real codec converts audio offline');
     // The speex profile's codec comes from the cache too.
     await page.locator('#codec').selectOption('speex');
@@ -2330,6 +2686,8 @@ async function main() {
     check(pageErrors.length === 0, 'complete conversion and recording flow has no page errors', pageErrors.join('; '));
 
     await verifyFirstVisitOffline(browser, base);
+    await verifyJourney(browser, base);
+    await verifyVersionLine(browser);
     await verifyBatchAndFormats(browser, base);
     await verifySampleRateMatrix(browser, base);
     await verifyNativeRate(browser, base);

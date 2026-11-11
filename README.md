@@ -17,9 +17,9 @@ pnpm dev
 
 For GitHub Pages, enable Pages from the root of your publishing branch; no build is required. **Keep `.nojekyll`, `vendor/` (all seven folders: the five codec folders, the MP3 encoder and Steam's resampler), `opus-codec.mjs`, `audio-worker.js`, `mic-capture.js`, `live-worker.js` and `live-worklet.js`** alongside the HTML, CSS, other scripts and icons. `node_modules/` is not needed on the website.
 
-Use HTTPS or localhost. Opening `index.html` as a local file does not reliably support codec modules or microphone capture. After the app and its service worker load, conversion works offline. Background cache updates never reload the page or discard loaded audio; refresh when you are ready to use updated page code.
+Use HTTPS or localhost. Opening `index.html` as a local file does not reliably support codec modules or microphone capture. After the app and its service worker load, conversion works offline. The footer shows the version (the service worker's cache number). Background cache updates never reload the page or discard loaded audio: when a newer version takes over, a line above step 1 says so, and you refresh when you are ready.
 
-Choose an audio or video file (or drop one on the page) or record, pick a preset, process, and download. Microphone capture uses uncompressed PCM, so the only lossy pass is the emulated codec. Limits: 100 MB (1 GB for video) and 10 minutes per file, 5 minutes for recording. Supported upload formats depend on the browser. A file is decoded at its own sample rate, read from its header, not at the audio device's, so the same file gives the same samples and the same render on any machine (`filerate.js`). Opus decodes at 48 kHz, and AAC at 24 kHz or less without its own SBR signalling at twice that rate, as it may be HE-AAC. A WebM or Matroska file, whose rate the page does not read, is decoded at the device's rate, as is any file whose rate the browser cannot decode at; the console says so.
+Choose an audio or video file (or drop one on the page) or record, and it renders by itself: the player comes into view with the focus, and Space plays it (nothing plays by itself). Pick a preset or change a setting, and a source of a minute or less renders again by itself 400 ms after the last change; a longer one keeps its render, marked as made with the earlier settings ("Render again", "(earlier settings)" on the download, the views dimmed) until you press **Render**. A render that replaces one of the same source keeps the player's place, whether it plays, and what **Hear** plays. The line under the render (**Rendered in …**) says how long it took, its length and rate, the codec, and how much the voice gate did not send. Then download. Microphone capture uses uncompressed PCM, so the only lossy pass is the emulated codec. Limits: 100 MB (1 GB for video) and 10 minutes per file, 5 minutes for recording. Supported upload formats depend on the browser. A file is decoded at its own sample rate, read from its header, not at the audio device's, so the same file gives the same samples and the same render on any machine (`filerate.js`). Opus decodes at 48 kHz, and AAC at 24 kHz or less without its own SBR signalling at twice that rate, as it may be HE-AAC. A WebM or Matroska file, whose rate the page does not read, is decoded at the device's rate, as is any file whose rate the browser cannot decode at; the console says so.
 
 ## Downloads and batches
 
@@ -40,7 +40,7 @@ FLAC and MP3 are made from the WAV when a file is saved. MP3 is lossy on top of 
 
 **TF2 demos.** Load a SourceTV demo (`.dem`), and the voice in it becomes the source. A demo holds each speaker's Steam packets exactly as the server received them, so no second encoding happens:
 - **Speakers:** each speaker is found by SteamID, and a menu picks one when there are several.
-- **Rendering:** Process runs only TF2's receiver on the demo's own packets: concealment of lost frames, comfort noise for DTX, auto-gain, the clamp and the mixer. The result is what a listener heard.
+- **Rendering:** the render runs only TF2's receiver on the demo's own packets: concealment of lost frames, comfort noise for DTX, auto-gain, the clamp and the mixer. The result is what a listener heard.
 - **Codec lane:** shows the demo's real frames, including DTX and lost packets.
 - **Accuracy:** rendered this way at `volume 0.15`, the Set D demo tracks the sender's own loopback recording within 0.14 dB rms in half-second blocks (r 0.996). Its spectrum is within 0.3 dB from 120 Hz to 11 kHz.
 - **Limits:** a demo made with `record` keeps the voice messages but not their audio, so record with SourceTV ([tests/demovoice/README.md](tests/demovoice/README.md)). The legacy codecs `vaudio_celt` and `vaudio_celt_high` are read too.
@@ -68,7 +68,7 @@ FLAC and MP3 are made from the WAV when a file is saved. MP3 is lossy on top of 
 4. **Mixer and output:** as the game's engine does it, in whole numbers. The voice enters the 44.1 kHz mix at 255/256 of its level, truncated; a 22.05 kHz voice (the CELT profiles) is upsampled by two once and an 11.025 kHz voice (`speex`, `miles`) twice, by the engine's own rule (each new sample the mean of its neighbours, rounded down). With a room, or under water, the voice is entered twice, at the direct share and the room's share of 256 that the room's preset gives, each part upsampled on its own; the room's part passes the room's preset, the two are added, and under water the sum passes the game's water preset (14), all in the engine's 32-bit integers, before the clip. The reverb's tail runs on after the voice, so a render with a room is longer than its source, and the download carries the tail. Then the mix is clipped to ±32767, multiplied by `volume` and rounded to 16 bits. There is no filter and no limiter. "Rooms" below says what the page offers.
 5. **The listener's sound device:** the listener's PC converts the game's 44.1 kHz sound to its device's rate by linear interpolation, which softens the top octave a little (about −1 dB at 8 kHz and −5 dB at 18 kHz) and leaves faint images, about 65 dB under a 1 kHz tone. That is modelled from the recordings, which were made at 48 kHz. **Listener's sound device** (`snd_device_rate`) picks 48000 Hz (usual) or 44100 Hz, where nothing is converted. The download is at that rate, with every sample written exactly as rendered.
 
-The quick presets reset every control. The live chain strip under the controls shows what the next render will do, naming `voice_scale` and the gain target when they are not the game's defaults.
+The quick presets set every control but three, which are properties of a PC: the capture channel, how long the sender's Steam has run and the listener's sound device. A preset is lit whenever the controls match it, however they got there, and a line under the presets names what differs from the defaults ("Modern, changed: Voice scale 0.5 · Reset"), with the PC's settings after "also"; **Reset** returns every control to its default. The settings, and whether the advanced controls are open, are remembered between visits in this browser's own storage (nowhere else); a share link's settings win over them. The live chain strip under the controls shows what the next render will do, naming `voice_scale` and the gain target when they are not the game's defaults.
 
 ## Profiles
 
@@ -122,7 +122,7 @@ On the Steam profile the live chain is a render's own, fed as the microphone's b
 - **Output device:** choose a virtual audio cable here to use the TF2 voice in other apps, such as Discord or OBS. Chrome and Edge can pick output devices; other browsers play on the default output.
 - **Push-to-talk:** sends only while **V** (TF2's `+voicerecord` key) or the Talk button is held, and the gate still applies while you hold it. On the Steam profile this is the app's stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by its own hold, so sound captured while the key is up is never sent. On the page the key and the sound reach the voice chain separately, so a press or a release can land up to about one 20 ms block early or late. Steam's own key rules (it goes on sending for half a second after a release) are not built yet.
 - **Low latency:** on the Steam profile, holds back Steam's longest chunk and a frame instead of the chunk and the pre-roll. That saves about 80 ms (the panel gives the figure), but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. TF2 plays all of it. On the other profiles it skips the gate's 120 ms pre-roll, so the gate opens on the loud frame itself: that saves 120 ms but cuts the start of each word.
-- **Record:** captures the session and loads it into the app as a dry/wet pair: your microphone as the source and the voice as the render, lined up to the sample. A/B, the views, the meter and every download work on it, and **Process Audio** re-renders the microphone with other settings. The voice ends short of the microphone by what the chain holds back when it stops (about 0.2 s on the Steam profile), which is never played.
+- **Record:** captures the session and loads it into the app: your microphone as the source and the voice as the render, lined up to the sample. **Hear**, the views, the meter and every download work on it, and a changed setting (or **Render**) re-renders the microphone with other settings. The voice ends short of the microphone by what the chain holds back when it stops (about 0.2 s on the Steam profile), which is never played.
 
 **Rooms live.** The live monitor runs the same room as a render, on a room path its worker keeps for the session. A change of room cross-fades over the game's 200 ms and going under water switches at once, as in the game; neither restarts the voice chain, from no room either, so Steam's sender and the gain run on. With a room or under water the chain holds back up to 11.6 ms more (the mixer's 512-sample block), which the latency figure includes; once a room has faded to none and the water is off, it holds nothing back again. There is no voice channel in the live chain yet, so each talk spurt's first delivered packet stands in for a channel's start, where the room's share is fixed.
 
@@ -189,14 +189,14 @@ Some controls behave differently from their names:
 - `voice_scale` acts inside the fixed-point auto-gain, as in the game. Values below 1 do not simply scale the result: 0.5 lowers voice by 8–11 dB and adds a 344 Hz sawtooth.
 - `net_fakeloss` (**Packets lost %**) is the share of voice packets that never reach the listener, not TF2's own setting: on the Steam profile a packet is one of the sender's messages, on the other profiles `net_split` frames. By the game's rule (read, not measured), TF2's `net_fakeloss 5`, `10` and `15` on a listen server with sockets for loopback lose about 22%, 37% and 50% of voice packets, since each packet meets four draws of (N+1)/101 on the way there and back. Recordings agree at 5 and 15; 10 was recorded only with lag and jitter, where the rule gives too little silence.
 - `voice_retime` is not a TF2 setting. It switches on the receiver's measured talk-spurt re-timing (random, seeded), which moves some spurts earlier than in the source.
-- `snd_device_rate` is not a TF2 setting either: it is a property of the listener's PC, the rate its sound device runs at. A share link made before it existed gets 48000; the quick presets leave it alone.
+- `snd_device_rate` is not a TF2 setting either: it is a property of the listener's PC, the rate its sound device runs at. A share link made before it existed gets 48000; the quick presets leave it alone, as they leave the capture channel and the sender's Steam.
 - A share link or saved setting made before the room controls changed keeps its room: an old listener position becomes the manual `dsp_room` number it stood for (Tunnel 6, Hallway 22 and so on), and the old "Underwater" becomes no room with **Listener under water** on. The quick preset that was "2fort Sewers" is now **Under water** (`exec preset_sewers` still runs it).
 
 The developer console supports Source-style `;` chaining, `alias`, `toggle`, `find`, history, and Tab completion. Tab completes to the longest common prefix, then lists matching commands with their current values. `writeconfig` copies a share URL; `preset_save/load/list/delete` manage local presets. `net_graph 1–4` overlays a Source-style HUD whose packet rate, payload rate and loss come from the last render. The background game-event feed (kills, chat, joins and drops) can be stopped with `sv_simulate_events 0`.
 
 ## Visualizer and meter
 
-The visualizer has three views. All three follow the A/B toggle.
+The visualizer has three views. All three follow **Hear** (the TF2 voice, the original or a real take).
 - **WAVE:** peak and RMS envelope, down to individual samples. **dB** switches to a dBFS amplitude scale for quiet detail: fades, the gate's tails, DTX comfort noise and noise floors. Full-scale samples are marked red.
 - **BARS:** a log-frequency spectrum from 20 Hz, 8192-point, in dBFS; live while playing, computed at the playhead when paused. The version you are not hearing is drawn over it as a line. With a real take loaded, that is the take when you hear the render, and the render otherwise.
   - **AVG** switches to the long-term average spectrum of the render against the source, or against a real take once one is loaded. It covers the selection or the whole file, with 1/6-octave smoothing and silent windows skipped. The reference is shifted to the render's loudness, and a lane below shows the difference in dB: the chain's tonal footprint at a glance.
@@ -225,21 +225,21 @@ Only the visible range is analysed, at the display's full pixel resolution. The 
   - The legend under the view counts each type.
 - **LUFS** adds a loudness lane: momentary (400 ms, thin) and short-term (3 s, bold) loudness of the render (blue) and the source (white), each drawn at the centre of its window. Dashed lines mark each version's integrated loudness.
 
-**Selection and loop.** Shift + drag, or a drag along the time ruler, selects a range. Shift + click moves the nearer end. The meter then measures just the selection, wet and dry, with a header offering **Zoom to selection** (Z) and **Clear** (Esc). **LOOP** (L) loops the selection or, with none, the whole file.
+**Selection and loop.** Shift + drag, or a drag along the time ruler, selects a range. Shift + click moves the nearer end. The meter then measures just the selection, the TF2 voice and the original, with a header offering **Zoom to selection** (Z) and **Clear** (Esc). **LOOP** (L) loops the selection or, with none, the whole file.
 
-**Meter.** Under the visualizer, the meter lists for the wet render and the dry source:
+**Meter.** Under the visualizer, the meter lists for the render (TF2) and the source (ORIGINAL):
 - integrated loudness and maximum short-term and momentary loudness (ITU-R BS.1770-4, gated)
 - loudness range (EBU Tech 3342)
 - true peak (4× oversampled), sample peak and RMS
 - peak-to-loudness ratio and DC offset
 
-A Δ row gives wet minus dry. Values are measured as one channel; played as dual mono they read 3 dB higher.
+A Δ row gives the TF2 voice minus the original. Values are measured as one channel; played as dual mono they read 3 dB higher.
 
-**Match loudness** makes the A/B comparison fair: the louder version plays quieter by the difference in integrated loudness over the whole file, so neither wins just by being louder.
+**Match loudness**, beside **Hear**, makes the comparison fair: the louder version plays quieter by the difference in integrated loudness over the whole file, so neither wins just by being louder.
 
-**Shortcuts:** Space plays and pauses, B switches A/B, L loops. With the view focused: + − 0 and the arrows navigate, Z zooms to the selection and Esc clears it.
+**Shortcuts:** Space plays and pauses, B switches **Hear** (the TF2 voice, the original, a real take), L loops. With the view focused: + − 0 and the arrows navigate, Z zooms to the selection and Esc clears it.
 
-With a real take loaded, the meter adds a REAL row and a "Δ real" row (wet minus real), and loudness matching plays every version at the level of the quietest.
+With a real take loaded, the meter adds a REAL row and a "Δ real" row (the TF2 voice minus the real take), and loudness matching plays every version at the level of the quietest.
 
 The meter shows a real codec property. When DTX replaces a steady tone below about 60 Hz, libopus 1.1.x's comfort noise is nearly DC, and TF2 plays it as is. See finding 18 in [REFERENCE_2026.md](tests/REFERENCE_2026.md).
 
@@ -256,7 +256,7 @@ The meter shows a real codec property. When DTX replaces a steady tone below abo
 The status line reports the spurts, the latency trims and other re-timings, the clock and the correlation.
 
 The aligned take then:
-- plays as a third A/B version (B cycles wet, dry, real)
+- plays as a third version under **Hear** (B cycles the TF2 voice, the original and the real take)
 - shows in WAVE, SPEC, the loudness lane and AVG
 - joins the meter
 
@@ -357,11 +357,12 @@ pnpm test:all
   - BARS AVG, and the real-take comparison: alignment of a synthetic take, the band report, A/B/C, the meter's REAL rows and removal
   - the live monitor with a fake microphone playing seeded noise bursts the test writes at run time: frames sent, modes, reported latency, low latency, push-to-talk, recording into the app lined up with an offline render within a sample, stop
   - video in and out: an MP4 and a MOV load as sources, and **Download video** keeps every picture sample
-  - the meter, loudness-matched A/B and shortcuts
+  - the meter, loudness-matched A/B (**Hear**) and shortcuts
   - batch queueing: picker, step 1 multi-select, drop on the batch panel, single-file drop as source
   - batch rendering with loudness per file, and ZIPs in all three formats, with FLAC decoded in the browser to exactly the WAV's samples
   - stale-render marking and remembered format
   - a source dropped during a render stops that render, and the new source renders as itself
+  - the journey: a chosen file renders by itself and the player comes into view with the focus (at 1280 × 720 and 390 × 664); a changed setting renders by itself, three quick changes as one render; a re-render keeps the place and what is heard; a 61 s source marks a changed setting instead; presets lit by matching, the line of what differs and Reset; remembered settings, a share link over them, and storage that throws; the page's words; the version line and the newer-version notice
   - the chain strip, presets, console completion, `net_graph`, accessibility and mobile layout
   - the service worker: a worker update keeps the loaded audio, and workers and audio worklets get fresh scripts, as the page does
   - the 44.1/48 kHz file × device-rate matrix: a file keeps its own rate on either device; Ogg Opus decodes at 48 kHz, and a WebM falls back to the device rate
@@ -390,7 +391,7 @@ These tests establish implementation behavior; the accuracy claims rest on the p
 | `mic-capture.js` | PCM recording |
 | `constants.js` | presets, codec profiles, receiver model, the listener's places |
 | `room-dsp.js`, `room-presets.js` | the room effect as the engine does it, and the game's room presets as numbers |
-| `app/` | the interface, in load order: `core.js` (elements, state, event feed), `rooms.js` (the listener's room), `console.js`, `source.js` (file, video and microphone), `render.js` (rendering, downloads, A/B), `meter.js`, `realtake.js`, `visualizer.js`, `netgraph.js`, `boot.js` |
+| `app/` | the interface, in load order: `core.js` (elements, state, event feed), `rooms.js` (the listener's room), `console.js`, `source.js` (file, video and microphone), `render.js` (rendering, downloads, Hear), `meter.js`, `realtake.js`, `visualizer.js`, `netgraph.js`, `boot.js` |
 | `batch.js` | batch queue, drag and drop, ZIP downloads |
 | `formats.js`, `flac.js`, `zip.js` | download formats: WAV reader, FLAC encoder, stored ZIP |
 | `meter.js` | loudness and level measurement |
