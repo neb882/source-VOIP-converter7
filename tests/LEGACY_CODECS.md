@@ -1,6 +1,6 @@
 # Legacy voice codecs: what is known
 
-Source's older engine codecs are `sv_voicecodec vaudio_celt`, `vaudio_celt_high` and `vaudio_speex`. The `celt_22` and `celt_44` profiles run the real codec, CELT 0.11 ([`vendor/celt-0.11`](../vendor/celt-0.11/README.md)), built as the game's module is and at the settings it uses, both read from the owner's copy of the module (W3-03, W3-08) and checked against the game's own recording of its decoded voice (Set H, `tests/REFERENCE_2026.md` finding 31). The `speex` profile runs Speex 1.0.2 ([`vendor/speex-1.0.2`](../vendor/speex-1.0.2/README.md)) as the game's `vaudio_speex` module does, read from the owner's copy of a module from another Source game (W3-09, section 5), with the module's arithmetic since W3-18; a current TF2 cannot record it, HL2DM's 32-bit game can (Set M). The receiver side of all three (gate, auto-gain rate) is assumed. This file collects what is known about the real codecs.
+Source's older engine codecs are `sv_voicecodec vaudio_celt`, `vaudio_celt_high` and `vaudio_speex`. The `celt_22` and `celt_44` profiles run the real codec, CELT 0.11 ([`vendor/celt-0.11`](../vendor/celt-0.11/README.md)), built as the game's module is and at the settings it uses, both read from the owner's copy of the module (W3-03, W3-08) and checked against the game's own recording of its decoded voice (Set H, `tests/REFERENCE_2026.md` finding 31). The `speex` profile runs Speex 1.0.2 ([`vendor/speex-1.0.2`](../vendor/speex-1.0.2/README.md)) as the game's `vaudio_speex` module does, read from the owner's copy of a module from another Source game (W3-09, section 5), with the module's arithmetic since W3-18; a current TF2 cannot record it, HL2DM's 32-bit game can (Set M). The receiver side of all three (gate, auto-gain rate) is assumed. This file collects what is known about the real codecs. `vaudio_miles`, the early engine's codec, which current TF2 ships and refuses, has a section of its own below; the app has no profile for it.
 
 Leaked engine source was deliberately not used. Valve's public Source SDK 2013 has no voice-codec code: the codecs live in the engine's `vaudio_*` libraries.
 
@@ -60,6 +60,52 @@ Leaked engine source was deliberately not used. Valve's public Source SDK 2013 h
 - **A new talk spurt resets the codec** (request 26 on the encoder and the decoder, as the game does), never a new codec. In 1.0.2 the decoder's reset is partial, so a new codec would sound different for the first frames of a spurt.
 - **Delay and loss:** the pair's 80-sample delay (7.26 ms) is trimmed after the receiver's gain (since W3-19), so renders keep the source timeline. Loss and jitter act on 14.51 ms frames, and a lost frame plays as zeros: the decoder does not see it, because the module never decodes without bytes (read). So the next frame is decoded on a state one frame stale, and the sound after a loss is rougher for about half a second. Measured in W3-12b's review on a voiced signal at about -15 dBFS, after a single lost frame: 4.1 dB against the source over the next 8 frames, where a clean run gives 18.1 dB, and 8.2 dB over frames 8 to 40, against 17.3 dB; the difference from the clean decode is still -16 dB 40 frames (0.58 s) on. What the game's listener hears after a loss under this codec was not measured.
 - **Frame log:** Speex frames have their own code (7), so the codec lane, the console and the live panel show them as Speex.
+
+## vaudio_miles
+
+`vaudio_miles` was the voice codec of the early Source engine (and, as `voice_miles`, of the engine before it). **It is
+a codec of the engine family, not one a TF2 player can hear:** current TF2 ships the module, Miles and the plug-in in
+its 32-bit folder and refuses the name ("Voice_Init Failed: invalid voice codec vaudio_miles.", measured; its engine
+passes four codec names only, read). There is no app profile yet (W3-20b). The module wraps a Miles Sound System
+plug-in holding Voxware's MetaVoice VR12, a harmonic vocoder. Read from the owner's copy of the module and run, with
+the owner's copy of the plug-in, in a CPU emulator on signals of our own (2026-11-11, W3-20a's inputs):
+
+| | | |
+|---|---|---|
+| Codec rate | 8000 Hz, mono, 16-bit in and out | measured |
+| Frame | 360 samples (45 ms), two VR12 frames of 180; the wrapper takes the plug-in's minimum block of 360 bytes as 360 samples | read, measured |
+| Packet | 12 bytes a frame, two VR12 frames of 6 bytes, whole frames end to end with no header or count | read, measured |
+| Bit rate | 2133 bit/s on the wire; the plug-in states 1244 | measured |
+| Before the codec | each sample cut to its top 8 bits: the wrapper keeps the high byte, the plug-in reads it back sign-extended and shifted left by 8 | read; the model built from it gives the module's packets |
+| After the codec | nothing: the plug-in's 16-bit output is the wrapper's | read |
+| Start | the encoder codes one block of 360 samples taken from stack memory nothing has written; the decoder is untouched | read; that the block's contents change frames 0 and 1 and a few later ones (up to frame 202 of 325) is measured |
+| Reset | twice over, 360 zero samples encoded and their 12 bytes decoded; nothing cleared | read; equal to doing it by hand, measured |
+| Loss | no path: given no data the wrapper copies 12 bytes from address 0 (the emulated run stops there); the plug-in's comfort-noise property is never asked for | read, measured |
+| Settings | the codec is always VR12 (the plug-in's other two are never asked for); the `quality` argument is never read; no rate or width is read or set | read |
+| Engine rate | not known: the engine that refuses the name would give 22050 | read |
+
+- **The build** ([`vendor/voxware-vr12`](../vendor/voxware-vr12/README.md), W3-20a). The codec is a public C
+  implementation ([coffeegrind123/voxware-vr12](https://github.com/coffeegrind123/voxware-vr12), MIT, commit
+  `eedf465`) whose author reverse-engineered it from an older copy of the plug-in; it is vendored unchanged, with its
+  tables (the codec's codebooks and windows as its author published them). The wrapper
+  ([`tests/vr12/api.c`](vr12/api.c)) is ours, written from the reading above. The start-up block is zeros, a choice:
+  the game's own first frames are not defined by its code.
+- **Scores** of the WebAssembly build on the eight signals the plug-in and wrapper were run on (W3-20a's report has
+  them per signal; `tests/vr12.verify.mjs` checks three of them):
+  - through the wrapper, started with zeros and reset once in the middle: packets equal on **2,505 of 2,505 frames**,
+    before and after the reset; decoding the game's packets gives its samples on **581,899 of 582,120**, the rest one
+    step off (the seven signals whose sound was kept);
+  - the plug-in alone, full 16-bit input: packets equal on **5,005 of 5,010** VR12 frames (three in the tones signal,
+    two in a voice signal, 12 to 17 bits apart, the frames after equal again; none appears through the wrapper, where
+    the input is 8-bit); decoding gives its samples on **581,800 of 582,120**, the rest one step off;
+  - a native build of the same sources and math gives the same packets and samples bit for bit on all eight.
+- **Arithmetic.** The plug-in's arithmetic is x87 at whatever precision the caller set. At 53 bits (what the engine
+  sets) and at 64 bits it gives the same packets and samples on every vector; at 24 bits it differs (measured). So
+  double arithmetic suffices. Every one-step difference in decoding enters at the plug-in's inverse transform, and a
+  smaller one before it (measured); an exact decoder would reproduce the plug-in's two transforms operation for
+  operation.
+- **Not known:** the rate and resampling an engine that accepted the codec used; what a listener heard for a lost
+  frame; the game's real start-up block.
 
 ## The receiver gain's blocks (W3-19)
 
