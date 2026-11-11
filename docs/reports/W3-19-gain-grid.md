@@ -159,4 +159,5 @@ Re-recorded (old, then new):
 - `node tests/render-stream.verify.mjs` with `TF2_DIR` at main's sources (W3-18's merge) and the five new cases: 520 passed, 0 failed (commit 1).
 - `node tests/gain.verify.mjs` with `TF2_DIR` at main's sources: 82 passed, 6 failed (the six named above).
 - The mutation runs in the table above.
-- CI: given in the hand-back and the line below once read.
+- CI (the `tests` workflow): run 432 on 513a815 (the report's previous commit) and run 433 on f949215 (main merged in), both completed, conclusion success. The commit that adds this line is docs only; its own run is given in the hand-back.
+- The merge of origin/main (f949215, a PROGRESS-only change) used git's default message, without the two trailer lines; it was already pushed, so it stays as it is.
