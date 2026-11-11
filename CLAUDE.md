@@ -52,6 +52,13 @@ Each rule's reason is in brackets, so a rule can be dropped once its reason no l
   owner has them (console help, binaries); nothing of those files is copied into a repository, only what was learnt
   from them, with where it was read. [The repository is public under the owner's name. The owner allowed reading
   their own install's files on 2026-11-10; leaked source is someone else's code distributed without permission.]
+- Any file of the owner's install (the game's, Steam's, Windows') may be read as data and, since 2026-11-11, run by
+  whatever means is useful: a CPU emulator first, Wine or the like where that falls short. Run it with the network cut
+  off and away from the repositories' credentials. Output produced by running a module on a signal of our own is a
+  measurement and may be published; the module's bytes and instructions may not. [The owner: "game files means any
+  file. Also, it doesn't have to be emulator only. Use whatever tools and means that you deem as necessary and
+  useful". Running a module gives the game's own output for any input without a recording session; the network and
+  credentials precaution is ours.]
 - No Valve art, footage or logos. It is a fan project.
 - No uploads and no runtime CDN: everything runs in the browser from this folder. [That is the app's promise.]
 - Deterministic: the same decoded PCM and settings give the same samples (seeded randomness). [The tests and the
