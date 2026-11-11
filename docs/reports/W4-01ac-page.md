@@ -235,7 +235,7 @@ run stand for the head.
 
 CI (`tests`, GitHub): `4a7683d` passed (the verification step: success). `ad13b3e` failed: "PCM microphone capture
 contains the synthetic input at the expected duration" (the cancelled render started again; fixed in `47904d9`).
-`47904d9` failed at [Browser 3i] (the race; fixed in `8dd8253` and `5bae5d4`). CI_HEAD_PLACEHOLDER
+`47904d9` failed at [Browser 3i] (the race; fixed in `8dd8253` and `5bae5d4`). The head's own run cannot be written into the commit it runs on: the hand-back gives it.
 
 Scanned before the last push: `git diff origin/main...HEAD` and the commit messages hold no recording, no personal
 detail, no SteamID but the test's universe-0 ones already in the suite, and no model name outside the commits'
