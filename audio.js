@@ -581,6 +581,76 @@
     };
   }
 
+  // The live chain's mix stage (W3-17d): the room switched on and off at a
+  // mixer block's start, without a new chain. `holder` is the live monitor's
+  // worker's: { path, attached, onBlock?, onSwitch? }; path a room path
+  // (room-dsp.js createRoomPath) kept across chains, attached whether the mix
+  // runs it now. Not attached, the voice is entered at 255 and upsampled
+  // (createMixEntry's arithmetic), sample by sample, holding nothing back.
+  // Attached, each 512-sample block is a render's room block (createRoomMix's
+  // arithmetic: the path's shares at the block's start, two entries, each part
+  // upsampled on its own, the path's sum), so up to 511 mix samples are held
+  // back. The switch is taken at the first block start after `attached`
+  // changes: the direct part's upsampler states run on through it, and the
+  // room part's are 0 while not attached (the room's entries are 0 then), so
+  // a path attached or let go while it holds no room and no water changes no
+  // sample; one attached with a room fades it in with the slot's own fade.
+  // holder.holding says whether the stage holds samples back now. onBlock
+  // (the block's first voice sample, counted from the chain's first) and
+  // onSwitch(attached, that sample) are tests' hooks. A chain never flushes.
+  function createLiveRoomMix(voiceRate, holder) {
+    const stages = { 44100: 0, 22050: 1, 11025: 2 }[voiceRate];
+    if (stages === undefined) throw new RangeError(`TF2Audio: the mixer takes a voice at 11025, 22050 or 44100 Hz, not ${voiceRate}.`);
+    const per = MIX_BLOCK >> stages;
+    const directStates = Array.from({ length: stages }, () => ({ prev: 0 }));
+    const roomStates = Array.from({ length: stages }, () => ({ prev: 0 }));
+    const up = (e, states) => { for (const st of states) e = mixUpsample2(e, st); return e; };
+    const held = new Int32Array(per);
+    let phase = 0, at = 0, active = !!(holder.attached && holder.path);
+    holder.holding = active;
+    if (active && holder.onSwitch) holder.onSwitch(true, 0);
+    function block(start) {
+      if (holder.onBlock) holder.onBlock(start);
+      const path = holder.path, sh = path.shares();
+      const vd = MIX_VOICE_VOLUME * sh.direct / 256, vr = MIX_VOICE_VOLUME * sh.room / 256;
+      const direct = new Int32Array(per), wet = new Int32Array(per);
+      for (let i = 0; i < per; i++) { direct[i] = mixEntry(held[i], vd); wet[i] = mixEntry(held[i], vr); }
+      return path.process(up(direct, directStates), up(wet, roomStates));
+    }
+    return {
+      push(x) {
+        const parts = [];
+        let run = [];
+        const dry = () => {
+          if (!run.length) return;
+          const e = Int32Array.from(run, (v) => mixEntry(v, MIX_VOICE_VOLUME));
+          parts.push(up(e, directStates));
+          run = [];
+        };
+        for (let i = 0; i < x.length; i++, at++) {
+          if (phase === 0) {
+            const want = !!(holder.attached && holder.path);
+            if (want !== active) {
+              dry();
+              active = want;
+              holder.holding = active;
+              if (holder.onSwitch) holder.onSwitch(active, at);
+            }
+          }
+          const v = mixSample(x[i]);
+          if (active) {
+            held[phase] = v;
+            if (phase === per - 1) parts.push(block(at - phase));
+          } else run.push(v);
+          phase = phase === per - 1 ? 0 : phase + 1;
+        }
+        dry();
+        return parts.length ? joinInts(parts) : NO_INTS;
+      },
+      flush: () => NO_INTS
+    };
+  }
+
   // The mixer's blocks, reported to onMixBlock(start, length, mix), a test
   // hook: once each block's last sample has passed, and at the end a short
   // last block (flush); start counts from the first mix sample (a multiple
@@ -653,8 +723,8 @@
   // live chain run after their mix point. push(x) gives what became final;
   // flush() ends the voice. `room` (a render's resolved room) puts the room
   // into the mix; mix.tail() then gives the tail's length in mix samples.
-  function createOutputStage({ voiceRate, volume, deviceRate = MIX_RATE, onMixBlock, room = null }) {
-    const mix = createMixStage(voiceRate, room);
+  function createOutputStage({ voiceRate, volume, deviceRate = MIX_RATE, onMixBlock, room = null, liveRoom = null }) {
+    const mix = liveRoom ? createLiveRoomMix(voiceRate, liveRoom) : createMixStage(voiceRate, room);
     return Object.assign(stageChain([mix, createOutStage(volume, deviceRate, onMixBlock)]), { mix });
   }
 
@@ -1876,7 +1946,7 @@
   //     thing.
   async function steamLiveChain(c) {
     const { opts, ioRate, codecKey, codec, micGain, hp, lp, bits, lossPct, jitterMs, autoGain, gateOn, avgGain, maxGain, voiceScale,
-      framesPerPacket, rand, mixStages, roomHoldSeconds = 0, spurtStarts = () => {} } = c;
+      framesPerPacket, rand, mixStages, roomHoldSeconds = () => 0, spurtStarts = () => {} } = c;
     const { sender: SteamSender, swr } = steamModules();
     if (codec.codecRate !== STEAM_RATE || codec.voiceRate !== STEAM_VOICE_RATE || codec.decoderEq) {
       throw new Error('The steam rule runs at 24000 Hz into a 44100 Hz voice rate, with no decoder EQ.');
@@ -1934,14 +2004,16 @@
     const firDelay = (taps) => (taps ? (taps.length - 1) / 2 : 0);
     const contentDelay = 0;
     const holdBack = (r) => sincWait(ioRate, STEAM_RATE) + (firDelay(captureEq) + r + lookahead + swr.TAPS / 2) / STEAM_RATE
-      + outputWait(ioRate) + roomHoldSeconds;
+      + outputWait(ioRate) + roomHoldSeconds();
     const latencyMs = (r) => 1000 * (contentDelay / ioRate + holdBack(r));
 
     let talking = true, pushed = 0, given = 0, slot = 0, roomSpurt = null;
     const one = new Int16Array(1), codes = [];
     const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0 }, dtx: 0, lost: 0, late: 0,
       bytes: 0, gateOpen: false, lastMode: null, inputPeak: 0, outputPeak: 0, spurts: 0, talking,
-      droppedLate: 0, movedLate: 0, latencyMs: latencyMs(reach) };
+      droppedLate: 0, movedLate: 0, latencyMs: 0 };
+    // What the chain holds back now (the room's block only while it holds one).
+    Object.defineProperty(stats, 'latencyMs', { enumerable: true, get: () => latencyMs(reach) });
     // The sender's own count, read when asked.
     Object.defineProperty(stats, 'spurts', { enumerable: true, get: () => sender.info().spurts.length });
 
@@ -2054,32 +2126,32 @@
     // here), nothing at 44.1 kHz, and below it the sinc resampler: a context
     // under 44.1 kHz is the browser's, not the game's. The old listener's
     // low-pass is gone (W3-17c).
-    //   The room (W3-17d): opts.roomPath, a room path (room-dsp.js
-    // createRoomPath) that the live monitor's worker keeps outside the chain,
-    // so a rebuilt chain keeps the room's lines and the slot's count of
-    // blocks; the worker sets its room and its water. With it the mix stage
-    // is a render's with a room (createRoomMix): per 512-sample block the
-    // path's shares, the voice entered twice, each part upsampled on its
-    // own, the path's sum, then the clip. The chain holds the voice's partial
-    // block until it is whole: up to 511 samples at 44100 Hz, 11.6 ms,
-    // counted in stats.latencyMs (roomHoldSeconds), not in contentDelay, since
-    // it holds samples back and shifts none. Without it the chain holds
+    //   The room (W3-17d): opts.liveRoom, the live monitor's worker's holder
+    // { path, attached } of a room path (room-dsp.js createRoomPath) kept
+    // outside the chain, so a rebuilt chain keeps the room's lines and the
+    // slot's count of blocks; the worker sets its room and its water, and
+    // attaches it while a room or the water is on (createLiveRoomMix): a room
+    // switched on or off needs no new chain, so Steam's sender and the gain
+    // run on. Attached, the chain holds the voice's partial block until it
+    // is whole: up to 511 samples at 44100 Hz, 11.6 ms, counted in
+    // stats.latencyMs while it holds (roomHoldSeconds), not in contentDelay,
+    // since it holds samples back and shifts none. Not attached it holds
     // nothing, as W3-10 left it. A chain never flushes, so the path's tail
     // rule is not asked.
-    const roomPath = opts.roomPath && typeof opts.roomPath.process === 'function' ? opts.roomPath : null;
-    const liveRoom = roomPath ? { path: roomPath, shares: null, cap: Infinity } : null;
-    const roomHoldSeconds = roomPath ? (MIX_BLOCK - 1) / MIX_RATE : 0;
+    const liveRoom = opts.liveRoom && typeof opts.liveRoom === 'object' ? opts.liveRoom : null;
+    const roomHoldSeconds = () => (liveRoom && liveRoom.holding ? (MIX_BLOCK - 1) / MIX_RATE : 0);
     // A voice channel starts (path.spurtStart(): its two limits are fixed
-    // from the room's four mix values as they stand). There is no voice
-    // channel live yet (W3-02c); the stand-in is the first delivered message
-    // (frame) of each spurt the sender opens.
-    const spurtStarts = () => { if (roomPath) roomPath.spurtStart(); };
+    // from the room's four mix values as they stand), attached or not, as the
+    // engine fixes them whatever the room. There is no voice channel live yet
+    // (W3-02c); the stand-in is the first delivered message (frame) of each
+    // spurt the sender opens.
+    const spurtStarts = () => { if (liveRoom && liveRoom.path) liveRoom.path.spurtStart(); };
     const mixStages = () => {
       const stages = [];
       if (typeof opts.onGain === 'function') stages.push((x) => { opts.onGain(x); return x; });
       const rate = Math.round(ioRate);
       const out = createOutputStage({ voiceRate: codec.voiceRate, volume, deviceRate: rate > MIX_RATE ? rate : MIX_RATE, onMixBlock: opts.onMixBlock,
-        room: liveRoom });
+        liveRoom });
       stages.push(out.push, mixToFloat);
       if (rate < MIX_RATE) stages.push(streamResampleSinc(MIX_RATE, rate));
       return stages;
@@ -2181,7 +2253,9 @@
     const contentDelay = Math.round(delaySeconds * ioRate);
     const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0 }, dtx: 0, lost: 0, late: 0,
       bytes: 0, gateOpen: false, lastMode: null, inputPeak: 0, outputPeak: 0, spurts: 0, talking,
-      latencyMs: 1000 * (preroll * frameSeconds + delaySeconds + roomHoldSeconds) };
+      latencyMs: 0 };
+    // What the chain holds back now: the room's block only while it holds one.
+    Object.defineProperty(stats, 'latencyMs', { enumerable: true, get: () => 1000 * (preroll * frameSeconds + delaySeconds + roomHoldSeconds()) });
 
     // The room's stand-in for a voice channel's start: the spurt's first
     // frame that is delivered (not lost, not late).

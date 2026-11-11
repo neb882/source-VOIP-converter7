@@ -4,17 +4,18 @@
  * the chain; stats go to the page ten times a second.
  *
  * The room (W3-17d) is a room path (room-dsp.js createRoomPath) kept here,
- * outside the chain, so a rebuilt chain keeps the room's lines and the
- * slot's count of blocks; the chain's mix stage runs it once per 512-sample
- * block. A change of room or of the water alone does not rebuild the chain:
- * setRoom takes the new room with the engine's 200 ms cross-fade, setWater
- * switches the water at the next block with no fade (as the engine does).
- * The path is made the first time a room or the water is asked for (settled,
- * as the game would be, if the monitor starts so; with a cross-fade from no
- * room otherwise), and dropped at a rebuild once it holds no room, has
- * finished fading and is not under water: a chain without it holds nothing
- * back. A number the table does not hold leaves the room as it was
- * (Decision 11).
+ * outside the chain, made with the first chain (settled in the room and the
+ * water the monitor starts with, as the game would be) and kept for the
+ * session, so a rebuilt chain keeps the room's lines and the slot's count of
+ * blocks; it sees every talk spurt's start, attached or not. A change of
+ * room or of the water does not rebuild the chain, from no room too, so
+ * Steam's sender and the gain run on: setRoom takes the new room with the
+ * engine's 200 ms cross-fade, setWater switches the water at the next block
+ * with no fade (as the engine does), and the chain's mix stage starts running
+ * the path at its next 512-sample block (createLiveRoomMix). Once the room
+ * has faded to none and the water is off, the path is let go at the next
+ * block: with neither, the chain holds nothing back. A number the table does
+ * not hold leaves the room as it was (Decision 11).
  *
  * Recording keeps the microphone blocks (dry) and the chain's output (wet)
  * and lines them up: each chain's output is its own input contentDelay
@@ -26,9 +27,10 @@ importScripts('constants.js', 'steam-sender.js', 'vendor/swresample/swresample.j
 
 let chain = null, port = null, rate = 48000, queue = Promise.resolve(), generation = 0;
 let talking = true, inputTotal = 0, recording = null;
-// The room path, and the key of the settings the chain was built with,
-// less the room's own (opts.room, opts.underwater).
-let roomPath = null, chainKey = null, probe = null;
+// The room: { path, attached } (and the probe's hooks), which the chains'
+// mix stages read; whether a room or the water is asked for; the key of the
+// settings the chain was built with, less the room's own.
+let room = null, roomWanted = false, chainKey = null, probe = null;
 
 function report(error) {
   self.postMessage({ type: 'error', message: error && error.message ? error.message : String(error) });
@@ -46,15 +48,30 @@ const settingsKey = (opts) => JSON.stringify({ ...opts, room: undefined, underwa
 // equal room is no change) and setWater (from the next block, no fade). A
 // number the table does not hold changes nothing.
 function setRoomOf(asked) {
-  if (asked.unheld === null) roomPath.setRoom(asked.preset);
-  roomPath.setWater(asked.water);
+  if (asked.unheld === null) room.path.setRoom(asked.preset);
+  room.path.setWater(asked.water);
   if (probe) probe.log.push({ call: 'set', preset: asked.unheld === null ? asked.preset : undefined, water: asked.water });
+}
+
+// The path, made with the first chain: in the room and the water asked for,
+// settled (a number the table does not hold: no room, the water as asked).
+function makeRoom(opts, asked) {
+  const seed = Number.isFinite(opts.seed) ? opts.seed >>> 0 : 0xC0FFEE;
+  if (opts.roomProbe) probe = { log: [], gain: [], ms: 0, samples: 0 };
+  const settled = asked.unheld === null ? asked.preset : null;
+  const path = TF2Room.createRoomPath({ seed, room: settled, water: asked.water });
+  room = { path: probe ? probed(path) : path, attached: settled !== null || asked.water };
+  if (probe) {
+    probe.log.push({ call: 'create', seed, room: settled, water: asked.water });
+    room.onBlock = (at) => probe.log.push({ call: 'block', at });
+    room.onSwitch = (on, at) => probe.log.push({ call: on ? 'attach' : 'detach', at });
+  }
 }
 
 // Whether the path holds nothing: no room now or before, none asked for
 // but "none", no fade, no water.
 function roomIdle() {
-  const s = roomPath.state();
+  const s = room.path.state();
   return s.room.preset === null && s.room.previous === null && (s.room.requested === undefined || s.room.requested === null)
     && !s.room.fading && !s.water.on && !s.water.asked;
 }
@@ -90,28 +107,17 @@ function configure(opts) {
   const mine = ++generation;
   enqueue(async () => {
     if (mine !== generation) return;   // a later change supersedes this one
-    const asked = TF2Audio.roomPreset(opts), wants = asked.preset !== null || asked.water;
-    const key = settingsKey(opts);
-    if (chain && key === chainKey && (roomPath || !wants)) {
-      if (roomPath) setRoomOf(asked);
-      return;
-    }
-    const starting = !chain;
-    if (!roomPath && wants) {
-      const seed = Number.isFinite(opts.seed) ? opts.seed >>> 0 : 0xC0FFEE;
-      if (opts.roomProbe && !probe) probe = { log: [], ms: 0, samples: 0 };
-      // Starting in a room is being in it already: the room settled, the
-      // water's amplifier settled (createRoomPath's pre-roll). Otherwise the
-      // room fades in from none and the water starts fresh, as in the game.
-      const made = TF2Room.createRoomPath(starting && asked.unheld === null ? { seed, room: asked.preset, water: asked.water } : { seed });
-      roomPath = probe ? probed(made) : made;
-      if (probe) probe.log.push({ call: 'create', seed, room: starting && asked.unheld === null ? asked.preset : null, water: starting && asked.water });
-      if (!starting) setRoomOf(asked);
-    } else if (roomPath) {
+    const asked = TF2Audio.roomPreset(opts);
+    roomWanted = asked.preset !== null || asked.water || (asked.unheld !== null && room !== null && !roomIdle());
+    if (!room) makeRoom(opts, asked);
+    else {
       setRoomOf(asked);
-      if (!wants && roomIdle()) roomPath = null;
+      if (roomWanted) room.attached = true;
     }
-    const next = await TF2Audio.createLiveChain({ ...opts, roomPath }, rate);
+    const key = settingsKey(opts);
+    if (chain && key === chainKey) return;   // the room alone: no new chain
+    const next = await TF2Audio.createLiveChain({ ...opts, liveRoom: room,
+      ...(probe ? { onGain: (x) => probe.gain.push(Float32Array.from(x)) } : {}) }, rate);
     if (mine !== generation) { next.free(); return; }
     if (chain) chain.free();
     chain = next;
@@ -121,7 +127,7 @@ function configure(opts) {
     chain.outTotal = 0;
     chain.frameTotal = 0;
     self.postMessage({ type: 'ready', latencyMs: chain.stats.latencyMs, codec: chain.stats.codec, lowLatencySavingMs: chain.lowLatencySavingMs ?? null,
-      room: !!roomPath });
+      room: room.attached });
   });
 }
 
@@ -143,6 +149,9 @@ async function processBlock(block) {
     recording.chain = c;
   }
   c.outTotal += out.length;
+  // With neither a room nor the water, the path is let go once its fade to
+  // none has ended: the mix stage stops running it at its next block.
+  if (room && room.attached && !roomWanted && roomIdle()) room.attached = false;
   c.frameTotal += codes.length;
   if (out.length) port.postMessage({ type: 'out', samples: out.buffer }, [out.buffer]);
 }
@@ -211,9 +220,11 @@ self.onmessage = (event) => {
   } else if (message.type === 'roomprobe') {
     // tests only: the probe's log so far (see probed()).
     enqueue(() => {
-      const p = probe || { log: [], ms: 0, samples: 0 };
-      self.postMessage({ type: 'roomprobe', log: p.log, ms: p.ms, samples: p.samples, state: roomPath ? roomPath.state() : null });
-      if (probe) probe.log = [];
+      const p = probe || { log: [], gain: [], ms: 0, samples: 0 };
+      self.postMessage({ type: 'roomprobe', log: p.log, gain: p.gain, ms: p.ms, samples: p.samples, state: room ? room.path.state() : null,
+        attached: room ? room.attached : false, holding: room ? !!room.holding : false,
+        stats: chain ? { spurts: chain.stats.spurts, latencyMs: chain.stats.latencyMs } : null });
+      if (probe) { probe.log = []; probe.gain = []; }
     });
   } else if (message.type === 'stop') {
     generation++;

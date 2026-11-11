@@ -17,8 +17,10 @@
 // chosen: what the recordings show (finding 32, and the order's amendment
 // after Sets K and L).
 const ROOM_EVIDENCE = 'Room effects follow the game\'s own code. The two rooms marked "as recorded" match recordings of the game '
-  + 'in echo times and level, and room 6 matches one echo by echo. The 2Fort places use the measures the game printed there; '
+  + 'in echo times and level, and room 6 matches a recording echo by echo. The 2Fort places use the measures the game printed there; '
   + 'the other shapes are examples. No room has been checked sample for sample yet.';
+// The custom room (dsp_room 99) is the app's own: no line claims the game's code for it.
+const CUSTOM_EVIDENCE = 'The custom room is the app\'s own, not the game\'s: no recording can check it.';
 const WATER_EVIDENCE = 'Read from the game\'s code. One recording under water matches its level (0.77 of the dry voice) and its lack of tremolo.';
 
 const ROOM_GROUPS = [
@@ -183,11 +185,28 @@ function updateRoomControls() {
   if (envLine) envLine.textContent = envDetail();
   if (els.autoEnv) els.autoEnv.style.display = n === 1 ? 'block' : 'none';
   if (els.customEnv) els.customEnv.style.display = n === 99 ? 'block' : 'none';
-  const { room, underwater } = roomSettings();
   if (evidence) {
-    evidence.hidden = !room && !underwater;
-    evidence.textContent = room ? ROOM_EVIDENCE : WATER_EVIDENCE;
+    const line = evidenceLine();
+    // Hidden, the line is emptied and left out of the control's description,
+    // so a screen reader does not read it either.
+    evidence.hidden = !line;
+    evidence.textContent = line;
+    els.position.setAttribute('aria-describedby', line ? 'room-detail room-evidence' : 'room-detail');
   }
+}
+
+// The line on what the recordings show, for the room and the water asked:
+// the game's rooms' line for a room the render runs; the custom room's own;
+// none for a number that renders no room (or a custom room at mix 0); the
+// water's line under water with no room.
+function evidenceLine() {
+  const { room, underwater } = roomSettings();
+  let line = '';
+  if (room && room.custom) line = Math.trunc(room.custom.mix * 256) > 0 ? CUSTOM_EVIDENCE : '';
+  else if (room && room.preset !== undefined) line = TF2Room.presetOf(room.preset, TF2_ROOM_PRESETS) ? ROOM_EVIDENCE : '';
+  else if (room) line = ROOM_EVIDENCE;
+  if (underwater) line = line ? `${line} Under water: ${WATER_EVIDENCE.charAt(0).toLowerCase()}${WATER_EVIDENCE.slice(1)}` : WATER_EVIDENCE;
+  return line;
 }
 
 /* ------------------------------------------------------------------ */
@@ -206,6 +225,12 @@ function migrateRoomConfig(cfg) {
   if (old && old.legacy) {
     if (cfg.pos === 'water') { out.pos = 'open'; out.uw = '1'; }
     else { out.pos = 'manual'; out.dsp = String(old.dsp); }
+  }
+  // dsp_room 1 with none of the six measures is a setting made before
+  // W3-17d, when 1 rendered no room: it renders none still. A setting made
+  // since carries its measures.
+  if (String(out.pos) === 'manual' && String(out.dsp).trim() === '1' && ['asky', 'aw', 'al', 'ah', 'aopen', 'arefl'].every((k) => cfg[k] == null)) {
+    out.pos = 'open';
   }
   if (out.uw == null) out.uw = '0';
   return out;

@@ -1037,9 +1037,30 @@ async function verifyRoomsPage(page) {
         water: renderOptions().underwater, mixer: [...document.querySelectorAll('#signal-chain li')].find((l) => l.querySelector('b').textContent === 'Mixer').textContent };
     };
     const out = { open: at('open'), water: at('open', true), recorded: at('auto_set_c_room'), example: at('auto_tunnel'), place: at('place_2fort_spawn_long'), number: at('room_17') };
+    // The custom room (the app's own) and a number the table does not hold
+    // (no room), through the manual number.
+    const manualAt = (n, water) => { execCommand(`dsp_room ${n}`); els.underwater.checked = !!water; updateSignalChain(); const ev = document.getElementById('room-evidence');
+      return { evidence: ev.hidden ? null : ev.textContent, text: ev.textContent, described: els.position.getAttribute('aria-describedby') }; };
+    out.custom = manualAt(99); out.unheld = manualAt(40); out.unheldWater = manualAt(40, true);
     at('open');
     return out;
   });
+  // What a screen reader is given at the default: the position's own line
+  // and no hidden sentence (the browser's computed description).
+  {
+    const cdp = await page.context().newCDPSession(page);
+    const { root } = await cdp.send('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#listener_position' });
+    const { nodes } = await cdp.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+    const described = (nodes[0].description && nodes[0].description.value) || '';
+    await cdp.detach();
+    check(/dsp_slow_cpu 1/.test(described) && !/water|recording|Room effects/.test(described),
+      'at the default the listener position\'s accessible description is its own line only: nothing of the hidden water or room sentences', described);
+  }
+  check(lines.custom.evidence === 'The custom room is the app\'s own, not the game\'s: no recording can check it.'
+    && lines.unheld.evidence === null && lines.unheld.text === '' && lines.unheld.described === 'room-detail'
+    && /^Read from the game's code\. One recording under water/.test(lines.unheldWater.evidence || ''),
+    'the custom room\'s line says it is the app\'s own; a number that renders no room has no line (under water, the water\'s)', lines.custom.evidence);
   check(lines.open.evidence === null && /dsp_slow_cpu 1/.test(lines.open.detail) && lines.open.room === null && lines.open.water === false
     && /no room$/.test(lines.open.mixer),
     'no room: no line about the recordings, the help names dsp_slow_cpu 1, the render is asked for no room', lines.open.detail);
@@ -1047,7 +1068,7 @@ async function verifyRoomsPage(page) {
     && lines.water.room === null && lines.water.water === true && /under water$/.test(lines.water.mixer),
     'under water alone: its own line, and the render is asked for no room under water', lines.water.evidence);
   const evidence = 'Room effects follow the game\'s own code. The two rooms marked "as recorded" match recordings of the game in echo times and level, '
-    + 'and room 6 matches one echo by echo. The 2Fort places use the measures the game printed there; the other shapes are examples. '
+    + 'and room 6 matches a recording echo by echo. The 2Fort places use the measures the game printed there; the other shapes are examples. '
     + 'No room has been checked sample for sample yet.';
   check([lines.recorded, lines.example, lines.place, lines.number].every((l) => l.evidence === evidence),
     'with a room, the line about what the recordings show', lines.recorded.evidence);
@@ -1062,7 +1083,7 @@ async function verifyRoomsPage(page) {
   await page.locator('#advanced-toggle').evaluate((b) => { if (b.getAttribute('aria-expanded') !== 'true') b.click(); });
   const manual = await page.evaluate(() => {
     const out = {};
-    out.options = [...els.env.options].map((o) => o.value).join(',');
+    out.options = [...els.env.options].filter((o) => !o.dataset.typed).map((o) => o.value).join(',');
     out.one = els.env.querySelector('option[value="1"]').textContent;
     execCommand('dsp_room 1');
     out.autoShown = getComputedStyle(els.autoEnv).display !== 'none';
@@ -1109,6 +1130,16 @@ async function verifyRoomsPage(page) {
     out.saved = cfg.pos === 'open' && cfg.uw === '1';
     history.replaceState(null, '', '#codec=steam&pos=auto_great_hall&uw=1&dsp=1&aw=700&al=1300&ah=400&arefl=0.4&asky=0&aopen=0'); applyHashConfig();
     out.newLink = els.position.value === 'auto_great_hall' && els.underwater.checked && els.autoWidth.value === '700';
+    // dsp_room 1 rendered no room before W3-17d: an old link with it and no
+    // measures renders none; a new one carries its measures.
+    history.replaceState(null, '', '#codec=steam&pos=manual&dsp=1'); applyHashConfig();
+    out.oldAuto = els.position.value === 'open' && renderOptions().room === null;
+    history.replaceState(null, '', '#codec=steam&pos=manual&dsp=1&asky=0&aw=200&al=1000&ah=150&aopen=0&arefl=0.3'); applyHashConfig();
+    out.newAuto = els.position.value === 'manual' && JSON.stringify(renderOptions().room) === '{"auto":{"sky":false,"width":200,"length":1000,"height":150,"reflectivity":0.3,"openSides":0}}';
+    execCommand('exec preset_modern'); execCommand('dsp_room 1');
+    const saved = collectConfig();
+    execCommand('exec preset_modern'); applyConfig(saved);
+    out.savedAuto = els.position.value === 'manual' && renderOptions().room && typeof renderOptions().room.auto === 'object';
     history.replaceState(null, '', location.pathname);
     execCommand('exec preset_sewers');
     out.sewers = els.position.value === 'open' && els.underwater.checked
@@ -1120,7 +1151,7 @@ async function verifyRoomsPage(page) {
     return out;
   });
   check(Object.values(links).every(Boolean),
-    'old share links: hallway, small_room, tunnel, tunnel_big, cavern, hangar, chamber, metal become manual with 22, 17, 6, 7, 24, 10, 19, 4; water becomes no room under water; the new keys are kept',
+    'old share links: hallway, small_room, tunnel, tunnel_big, cavern, hangar, chamber, metal become manual with 22, 17, 6, 7, 24, 10, 19, 4; water becomes no room under water; manual dsp_room 1 without measures renders no room, as it did; new links keep their keys and measures',
     JSON.stringify(links));
   check(links.sewers && links.spam, 'the built-in preset that was "2fort sewers" is "under water" (exec preset_sewers answers with the new name); Mic Spam takes the automatic tunnel');
   // Every control classified: the extras fieldset holds exactly the extras,
@@ -1177,92 +1208,139 @@ async function verifyRoomsPage(page) {
 }
 
 // W3-17d: the live chain's room. The live monitor's worker, started at
-// 44.1 kHz (no device stage) with its tests-only probe, logs every call on
-// its room path with its inputs and output; here the module is run by hand
-// on the same calls and samples, and the worker's own output is the mix's
-// clip of those sums. So a change of room is the module's cross-fade, with
-// no click of the app's own, and the chain is not rebuilt for it.
+// 44.1 kHz (no device stage) with its tests-only probe, logs the voice at
+// its mix point (the gain's output) and every call on its room path. Here
+// the mix is made again from that voice alone, independently of audio.js:
+// each sample as a 16-bit value, entered by the module's law
+// (TF2Room.entry) at 256 with no room, or at the shares a room path run by
+// hand gives for its block, each part upsampled by the engine's rule written
+// here, the hand-run path's sum, the clip. The worker's own output must be
+// that, sample for sample. The voice: noise bursts of 1.2 s every 2 s, so
+// the 0.8 s pauses end each talk spurt (Steam's hold is 0.4 s).
 async function verifyLiveRoom(page) {
   console.log('\n[Browser 3f2] The room in the live chain (W3-17d)');
-  const run = (spec) => page.evaluate(async ({ codec, first, steps }) => {
+  const run = (spec) => page.evaluate(async ({ codec, first, steps, seconds }) => {
     const rate = 44100, block = 882;
     let seed = 7;
     const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
-    const seconds = steps.length + 2, total = rate * seconds, mic = new Float32Array(total);
-    for (let i = 0; i < total; i++) mic[i] = (i / rate) % 0.9 < 0.6 ? 0.3 * (2 * rnd() - 1) : 0.0003 * (2 * rnd() - 1);
+    const total = rate * seconds, mic = new Float32Array(total);
+    for (let i = 0; i < total; i++) mic[i] = (i / rate) % 2 < 1.2 ? 0.3 * (2 * rnd() - 1) : 0.0003 * (2 * rnd() - 1);
     const worker = new Worker('live-worker.js'), channel = new MessageChannel();
-    const outs = [], readies = [];
+    const outs = [], readies = [], latencies = [];
     let probe = null;
     channel.port1.onmessage = (e) => { if (e.data.type === 'out') outs.push(new Float32Array(e.data.samples)); };
-    worker.onmessage = (e) => { if (e.data.type === 'ready') readies.push(e.data); if (e.data.type === 'roomprobe') probe = e.data; };
+    worker.onmessage = (e) => {
+      if (e.data.type === 'ready') readies.push(e.data);
+      if (e.data.type === 'stats') latencies.push(e.data.stats.latencyMs);
+      if (e.data.type === 'roomprobe') probe = e.data;
+    };
     const opts = { ...renderOptions(), codec, volume: 1, ...first, roomProbe: true, seed: 11 };
     const heard = () => outs.reduce((n, o) => n + o.length, 0);
     const until = async (f) => { const t = performance.now(); while (!f() && performance.now() - t < 30000) await new Promise((r) => setTimeout(r, 20)); };
-    const feed = (from, to) => { for (let i = from; i < to; i += block) { const b = mic.slice(i, Math.min(to, i + block)); channel.port1.postMessage({ type: 'in', samples: b.buffer }, [b.buffer]); } };
+    let fed = 0;
+    const feedTo = async (seconds) => {
+      const to = Math.round(seconds * rate);
+      for (; fed < to; fed += block) { const b = mic.slice(fed, Math.min(to, fed + block)); channel.port1.postMessage({ type: 'in', samples: b.buffer }, [b.buffer]); }
+      fed = to;
+      await until(() => heard() >= fed - rate * 0.3);
+    };
     worker.postMessage({ type: 'start', rate, port: channel.port2, opts }, [channel.port2]);
     await until(() => readies.length > 0);
-    // A second of microphone, then each step's settings and a second more.
-    let fed = 0;
-    const second = async () => { feed(fed, fed + rate); fed += rate; await until(() => heard() >= fed - rate * 0.3); };
-    await second();
-    const latency = readies.map((r) => r.latencyMs);
-    for (const step of steps) {
-      worker.postMessage({ type: 'config', opts: { ...opts, ...step } });
-      await new Promise((r) => setTimeout(r, 200));
-      await second();
+    for (const [at, change] of steps) {
+      await feedTo(at);
+      worker.postMessage({ type: 'config', opts: { ...opts, ...change } });
+      await new Promise((r) => setTimeout(r, 150));
     }
-    await second();
+    await feedTo(seconds);
+    await new Promise((r) => setTimeout(r, 250));
     worker.postMessage({ type: 'roomprobe' });
     await until(() => probe);
     worker.terminate();
-    let path = null, calls = 0, blocks = 0, same = 0, faded = 0, shareMiss = 0, sets = 0, spurts = 0;
-    const sums = [];
-    for (const c of probe.log) {
-      if (c.call === 'create') path = TF2Room.createRoomPath({ seed: c.seed, room: c.room, water: c.water, table: TF2_ROOM_PRESETS });
-      else if (c.call === 'set') { sets++; if (c.preset !== undefined) path.setRoom(c.preset); path.setWater(c.water); }
-      else if (c.call === 'spurtStart') { spurts++; path.spurtStart(); }
-      else if (c.call === 'shares') { const s = path.shares(); if (s.room !== c.room || s.direct !== c.direct) shareMiss++; }
-      else if (c.call === 'process') {
-        blocks++;
-        if (c.fading) faded++;
-        const y = path.process(c.direct, c.room);
-        if (y.length === c.out.length && y.every((v, i) => v === c.out[i])) same++;
-        sums.push(c.out);
-      }
-      calls++;
+    // The mix made again from the voice at the mix point.
+    const stages = { 44100: 0, 22050: 1, 11025: 2 }[CODEC_PROFILES[codec].voiceRate], per = 512 >> stages;
+    const voice = [];
+    for (const g of probe.gain) for (const v of g) {
+      let r = Math.round(v * 32768);
+      if (Math.abs(v * 32768 - Math.trunc(v * 32768)) === 0.5) r = 2 * Math.round(v * 32768 / 2);
+      voice.push(Math.max(-32768, Math.min(32767, r)));
     }
+    const directState = Array.from({ length: stages }, () => ({ prev: 0 })), roomState = Array.from({ length: stages }, () => ({ prev: 0 }));
+    const up = (e, states) => {
+      for (const st of states) {
+        const y = [];
+        for (const x of e) { y.push((st.prev + x) >> 1, x); st.prev = x; }
+        e = y;
+      }
+      return e;
+    };
     const mix = [];
-    for (const s of sums) for (const v of s) mix.push(v);
+    let next = 0, hand = null, share = null, sharesSeen = [], spurts = 0, setAt = [], attach = [], detach = [], blocks = 0, current = null;
+    const add = (y) => { for (const v of y) mix.push(v); };
+    const dryTo = (to) => { if (to > next) { add(up(voice.slice(next, to).map((v) => TF2Room.entry(v, 256)), directState)); next = to; } };
+    for (const c of probe.log) {
+      if (c.call === 'create') hand = TF2Room.createRoomPath({ seed: c.seed, room: c.room, water: c.water, table: TF2_ROOM_PRESETS });
+      else if (c.call === 'set') { setAt.push(blocks); sharesSeen.push('set'); if (c.preset !== undefined) hand.setRoom(c.preset); hand.setWater(c.water); }
+      else if (c.call === 'spurtStart') { spurts++; sharesSeen.push('spurt'); hand.spurtStart(); }
+      else if (c.call === 'attach') { attach.push(c.at); dryTo(c.at); }
+      else if (c.call === 'detach') { detach.push(c.at); next = Math.max(next, c.at); }
+      else if (c.call === 'block') { dryTo(c.at); current = c.at; }
+      else if (c.call === 'shares') { share = hand.shares(); sharesSeen.push(share.room); }
+      else if (c.call === 'process') {
+        const v = voice.slice(current, current + per);
+        while (v.length < per) v.push(0);
+        const y = hand.process(Int32Array.from(up(v.map((x) => TF2Room.entry(x, share.direct)), directState)),
+          Int32Array.from(up(v.map((x) => TF2Room.entry(x, share.room)), roomState)));
+        add(y);
+        next = current + per;
+        blocks++;
+      }
+    }
+    dryTo(voice.length);
     const out = [];
     for (const o of outs) for (const v of o) out.push(v);
-    let clipped = 0;
     const m = Math.min(mix.length, out.length);
-    for (let i = 0; i < m; i++) if (TF2Audio.mixOut(mix[i], 1) / 32768 === out[i]) clipped++;
-    return { blocks, same, faded, shareMiss, sets, spurts, m, clipped, mixLength: mix.length, outLength: out.length,
-      readies: readies.map((r) => ({ room: r.room, latencyMs: r.latencyMs })), latency, state: probe.state };
+    let same = 0;
+    for (let i = 0; i < m; i++) if (Math.max(-32767, Math.min(32767, mix[i])) / 32768 === out[i]) same++;
+    const loud = (at) => voice.slice(Math.max(0, at - 4410), at).some((v) => Math.abs(v) > 300);
+    return { blocks, same, m, mixLength: mix.length, outLength: out.length, readies: readies.map((r) => r.room), spurts, senderSpurts: probe.stats.spurts,
+      sharesSeen, setAt, attach, detach, attachLoud: attach.map(loud), latencies, final: { holding: probe.holding, attached: probe.attached, latencyMs: probe.stats.latencyMs },
+      state: probe.state, created: probe.log.find((c) => c.call === 'create') };
   }, spec);
-  // steam: preset 6, then the great hall (a fade), then none, then a change
-  // of another setting (a rebuild, which drops the path once it is idle).
-  const steam = await run({ codec: 'steam', first: { room: { preset: 6 }, underwater: false },
-    steps: [{ room: { auto: 'great_hall' } }, { room: null }, { room: null, micGain: 1.5 }] });
-  check(steam.blocks > 200 && steam.same === steam.blocks && steam.shareMiss === 0 && steam.spurts > 0 && steam.faded >= 2 * 17,
-    'steam live: a change of room is the module\'s cross-fade on the same input, block for block (preset 6 to the great hall, then to none)',
-    `${steam.same} of ${steam.blocks} blocks, ${steam.faded} of them fading, ${steam.spurts} spurt starts`);
-  check(steam.clipped === steam.mixLength && steam.outLength >= steam.mixLength,
-    'and the worker plays exactly those sums after the clip: no click of the app\'s own', `${steam.clipped} of ${steam.mixLength} samples`);
-  const holdMs = 1000 * 511 / 44100;
-  check(steam.readies.length === 2 && steam.readies[0].room === true && steam.readies[1].room === false
-    && Math.abs(steam.readies[0].latencyMs - steam.readies[1].latencyMs - holdMs) < 1e-6,
-    'the room\'s changes do not rebuild the chain; a rebuild once the room has faded to none drops the path, and the 11.6 ms it held back go from stats.latencyMs',
-    steam.readies.map((r) => `${r.room ? 'room' : 'none'} ${r.latencyMs.toFixed(2)} ms`).join(', '));
-  // celt_22 (the frame path, a 22050 Hz voice): under water on and off, and
-  // a number the table does not hold, which leaves the room as it was.
-  const celt = await run({ codec: 'celt_22', first: { room: { preset: 17 }, underwater: false },
-    steps: [{ room: { preset: 17 }, underwater: true }, { room: { preset: 40 }, underwater: false }] });
-  check(celt.blocks > 200 && celt.same === celt.blocks && celt.shareMiss === 0 && celt.spurts > 0 && celt.clipped === celt.mixLength
-    && celt.readies.length === 1 && celt.state.room.preset === 17 && celt.state.water.on === false,
-    'celt_22 live: under water and back, then dsp_room 40 (not held: the room stays preset 17), the module by hand, block for block',
-    `${celt.same} of ${celt.blocks} blocks, ${celt.spurts} spurt starts, room ${celt.state.room.preset}`);
+  const hold = 1000 * 511 / 44100;
+  // steam: no room at the start, a room switched on mid-spurt, the great
+  // hall mid-spurt, then none.
+  const steam = await run({ codec: 'steam', first: { room: null, underwater: false }, seconds: 7,
+    steps: [[1.0, { room: { preset: 6 } }], [3.0, { room: { auto: 'great_hall' } }], [5.0, { room: null }]] });
+  check(steam.m > 0.9 * steam.mixLength && steam.same === steam.m && steam.blocks > 100,
+    'steam live: the worker\'s output is the mix made again from its voice alone: the entries at the module\'s shares, each part upsampled, the room path by hand, the clip',
+    `${steam.same} of ${steam.m} samples, ${steam.blocks} blocks through the room`);
+  check(steam.readies.length === 1 && steam.attach.length === 1 && steam.attachLoud[0] && steam.detach.length === 1 && steam.detach[0] > steam.attach[0],
+    'from no room, a room switched on mid-spurt and off again: one chain throughout (Steam\'s sender and the gain run on), the path run from the next block and let go after its fade to none',
+    `${steam.readies.length} chain, attached at voice sample ${steam.attach[0]}, let go at ${steam.detach[0]}`);
+  // After the great hall is taken (mid-spurt) the shares stay preset 6's
+  // until the next spurt starts.
+  const seen = steam.sharesSeen, hall = seen.indexOf('set', seen.indexOf('set') + 1), firstNew = seen.indexOf(41, hall);
+  const lastOld = seen.lastIndexOf(26, firstNew), oldRun = seen.slice(hall, firstNew).filter((v) => v === 26).length;
+  check(steam.spurts === steam.senderSpurts && steam.spurts >= 3 && hall > 0 && firstNew > hall && seen.slice(lastOld, firstNew).includes('spurt') && oldRun > 40,
+    'a voice channel starts at each talk spurt and nowhere else, and a new room\'s shares come with the next spurt, not at once',
+    `${steam.spurts} spurt starts for ${steam.senderSpurts} spurts; 26/256 for ${oldRun} blocks after the hall, then 41/256 after a spurt start`);
+  check(Math.abs(Math.max(...steam.latencies) - steam.final.latencyMs - hold) < 1e-6 && !steam.final.holding && !steam.final.attached,
+    'stats.latencyMs counts the room\'s 11.6 ms only while the chain holds a block: none once the room has faded to none',
+    `${Math.max(...steam.latencies).toFixed(2)} ms with the room, ${steam.final.latencyMs.toFixed(2)} ms after`);
+  // celt_22 (the frame path, a 22050 Hz voice): started under water with a
+  // number the table does not hold; preset 17; then that number again,
+  // which leaves preset 17, with the water off.
+  const celt = await run({ codec: 'celt_22', first: { room: { preset: 40 }, underwater: true }, seconds: 4.5,
+    steps: [[1.5, { room: { preset: 17 }, underwater: true }], [3.0, { room: { preset: 40 }, underwater: false }]] });
+  check(celt.created.water === true && celt.created.room === null && celt.attach[0] === 0 && celt.m > 0.9 * celt.mixLength && celt.same === celt.m
+    && celt.readies.length === 1 && celt.state.room.preset === 17 && celt.state.water.on === false && celt.spurts === celt.senderSpurts,
+    'celt_22 live: started under water with dsp_room 40 (under water, no room), then preset 17, then 40 again (the room stays 17) and the water off: the mix made again, sample for sample',
+    `${celt.same} of ${celt.m} samples, ${celt.blocks} blocks, room ${celt.state.room.preset}`);
+  // A rebuild for another setting keeps the path, its room and its count.
+  const rebuilt = await run({ codec: 'steam', first: { room: { preset: 6 }, underwater: false }, seconds: 3,
+    steps: [[1.0, { room: { preset: 6 }, micGain: 1.5 }]] });
+  check(rebuilt.readies.length === 2 && rebuilt.readies.every(Boolean) && rebuilt.state.room.preset === 6 && rebuilt.state.count >= 2 * 44100,
+    'a rebuild for another setting keeps the room path: its room and its count of blocks run on', `room ${rebuilt.state.room.preset}, ${rebuilt.state.count} samples`);
 }
 
 // W4-01d: the settings' words. The test walks the settings panel and
@@ -1276,9 +1354,19 @@ async function verifySettingsWords(page) {
     const labelText = (el) => (el.labels && el.labels[0] ? el.labels[0].textContent.replace(/\s+/g, ' ').trim() : '');
     const firstSentence = (t) => t.split(/(?<=[a-z0-9)%])\. /)[0].replace(/\.$/, '');
     const dynamic = ['listener_position', 'env', 'vad_threshold'];
+    const sharedBy = { 'auto-help': ['a_sky', 'a_w', 'a_l', 'a_h', 'a_open', 'a_refl'], 'custom-help': ['c_dur', 'c_dec', 'c_mix'] };
     return {
       count: controls.length,
       noHelp: controls.filter((el) => { const h = helpOf(el); return !h.length || h.some((x) => !x) || h[0].textContent.trim().length < 20; }).map((el) => el.id),
+      // Each control's sentence is its own: no other control points at it,
+      // but for the two groups that share one sentence by design.
+      shared: controls.filter((el) => {
+        const h = helpOf(el)[0];
+        if (!h) return false;
+        const group = Object.entries(sharedBy).find(([, ids]) => ids.includes(el.id));
+        const users = controls.filter((o) => helpOf(o)[0] === h).map((o) => o.id);
+        return group ? h.id !== group[0] || users.some((id) => !group[1].includes(id)) : users.length > 1;
+      }).map((el) => `${el.id} -> ${helpOf(el)[0].id}`),
       long: controls.map((el) => helpOf(el)[0]).filter((h) => h && !h.id.match(/^(room-detail|env-detail)$/)
         && h.textContent.split(/(?<=\.) /).some((x) => x.length > 115)).map((h) => h.id),
       measured: [...document.querySelectorAll('option')].filter((o) => /\(measured\)/.test(o.textContent)).map((o) => o.textContent),
@@ -1295,6 +1383,8 @@ async function verifySettingsWords(page) {
   });
   check(words.count >= 30 && words.noHelp.length === 0,
     'every select and input of the settings panel has aria-describedby naming a sentence of at least 20 characters', `${words.count} controls${words.noHelp.length ? `; without: ${words.noHelp.join(', ')}` : ''}`);
+  check(words.shared.length === 0, 'each control\'s sentence is its own; only the six measures share one, and the custom room\'s three knobs another',
+    words.shared.join(', '));
   check(words.long.length === 0, 'each sentence of help is at most about 110 characters (115)', words.long.join(', '));
   check(words.measured.length === 0, 'no option text says "(measured)"', words.measured.join(', '));
   const dup = words.labels.filter((l, i) => words.labels.indexOf(l) !== i);
