@@ -52,10 +52,7 @@
     "Page scripts as ES modules instead of classic scripts sharing globals (no build step is needed for either). Migrate gradually.",
     "The Node suites load audio.js and constants.js in a vm context, which makes Math-heavy code about 12 times slower than the page runs it (found by W2-01's builder). Loading them another way could cut pnpm test's minute, if the results stay bit for bit the same.",
     "tests/accuracy.mjs could report its level figure without the half-second blocks that hold a talk spurt's end or a moved spurt, next to the figure it gives now: on speech that is 0.18 dB against 0.96, and the second number reads as a model error it is not.",
-    {
-      "idea": "An explainer of the project for someone outside it (a page, a document or a video), fleshed out and made to impress, once the project is near done.",
-      "note": "Asked for by the owner 2026-11-11, then shelved until the path from microphone to speakers is finished. None of the owner's speech audio in it; creative choices left to the orchestrator. A first draft exists as a private artifact."
-    }
+    "An explainer of the project for someone outside it (a page, a document or a video), fleshed out and made to impress, once the project is near done. Asked for by the owner 2026-11-11, then shelved until the path from microphone to speakers is finished. None of the owner's speech audio in it; creative choices left to the orchestrator. A first draft exists as a private artifact."
   ],
   "deferred": [
     {
