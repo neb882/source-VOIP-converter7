@@ -394,12 +394,21 @@ addRoom('steam, dsp_room 137 (no room)', { listenerPos: null, dspRoom: 137 }, nu
 // Its review's fix round added two room cases (a seed of 7 on preset 17, and
 // preset 6 on a 96000 Hz device), recorded once the same way in a commit of
 // their own; no hash moved.
+// W3-18 (Speex 1.0.2 with the arithmetic of the game's module: the packets of
+// the speex profile's codec are those of before, its decoded output moves)
+// re-recorded the WAV hashes of four Speex cases, 'speex', 'speex, gate on,
+// loss 15%, jitter 300 ms', 'speex, source at 11.025 kHz' and 'speex, source
+// at 8 kHz', and their GAIN_GOLDEN hashes (the codec is before the mix point),
+// in a commit of their own. Their codecInfo hashes did not move (the same
+// frames and the same count of wrapped samples), nor did any hash of
+// 'speex, 100 samples at 96 kHz', whose one frame decodes the same. No hash
+// of a case that does not run Speex moved.
 const GOLDEN = {
   "steam": ["bb7ef37d9d65f1c03672fe6bb14933036cc8d8174847fd4e4c3e9671a98f4a61", "4992fbdbd3efbe23ae9c2640825202a57429755fdc7d331ea4f37e210a9d91b9"],
   "steam_48": ["cb106e3f224599e2a7d6bb5d8b3cea9092d99c91a8d9b736f5248d80a819e483", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
   "celt_22": ["c95ee49ed8fdf4e95b19ba10628e33404024690e9741221da39f84352cbfaa06", "9bd2fb89789a272ca4c6ed7467eca4d5454d368133a14441b04c8d91c7c36573"],
   "celt_44": ["c428ba4428a08e3ed68cae499768bcead1a96fa00fcae340da82470451524817", "3c1c8b31ad9e977030b54e7a629670e6ceca9a3f9a16298f5e87a5e23671866c"],
-  "speex": ["171b89161fdf29e9d21f7c10c036d01e0b8c1cf9874dcda6462c1ccad2e624d8", "84f3baeb535d4cf1a04749100ac193c393ae0ad3d9d1dd6ae5fb13e07a0d8f90"],
+  "speex": ["7e751d8d909b3112de67799933a4a473214d1bcf9c6517b9a6b72bda0c28527b", "84f3baeb535d4cf1a04749100ac193c393ae0ad3d9d1dd6ae5fb13e07a0d8f90"],
   "steam, gate off": ["6e461e765c979f4dbe2894ae1bf43340cb4eb94731cdcc52a113a2e76f487a1c", "e1fee0afcc93245bc286df33cb2201e8e84738735f3cfb30adc6c574a16904ee"],
   "steam, gate on at -30 dBFS": ["45eda63a770cc5e761e845c0a9532baf61cc7702f771727af7af885513240203", "a925df4dc5809279781bcf15758ce933a20a1c521b405259f41bddff4c9e8615"],
   "steam, codec bypassed": ["8b9bbd78568debf709476f3965984385bc0204f43a876ca995d9406a6a170d42", "810a49448ad689b02b1555c661fba6262bb81ba529de20ea502e56251f2df335"],
@@ -418,14 +427,14 @@ const GOLDEN = {
   "steam, six minutes": ["4d2dba65f5eabb232e29ff223add78ecb51e265b212eefd3aaf3f0c9e60c9c71", "5a8ab9cae5cc205d449e669b2d00fc988db194deaf81b5e4fed8aac5ed7a04bf"],
   "celt_22, gate on, loss 15%, jitter 300 ms": ["bc09cb2c057fda5c64a19ba17bda6fdf1d3ab4b06bc84434cecbe47030f1bccf", "0b575fca37ebf68ae116815c18a1f77f11fd1a4990f620892c1aad3b28ec8c4b"],
   "celt_44, gate on, loss 15%": ["4857d88188fec06e658f6cf80a24a52c53e2cf129ac1a49d2700d1a208f1e8f6", "4face18f89426f7e520f9e687eef9ae7d0aa994fd11d0a71d0bdf3e730bb7aab"],
-  "speex, gate on, loss 15%, jitter 300 ms": ["db12e9c7374c5d57bed5bc257ec75c9c3f0909af468cce24fb68724f3894148f", "479d2149a32db551af6623328cbf7ed1e9c5b4579e5cfa102a2278201fc8578c"],
+  "speex, gate on, loss 15%, jitter 300 ms": ["d2af002b37a3c6cb078d79360f987b9eb963dff8a26d3b7ed2342f6d1b715c8a", "479d2149a32db551af6623328cbf7ed1e9c5b4579e5cfa102a2278201fc8578c"],
   "steam, jitter 500 ms (late frames play as silence)": ["38c43494a760052a2f63a7a7982cdb67d804748c4761d474a190009b51458067", "cb26383f153ef8ca9718dfef2c40817f48896e4d586ff9650e2e7e624a7b81dd"],
   "steam, snd_bits 4 (SILK frames)": ["ff80b3c0ba5e3d31aaedf5edec04a53ea8f6c973c0ae4a300b0db47ae8f57e14", "0f3e32b5a3943f11a73a3d20dca1c85901f8cad3694f3dd5d9c69e4e477cfdb2"],
   "steam_48, loss 10%, jitter 100 ms, snd_bits 10": ["5e5ce262e57ec4f9a06a7858a5f875b9a621b99f3cec7912c4460db26c6125b9", "06decdb78d78b561d40c522b901ddc0d374ff401fcd45a02676705bec3ea3a02"],
   "steam, source at 24 kHz": ["76c8e189892a4915826eda4fd41541c735f73648fa286a7bfb44f9e27cf49f93", "1baeda17efb0d11e0a9494c18ef5d99e9e6a99bfaa9d84100047feea5567dc5d"],
   "celt_22, source at 22.05 kHz": ["4f167c9146b722d5958b5fc8d882e80901da82bd19aa5aae8e7539e4fb4d8b0c", "9b67647157556b164aa32ad69d116915e881ce1d41cd76a6c832559d126710a2"],
-  "speex, source at 11.025 kHz": ["00eaeb6bbdc13c64b06ee93c6ffac859ed73d78bb039cfa1a558311cd37ee725", "41787e0c606f0f7a809b62b8f250db41a1f2069af26ad28e90af0eb815707665"],
-  "speex, source at 8 kHz": ["88f92e8bc02a3d808bb6798d60e0968f5529c46277831bd339e35e5e6568c7fc", "41787e0c606f0f7a809b62b8f250db41a1f2069af26ad28e90af0eb815707665"],
+  "speex, source at 11.025 kHz": ["c181c03444fdb9b23d0d7a1f3afba9f8fb13d7cf2b4b8d0755d63b178cc43aed", "41787e0c606f0f7a809b62b8f250db41a1f2069af26ad28e90af0eb815707665"],
+  "speex, source at 8 kHz": ["7d95f8a90ac625934854454014e3878fb757c86a76bc9ffc2dc39e44a92adfad", "41787e0c606f0f7a809b62b8f250db41a1f2069af26ad28e90af0eb815707665"],
   "steam, volume 1, voice_maxgain 3": ["840051d93a5c935181cadbccf7449986168f19668aa5e6b021c70cdba08525b3", "ad208ca860fd98a0fdd18c6ae1cbb854bc4f73bdc65a113d61d00a01f08047bf"],
   "steam, volume 0.3 (a volume whose product rounds)": ["7ce019df36b80bd0e2a0279c56734699176b768371da89739138b51919abdead", "ad208ca860fd98a0fdd18c6ae1cbb854bc4f73bdc65a113d61d00a01f08047bf"],
   "steam, auto-gain off, voice_scale 3": ["f4bcb71b9b5b758ed9186d178e079b04834f7237d8e95571d94744e603e41792", "e6a5f35e19d62bd888597259c5feaca5f7ab2c04b9f7117ed5fa341e142f9870"],
@@ -474,7 +483,7 @@ const GAIN_GOLDEN = {
   "steam_48": "67ae552c948f640673b3cc9e5f967228dc96f40010d21300b844a5d1e97b98dc",
   "celt_22": "21aed940ff7c26e1d4e7042c4352b2dc04319d4e55328d011203cafc96841152",
   "celt_44": "3ddd31b3aaf82ab940d5cdbed58056ea89819b43097a04bc7c776f03eb342837",
-  "speex": "e53997b91477f7278dc990f977737720b32d6c1979b08b5bba79e71a5d47eb5a",
+  "speex": "a6d43597874c63208c3a1c0f6f22dcbc62fa1b7e7f3b8ebf954c59e0c5223f45",
   "steam, gate off": "47a1391636a1a677949598d1896c4d98d817c6995564afe8158946f55a8e634e",
   "steam, gate on at -30 dBFS": "7189011696a829fd20bb67fe9bb909cee0b4bb2e27877b32e41745dbab5fe9a5",
   "steam, codec bypassed": "14902e758a56117e56e389f2f260f101ed6cdbdd4c36a8c93a95764127c691c2",
@@ -493,14 +502,14 @@ const GAIN_GOLDEN = {
   "steam, six minutes": "6e8b9dac852070d13f73ec4aadaafb174332c2aaf20e3605ac8df7d0d83d3882",
   "celt_22, gate on, loss 15%, jitter 300 ms": "eb7d94043f8200262342124bd60b0d620cc82028c9de80df28b836b7b5531146",
   "celt_44, gate on, loss 15%": "a887ab28283d73ee61018636afe804942bf998c59a6ff75e8ec01f8885a40c6b",
-  "speex, gate on, loss 15%, jitter 300 ms": "52b05aa5284e805ed48158fad683aaf1d0e64b7cd4b704112e7a7b82e46626a3",
+  "speex, gate on, loss 15%, jitter 300 ms": "2384307010f3976b4108bbe96d29c4dbf6201904b726b5b79679cad5108bc3bb",
   "steam, jitter 500 ms (late frames play as silence)": "9d4c60bf861872574a4d7336f7eb78f1ae902c095a3a0b1c5d5333ce19ed9d89",
   "steam, snd_bits 4 (SILK frames)": "df32d452cba5f765a32bb650cf077618c3a8b5ee804f61cfc467e716bf7f3643",
   "steam_48, loss 10%, jitter 100 ms, snd_bits 10": "60a29df9af7e58794da2e2a0f463a879d3e534cb393ef1fb4adf70c235145940",
   "steam, source at 24 kHz": "0923ce2fff4d58135bee8981879196c019360e12b0b36f91ff65a4364df4101b",
   "celt_22, source at 22.05 kHz": "e3ddb3a41b93f0ba38532d993f31784015e7959968a517881dcf372f27349b43",
-  "speex, source at 11.025 kHz": "c6c570174516fa79283235a051ac364c7acc4c78a82eb5b17a1873d27ea4bd0e",
-  "speex, source at 8 kHz": "50d2def8b103ab07721ad239121e696f7f14797548632fbf4425fa30355aff1e",
+  "speex, source at 11.025 kHz": "67054b85aadb25796f6730cbac6a7d7e347ac256baa0332ad9e6c8cdc91229c8",
+  "speex, source at 8 kHz": "84308684ec4582bb8fa3bfc4b78fde1979974d1761b7793f6b49e164084c554f",
   "steam, volume 1, voice_maxgain 3": "461e531f514ea927cf1102f1e50478ae33c0696fc40814c460eee67fa10204b4",
   "steam, volume 0.3 (a volume whose product rounds)": "92643715eabd05accfc09b983921e388c64f5ae6127c53747a69d059292f0c32",
   "steam, auto-gain off, voice_scale 3": "2f2373fd6de358832a5ad6178ebce324de299262c3f4b1c2fdd303cca02ac1b2",
