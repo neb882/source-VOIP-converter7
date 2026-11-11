@@ -864,14 +864,16 @@ function publicChecks() {
 
 // A second reading of the clock, driven by blocks: before block b every tick k with
 // 1323 k <= 1024 b runs (its messages first); a block pulls 512, or 513 on the first block
-// after an open while playing, playing the last 512. Returns the whole output, and as
+// after an open while playing. The mixer plays the stream it pulls one sample late: the first
+// block plays the first 512 of its 513 and keeps the last; a later block plays the kept one
+// and the first 511 of its 512, and keeps the last. Returns the whole output, and as
 // .spurtDropped the samples each spurt lost to overflow, read from the channel's own drops
 // list (a spurt is a run of messages up to a silence record, the record its last).
 function referenceTimeline(messages, { fps, bufferMs, fadeTime, length }) {
   const ch = createChannel({ fps, bufferMs, fadeTime });
   const D = Math.round(44100 * latency(bufferMs, fps));
   const out = new Float32Array(length);
-  let k = 0, m = 0, fresh = false;
+  let k = 0, m = 0, fresh = false, held = 0;
   for (let b = 0; 512 * b - D < length; b++) {
     while (1323 * k <= 1024 * b) {
       while (m < messages.length && messages[m].tick === k) {
@@ -883,7 +885,9 @@ function referenceTimeline(messages, { fps, bufferMs, fadeTime, length }) {
       ch.tick(); k++;
     }
     let s;
-    if (ch.playing && fresh) { s = ch.pull(513).samples.subarray(1); fresh = false; } else s = ch.pull(512).samples;
+    if (!ch.playing) s = ch.pull(512).samples;          // zeros
+    else if (fresh) { const p = ch.pull(513).samples; s = p.subarray(0, 512); held = p[512]; fresh = false; }
+    else { const p = ch.pull(512).samples; s = new Float32Array(512); s[0] = held; s.set(p.subarray(0, 511), 1); held = p[511]; }
     for (let j = 0; j < 512; j++) { const o = 512 * b - D + j; if (o >= 0 && o < length) out[o] = s[j]; }
   }
   const spurtOf = [], dropped = [];
@@ -1031,11 +1035,16 @@ function timelineChecks() {
     const starts = [];
     // A start: sound after at least 1000 zeros (an underrun's padding follows a single zero).
     for (let i = 1000, z = 0; i < length; i++) { if (samples[i] !== 0 && z >= 1000) starts.push(i); z = samples[i] === 0 ? z + 1 : 0; }
-    const firstOf = (m) => m.pcm[2];
-    const ok = starts.length === 2 && [messages[0], messages.find((m) => m.tick === 260)].every((m, k) =>
-      samples.subarray(starts[k], starts[k] + 512).every((v, j) => v === m.pcm[2 + j]));
-    check('the first 512 output samples after each start are the queue\'s samples 1 to 512, not 0 to 511', ok && info.opens === 2,
-      `starts at ${starts.join(', ')}; first played ${starts.map((s) => samples[s]).join(', ')} against ${firstOf(messages[0])}`);
+    // The queue's sample q is the opening packet's pcm[1 + q] (its pcm[0] is not written). The
+    // mixer asks 513 on the first block, plays the first 512 and keeps the 513th, which opens
+    // the next block (W3-10's upsampler read, section 3): the output is the queue in order.
+    const opening = [messages[0], messages.find((m) => m.tick === 260)];
+    const ok = starts.length === 2 && opening.every((m, k) =>
+      samples.subarray(starts[k], starts[k] + 2048).every((v, j) => v === m.pcm[1 + j]));
+    check('the first block after a start plays the queue\'s first 512 samples, and the next block begins with the 513th (the one the mixer kept), the queue in order to its 2048th',
+      ok && info.opens === 2,
+      `starts at ${starts.join(', ')}; first played ${starts.map((s) => samples[s]).join(', ')} against ${opening[0].pcm[1]}; `
+      + `the next block begins ${starts.map((s) => samples[s + 512]).join(', ')} against ${opening.map((m) => m.pcm[513]).join(', ')}`);
     // The source map: at 67 fps the queue stays above the fade, so a sample's value is its
     // source position plus one.
     const slots = Array.from(info.source, (p, i) => ({ p, v: samples[882 * i + 441] }));

@@ -22,7 +22,9 @@
  *   - the next tick frees a starved channel, unless a packet came first (it is
  *     appended: no wait, no gain reset).
  * The game's mixer asks for one sample more (513) on its first block after a
- * channel starts; that is the mixer's doing, so pull(n) takes exactly n.
+ * channel starts and keeps it for its next block (one sample of look-ahead,
+ * nothing dropped); that is the mixer's doing, so pull(n) takes exactly n, and
+ * createTimeline plays the mixer's way.
  *
  * createChannel(opts) -> { add(pcm, tag), tick(), pull(n), and read-only
  * inUse, playing, starved, count, opens, waitTicks, dropped, drops }.
@@ -52,10 +54,11 @@
     // voice_fadeouttime's default (W3-03 §1, read): the fade covers
     // max(2, floor(rate x fadeTime)) = 4410 samples.
     fadeTime: 0.1,
-    // The logs: the mixer takes 512 samples at a time, and its first block after a channel
-    // starts takes 513 (16 of 16 starts in the first log; what it does with the extra
-    // sample was not read). For the clock that drives a channel; pull() takes what it is
-    // asked for.
+    // The mixer takes 512 samples a block, and 513 on its first block after a channel
+    // starts (the logs: 16 of 16 starts in the first log). The extra one is look-ahead: the
+    // first block mixes the first 512 and keeps the last, which is the first sample mixed in
+    // the next block (read: docs/reports/W3-10-upsampler-read.md, section 3). For the clock
+    // that drives a channel; pull() takes what it is asked for.
     mixBlock: 512,
     firstBlock: 513,
   });
@@ -217,8 +220,10 @@
   // on tick k, before the tick's pass. Block b is output samples 512 b - D to 512 b - D + 511,
   // D = round(44100 x latency): the delay at which a restarted spurt plays, taken out so that a
   // restarted spurt sits where the source has it. Output before sample 0 or past length is
-  // dropped. The first block after each start asks the channel for 513 samples and plays the
-  // last 512 (the logs' first pull; its first sample is not heard).
+  // dropped. The mixer runs one sample ahead of what it plays (W3-10's upsampler read, section
+  // 3): the first block after each start asks the channel for 513 samples, plays the first 512
+  // and keeps the last; every later block plays the kept sample and then the first 511 of the
+  // 512 it asks for, and keeps the last. So every sample pulled is heard, in order.
   //
   // opts: fps, bufferMs, fadeTime (as createChannel), gain (as createChannel: reset when a
   // channel opens, run on every message whole), length (output samples, required).
@@ -243,8 +248,9 @@
   //     sample if none is), offsetEndMs at its last played sample; null if none played.
   //     droppedMs: its samples lost to overflow (its silence record's included).
   //   - drops: each overflow (one per message that caused one), at the output time (seconds)
-  //     where the skip is heard: the start of the next block the channel plays (during a wait,
-  //     the first one after it).
+  //     where the skip is heard: the first sample of the next block the channel plays that
+  //     left the ring after the overflow (sample 1 of a block, after the sample the mixer
+  //     kept; sample 0 of the first block after a start, for a drop during a wait).
   //   - source[i]: the source position heard at the centre of output slot i (20 ms slots of
   //     882 samples), or -1 for silence, padding, a silence record and a pre-roll before
   //     sample 0.
@@ -271,45 +277,71 @@
 
     const slots = new Int32Array(Math.ceil(length / SLOT)).fill(-1);
     // Per message: where pcm[0] is in the source (null: a record), its spurt (-1: none), how
-    // many of its samples the ring took (all but pcm[0]) and how many have left it (played or
+    // many of its samples the ring took (all but pcm[0]) and how many have left it (pulled or
     // dropped). They leave in order, so the next one out is pcm[1 + that]. An overflow drops
     // the oldest: the samples left of the oldest messages, from `oldest` on.
     const pSource = [], pSpurt = [], pIn = [], pOut = [];
     let oldest = 0;
     const spurts = [], drops = [], unheard = [];
     let nextTick = 0, nextBlock = 0, floor = 0, fresh = false, open = false, finished = false;
+    let kept = null;                              // the sample the mixer loaded last and has not played
     let pieces = [];                              // the output of the blocks run since the last return
 
     function runTick() { ch.tick(); nextTick++; }
+
+    // A pulled sample's place in the source: its position, or -1 for padding, silence and a
+    // silence record's zeros (they have no spurt to time); its spurt, -1 for none. The samples
+    // of a message leave the ring in order, so the next one out is pcm[1 + pOut]; pOut counts
+    // a sample when it leaves the ring, heard now or kept for the next block.
+    const placeOf = (t) => {
+      if (t < 0) return { pos: -1, s: -1 };
+      const idx = 1 + pOut[t]++, src = pSource[t], s = pSpurt[t];
+      return src === null || s < 0 ? { pos: -1, s: -1 } : { pos: src + idx, s };
+    };
+    // A sample of the source heard at output sample `out`: the spurt's offsets and the source map.
+    function hear(pos, s, out) {
+      if (s < 0) return;
+      const sp = spurts[s], off = (out - pos) / PER_MS;
+      if (sp.offsetFirst === null) sp.offsetFirst = off;
+      if (sp.offsetStartMs === null && pos >= sp.from + INTO) sp.offsetStartMs = off;
+      sp.offsetEndMs = off;
+      if (pos >= 0 && out >= 0 && out < length && out % SLOT === MID) slots[(out - MID) / SLOT] = pos;
+    }
 
     function runBlock() {
       const at = N * nextBlock - D;               // the block's first output sample
       nextBlock++;
       let samples = null;                         // a free or waiting channel gives zeros
       if (ch.playing) {
-        // A skip is heard where the channel next plays: here, for every drop not yet placed.
-        for (const d of unheard) d.time = at / VOICE_CHANNEL.rate;
+        // The mixer runs one sample ahead of what it plays (W3-10's upsampler read, section
+        // 3): on the first block after a start it asks for 513, mixes the first 512 and keeps
+        // the last; every later block mixes the kept sample, then the first 511 of its 512
+        // new ones, and keeps the last. Nothing is dropped and the stream stays in order.
+        const first = fresh;
+        fresh = false;
+        // A skip is heard where the channel next plays: at the first sample of this block that
+        // left the ring after it (here, for every drop not yet placed).
+        for (const d of unheard) d.time = (at + (first ? 0 : 1)) / VOICE_CHANNEL.rate;
         unheard.length = 0;
-        let tags;
-        if (fresh) {                              // the first block after a start
-          fresh = false;
-          const r = ch.pull(N + 1);
-          if (r.tags[0] >= 0) pOut[r.tags[0]]++;
-          samples = r.samples.subarray(1); tags = r.tags.subarray(1);
-        } else ({ samples, tags } = ch.pull(N));
-        for (let j = 0; j < N; j++) {
-          const t = tags[j];
-          if (t < 0) continue;                    // underrun padding or silence
-          const idx = 1 + pOut[t]++, src = pSource[t], s = pSpurt[t];
-          if (src === null || s < 0) continue;    // a silence record's zeros
-          const pos = src + idx, out = at + j, sp = spurts[s];
-          const off = (out - pos) / PER_MS;
-          if (sp.offsetFirst === null) sp.offsetFirst = off;
-          if (sp.offsetStartMs === null && pos >= sp.from + INTO) sp.offsetStartMs = off;
-          sp.offsetEndMs = off;
-          if (pos >= 0 && out >= 0 && out < length && out % SLOT === MID) slots[(out - MID) / SLOT] = pos;
+        const r = ch.pull(first ? N + 1 : N), n = r.samples.length;
+        samples = new Float32Array(N);
+        let j = 0;
+        if (!first) {                             // the sample the last block kept
+          samples[j] = kept.value;
+          hear(kept.pos, kept.s, at + j);
+          j++;
         }
-      }
+        for (let i = 0; i < n - 1; i++, j++) {
+          const p = placeOf(r.tags[i]);
+          samples[j] = r.samples[i];
+          hear(p.pos, p.s, at + j);
+        }
+        const p = placeOf(r.tags[n - 1]);
+        kept = { value: r.samples[n - 1], pos: p.pos, s: p.s };
+      } else kept = null;
+      // (A channel stops playing only when it is freed, after a pull that emptied the ring; the
+      // fade and the padding leave that pull's last sample 0, so the kept sample is silence.
+      // What the engine does with it was not read.)
       const a = Math.max(0, at), b = Math.min(length, at + N);   // what falls inside 0 .. length - 1
       if (b > a) pieces.push(samples ? samples.slice(a - at, b - at) : new Float32Array(b - a));
     }
