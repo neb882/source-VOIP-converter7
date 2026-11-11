@@ -2,16 +2,19 @@
 // Two pinned libopus builds: 1.1.5, the release Steam's voice packets match
 // (tests/REFERENCE_2026.md), and 1.6.1 from libopus-wasm for a video's audio
 // track and as roundTrip's default. Source's engine codecs run their own
-// libraries: CELT 0.11 (the game's build, pitch filter in) and Speex 1.0.2
-// (the game's vaudio_speex module, on 11025 Hz sound).
+// libraries: CELT 0.11 (the game's build, pitch filter in), Speex 1.0.2
+// (the game's vaudio_speex module, on 11025 Hz sound) and Voxware VR12
+// (vaudio_miles of the Source engines of 2006 and 2007, not a TF2 codec, on
+// 11025 Hz sound).
 const RUNTIMES = {
   '1.6.1': () => import('./vendor/libopus/index.mjs'),
   '1.1.5': () => import('./vendor/libopus-1.1/index.mjs')
 };
 const loaded = new Map();
-let celtModule = null, speexModule = null;
+let celtModule = null, speexModule = null, vr12Module = null;
 const loadCelt = () => (celtModule ??= import('./vendor/celt-0.11/index.mjs'));
 const loadSpeex = () => (speexModule ??= import('./vendor/speex-1.0.2/index.mjs'));
+const loadVr12 = () => (vr12Module ??= import('./vendor/voxware-vr12/index.mjs'));
 function runtime(version) {
   if (!(version in RUNTIMES)) throw new RangeError(`Unknown libopus runtime "${version}"`);
   if (!loaded.has(version)) loaded.set(version, RUNTIMES[version]());
@@ -24,7 +27,7 @@ const SIGNALS = { auto: -1000, voice: 3001, music: 3002 };
 
 // Codes in roundTrip's info.frameLog, one per 20 ms frame (info.frameBytes
 // holds each frame's packet size; 0 when the gate held it back).
-export const FRAME = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6, speex: 7 };
+export const FRAME = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6, speex: 7, vr12: 8 };
 
 // RFC 6716 section 3.1: the TOC configuration number selects the coding mode.
 function packetMode(packet) {
@@ -572,6 +575,151 @@ export async function createSpeexStream(sampleRate) {
     get wrapped() { return codec.wrapped; },
     async restart() { codec.reset(); },
     encode(frame) { const packet = codec.encode(frame); return { bytes: packet.byteLength, mode: 'speex', dtx: false, packet }; },
+    decode(packet) { return codec.decode(packet); },
+    conceal() { return codec.lost(); },
+    free() { codec.free(); }
+  };
+}
+
+// vaudio_miles: not a TF2 codec. A codec of the Source engine family that
+// could be selected in the Source engines of 2006 and 2007; current TF2 ships
+// its files and refuses the name. Its codec is Voxware's VR12
+// (vendor/voxware-vr12, W3-20a) behind the module's wrapper: 360 samples in 12
+// bytes, each sample cut to its top 8 bits before the codec (the module does
+// that cut). Those engines capture, code, decode and play voice at 11025 Hz
+// for every codec and resample nothing, so VR12, an 8000 Hz codec, codes
+// 11025 Hz sound as if it were 8000 Hz: a frame lasts 32.65 ms and the wire
+// carries 2940 bit/s (read from those engines' files). Unverified: nothing of
+// a running engine with this codec has been recorded.
+export const VR12_RATE = 11025;
+// The encode and decode pair's delay, dropped as the other engine codecs'
+// is. VR12 is a vocoder, so the delay shows only in the envelope; measured
+// (W3-20b) on a steady voiced sound (harmonics 1/h at pitch P below 5 kHz,
+// RMS -12 dBFS, 0.36 s) switched on after zeros at sample 3600 + 15 k, k 0
+// to 23, for P 100, 140 and 190 Hz (72 runs, two codecs opened as below, no
+// gain): the lag from -200 to 1200 that best lines up the 55-sample RMS
+// envelopes of input and decoded sound. Median 304.5 (quartiles 274.75 and
+// 348, range 200 to 411), rounded: 305 samples, 27.66 ms. tests/miles.verify.mjs
+// measures it again.
+const VR12_DELAY = 305;
+
+// The two codec objects of the engines: the sender's encoder and the
+// receiver's channel, each with both halves (decision 2 of W3-20b). Opening is
+// the render's start, the key press and the channel's assignment: reset() on
+// each (the wrapper's reset: twice over, 360 zeros encoded and their 12 bytes
+// decoded, in that object) and a framer on each. reset() is a new talk spurt:
+// both objects reset and a new framer on each, never a new codec (a stand-in
+// for the receiver after a short pause: W3-20b, decision 3). A lost frame
+// plays as zeros and the receiver's codec is not called (the engines never
+// call it without data). `resets` counts the resets of each object.
+async function openVr12(sampleRate) {
+  if (sampleRate !== VR12_RATE) throw new RangeError(`vaudio_miles runs on ${VR12_RATE} Hz sound, not ${sampleRate}`);
+  const vr12 = await loadVr12();
+  const sender = await vr12.createCodec(), receiver = await vr12.createCodec();
+  const resets = { sender: 0, receiver: 0 };
+  let send, receive;
+  function reset() {
+    sender.reset(); resets.sender++;
+    receiver.reset(); resets.receiver++;
+    send = vr12.createFramer(sender);
+    receive = vr12.createFramer(receiver);
+  }
+  reset();
+  return {
+    frameSize: vr12.frameSize, packetBytes: vr12.packetBytes, version: vr12.version, lookahead: VR12_DELAY,
+    bitrate: Math.round(vr12.packetBytes * 8 * VR12_RATE / vr12.frameSize),
+    get resets() { return { ...resets }; },
+    reset,
+    // 16 bits as for vaudio_speex (speexInput); the 8-bit cut is the module's.
+    encode(frame) {
+      const packet = send.compress(speexInput(frame));
+      if (packet.length !== vr12.packetBytes) throw new Error(`Expected one ${vr12.packetBytes}-byte VR12 frame, not ${packet.length} bytes`);
+      return packet;
+    },
+    decode(packet) { return Float32Array.from(receive.decompress(packet), q => q / 32768); },
+    lost() { return new Float32Array(vr12.frameSize); },
+    free() { sender.free(); receiver.free(); }
+  };
+}
+
+// The same gate, loss and delay handling as speexRoundTrip, on 11025 Hz
+// sound. Coded frames are logged as FRAME.vr12 and counted in modes.vr12.
+// `head` as for celtRoundTrip: the decoded stream's first 305 samples.
+export async function vr12RoundTrip(samples, sampleRate, options = {}) {
+  const codec = await openVr12(sampleRate);
+  try {
+    const { frameSize, lookahead } = codec;
+    const frames = Math.ceil((samples.length + lookahead) / frameSize);
+    const lossMask = options.makeLossMask ? options.makeLossMask(frames) : null;
+    const output = new Float32Array(samples.length), head = new Float32Array(lookahead);
+    const input = new Float32Array(frameSize);
+    const gate = options.gate ? {
+      threshold: 10 ** (Number(options.gate.thresholdDb) / 20),
+      preroll: Math.max(0, Math.round(Number(options.gate.prerollFrames) || 0)),
+      hold: Math.max(0, Math.round(Number(options.gate.holdFrames) || 0))
+    } : null;
+    const plan = gate ? gatePlan(samples, frames, frameSize, gate) : null;
+    const frameLog = new Uint8Array(frames), frameBytes = new Uint16Array(frames);
+    let encodedBytes = 0, lostFrames = 0, underrunFrames = 0, gatedFrames = 0, spurts = 0, coded = 0, open = false;
+    for (let f = 0; f < frames; f++) {
+      if (plan && !plan[f]) { gatedFrames++; open = false; continue; }
+      if (!open) { if (spurts > 0) codec.reset(); spurts++; open = true; }
+      input.fill(0);
+      const start = f * frameSize;
+      if (start < samples.length) input.set(samples.subarray(start, Math.min(samples.length, start + frameSize)));
+      const packet = codec.encode(input);
+      encodedBytes += packet.byteLength;
+      frameBytes[f] = packet.byteLength;
+      frameLog[f] = FRAME.vr12;
+      coded++;
+      options.onPacket?.(f, packet);
+      const miss = lossMask ? lossMask[f] : 0;
+      if (miss === 1) { lostFrames++; frameLog[f] = FRAME.lost; }
+      else if (miss === 2) { underrunFrames++; frameLog[f] = FRAME.late; }
+      if (miss !== 2) {
+        const decoded = miss === 1 ? codec.lost() : codec.decode(packet);
+        if (start < lookahead) head.set(decoded.subarray(0, Math.min(frameSize, lookahead - start)), start);
+        const destStart = start - lookahead;
+        const begin = Math.max(0, -destStart), end = Math.min(frameSize, samples.length - destStart);
+        if (end > begin) output.set(decoded.subarray(begin, end), destStart + begin);
+      }
+      if ((f & 31) === 31) {
+        options.onProgress?.((f + 1) / frames);
+        if (options.yieldControl) await options.yieldControl();
+      }
+    }
+    options.onProgress?.(1);
+    return { samples: output, head, info: { ...vr12Info(codec, sampleRate),
+      lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts,
+      gate: gate ? Number(options.gate.thresholdDb) : null,
+      prerollFrames: gate ? gate.preroll : 0, holdFrames: gate ? gate.hold : 0,
+      encodedBytes, modes: { silk: 0, hybrid: 0, celt: 0, vr12: coded }, plc: 'zeros', resets: codec.resets, frameLog, frameBytes } };
+  } finally {
+    codec.free();
+  }
+}
+
+// The codec's settings as vr12RoundTrip reports them (codecResultInfo in
+// audio.js gives the same for TF2Audio.createRender).
+function vr12Info(voice, sampleRate) {
+  return { backend: 'vr12', version: voice.version, runtime: 'voxware-vr12', sampleRate,
+    bitrate: voice.bitrate, application: 'vr12', signal: 'auto',
+    vbr: false, dtx: false, frameSamples: voice.frameSize, frameMs: 1000 * voice.frameSize / sampleRate,
+    packetBytes: voice.packetBytes };
+}
+
+// One VR12 frame at a time with vr12RoundTrip's settings, for the live
+// monitor and TF2Audio.createRender; the same interface as
+// createSpeexStream. restart() resets both codec objects (above), never a new
+// codec; conceal() is a lost frame, zeros, with the receiver not called.
+export async function createVr12Stream(sampleRate) {
+  const codec = await openVr12(sampleRate);
+  return {
+    frameSize: codec.frameSize, version: codec.version, lookahead: codec.lookahead, bitrate: codec.bitrate,
+    packetBytes: codec.packetBytes,
+    get resets() { return codec.resets; },
+    async restart() { codec.reset(); },
+    encode(frame) { const packet = codec.encode(frame); return { bytes: packet.byteLength, mode: 'vr12', dtx: false, packet }; },
     decode(packet) { return codec.decode(packet); },
     conceal() { return codec.lost(); },
     free() { codec.free(); }

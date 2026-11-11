@@ -1373,19 +1373,22 @@ async function main() {
   console.log('\n[5] Real codec modes per profile');
   {
     const src = musicLike(1, SR, 3);
-    const expect = { steam: ['hybrid', 32000], steam_48: ['hybrid', 64000], celt_22: ['celt', 22050], celt_44: ['celt', 22050], speex: ['speex', 11025] };
+    const expect = { steam: ['hybrid', 32000], steam_48: ['hybrid', 64000], celt_22: ['celt', 22050], celt_44: ['celt', 22050], speex: ['speex', 11025],
+      miles: ['vr12', 2940] };
     for (const [codec, [mode, bitrate]] of Object.entries(expect)) {
       const r = await TF2Audio.process(mkBuffer(src, SR), { codec });
       const m = r.codecInfo.modes;
       const total = Object.values(m).reduce((sum, n) => sum + n, 0);
       // The engine codecs run their own libraries in fixed-size packets: CELT
-      // 0.11, and Speex 1.0.2, whose frames have a mode of their own. The
-      // Steam profiles run the libopus release Steam's packets match.
-      const engine = codec.startsWith('celt') ? 'celt' : codec === 'speex' ? 'speex' : 'libopus';
-      const name = { celt: 'CELT 0.11', speex: 'Speex 1.0.2', libopus: `libopus runs in ${mode} mode` }[engine];
+      // 0.11, and Speex 1.0.2 and VR12 (vaudio_miles, not a TF2 codec), whose
+      // frames have a mode of their own. The Steam profiles run the libopus
+      // release Steam's packets match.
+      const engine = codec.startsWith('celt') ? 'celt' : codec === 'speex' ? 'speex' : codec === 'miles' ? 'vr12' : 'libopus';
+      const name = { celt: 'CELT 0.11', speex: 'Speex 1.0.2', vr12: 'Voxware VR12', libopus: `libopus runs in ${mode} mode` }[engine];
       check(`${codec}: ${name} at ${bitrate / 1000} kbps`,
         r.codecInfo.backend === engine && r.codecInfo.bitrate === bitrate && m[mode] / total > 0.8, JSON.stringify(m));
-      const release = { celt: 'CELT 0.11 (celt-0.11.0, pitch filter in)', speex: 'Speex 1.0.2', libopus: 'libopus 1.1.5' }[engine];
+      const release = { celt: 'CELT 0.11 (celt-0.11.0, pitch filter in)', speex: 'Speex 1.0.2', vr12: 'Voxware VR12 (voxware-vr12 eedf465)',
+        libopus: 'libopus 1.1.5' }[engine];
       check(`${codec}: encodes and decodes with ${release}`, r.codecInfo.version === release, r.codecInfo.version);
       // The game's module never sets the complexity, so the library's
       // default, 5, applies (W3-03); vaudio_celt_high's mode is the 44100 Hz
@@ -1651,6 +1654,8 @@ async function main() {
     tiny[0] = 0.5;
     const tinyResult = await TF2Audio.process(mkBuffer(tiny, 22050), { codec: 'speex' });
     check('very short buffers render safely', tinyResult.samples.length > 0 && !hasBadValues(tinyResult.samples));
+    const tinyMiles = await TF2Audio.process(mkBuffer(tiny, 22050), { codec: 'miles' });
+    check('very short buffers render safely with miles too', tinyMiles.samples.length === tinyResult.samples.length && !hasBadValues(tinyMiles.samples));
 
     // An empty source through a room is the room's silent tail, whatever the
     // profile. resampleLinear (the legacy profiles' mixer until W3-10, a plain
@@ -1658,7 +1663,7 @@ async function main() {
     // which the room carried past the output's cut.
     check('resampleLinear: an empty input gives an empty output', TF2Audio.resampleLinear(new Float32Array(0), 22050, 44100).length === 0);
     const emptyRooms = [];
-    for (const codec of ['steam', 'steam_48', 'celt_22', 'celt_44', 'speex']) {
+    for (const codec of ['steam', 'steam_48', 'celt_22', 'celt_44', 'speex', 'miles']) {
       try {
         const r = await TF2Audio.process(mkBuffer(new Float32Array(0), SR), { codec, dspRoom: 6 });
         emptyRooms.push(r.samples.length > 0 && r.samples.every(v => v === 0) ? r.samples.length : `${codec}: not silent`);

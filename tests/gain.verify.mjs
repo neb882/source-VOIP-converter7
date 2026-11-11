@@ -448,10 +448,30 @@ console.log('\n[4b] The engine codecs: the gain runs on the decoder\'s stream fr
   };
   const same = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.byteLength), Buffer.from(b.buffer, b.byteOffset, b.byteLength)) === 0;
   const settings = { avgGain: 0.5, maxGain: 10, scale: 1 };
+  // `miles` (W3-20b; vaudio_miles, not a TF2 codec): the vendored module
+  // driven here, not opus-codec.mjs: a sender's and a receiver's codec, each
+  // reset at the start and at a restart, a framer on each, the float sound
+  // made 16 bits by rounding to nearest, ties to even, clamped; its delay is
+  // the profile's measured 305 samples (tests/miles.verify.mjs measures it).
+  const VR12 = await import(new URL('vendor/voxware-vr12/index.mjs', root).href);
+  const q16 = (x) => Int16Array.from(x, (v) => {
+    const y = v * 32768, lo = Math.floor(y), d = y - lo;
+    return Math.max(-32768, Math.min(32767, d > 0.5 ? lo + 1 : d < 0.5 ? lo : lo + (lo & 1)));
+  });
+  async function milesCodec() {
+    const sender = await VR12.createCodec(), receiver = await VR12.createCodec();
+    let send, receive;
+    const reset = () => { sender.reset(); receiver.reset(); send = VR12.createFramer(sender); receive = VR12.createFramer(receiver); };
+    reset();
+    return { frameSize: 360, lookahead: 305, async restart() { reset(); },
+      encode: (frame) => ({ packet: send.compress(q16(frame)) }),
+      decode: (packet) => Float32Array.from(receive.decompress(packet), v => v / 32768),
+      free() { sender.free(); receiver.free(); } };
+  }
   const openCodec = (p) => (p.engine === 'celt011'
     ? TF2Opus.createCeltStream(p.codecRate, { frameSize: p.frameSize, complexity: p.complexity, packetBytes: p.packetBytes,
       ...(p.modeRate != null ? { modeRate: p.modeRate } : {}) })
-    : TF2Opus.createSpeexStream(p.codecRate));
+    : p.engine === 'vr12' ? milesCodec() : TF2Opus.createSpeexStream(p.codecRate));
   // The decoder's whole stream for capture signal c at the codec rate: every
   // frame of c (zero-padded to cover c and the delay) encoded and decoded;
   // with `log`, a frame logged 0 is not sent (zeros, the codec restarted at
@@ -485,7 +505,7 @@ console.log('\n[4b] The engine codecs: the gain runs on the decoder\'s stream fr
   }
 
   const x = talk(false);
-  for (const key of ['celt_22', 'celt_44', 'speex']) {
+  for (const key of ['celt_22', 'celt_44', 'speex', 'miles']) {
     const p = CODEC_PROFILES[key], opts = { codec: key, volume: 1 };
     let gained = null;
     const r = await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => x }, { ...opts, onGain: (g) => { gained = Float32Array.from(g); } });
@@ -520,20 +540,22 @@ console.log('\n[4b] The engine codecs: the gain runs on the decoder\'s stream fr
   {
     let s3 = 2026;
     const loud = Float32Array.from({ length: rate / 2 }, () => 0.9 * (((s3 = (Math.imul(s3, 1664525) + 1013904223) >>> 0) / 4294967296) * 2 - 1));
-    for (const key of ['celt_22', 'celt_44', 'speex']) {
+    for (const key of ['celt_22', 'celt_44', 'speex', 'miles']) {
       const p = CODEC_PROFILES[key];
       const c = A.resampleSinc(A.hardClip(loud, 32767 / 32768), rate, p.codecRate);
       const { stream, lookahead } = await decoderStream(p, c);
       const trip = p.engine === 'celt011'
         ? await TF2Opus.celtRoundTrip(c, p.codecRate, { frameSize: p.frameSize, complexity: p.complexity, packetBytes: p.packetBytes,
           ...(p.modeRate != null ? { modeRate: p.modeRate } : {}) })
-        : await TF2Opus.speexRoundTrip(c, p.codecRate);
+        : p.engine === 'vr12' ? await TF2Opus.vr12RoundTrip(c, p.codecRate) : await TF2Opus.speexRoundTrip(c, p.codecRate);
       const first = stream.subarray(0, lookahead), peak = first.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+      // A reset VR12 receiver gives sound from its first frame: its first 305
+      // samples are not all zeros.
       check(`${key}: the round trip's head is the decoder's first ${lookahead} samples, on noise at 0.9 from sample 0`
-        + (p.engine === 'celt011' ? ' (they are not all zeros)' : ' (zeros: a reset Speex decoder starts with 80)'),
+        + (p.engine === 'speex' ? ' (zeros: a reset Speex decoder starts with 80)' : ' (they are not all zeros)'),
         trip.head.length === lookahead && same(trip.head, first) && same(trip.samples, stream.slice(lookahead, lookahead + c.length))
-        && (p.engine === 'celt011' ? peak > 0.01 : peak === 0), `the first ${lookahead} decoded samples peak at ${peak.toFixed(4)}`);
-      if (p.engine !== 'celt011') continue;
+        && (p.engine === 'speex' ? peak === 0 : peak > 0.01), `the first ${lookahead} decoded samples peak at ${peak.toFixed(4)}`);
+      if (p.engine === 'speex') continue;
       let gained = null;
       await A.process({ sampleRate: rate, length: loud.length, numberOfChannels: 1, getChannelData: () => loud }, { codec: key, volume: 1, onGain: (g) => { gained = Float32Array.from(g); } });
       const want = A.receiverAutoGain(stream, settings).slice(lookahead, lookahead + c.length);
@@ -557,7 +579,7 @@ console.log('\n[4b] The engine codecs: the gain runs on the decoder\'s stream fr
       xg[i] = t % 1.5 < 0.4 ? 0.9 * (rnd() * 2 - 1) : t % 1.5 < 0.5 ? floor * (rnd() * 2 - 1) : 0;
     }
   }
-  for (const key of ['celt_22', 'speex']) {
+  for (const key of ['celt_22', 'speex', 'miles']) {
     const p = CODEC_PROFILES[key], opts = { codec: key, gate: true, gateThresholdDb: -12, volume: 1 };
     let gained = null;
     const r = await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => xg }, { ...opts, onGain: (g) => { gained = Float32Array.from(g); } });
@@ -631,6 +653,13 @@ console.log('\n[4b] The engine codecs: the gain runs on the decoder\'s stream fr
     const { stream, lookahead } = await decoderStream(p, c);
     const want = A.hardClip(stream.slice(lookahead, lookahead + c.length), 32767 / 32768);
     check('celt_22, auto-gain off: the gain\'s place holds the decoder\'s stream with the delay dropped, clipped', same(gained, want));
+    let milesGained = null;
+    await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => x }, { codec: 'miles', agc: false, onGain: (g) => { milesGained = Float32Array.from(g); } });
+    const m = CODEC_PROFILES.miles, cm = A.resampleSinc(A.hardClip(x, 32767 / 32768), rate, m.codecRate);
+    const dm = await decoderStream(m, cm);
+    const wantMiles = A.hardClip(dm.stream.slice(dm.lookahead, dm.lookahead + cm.length), 32767 / 32768);
+    check('miles, auto-gain off: the gain\'s place holds the decoder\'s stream with the 305-sample delay dropped, clipped', same(milesGained, wantMiles),
+      `${differing(toInts(milesGained), toInts(wantMiles))} of ${wantMiles.length} differ`);
   }
 }
 
