@@ -257,6 +257,18 @@ add('steam, gate off, loss 80%, seed 1 (long runs lost inside a spurt)', 48000, 
 add('steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)', 48000, noise(4, 3), { gate: false, lossPct: 40, seed: 3 }, ['960', '7']);
 add('celt_22, one sample at 22.05 kHz', 22050, () => Float32Array.of(0.25), { codec: 'celt_22' }, ['whole']);
 add('speex, 100 samples at 96 kHz', 96000, () => voice(0, 96000, 8, 100), { codec: 'speex' }, ['7']);
+// Added for W3-19 (the engine codecs' gain on the decoder's own samples) and
+// recorded before it, by the code it changes: renders of the three engine
+// profiles that it must not move. At voice_maxgain 1 the gain is 1
+// everywhere, so where its blocks fall changes nothing; with the auto-gain
+// off the gain does not run.
+for (const [name, opts, plan] of [
+  ['celt_22, voice_maxgain 1', { codec: 'celt_22', maxGain: 1 }, '960'],
+  ['celt_44, voice_maxgain 1, gate on', { codec: 'celt_44', maxGain: 1, gate: true }, 'uneven'],
+  ['speex, voice_maxgain 1, gate on, loss 15%', { codec: 'speex', maxGain: 1, gate: true, lossPct: 15 }, 'uneven'],
+  ['celt_22, auto-gain off', { codec: 'celt_22', agc: false }, '12345'],
+  ['speex, auto-gain off', { codec: 'speex', agc: false }, 'uneven']
+]) add(name, 48000, () => voice(8, 48000, 12), opts, [plan]);
 // Added in the review's fix round. Output lengths that are not whole
 // numbers (n x playbackRate / srcRate), so process()'s rounding of the
 // output length and the stream's cut or padding of its end are both seen: at
@@ -403,6 +415,9 @@ addRoom('steam, dsp_room 137 (no room)', { listenerPos: null, dspRoom: 137 }, nu
 // frames and the same count of wrapped samples), nor did any hash of
 // 'speex, 100 samples at 96 kHz', whose one frame decodes the same. No hash
 // of a case that does not run Speex moved.
+// W3-19 added five cases of the engine codecs whose renders it must not move
+// (voice_maxgain 1 on each profile, the auto-gain off on two), recorded by
+// the audio.js it changes (main at W3-18's merge), in a commit of their own.
 const GOLDEN = {
   "steam": ["bb7ef37d9d65f1c03672fe6bb14933036cc8d8174847fd4e4c3e9671a98f4a61", "4992fbdbd3efbe23ae9c2640825202a57429755fdc7d331ea4f37e210a9d91b9"],
   "steam_48": ["cb106e3f224599e2a7d6bb5d8b3cea9092d99c91a8d9b736f5248d80a819e483", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
@@ -447,6 +462,11 @@ const GOLDEN = {
   "steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)": ["7285017eb9d4dca883bedfd0d4de8a1742e9a9e777ca61295f7ffcf8acabbfea", "6b8a3789a23f3a9878275888868146062fab39c7c8b8f159811b2d23b61d9328"],
   "celt_22, one sample at 22.05 kHz": ["d16bcaf5ffe07bcf982a161469d1dc9aff4f5d3c606ec408c0071893e6c34ad9", "eb96641cf9ac28d1e20117dcbb88da71d51d3cc4d94394ed8db507c1ad29ce32"],
   "speex, 100 samples at 96 kHz": ["5eae3af6f9b58664dfbd497083689b6ee2555d4b8db3087da2ccd95d660ebc98", "e66f178a6e1b38a504c0806750fd7df1cd70281e04f3656c26a4ecf98f8974da"],
+  "celt_22, voice_maxgain 1": ["2c669b8273e98667d984c2664c1e0b9a8c62b68d11a2bda46d57da0e11402839", "9b67647157556b164aa32ad69d116915e881ce1d41cd76a6c832559d126710a2"],
+  "celt_44, voice_maxgain 1, gate on": ["9baf28ced1a421d8eb930dccdbb657b7166a9f4fe347ee2d05485ca0e4c824b5", "69bfabe6d693e11d1f24a18e54c8f859d2b037a178a006d682da00e26970271c"],
+  "speex, voice_maxgain 1, gate on, loss 15%": ["caea3afdfcf22a35a9ef1c5ad4901fa03c7e2c12f2955b5267b0d9e9a684e720", "8ad2ba901507b7bb789da1640bd75ae31030abbf43acc287d53565bf6e5071d6"],
+  "celt_22, auto-gain off": ["2c669b8273e98667d984c2664c1e0b9a8c62b68d11a2bda46d57da0e11402839", "75e87f1ae98592ac715d9df84f113f03a394b0dd3bc2db6395e248e74270d7f0"],
+  "speex, auto-gain off": ["464708d2ee000726b7a8c6207213a4c58ae5e1baff4f6c38204353581a303942", "e09f64118c40ee075f889a916162de4334a3bca400233fcda302dc646d1c56a1"],
   "steam, 192004 samples at 24000 Hz (an output length of 352807.35)": ["f0a8821f065aaaed88a257a6626e966d1d1c75c9c7a528749f9818c537bf91ce", "4ff570d0b80d42531e0ee8c80450d73c6e9c5f13bade05fad73715c704711405"],
   "steam, 256007 samples at 32000 Hz (an output length of 352809.65)": ["246207f8891188114c92855cc66d3e9bd771475bfe8cf342d54b11ca0c6255a2", "924b7ab9c414cd20107b2422a3f5f5867c6bd5ddb93efbbed4797ba8fafed15d"],
   "steam, 302401 samples at 37800 Hz (an output length of 352801.17)": ["558c0e3b035fe5aeedf9c87b1e124edd60423d7fd21b811b0a8a1c525d420774", "28af3a677cef1f5f3b3919770a5285c604983d096c638794b28d6d46d450c3de"],
@@ -522,6 +542,11 @@ const GAIN_GOLDEN = {
   "steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)": "2d23678c8e2f9ddcbb2f40622353a822784ee86b70d82cf251c37a85f8eab237",
   "celt_22, one sample at 22.05 kHz": "7ec2225478271c68195bba12ee36ff65c7e706f0886d0b05a86e8b2d18d7bebb",
   "speex, 100 samples at 96 kHz": "eae3fbcabcc943196634b7c1dfd48940c62e91f2c42abe4725845d49739891b7",
+  "celt_22, voice_maxgain 1": "244966c198753c4fe6b309120edd95d5deb36fde2378a9cece96cec73b25f80a",
+  "celt_44, voice_maxgain 1, gate on": "cec5e196b950aec7b5e62b4caee0f55d6d738149ccacd564ea002f5fe57cea8b",
+  "speex, voice_maxgain 1, gate on, loss 15%": "3172a6c4e7475272a4e497f0cdbfe1b7a23ad570328e4082788b77c7e1932d7f",
+  "celt_22, auto-gain off": "244966c198753c4fe6b309120edd95d5deb36fde2378a9cece96cec73b25f80a",
+  "speex, auto-gain off": "f7371400ffd34ddb2e312029cc7bf37b5d224273ffcaec4bedcd2b7b815ecfe6",
   "steam, 192004 samples at 24000 Hz (an output length of 352807.35)": "a82b7c82a2715817377f21d35c03ecb152e2c082f9ad51aa281c4ce5cae3ff00",
   "steam, 256007 samples at 32000 Hz (an output length of 352809.65)": "24ea514ae6b60a115046b478043e144b0ee8d09bafcccccc3410602388b6d9b9",
   "steam, 302401 samples at 37800 Hz (an output length of 352801.17)": "a73c7d15d47d6d0b9a85b8fa2919ee11b74f2ade5306e9fa2dda588eead2b9a7",
