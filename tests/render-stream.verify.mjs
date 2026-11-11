@@ -391,6 +391,9 @@ addRoom('steam, dsp_room 137 (no room)', { listenerPos: null, dspRoom: 137 }, nu
 // them passed (the room by hand, section 1b; the stream at their plans;
 // dsp_room 137 equal to the same render with no room), in a commit of
 // their own.
+// Its review's fix round added two room cases (a seed of 7 on preset 17, and
+// preset 6 on a 96000 Hz device), recorded once the same way in a commit of
+// their own; no hash moved.
 const GOLDEN = {
   "steam": ["bb7ef37d9d65f1c03672fe6bb14933036cc8d8174847fd4e4c3e9671a98f4a61", "4992fbdbd3efbe23ae9c2640825202a57429755fdc7d331ea4f37e210a9d91b9"],
   "steam_48": ["cb106e3f224599e2a7d6bb5d8b3cea9092d99c91a8d9b736f5248d80a819e483", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
@@ -452,7 +455,9 @@ const GOLDEN = {
   "steam, custom room at mix 0.3": ["8ccb91c1b00552e1e54a1589352ad3f32bfd4816434d541bc7350e4021ce40e6", "52f7534ca0384adb740332bebc6fd32075d105edf70ae2594338a5b2be3c03f9"],
   "celt_22, room: preset 6": ["98c7c5c19aa090bfc3e8ba6a1d46b66c760e0c0d013fb4c18e6e08f7d3c45e81", "ba4e531902cc0467c08d674a260cbcb33e010d08dc767681527122be8ce2beda"],
   "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": ["89e7f2aa412e3f76d75a72a66ff925ebdabedeaaaf5204f3d0fa3a103960e6a4", "e8548e537b8e8ecfa9961e2f74641ad0e183c490e6625131102814dfeadb226e"],
-  "steam, dsp_room 137 (no room)": ["61a61407a1d1b2032c85e5785b89f2daa0c22ee27b8af86085a0d4c986e0e1a2", "88cd058f344eb3262b96729a0ecd4ff2d348b0ae695d8379e2aec6fd27f510d4"]
+  "steam, dsp_room 137 (no room)": ["61a61407a1d1b2032c85e5785b89f2daa0c22ee27b8af86085a0d4c986e0e1a2", "88cd058f344eb3262b96729a0ecd4ff2d348b0ae695d8379e2aec6fd27f510d4"],
+  "steam, room: preset 17 (random taps), seed 7": ["ce6aed2c10bfc0c18e3ac626174353f785ca600ede9aac6d9f0f68077c136380", "d01e1ea35b43811bcea1b61353455f274447cfda4a8a847d086fa6128031787f"],
+  "steam, room: preset 6, device at 96000 Hz": ["a66810f6d38fb4d76e5a0d29bab11d724f69de2ecc400b55098fff83503f49ff", "63114f6dded29e20fb038b1487f01e44380e2ea54d25df0416a4ed044866e5f0"]
 };
 
 // The control of W3-10 (docs/work-orders/W3-10-output-stage.md, "Golden
@@ -525,7 +530,9 @@ const GAIN_GOLDEN = {
   "steam, custom room at mix 0.3": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
   "celt_22, room: preset 6": "86e017ee4606ac029bcc72961234c3c3049b8014c31c4302ffcffaac8c9da824",
   "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": "6047d5510bcbbd3a88aa34724f1b4e5f8b0a9d04b39ed45a41b1295f79a01964",
-  "steam, dsp_room 137 (no room)": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e"
+  "steam, dsp_room 137 (no room)": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, room: preset 17 (random taps), seed 7": "d2c879b48361cc52063316945ef899b35a69f6bcee4d146ae782eacdc73e83a8",
+  "steam, room: preset 6, device at 96000 Hz": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e"
 };
 
 /* ---------------- helpers ---------------- */
