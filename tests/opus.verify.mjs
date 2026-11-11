@@ -394,7 +394,8 @@ check('Invalid PCM is rejected before encoding', true);
 // Steam's decoder rules (W3-09 section 4, finding 29), on the decoder alone:
 // a gap is concealed when the next frame arrives, at most 10 frames of it; a
 // sequence number behind resets without concealing; the end marker resets;
-// the render's lost() counts toward the next gap and late() is no gap.
+// a lost frame is one the decoder never sees (the gap is counted from the
+// numbers) and the render's late() is no gap.
 {
   const { createEncoder: enc11, createDecoder: dec11 } = await import('../vendor/libopus-1.1/index.mjs');
   const enc = await enc11({ sampleRate: 24000, channels: 1, frameSize: 480, application: 2048, signal: 3001, bitrate: 32000, complexity: 9, vbr: true, dtx: true, fec: false });
@@ -409,12 +410,10 @@ check('Invalid PCM is rejected before encoding', true);
   counts.push((await d.receive(21, packets[21])).length);         // 15 lost: 10 concealed
   const behind = await d.receive(7, packets[7]);                  // behind: reset, nothing concealed
   counts.push(behind.length);
-  d.lost(8); d.lost(9);
-  counts.push((await d.receive(10, packets[10])).length);         // lost() twice: 2 concealed
+  counts.push((await d.receive(10, packets[10])).length);         // 8 and 9 lost: 2 concealed
   const late = d.late(11);
   counts.push((await d.receive(12, packets[12])).length);         // late() is no gap
-  d.lost(13);
-  const lateAfterLost = d.late(14);
+  const lateAfterLost = d.late(14);                               // 13 lost, 14 late
   counts.push((await d.receive(15, packets[15])).length);         // the lost frame before the late one is still concealed
   await d.end();
   const afterEnd = await d.receive(0, packets[30]);
@@ -422,6 +421,38 @@ check('Invalid PCM is rejected before encoding', true);
   check(`Steam's decoder: a gap concealed at the next frame, at most 10; behind resets; lost and late frames (blocks ${counts.join(' ')})`,
     counts.join() === '1,1,4,11,1,3,1,2' && sameBlock(behind[0], await fresh(packets[7])) && late.length === 480 && late.every(v => v === 0)
     && lateAfterLost.every(v => v === 0) && sameBlock(afterEnd[0], await fresh(packets[30])));
+}
+// carry() (BC-1, rule C): a spurt whose end marker was lost starts its numbers
+// at 0 again on the same decoder, which keeps its state and its expected
+// number. A first frame below it resets and conceals nothing; one above it
+// conceals the gap from the old state, a late frame at or above the expected
+// number taken off the gap and one below it not.
+{
+  const { createEncoder: enc11, createDecoder: dec11 } = await import('../vendor/libopus-1.1/index.mjs');
+  const enc = await enc11({ sampleRate: 24000, channels: 1, frameSize: 480, application: 2048, signal: 3001, bitrate: 32000, complexity: 9, vbr: true, dtx: true, fec: false });
+  const packets = Array.from({ length: 20 }, (_, f) => enc.encodeFloat(x.subarray(f * 480, (f + 1) * 480)));
+  enc.free();
+  const sameBlock = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  const one = await dec11({ sampleRate: 24000, channels: 1 }), want = [];
+  for (let f = 0; f < 8; f++) one.decodeInt16(packets[f], { frameSize: 480 });
+  for (let c = 0; c < 2; c++) want.push(one.decodePacketLossInt16(480));
+  want.push(one.decodeInt16(packets[12], { frameSize: 480 }));
+  one.free();
+  const d = await opus.createSteamDecoder();
+  for (let f = 0; f < 8; f++) await d.receive(f, packets[f]);
+  d.carry();
+  d.late(3); d.late(9);
+  const above = await d.receive(11, packets[12]);                 // 11 - 8, less the late 9: 2 concealed
+  d.free();
+  const b = await opus.createSteamDecoder();
+  for (let f = 0; f < 8; f++) await b.receive(f, packets[f]);
+  b.carry();
+  const below = await b.receive(5, packets[12]);
+  b.free();
+  const fresh = await dec11({ sampleRate: 24000, channels: 1 }), reset = fresh.decodeInt16(packets[12], { frameSize: 480 });
+  fresh.free();
+  check(`Steam's decoder, carry(): the next spurt's first frame above the old expected number conceals the gap from the old state (blocks ${above.length}); below it, a reset (blocks ${below.length})`,
+    above.length === 3 && above.every((blk, i) => sameBlock(blk, want[i])) && below.length === 1 && sameBlock(below[0], reset));
 }
 // Sequence numbers are 16 bits, as the packets carry them (W3-16 section 3):
 // after 65535 comes 0, with no reset and nothing concealed. The numbers are
@@ -446,8 +477,7 @@ check('Invalid PCM is rejected before encoding', true);
   d.free();
   const lossy = await opus.createSteamDecoder();
   for (let i = 0; i < 5; i++) await lossy.receive(65530 + i, packets[i]);
-  lossy.lost(65535);
-  const afterLoss = await lossy.receive(0, packets[6]);
+  const afterLoss = await lossy.receive(0, packets[6]);           // 65535 lost
   lossy.free();
   const fresh = await dec11({ sampleRate: 24000, channels: 1 }), reset = fresh.decodeInt16(packets[6], { frameSize: 480 });
   fresh.free();

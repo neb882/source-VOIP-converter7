@@ -314,9 +314,9 @@ const cvars = {
   'dsp_hpf':         { help: 'Optional sender high-pass cutoff (0 = off)', link: 'hp' },
   'dsp_lpf':         { help: 'Optional sender low-pass cutoff (20000 = off)', link: 'lp' },
   'snd_bits':        { help: 'Codec bitrate scale (16 = profile bitrate; vaudio_speex has one bitrate and ignores it)', link: 'bits' },
-  'net_fakeloss':    { help: 'Voice frames lost %, in bursts of ~2.2 frames, concealed by the codec (vaudio_speex: played as zeros) (TF2 net_fakeloss 5/10/15 on a listen server lost ~22/45/64%)', link: 'loss' },
+  'net_fakeloss':    { help: 'Voice packets lost %. Steam\'s codec: each voice message (one packet: 1 to 5 frames of 20 ms, more at a phrase\'s start) is lost whole, by its own draw; the decoder fills up to 10 frames when the next message comes, and the game drops a message that comes to more than 12. The other codecs: still single frames in bursts of ~2.2. Not TF2\'s own number: by the game\'s rule its net_fakeloss 5/10/15 on a listen server lose about 22/37/50% of packets (recordings agree at 5 and 15; 10 was recorded only with lag and jitter, where the rule gives too little silence)', link: 'loss' },
   'net_fakejitter':  { help: 'Network jitter in ms: late voice frames, 3.2% at 50 ms, one in ten played as silence', link: 'jitter' },
-  'net_split':       { help: 'Codec frames per packet, in steps of 20 ms: 20 is one frame, 40 two (a frame is 20 ms for Opus, 23.2 or 46.4 ms for CELT, 14.5 ms for Speex)', link: 'frameMs' },
+  'net_split':       { help: 'Codec frames per packet, in steps of 20 ms: 20 is one frame, 40 two (a frame is 20 ms for Opus, 23.2 or 46.4 ms for CELT, 14.5 ms for Speex); on Steam\'s codec a packet is the sender\'s message, and this does not set what a lost packet holds', link: 'frameMs' },
   'snd_codec':       { help: 'Run the codec (0 = bypass; filters and receiver remain)', link: 'warble_on' },
   'sv_voicecodec':   {
     help: 'Voice codec (celt_22 / celt_44 / steam / steam_48 / speex)',
