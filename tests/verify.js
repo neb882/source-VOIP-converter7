@@ -1099,8 +1099,12 @@ async function liveSteamSection() {
     let peak = -3;
     for (let d = -3; d <= 3; d++) if (correlate(d).r > correlate(peak).r) peak = d;
     const { r, levelDb } = correlate(peak);
-    check('contentDelay is the index shift: the live output against a render of the same audio peaks there (the output FIR\'s one sample at 44.1 kHz), at the same level',
-      peak === d0 && d0 === Math.round(SR / 44100) && r > 0.999 && Math.abs(levelDb) < 0.01, `peak at ${peak}, contentDelay ${d0}, r ${r.toFixed(5)}, ${levelDb.toFixed(4)} dB`);
+    // W3-10: 0 at any context rate from 44.1 kHz up. Nothing after the mix
+    // point shifts the output: the entry and mixOut have no memory, the voice
+    // is not upsampled and the device stage starts at phase 0. (Until W3-10
+    // the output FIR, run causally, made it round(rate / 44100) = 1.)
+    check('contentDelay is the index shift: the live output against a render of the same audio peaks there (0: nothing after the mix point shifts it), at the same level',
+      peak === d0 && d0 === 0 && r > 0.999 && Math.abs(levelDb) < 0.01, `peak at ${peak}, contentDelay ${d0}, r ${r.toFixed(5)}, ${levelDb.toFixed(4)} dB`);
     // What the chain holds back shows in how much shorter its output is: the
     // hold-back less Steam's resampler's 16 inputs, which lie inside the laid
     // packets (a render has them too), within the rounding of the bound.
@@ -1109,6 +1113,23 @@ async function liveSteamSection() {
     check('latencyMs less contentDelay is the hold-back: the output is shorter than the input by it, less Steam\'s resampler\'s 16 inputs',
       Math.abs(holdMs - swrMs - shortMs) < 0.15 && holdMs > 1000 * (fullReach + ren.info.lookahead) / S.rate,
       `hold-back ${holdMs.toFixed(3)} ms; the output ${shortMs.toFixed(3)} ms short`);
+    // latencyMs pinned from its terms (the check above allows 0.15 ms): the
+    // context's sinc resampler to 24 kHz (16 zero crossings a side, so
+    // 16 x max(up, down) / up inputs at the context's rate: 16 at 24 kHz
+    // from 48 and from 44.1 kHz), the capture roll-off's dropped delay, the
+    // reach, the encoder's lookahead, Steam's resampler's 16 inputs, and the
+    // device stage's wait for the next mix sample: one 44100 Hz sample above
+    // 44.1 kHz, none at 44.1 kHz (W3-10). Dropping that wait (0.023 ms) or
+    // keeping the old sinc resampler's to 48 kHz fails it.
+    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+    const sincWait = (from, to) => { const g = gcd(from, to), up = to / g, down = from / g; return 16 * Math.max(up, down) / up / from; };
+    const wantMs = (rate) => 1000 * (sincWait(rate, S.rate) + (eqDelay + fullReach + ren.info.lookahead + 16) / S.rate + (rate > VR ? 1 / VR : 0));
+    const c44 = await TF2Audio.createLiveChain({ codec: 'steam', volume: 1 }, 44100), lat44 = c44.stats.latencyMs;
+    c44.free();
+    const lat48 = live.stats.latencyMs;
+    check('latencyMs is its terms\' sum exactly, with the device stage\'s one 44100 Hz sample at 48 kHz and none at 44.1 kHz: 206.898 and 206.875 ms',
+      Math.abs(lat48 - wantMs(48000)) < 1e-6 && Math.abs(lat44 - wantMs(44100)) < 1e-6 && lat48.toFixed(3) === '206.898' && lat44.toFixed(3) === '206.875',
+      `48 kHz ${lat48.toFixed(6)} (terms ${wantMs(48000).toFixed(6)}); 44.1 kHz ${lat44.toFixed(6)} (terms ${wantMs(44100).toFixed(6)})`);
   }
   // Push-to-talk, the app's stand-in: the key up twice inside speech is the
   // render of the same source with those blocks zeroed.
@@ -1170,8 +1191,12 @@ async function liveSteamSection() {
         && peakAbs(runs.undefined[2]) > 0.05);
     }
   }
-  // steam_48 keeps the frame path: its live output is main's, bit for bit
-  // (the hashes made on main before this order, 2026-11-10).
+  // steam_48 keeps the frame path: its live output is pinned bit for bit.
+  // The hashes were made on main before W3-11b (2026-11-10) and re-recorded
+  // by W3-10, whose stages after the mix point change every sample (the
+  // entry at 255/256, mixOut's rounding, the device stage in place of the
+  // output FIR, the resampler and the limiter); the frame path up to the mix
+  // point did not change (73f46557... and a18979bf... before).
   {
     const SR = 48000, src = speechLike(3, SR, -20), crypto = require('crypto'), hashes = [];
     for (const key of [false, true]) {
@@ -1185,8 +1210,8 @@ async function liveSteamSection() {
       chain.free();
       hashes.push(h.digest('hex'));
     }
-    check('steam_48\'s live output is main\'s, bit for bit, with the key held and with a scripted key',
-      hashes[0] === '73f4655745be3980ef3eddfcda1760c40c33f7d07ecee2f3546f1fd4ea23e0fb' && hashes[1] === 'a18979bf162358cf5b9168df9bee1743ce9894297aab9ee00ca8018b4b65261a',
+    check('steam_48\'s live output is the recorded one, bit for bit, with the key held and with a scripted key',
+      hashes[0] === 'da75a95f25580c3e76bbab9642f0374b34492a700f79ed745a610f209f235c0d' && hashes[1] === 'd001d5dc955033abd73d48b8167089abe6adb527436b7429162c6e4f8cadc2f4',
       hashes.map((h) => h.slice(0, 12)).join(' / '));
   }
 }
@@ -1317,18 +1342,28 @@ async function main() {
     check('crest factor is compressed (recording: 4.3-4.7 dB)', crest > 3 && crest < 6.5, `${crest.toFixed(2)} dB`);
     const hf = bandDb(y, SR, 14500, 20000);
     check('clipping after decode puts energy above the 12 kHz codec edge (recording: -37 to -56 dB)', hf > -70 && hf < -25, `${hf.toFixed(1)} dB rel`);
-    const noAgc = await TF2Audio.process(mkBuffer(src.map(v => v * 0.3), SR), { codec: 'steam', volume: 1, agc: false });
-    const hfOff = bandDb(noAgc.samples.subarray(SR / 2), SR, 14500, 20000);
+    // At a 44.1 kHz device: the codec's band edge, with no device stage after
+    // the mixer. At 48 kHz (W3-10) the device stage's linear interpolation
+    // adds its own images up there (the listener's PC's, in the takes as
+    // well): -43.7 dB on this source without the clamp.
+    const noAgc = await TF2Audio.process(mkBuffer(src.map(v => v * 0.3), SR), { codec: 'steam', volume: 1, agc: false, deviceRate: 44100 });
+    const hfOff = bandDb(noAgc.samples.subarray(44100 / 2), 44100, 14500, 20000);
     // Since W3-11a the receiver's 24 to 44.1 kHz step is Steam's own (libswresample's
     // 32-tap default filter, finding 29), which rejects its images above 14 kHz by
     // over 65 dB where the app's own filter gave 75 dB or more, and decoded sound is
     // whole 16-bit steps: -78.7 dB here, against -37 to -56 with the clamp.
-    check('without the receiver clamp, the codec band edge holds', hfOff < -70, `${hfOff.toFixed(1)} dB rel`);
-    const vol = await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam' });
-    const expected = ENGINE.volume;
-    // RMS rather than peak: at volume 1 the final soft limiter touches the clipped peaks.
-    check('output volume scales the rendered file linearly', Math.abs(rms(vol.samples) / rms(r.samples) - expected) < 0.01,
-      (rms(vol.samples) / rms(r.samples)).toFixed(4));
+    check('without the receiver clamp, the codec band edge holds (at a 44.1 kHz device)', hfOff < -70, `${hfOff.toFixed(1)} dB rel`);
+    // Volume 0.3 against 1, both passed (W3-10: the default is 1, so a render
+    // at the default would compare a render with itself). The volume
+    // multiplies the mix's 16-bit integers after the clip and is rounded to
+    // 16 bits, then the device stage rounds again: within 1.5 units of 32768
+    // of 0.3 times the render at 1, sample for sample.
+    check('the default volume is the game\'s, 1', ENGINE.volume === 1);
+    const vol = await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam', volume: 0.3 });
+    let worstUnits = 0;
+    for (let i = 0; i < vol.samples.length; i++) worstUnits = Math.max(worstUnits, Math.abs(vol.samples[i] - 0.3 * r.samples[i]) * 32768);
+    check('output volume scales the rendered file linearly', Math.abs(rms(vol.samples) / rms(r.samples) - 0.3) < 0.001 && worstUnits <= 1.5
+      && vol.samples.length === r.samples.length, `${(rms(vol.samples) / rms(r.samples)).toFixed(5)}; within ${worstUnits.toFixed(2)} of 32768`);
   }
 
   console.log('\n[5] Real codec modes per profile');
@@ -1462,11 +1497,21 @@ async function main() {
     const { samples, sampleRate, codecInfo } = await TF2Audio.process(mkBuffer(src, SR), clean);
     const ratio = rms(samples) / rms(src);
     check('no NaN/Inf', !hasBadValues(samples));
-    check('playback rate = source rate', sampleRate === SR, String(sampleRate));
+    // The output is at the listener's device's rate (W3-10): 48000 Hz by
+    // default, whatever the source's rate; deviceRate takes an integer from
+    // 44100 to 192000, and anything else is the default.
+    check('the render is at the device\'s rate, 48000 Hz by default', sampleRate === 48000 && ENGINE.deviceRate === 48000, String(sampleRate));
     check('bypass with unity gain is level-transparent', Math.abs(db(ratio)) < 0.2, `${db(ratio).toFixed(2)} dB`);
     check('bypass is reported honestly', codecInfo.backend === 'bypass');
-    const low = await TF2Audio.process(mkBuffer(tone(1000, 0.5, 16000, 0.2), 16000), clean);
-    check('low-rate sources render at the 44.1 kHz mixer rate', low.sampleRate === 44100, String(low.sampleRate));
+    const lowSrc = tone(1000, 0.5, 16000, 0.2), rates = [];
+    for (const deviceRate of [undefined, 44100, 96000, 192000, '44100', 44100.5, 32000, 192001, null]) {
+      const low = await TF2Audio.process(mkBuffer(lowSrc, 16000), { ...clean, deviceRate });
+      rates.push(`${deviceRate}: ${low.sampleRate}/${low.samples.length}`);
+    }
+    const lengthAt = (rate) => Math.round(lowSrc.length * rate / 16000);
+    check('a 16 kHz source renders at the device\'s rate: 48000 by default, 44100, 96000 and 192000 as given, the default for a string, a fraction or a rate outside 44100 to 192000',
+      rates.join() === [`undefined: 48000/${lengthAt(48000)}`, `44100: 44100/${lengthAt(44100)}`, `96000: 96000/${lengthAt(96000)}`, `192000: 192000/${lengthAt(192000)}`,
+        `44100: 48000/${lengthAt(48000)}`, `44100.5: 48000/${lengthAt(48000)}`, `32000: 48000/${lengthAt(48000)}`, `192001: 48000/${lengthAt(48000)}`, `null: 48000/${lengthAt(48000)}`].join(), rates.join(', '));
   }
 
   console.log('\n[7] Valve DSP room presets (real dsp_presets.txt parameters)');
@@ -1582,9 +1627,10 @@ async function main() {
     check('very short buffers render safely', tinyResult.samples.length > 0 && !hasBadValues(tinyResult.samples));
 
     // An empty source through a room is the room's silent tail, whatever the
-    // mixer: resampleLinear of nothing is nothing (it once gave one NaN sample,
-    // which the room carried past the output's cut).
-    check('linear mixer: an empty input gives an empty output', TF2Audio.resampleLinear(new Float32Array(0), 22050, 44100).length === 0);
+    // profile. resampleLinear (the legacy profiles' mixer until W3-10, a plain
+    // utility since) gives nothing for nothing: it once gave one NaN sample,
+    // which the room carried past the output's cut.
+    check('resampleLinear: an empty input gives an empty output', TF2Audio.resampleLinear(new Float32Array(0), 22050, 44100).length === 0);
     const emptyRooms = [];
     for (const codec of ['steam', 'steam_48', 'celt_22', 'celt_44', 'speex']) {
       try {
@@ -1633,8 +1679,8 @@ async function main() {
 
     // The whole chain, 20 ms at a time, against a render of the same audio:
     // the same level, and the same waveform once the live chain's own delay
-    // (the capture EQ's half length, Opus lookahead, output FIR 1 sample at
-    // 44.1 kHz) is allowed for. `steam_48` runs the 20 ms frame gate, the
+    // (the capture EQ's half length, Opus lookahead; until W3-10 also the
+    // output FIR's 1 sample at 44.1 kHz) is allowed for. `steam_48` runs the 20 ms frame gate, the
     // float decode and the app's resampler in both, so it holds the frame
     // path's live chain to the render here; the `steam` live chain is proved
     // in liveSteamSection, sample for sample.
@@ -1648,7 +1694,7 @@ async function main() {
     chain.free();
     const whole = await TF2Audio.process(mkBuffer(src, SR), opts), offline = whole.samples;
     const live48 = vm.runInContext('CODEC_PROFILES.steam_48', sandbox), eqHalf = live48.captureEq ? (live48.captureEq.taps - 1) / 2 : 0;
-    const delay = (eqHalf + whole.codecInfo.lookahead) / live48.codecRate + 1 / 44100, shift = Math.round(delay * SR);
+    const delay = (eqHalf + whole.codecInfo.lookahead) / live48.codecRate, shift = Math.round(delay * SR);
     const correlate = (d) => {
       let dot = 0, ea = 0, eb = 0;
       for (let i = SR / 2; i < live.length - shift - SR / 2; i++) { dot += offline[i] * live[i + shift + d]; ea += offline[i] ** 2; eb += live[i + shift + d] ** 2; }

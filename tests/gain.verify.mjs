@@ -283,10 +283,17 @@ CODEC_PROFILES.test_frame_gate = { ...CODEC_PROFILES.steam, displayName: 'test o
   for (let i = 0; i < n; i++) x[i] = floor * (rnd() * 2 - 1);
   for (const [a, b] of bursts) for (let i = Math.round(a * rate); i < Math.round(b * rate); i++) x[i] = 0.9 * (rnd() * 2 - 1);
   const cap = 10, opts = { codec: 'test_frame_gate', maxGain: cap, gateThresholdDb: -12, volume: 1 };
-  const r = await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => x }, opts);
+  // The gain's output at the mix point (onGain), which the render's stages
+  // after it (the mixer, the device stage) leave to tests/output-stage.verify.mjs.
+  let gained = null;
+  const r = await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => x }, { ...opts, onGain: (g) => { gained = Float32Array.from(g); } });
+  // The gap at the voice rate (44.1 kHz, the source's here), and in the
+  // output at the device's rate.
   const gap = [Math.round((1.0 + 0.44 + 0.1) * rate), Math.round((3.0 - 0.12 - 0.1) * rate)];
+  const out = r.sampleRate, outGap = gap.map(i => Math.round(i * out / rate));
   check('the gate closes between the bursts: two spurts, and the samples between them are zero',
-    r.codecInfo.spurts === 2 && r.samples.subarray(gap[0], gap[1]).every(v => v === 0), `${r.codecInfo.spurts} spurts`);
+    r.codecInfo.spurts === 2 && r.samples.subarray(outGap[0], outGap[1]).every(v => v === 0)
+    && gained.subarray(gap[0], gap[1]).every(v => v === 0), `${r.codecInfo.spurts} spurts`);
 
   // The same decoded signal, made as process() makes it, at the voice rate.
   const steam = CODEC_PROFILES.test_frame_gate, codecRate = steam.codecRate, voiceRate = steam.voiceRate;
@@ -304,19 +311,12 @@ CODEC_PROFILES.test_frame_gate = { ...CODEC_PROFILES.steam, displayName: 'test o
     const f = Math.floor((Math.floor(m * codecRate / voiceRate) + lookahead) / size);
     return f < log.length && log[f] !== 0;
   };
-  // The rest of the chain as process() runs it (no room, volume 1, output at 44.1 kHz).
-  const finish = (y) => {
-    y = A.applyFirZeroPhase(A.resampleSinc(y, voiceRate, VOICE_ENGINE.mixRate), VOICE_ENGINE.outputFir);
-    const out = new Float32Array(n);
-    out.set(A.resampleSinc(y, VOICE_ENGINE.mixRate, rate).subarray(0, n));
-    return A.softLimit(out, 0.98);
-  };
   const same = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.byteLength), Buffer.from(b.buffer, b.byteOffset, b.byteLength)) === 0;
   const settings = { avgGain: 0.5, maxGain: cap, scale: 1 };
   const withLog = A.receiverAutoGain(decodedVoice, { ...settings, decoded });
-  check('process() is receiverAutoGain on the decoded signal with decoded() from the frame log (bit for bit)', same(finish(withLog), r.samples));
+  check('process()\'s gain output is receiverAutoGain on the decoded signal with decoded() from the frame log (bit for bit)', same(withLog, gained));
   check('... and not receiverAutoGain with every block decoded (the gap would send the gain to the cap)',
-    !same(finish(A.receiverAutoGain(decodedVoice, settings)), r.samples));
+    !same(A.receiverAutoGain(decodedVoice, settings), gained));
 
   // Where the second spurt's first block starts, by the transcription with
   // spec 4, on the decoded signal as int16 (clamped: the bursts' peaks pass
@@ -401,7 +401,8 @@ CODEC_PROFILES.test_frame_gate = { ...CODEC_PROFILES.steam, displayName: 'test o
   for (let i = 0; i < n; i++) x[i] = floor * (rnd() * 2 - 1);
   for (const [a, b] of [[0.5, 1.0], [3.0, 3.5]]) for (let i = Math.round(a * rate); i < Math.round(b * rate); i++) x[i] = 0.9 * (rnd() * 2 - 1);
   const opts = { codec: 'steam_48', maxGain: 10, gateThresholdDb: -12, volume: 1 };
-  const r = await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => x }, opts);
+  let gained = null;
+  const r = await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => x }, { ...opts, onGain: (g) => { gained = Float32Array.from(g); } });
   const p = CODEC_PROFILES.steam_48, codecRate = p.codecRate, voiceRate = p.voiceRate;
   const c = A.resampleSinc(A.hardClip(x, 32767 / 32768), rate, codecRate);
   const trip = await TF2Opus.roundTrip(c, codecRate, p.bitrate, {
@@ -413,13 +414,9 @@ CODEC_PROFILES.test_frame_gate = { ...CODEC_PROFILES.steam, displayName: 'test o
     const f = Math.floor((Math.floor(m * codecRate / voiceRate) + lookahead) / size);
     return f < log.length && log[f] !== 0;
   };
-  let y = A.receiverAutoGain(A.resampleSinc(trip.samples, codecRate, voiceRate), { avgGain: 0.5, maxGain: 10, scale: 1, decoded });
-  y = A.applyFirZeroPhase(A.resampleSinc(y, voiceRate, VOICE_ENGINE.mixRate), VOICE_ENGINE.outputFir);
-  const out = new Float32Array(n);
-  out.set(A.resampleSinc(y, VOICE_ENGINE.mixRate, rate).subarray(0, n));
-  const want = A.softLimit(out, 0.98);
-  const same = want.length === r.samples.length && Buffer.compare(Buffer.from(want.buffer), Buffer.from(r.samples.buffer, r.samples.byteOffset, r.samples.byteLength)) === 0;
-  check('steam_48: process() is receiverAutoGain on the decoded signal with decoded() from the frame log (bit for bit)',
+  const want = A.receiverAutoGain(A.resampleSinc(trip.samples, codecRate, voiceRate), { avgGain: 0.5, maxGain: 10, scale: 1, decoded });
+  const same = want.length === gained.length && Buffer.compare(Buffer.from(want.buffer), Buffer.from(gained.buffer, gained.byteOffset, gained.byteLength)) === 0;
+  check('steam_48: process()\'s gain output is receiverAutoGain on the decoded signal with decoded() from the frame log (bit for bit)',
     same && r.codecInfo.spurts === 2 && log.every((v, i) => v === r.codecInfo.frameLog[i]), `${r.codecInfo.spurts} spurts`);
 }
 
@@ -449,8 +446,11 @@ console.log('\n[5] The live chain: frames not sent hold the gain');
   }
   const y = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
   parts.reduce((o, p) => { y.set(p, o); return o + p.length; }, 0);
+  // The gap: the first run of zeros at least a block long (since W3-10 the
+  // output is whole 16-bit values, so a tone's zero crossings can be exact
+  // zeros too).
   let gapStart = 70 * 256;
-  while (y[gapStart] !== 0) gapStart++;
+  while (!y.subarray(gapStart, gapStart + 256).every(v => v === 0)) gapStart++;
   let after = gapStart;
   while (y[after] === 0) after++;
   const peak = (from, to) => { let p = 0; for (let i = from; i < to; i++) p = Math.max(p, Math.abs(y[i])); return p; };

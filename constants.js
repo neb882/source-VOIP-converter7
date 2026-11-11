@@ -265,9 +265,10 @@ const PRESETS = {
  *                 Profiles without a senderGate transmit continuously
  *                 (push-to-talk engine codecs).
  *   voiceRate   : rate at which the engine receives decoded voice and runs
- *                 its auto-gain (128-sample blocks)
- *   mixer       : how voiceRate is converted to the 44.1 kHz mixer:
- *                 'sinc' (band-limited) or 'linear' (Source-style interp)
+ *                 its auto-gain (128-sample blocks), and at which the voice
+ *                 is entered into the mixer: 44100 Hz is mixed as it is,
+ *                 22050 Hz upsampled by two once and 11025 Hz twice, by the
+ *                 mixer's own rule (audio.js mixUpsample2; W3-10)
  *   status      : 'measured' | 'experimental' | 'modeled'
  * ------------------------------------------------------------------------- */
 const CODEC_PROFILES = {
@@ -296,7 +297,7 @@ const CODEC_PROFILES = {
     // find a take's spurts within a few frames, and reference.js scores the
     // registered predictions).
     senderGate: { rule: 'steam', thresholdDb: -39.5, prerollMs: 120, holdMs: 440 },
-    voiceRate: 44100, mixer: 'sinc', status: 'measured'
+    voiceRate: 44100, status: 'measured'
   },
   // Optional fullband profile, NOT a verified TF2-era or native-rate preset.
   steam_48: {
@@ -307,7 +308,7 @@ const CODEC_PROFILES = {
     codecRate: 48000, bitrate: 64000, application: 'voip', signal: 'voice',
     encoder: { runtime: '1.1.5', complexity: 10, vbr: true, dtx: true },
     senderGate: { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 },
-    voiceRate: 44100, mixer: 'sinc', status: 'experimental'
+    voiceRate: 44100, status: 'experimental'
   },
   // vaudio_celt: CELT 0.11 (vendor/celt-0.11) in a custom mode, 22050 Hz,
   // 512-sample frames (23.2 ms), 64-byte packets (22.05 kbps), complexity 5:
@@ -318,7 +319,7 @@ const CODEC_PROFILES = {
   celt_22: {
     displayName: 'vaudio_celt (CELT 0.11, 22 kHz, 64-byte frames)',
     engine: 'celt011', codecRate: 22050, frameSize: 512, packetBytes: 64, complexity: 5,
-    bitrate: 22050, voiceRate: 22050, mixer: 'linear', status: 'modeled'
+    bitrate: 22050, voiceRate: 22050, status: 'modeled'
   },
   // vaudio_celt_high: the same CELT 0.11 in its 44100 Hz mode, 1024-sample
   // frames, 128-byte packets, complexity 5, fed 22050 Hz sound: so a frame
@@ -330,7 +331,7 @@ const CODEC_PROFILES = {
   celt_44: {
     displayName: 'vaudio_celt_high (CELT 0.11, 44.1 kHz mode on 22 kHz sound, 128-byte frames)',
     engine: 'celt011', codecRate: 22050, modeRate: 44100, frameSize: 1024, packetBytes: 128, complexity: 5,
-    bitrate: 22050, voiceRate: 22050, mixer: 'linear', status: 'modeled'
+    bitrate: 22050, voiceRate: 22050, status: 'modeled'
   },
   // vaudio_speex: read from the game's module (docs/reports/
   // W3-09-steam-voice.md, section 5); no recording of it can exist, since a
@@ -349,7 +350,7 @@ const CODEC_PROFILES = {
   speex: {
     displayName: 'vaudio_speex (Speex 1.0.2 on 11 kHz sound, 11 kbps)',
     engine: 'speex', codecRate: 11025, frameSize: 160, packetBytes: 20, bitrate: 11025,
-    voiceRate: 11025, mixer: 'linear', status: 'modeled'
+    voiceRate: 11025, status: 'modeled'
   }
 };
 
@@ -364,9 +365,18 @@ const CODEC_PROFILES = {
  *               the difference over 127, voice_scale entering twice; the
  *               output clamps to int16. audio.js gainRule() has the exact
  *               update and its block size (GAIN_BLOCK).
- *   outputFir : gentle post-mixer rolloff measured above 12 kHz
- *   volume    : output level. The recordings' ceiling (-16.5 dBFS) is the
- *               owner's `volume 0.15`, so this is a setting, not a fit.
+ *   mixRate   : the mixer's rate, a constant of the engine's code (W3-07);
+ *               audio.js MIX_RATE
+ *   deviceRate: the listener's sound device (snd_device_rate, the app's own
+ *               setting, not a TF2 variable): the system's mixer converts the
+ *               game's 16-bit 44100 Hz output to it by linear interpolation
+ *               (audio.js createDeviceStage, a model: W3-07 measured it at
+ *               48000 Hz, the takes' rate; another rate runs the same rule).
+ *               44100 has no such stage.
+ *   volume    : the game's `volume`, after the mixer's clip; 1, the game's
+ *               own default (W3-10; the app used 0.5 before). The
+ *               recordings' ceiling (-16.5 dBFS) is the owner's `volume
+ *               0.15`, so this is a setting, not a fit.
  *   network   : packet loss and jitter, measured with net_fakeloss /
  *               net_fakelag / net_fakejitter takes of the network test signal.
  *               Lost 20 ms voice frames come in bursts of 2.2 on average and
@@ -377,8 +387,8 @@ const CODEC_PROFILES = {
 const VOICE_ENGINE = {
   mixRate: 44100,
   autoGain: { avgGain: 0.5, maxGain: 10 },
-  outputFir: [0.1, 0.8, 0.1],
-  volume: 0.5,
+  deviceRate: 48000,
+  volume: 1,
   network: { burstMeanFrames: 2.2, lateFramesAt50ms: 0.032, underrunShare: 0.1 }
 };
 

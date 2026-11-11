@@ -398,9 +398,11 @@ function bestLag(a, b, span, margin) {
 console.log('\n[speex profile] The profile and what a render says it ran');
 {
   const p = PROFILES.speex;
+  // The voice enters the mixer at 11025 Hz and is upsampled twice by the
+  // mixer's own rule (W3-10): no profile key says how.
   check('the profile: Speex at 11025 Hz (the voice rate too), 160-sample frames in 20 bytes, 11025 bit/s, no sender gate',
     p.engine === 'speex' && p.codecRate === 11025 && p.voiceRate === 11025 && p.frameSize === 160 && p.packetBytes === 20
-    && p.bitrate === 11025 && p.mixer === 'linear' && !p.senderGate && !('qualityBitrates' in p)
+    && p.bitrate === 11025 && !('mixer' in p) && !p.senderGate && !('qualityBitrates' in p)
     && p.displayName === 'vaudio_speex (Speex 1.0.2 on 11 kHz sound, 11 kbps)',
     `${p.codecRate} Hz, ${p.frameSize} samples, ${p.packetBytes} bytes, ${p.bitrate} bit/s; ${p.displayName}`);
   const src = voiced(1, 48000);
@@ -473,7 +475,7 @@ console.log('\n[speex profile] Sound: the band to 5.5 kHz, nothing shifted, the 
   // A train of pulses 200 a second: one sample of 0.5 every 55.125 samples.
   const pulses = new Float32Array(3 * NB);
   for (let k = 0; Math.round(k * 55.125) < pulses.length; k++) pulses[Math.round(k * 55.125)] = 0.5;
-  const out = (await A.process(buffer(pulses, NB), { codec: 'speex', agc: false, volume: 1 })).samples, sr = 44100;
+  const pr = await A.process(buffer(pulses, NB), { codec: 'speex', agc: false, volume: 1 }), out = pr.samples, sr = pr.sampleRate;
   let best = 0, bestR = -Infinity;
   for (let lag = Math.round(0.002 * sr); lag <= Math.round(0.0075 * sr); lag++) {
     const c = correlate(out, out, lag, sr / 4);
@@ -671,8 +673,10 @@ console.log('\n[speex profile] The live chain runs the same codec frame by frame
   const src = voiced(3, 48000), opts = { codec: 'speex', volume: 1 };
   const { out: live, codes, stats, chain } = await runLive(A, src, opts);
   const offline = (await A.process(buffer(src, 48000), opts)).samples;
-  // The chain's delay: the codec's 80 samples at 11025 Hz and the output FIR's one sample at 44.1 kHz.
-  const shift = Math.round((80 / NB + 1 / 44100) * 48000);
+  // The chain's delay: the codec's 80 samples at 11025 Hz. (Until W3-10 the
+  // output FIR's one sample at 44.1 kHz too; the mixer's upsampling is three
+  // 44.1 kHz samples late in the render as well, so it shifts nothing.)
+  const shift = Math.round(80 / NB * 48000);
   const r = correlate(offline, live.subarray(shift), 0, 24000);
   const level = db(rms(live, shift + 24000, live.length - 24000) / rms(offline, 24000, live.length - shift - 24000));
   let peak = 0;

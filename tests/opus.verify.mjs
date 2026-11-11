@@ -284,7 +284,8 @@ check('Silence stays below -100 dBFS RMS without added hiss', energy(silent.samp
 // pre-roll of zeros, before sample 0; so x follows half a second of a faint tone the gate does not send, and
 // the first spurt's pre-roll is that tone: the first block is heard there, and nothing after it.
 const lead = Float32Array.from({ length: rate / 2 + x.length }, (_, i) => (i < rate / 2 ? 1e-3 * Math.sin(2 * Math.PI * 1000 * i / rate) : x[i - rate / 2]));
-const muted = await A.process(buffer(lead, rate), { ...base, voiceScale: 0 });
+// A 44.1 kHz device (W3-10): no device stage, so the output's samples are the mix's.
+const muted = await A.process(buffer(lead, rate), { ...base, voiceScale: 0, deviceRate: 44100 });
 const mutedAt = Math.round((muted.codecInfo.sender.spurts[0].start - muted.codecInfo.lookahead) * 147 / 80);
 const unmutedFrom = muted.samples.findIndex(v => v !== 0), unmutedAt = muted.samples.findLastIndex(v => v !== 0);
 check('Receiver mute is exact silence after the first block, which is heard where the first spurt starts',
@@ -306,8 +307,14 @@ const gatedFaint = await A.process(buffer(Float32Array.from(x, v => v * .05), ra
 check('The Steam voice gate holds back input below -39.5 dBFS RMS', energy(gatedFaint.samples) === 0 && gatedFaint.codecInfo.gatedFrames === gatedFaint.codecInfo.frames);
 const quarter = await A.process(buffer(x, rate), { ...base, volume: .25 });
 const halfVol = await A.process(buffer(x, rate), { ...base, volume: .5 });
-check('Output volume is linear and applied after the voice clamp',
-  difference(Float32Array.from(quarter.samples, v => v * 2), halfVol.samples) < 1e-9);
+// Since W3-10 volume multiplies the mix's 16-bit integers and the result is
+// rounded to 16 bits, then the device stage rounds again: twice the render
+// at 0.25 is the render at 0.5 within 2 units of 32768 (each rounding is
+// half a unit, and the interpolation is linear).
+const worst = quarter.samples.reduce((w, v, i) => Math.max(w, Math.abs(2 * v - halfVol.samples[i]) * 32768), 0);
+check('Output volume is linear and applied after the voice clamp, to the 16-bit rounding',
+  quarter.samples.length === halfVol.samples.length && worst <= 2 && Math.abs(energy(halfVol.samples) / energy(quarter.samples) / 4 - 1) < 1e-3
+  && energy(halfVol.samples) > 0, `largest difference ${worst} of 32768`);
 for (const sourceRate of [8000, 44100, 96000]) {
   const data = Float32Array.from({ length: 1001 }, (_, i) => .1 * Math.sin(2 * Math.PI * 440 * i / sourceRate));
   const result = await A.process(buffer(data, sourceRate), base);

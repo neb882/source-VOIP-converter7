@@ -146,6 +146,9 @@ function renderOptions() {
     // sets the hold's real length. `steam` only; left out for other profiles.
     steamUptime: els.codec.value === 'steam' ? Number(els.steamUptime.value) : undefined,
     volume:      Number(els.volume.value),
+    // The listener's sound device (snd_device_rate, the app's own): the
+    // render, its download and its playback are at this rate (W3-10).
+    deviceRate:  els.deviceRate ? Number(els.deviceRate.value) : VOICE_ENGINE.deviceRate,
     lossPct:     Number(els.loss.value),
     frameMs:     Number(els.frameMs.value),
     enableWarble: els.warble.value === '1',

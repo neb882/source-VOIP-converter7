@@ -250,8 +250,16 @@
             </select>
           </div>
           <div class="control">
-            <label for="volume">Output volume <code class="cvar">volume</code></label>
-            <input id="volume" type="number" value="0.5" min="0" max="1" step="0.05">
+            <label for="volume">Output volume, 1 = the game's default <code class="cvar">volume</code></label>
+            <input id="volume" type="number" value="1" min="0" max="1" step="0.05">
+            <p id="volume-note" class="reference-help">At 1, the game's default, a loud voice fills the whole range, as it does in the game.</p>
+          </div>
+          <div class="control">
+            <label for="device_rate" title="The listener's PC hands the game's 44.1 kHz sound to a device that usually runs at 48 kHz, converting it on the way by linear interpolation, which softens the top octave a little; at 44.1 kHz nothing is converted.">Listener's sound device <code class="cvar">snd_device_rate</code></label>
+            <select id="device_rate">
+              <option value="48000" selected>48000 Hz (usual)</option>
+              <option value="44100">44100 Hz</option>
+            </select>
           </div>
           <div id="custom-env" class="control control-full advanced-control">
             <div class="section-label">dsp_custom settings</div>
@@ -282,12 +290,12 @@
         <button id="process" type="button" disabled>Process Audio</button>
         <button id="cancel-process" class="button-secondary" type="button" hidden>Cancel</button>
         <button id="download" type="button" disabled>Download WAV</button>
-        <select id="format" class="format-select" aria-label="Download format" title="File format for downloads, here and in the batch">
+        <select id="format" class="format-select" aria-label="Download format" title="File format for downloads, here and in the batch. At volume 1, the game's default, a loud render fills the whole range, so an MP3 (or a video's AAC or Opus) can clip when it is decoded: lower volume for those.">
           <option value="wav">WAV · lossless</option>
           <option value="flac">FLAC · lossless, ~½ size</option>
           <option value="mp3">MP3 · V0, ~⅕ size</option>
         </select>
-        <button id="download-video" type="button" hidden disabled title="The source video with its audio replaced by the render. The video is copied as is, not re-encoded; the audio is AAC where the browser can encode it, otherwise Opus (MP4) or PCM (MOV).">Download video</button>
+        <button id="download-video" type="button" hidden disabled title="The source video with its audio replaced by the render. The video is copied as is, not re-encoded; the audio is AAC where the browser can encode it, otherwise Opus (MP4) or PCM (MOV). At volume 1 a loud render can clip in AAC or Opus: lower volume for those.">Download video</button>
         <button id="ab-toggle" class="preset-btn ab-button" type="button" disabled title="Switch playback between processed (Wet) and original (Dry). Shortcut: B; Space plays and pauses">A/B: Wet</button>
         <button id="ab-match" class="preset-btn ab-button" type="button" disabled aria-pressed="false" title="Loudness-matched A/B: plays the louder version quieter by the difference in integrated loudness (LUFS), so the comparison is about sound, not level">Match loudness</button>
         <progress id="process-progress" max="100" value="0" hidden aria-label="Audio processing progress"></progress>

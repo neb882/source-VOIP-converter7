@@ -8,7 +8,10 @@
  *           late (jittered) frames, seeded
  * Receiver: libopus 1.1.5 decode + native concealment and comfort noise ->
  *           engine voice rate -> Source-style auto-gain with int16 clamp ->
- *           44.1 kHz mixer (room DSP) -> output stage -> output rate
+ *           the 44.1 kHz mixer as integers (the voice entered at 255/256,
+ *           upsampled by two for the engine codecs; room DSP) -> clip,
+ *           volume and 16-bit rounding -> the listener's device rate by
+ *           linear interpolation (48 kHz by default)
  *
  * The Steam profile, voice gate and receiver path are identified from 2026
  * voice_loopback recordings of music, speech and a calibrated test signal,
@@ -197,9 +200,10 @@
     return out;
   }
 
-  // Source's software mixer converts voice to the mix rate by linear
-  // interpolation; used for the low-rate legacy profiles. Nothing in gives
-  // nothing out, as resampleSinc.
+  // Linear interpolation from inRate to outRate, a plain utility. (The
+  // legacy profiles' voices reached the mixer this way until W3-10; the
+  // mixer's own rule is mixUpsample2.) Nothing in gives nothing out, as
+  // resampleSinc.
   function resampleLinear(input, inRate, outRate) {
     if (!input.length || inRate === outRate) return Float32Array.from(input);
     const ratio = inRate / outRate;
@@ -304,18 +308,295 @@
     return out;
   }
 
-  function softLimit(samples, threshold = 0.85) {
-    const out = new Float32Array(samples.length);
-    for (let i = 0; i < samples.length; i++) {
-      const x = samples[i];
-      if (Math.abs(x) <= threshold) out[i] = x;
-      else {
-        const sign = x < 0 ? -1 : 1;
-        const over = (Math.abs(x) - threshold) / (1 - threshold);
-        out[i] = sign * (threshold + (1 - threshold) * Math.tanh(over));
+  // Rounded to the nearest integer, ties to even.
+  function roundEven(v) {
+    let r = Math.round(v);
+    if (r - v === 0.5 && (r & 1)) r -= 1;
+    return r;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* The mixer and the output stage (W3-10)                             */
+  /*                                                                    */
+  /* As the engine does it, on whole numbers (docs/reports/W3-07-mixer- */
+  /* output.md, sections 1 and 2; docs/reports/W3-10-upsampler-read.md): */
+  /*   - the voice is entered into the mix at its own rate, at the      */
+  /*     channel's volume of 255: trunc(fround(s x 255) / 256) (mixEntry); */
+  /*   - a 22050 Hz voice is upsampled by two once, an 11025 Hz voice   */
+  /*     twice, each stage keeping its last input (mixUpsample2);       */
+  /*   - the sum is clipped to +-32767, multiplied by `volume` in single */
+  /*     precision and rounded to 16 bits, ties to even (mixOut).       */
+  /* Then, outside the engine, the system's mixer converts the 16-bit   */
+  /* 44100 Hz stream to the device's rate by linear interpolation       */
+  /* (createDeviceStage): a model, fixed by the recordings, not read.   */
+  /* There is no filter and no limiter anywhere in this.                */
+  /* ------------------------------------------------------------------ */
+
+  // The mixer's rate: a constant of the engine's code (VOICE_ENGINE.mixRate).
+  const MIX_RATE = 44100;
+  // The mixer's blocks: block b is mix samples MIX_BLOCK_ORIGIN + 512 b to
+  // MIX_BLOCK_ORIGIN + 512 b + 511, counted from the first sample of a render
+  // (or of a live chain at its mix point). Nothing in this order's arithmetic
+  // depends on them (the entry and mixOut have no memory, the upsampler
+  // carries its state); they are reported to opts.onMixBlock for the room's
+  // slot (W3-17c). Under the game's timeline W3-02c will set the origin to
+  // its channel clock's blocks. An origin that is not a multiple of 4 mix
+  // samples would cut an 11025 Hz voice sample in two: a later order may set
+  // it only for a 44100 Hz voice, or to a multiple of 4.
+  const MIX_BLOCK = 512, MIX_BLOCK_ORIGIN = 0;
+  // The voice channel's volume in the mix: 255, of a full scale of 256
+  // (headphones, the default snd_surround_speakers -1; W3-07, section 1).
+  const MIX_VOICE_VOLUME = 255;
+  const NO_INTS = new Int32Array(0);
+
+  // A voice-rate sample as the whole 16-bit value the mix is given. The
+  // gain's output is one already (y / 32768); a value that is not (the
+  // auto-gain off: the voice times voice_scale, clipped at +-32767) is
+  // rounded to the nearest, ties to even, and clamped to -32768..32767.
+  function mixSample(v) {
+    const r = roundEven(v * 32768);
+    return r > 32767 ? 32767 : r < -32768 ? -32768 : r;
+  }
+
+  // TF2Audio.mixEntry(s, volume): a whole 16-bit sample s entered into the
+  // mix at the channel's volume, a single from 0 to 255 (narrowed here, so no
+  // caller can hand it a double that is not one): the product rounded to
+  // single precision once, divided by 256 (exact), truncated toward zero.
+  // The engine's 16-bit mono mix (W3-07 section 1; the read, section 4).
+  // At 255 the rounding changes nothing; W3-17c calls this twice a sample,
+  // at 255 x 229 / 256 and 255 x 26 / 256, where it does.
+  function mixEntry(s, volume) {
+    const f = Math.fround;
+    return Math.trunc(f(s * f(volume)) / 256);
+  }
+
+  // TF2Audio.mixUpsample2(x, state): one upsampling by two of a mixer
+  // buffer, the engine's linear rule (the read, section 1): output 2k + 1 is
+  // input k, output 2k the mean of inputs k - 1 and k, rounded down (an
+  // arithmetic shift). state = { prev }, one per buffer and per stage, 0 at
+  // first: the last input, kept across calls, so the result does not depend
+  // on where the calls fall. x: integers (an Int32Array).
+  function mixUpsample2(x, state) {
+    const y = new Int32Array(2 * x.length);
+    let prev = state.prev;
+    for (let k = 0; k < x.length; k++) {
+      y[2 * k] = (prev + x[k]) >> 1;
+      y[2 * k + 1] = x[k];
+      prev = x[k];
+    }
+    state.prev = prev;
+    return y;
+  }
+
+  // TF2Audio.mixClip(v): the clip on the mix's sum, -32767..32767.
+  function mixClip(v) {
+    return v > 32767 ? 32767 : v < -32767 ? -32767 : v;
+  }
+
+  // TF2Audio.mixOut(sum, volume): the stage after the sum, on a whole sample
+  // of the 44100 Hz mix: the clip; the clipped integer as a single times
+  // `volume` as a single, the product rounded to single (the engine
+  // converts the block to floats and multiplies by volume x (1 - soundfade);
+  // soundfade is 0 in play and not modelled); then rounded to the nearest
+  // integer, ties to even (the device call rounds to nearest). The ceiling
+  // is round(32767 x volume): 4915 at 0.15.
+  function mixOut(sum, volume) {
+    const f = Math.fround;
+    return roundEven(f(f(mixClip(sum)) * f(volume)));
+  }
+
+  // TF2Audio.mixDevicePosition(n, R): where output n of the device stage at
+  // R Hz reads the 44100 Hz mix, in whole numbers: with g = gcd(44100, R),
+  // N = 44100 / g and D = R / g, n N = D k + r with 0 <= r < D. Exact for
+  // any n up to 2^40 and more (n is split by D first, so no product passes
+  // 2^53).
+  function mixDevicePosition(n, R) {
+    const g = gcd(MIX_RATE, R), N = MIX_RATE / g, D = R / g;
+    let q = Math.floor(n / D), m = n - q * D;
+    if (m < 0) { q--; m += D; } else if (m >= D) { q++; m -= D; }
+    const t = m * N, j = Math.floor(t / D);
+    return { k: q * N + j, r: t - j * D };
+  }
+
+  // TF2Audio.createDeviceStage(R): the 16-bit 44100 Hz mix converted to the
+  // listener's sound device at R Hz, an integer from 44100 up. A model of the
+  // system's mixer (XAudio2, between the game and the device; W3-07, section
+  // 2): linear interpolation with its phase starting at 0, which the
+  // recordings fix (images 65 dB under a 1 kHz tone at 2900 and 4900 Hz, and
+  // flat tops that stay exactly on the ceiling); its precision and rounding
+  // were not read and are this model's, and only 48000 Hz was measured.
+  // Output n, with k and r from mixDevicePosition(n, R), is
+  //   roundEven((x[k] (D - r) + x[k + 1] r) / D)
+  // exactly: the numerator is a whole number, a tie is a remainder of D / 2,
+  // and it goes to the even neighbour. An input past the mix's end is 0.
+  // Stateful: it keeps the inputs from the next output's k on, waits for
+  // x[k + 1], and gives the same samples at any chunking. push(x) takes
+  // integers and gives integers; flush() ends the mix (the outputs that read
+  // its last input). At 44100 Hz there is no stage: the mix passes as it is.
+  function createDeviceStage(R) {
+    if (R === MIX_RATE) return { push: (x) => x, flush: () => NO_INTS };
+    if (!Number.isInteger(R) || R < MIX_RATE) throw new RangeError(`TF2Audio: the device stage takes a rate from 44100 Hz up, not ${R}.`);
+    const D = R / gcd(MIX_RATE, R);
+    let buf = NO_INTS, base = 0, total = 0, n = 0;
+    const input = (i) => (i < total ? buf[i - base] : 0);
+    // The outputs whose k is at most `last`.
+    function run(last) {
+      const out = [];
+      for (;; n++) {
+        const { k, r } = mixDevicePosition(n, R);
+        if (k > last) break;
+        const num = input(k) * (D - r) + input(k + 1) * r;
+        let q = Math.floor(num / D), rem = num - q * D;
+        if (rem < 0) { q--; rem += D; } else if (rem >= D) { q++; rem -= D; }
+        if (2 * rem > D || (2 * rem === D && (q & 1))) q++;
+        out.push(q);
       }
+      const keep = Math.min(total, mixDevicePosition(n, R).k);
+      if (keep > base) { buf = buf.slice(keep - base); base = keep; }
+      return Int32Array.from(out);
+    }
+    return {
+      push(x) {
+        const merged = new Int32Array(buf.length + x.length);
+        merged.set(buf); merged.set(x, buf.length);
+        buf = merged; total += x.length;
+        return run(total - 2);
+      },
+      flush: () => run(total - 1)
+    };
+  }
+
+  // The voice's entry and the upsampling, for a voice at voiceRate (11025,
+  // 22050 or 44100 Hz: the voice's own rate, never a codec's mode rate): each
+  // voice-rate sample as mixSample makes it, entered by mixEntry at the
+  // voice's volume, then upsampled once for 22050 Hz and twice for 11025 Hz,
+  // each stage with its own state from 0 (the mixer's facing buffer: nothing
+  // resets it, not a new spurt and not a block). Gives the mix's integers at
+  // 44100 Hz. flush() ends the voice: a voice sample of zeros through the
+  // stages gives the last mean, and the zeros after it are not part of the
+  // mix, so a voice of N samples gives a mix of exactly 2N + 1 at 22050 Hz
+  // and 4N + 3 at 11025 Hz (N at 44100 Hz, none for no voice). A voice
+  // sample k sits at mix sample 2k + 1 (4k + 3): one 44100 Hz sample per
+  // stage later than its own time, as in the game.
+  function createMixEntry(voiceRate, volume = MIX_VOICE_VOLUME) {
+    const stages = { 44100: 0, 22050: 1, 11025: 2 }[voiceRate];
+    if (stages === undefined) throw new RangeError(`TF2Audio: the mixer takes a voice at 11025, 22050 or 44100 Hz, not ${voiceRate}.`);
+    const states = Array.from({ length: stages }, () => ({ prev: 0 }));
+    let fed = 0;
+    const up = (e) => { for (const st of states) e = mixUpsample2(e, st); return e; };
+    return {
+      push(x) {
+        const e = new Int32Array(x.length);
+        for (let i = 0; i < x.length; i++) e[i] = mixEntry(mixSample(x[i]), volume);
+        fed += x.length;
+        return up(e);
+      },
+      flush() {
+        if (!stages || !fed) return NO_INTS;
+        return up(new Int32Array(1)).subarray(0, (1 << stages) - 1);
+      }
+    };
+  }
+
+  // Until W3-17c the listener's low-pass (and, in process(), the old room
+  // code) sit at the seam between the upsampling and mixOut, in floats as
+  // they were: the mix over 32768, the stage, then each sample rounded to
+  // the nearest integer, ties to even. W3-17c removes both and puts its room
+  // path here. A render with neither meets no float at the seam.
+  function toMixInts(y) {
+    const out = new Int32Array(y.length);
+    for (let i = 0; i < y.length; i++) {
+      if (!Number.isFinite(y[i])) throw new Error(`DSP produced a non-finite sample in the mix (at ${i}).`);
+      out[i] = roundEven(y[i] * 32768);
     }
     return out;
+  }
+  const mixToFloat = (x) => Float32Array.from(x, (v) => v / 32768);
+  function mixSeam(run) {
+    return { push: (x) => toMixInts(run(mixToFloat(x))), flush: () => NO_INTS };
+  }
+
+  // The mixer's blocks, reported to onMixBlock(start, length, mix), a test
+  // hook: once each block's last sample has passed, and at the end a short
+  // last block (flush); start counts from the first mix sample (a multiple
+  // of 512), mix is a copy of the block's sum before the clip. The samples
+  // pass on as they come: nothing is held back for a block, and with no hook
+  // nothing is kept. (Holding a partial block until it is whole is W3-17c's,
+  // with a room on.)
+  function createMixBlocks(onMixBlock) {
+    if (typeof onMixBlock !== 'function') return { push: (x) => x, flush: () => NO_INTS };
+    const block = new Int32Array(MIX_BLOCK);
+    let pos = 0, fill = 0;
+    const report = () => { onMixBlock(pos - fill, fill, block.slice(0, fill)); fill = 0; };
+    return {
+      push(x) {
+        for (let i = 0; i < x.length; i++) {
+          block[fill++] = x[i];
+          pos++;
+          if ((pos - MIX_BLOCK_ORIGIN) % MIX_BLOCK === 0) report();
+        }
+        return x;
+      },
+      flush() { if (fill) report(); return NO_INTS; }
+    };
+  }
+
+  function createMixOut(volume) {
+    return {
+      push(x) {
+        const y = new Int32Array(x.length);
+        for (let i = 0; i < x.length; i++) y[i] = mixOut(x[i], volume);
+        return y;
+      },
+      flush: () => NO_INTS
+    };
+  }
+
+  function joinInts(parts) {
+    if (parts.length === 1) return parts[0];
+    const out = new Int32Array(parts.reduce((n, p) => n + p.length, 0));
+    let offset = 0;
+    for (const p of parts) { out.set(p, offset); offset += p.length; }
+    return out;
+  }
+
+  // Stages in a row as one: push() runs each in turn; flush() flushes each
+  // in turn and runs what it gives through the ones after it, so a stage's
+  // end reaches the next before that one ends.
+  function stageChain(parts) {
+    const through = (k, x) => { for (; k < parts.length; k++) x = parts[k].push(x); return x; };
+    return {
+      push: (x) => through(0, x),
+      flush() {
+        const out = [];
+        for (let k = 0; k < parts.length; k++) out.push(through(k + 1, parts[k].flush()));
+        return joinInts(out);
+      }
+    };
+  }
+
+  // The mix from the gain's output: the entry and the upsampling, then the
+  // seam (a stage on the mix's integers, or none).
+  const createMixStage = (voiceRate, seam) => stageChain([createMixEntry(voiceRate), ...(seam ? [seam] : [])]);
+  // From the mix's sum to the device: the blocks, mixOut, the device stage.
+  const createOutStage = (volume, deviceRate, onMixBlock) =>
+    stageChain([createMixBlocks(onMixBlock), createMixOut(volume), createDeviceStage(deviceRate)]);
+
+  // TF2Audio.createOutputStage({ voiceRate, volume, deviceRate, onMixBlock }):
+  // the whole stage, from the gain's output (voice-rate floats) to the
+  // device's 16-bit integers, a piece at a time: what createRender and the
+  // live chain run after their mix point. push(x) gives what became final;
+  // flush() ends the voice.
+  function createOutputStage({ voiceRate, volume, deviceRate = MIX_RATE, onMixBlock, seam = null }) {
+    return stageChain([createMixStage(voiceRate, seam), createOutStage(volume, deviceRate, onMixBlock)]);
+  }
+
+  // The device's rate from opts.deviceRate: an integer from 44100 to 192000;
+  // anything else (a string, a fraction, a rate below 44100) is
+  // VOICE_ENGINE.deviceRate. Only 48000 Hz is measured; another rate runs
+  // the same rule.
+  function deviceRateOf(value) {
+    return Number.isInteger(value) && value >= 44100 && value <= 192000 ? value : VOICE_ENGINE.deviceRate;
   }
 
   /* ------------------------------------------------------------------ */
@@ -1150,17 +1431,26 @@
    *   steamUptime:  `steam` only: seconds the sender's Steam had been running,
    *                 0 to 4,000,000; its float clock sets the hold's real
    *                 length (W3-16). null for the sender's own   [777600]
-   *   onDecoded, onResampled, onGain, swrKernel: tests only, `steam` only:
-   *                 each message's 16-bit samples as given to the
-   *                 resampler; each packet() result; the voice-rate signal
-   *                 after the gain; a resampler kernel in place of the
-   *                 module's default
+   *   onDecoded, onResampled, swrKernel: tests only, `steam` only: each
+   *                 message's 16-bit samples as given to the resampler;
+   *                 each packet() result; a resampler kernel in place of
+   *                 the module's default
+   *   onGain:       tests only, every profile: the voice-rate signal after
+   *                 the gain (the auto-gain's, or voice_scale and the clip
+   *                 with agc off), as it reaches the mixer
+   *   onMixBlock:   tests only: (start, length, mix) for each 512-sample
+   *                 block of the 44100 Hz mix and a short last one, mix a
+   *                 copy of the block's sum before the clip (an Int32Array)
    *   agc:          receiver auto-gain (false = unity gain)             [true]
    *   retime:       TF2's early talk-spurt starts (finding 19)          [false]
    *   avgGain:      voice_avggain, mean (0) to peak (1) normalization   [0.5]
    *   maxGain:      voice_maxgain gain cap                              [10]
    *   voiceScale:   voice_scale, applied inside the auto-gain           [1]
-   *   volume:       output level after the mixer                        [0.5]
+   *   volume:       the game's `volume`, after the mixer's clip         [1]
+   *   deviceRate:   snd_device_rate, the app's own (not a TF2 variable):
+   *                 the listener's sound device, an integer from 44100 to
+   *                 192000; anything else is the default. The output is
+   *                 at this rate. Only 48000 is measured.           [48000]
    *   seed:         PRNG seed for the loss pattern / crackle        [0xC0FFEE]
    *   received:     the source is voice as the game received it, already
    *                 through a sender and the codec (a demo's packets,
@@ -1169,7 +1459,10 @@
    *                 gate, codec and network settings are ignored.      [null]
    * }
    *
-   * Resolves to { samples: Float32Array, sampleRate, blob, codecInfo }
+   * Resolves to { samples: Float32Array, sampleRate, blob, codecInfo }:
+   * samples at sampleRate, the device's rate; each a whole 16-bit value
+   * over 32768, which the WAV holds exactly; as long as the source at that
+   * rate, round(length x deviceRate / sourceRate), plus a room's tail.
    */
   async function process(audioBuffer, opts = {}) {
     if (!audioBuffer || typeof audioBuffer.getChannelData !== 'function' ||
@@ -1205,8 +1498,7 @@
     const received     = opts.received && opts.received.frameLog ? opts.received : null;
 
     const srcRate = audioBuffer.sampleRate;
-    const mixRate = engine.mixRate;
-    const playbackRate = Math.max(mixRate, Math.round(srcRate));
+    const deviceRate = deviceRateOf(opts.deviceRate);
     const frameMs = 20;
     const framesPerPacket = clamp(Math.round(finiteOr(opts.frameMs, frameMs) / frameMs), 1, 10);
     const report = (f) => { if (typeof opts.onProgress === 'function') opts.onProgress(f); };
@@ -1214,7 +1506,8 @@
     /* ---- 1) Sender capture: downmix, capture gain, int16 clip ---- */
     let samples = bufferToMono(audioBuffer, captureChannel);
     if (!samples.every(Number.isFinite)) throw new TypeError('Source PCM contains a non-finite sample.');
-    const playbackLength = Math.round(samples.length * playbackRate / srcRate);
+    // The output's length: the source's duration at the device's rate.
+    const playbackLength = Math.round(samples.length * deviceRate / srcRate);
     if (micGain !== 1 && !received) {
       for (let i = 0; i < samples.length; i++) samples[i] *= micGain;
     }
@@ -1317,7 +1610,6 @@
         for (let i = 0; i < samples.length; i++) samples[i] *= voiceScale;
         samples = hardClip(samples, INT16_FULL_SCALE);
       }
-      opts.onGain?.(samples);
     } else if (autoGain) {
       samples = resampleSinc(samples, codecRate, codec.voiceRate);
       // With the gate on, the gain knows which blocks were decoded; with
@@ -1330,42 +1622,43 @@
       for (let i = 0; i < samples.length; i++) samples[i] *= voiceScale;
       samples = hardClip(samples, INT16_FULL_SCALE);
     }
+    // The mix point, on every profile (a test hook): the gain's output at
+    // the voice rate, as it reaches the mixer.
+    if (typeof opts.onGain === 'function') opts.onGain(samples);
 
-    /* ---- 5) Mixer at 44.1 kHz: rate conversion, room DSP, output ---- */
-    samples = codec.mixer === 'linear'
-      ? resampleLinear(samples, codec.voiceRate, mixRate)
-      : resampleSinc(samples, codec.voiceRate, mixRate);
-    const dryMixLength = samples.length;
+    /* ---- 5) The mixer at 44.1 kHz: the entry and the upsampling ---- */
+    // The same stages as createRender and the live chain run, here given
+    // the whole voice and ended.
+    const whole = (stage, x) => joinInts([stage.push(x), stage.flush()]);
+    let mix = whole(createMixStage(codec.voiceRate, null), samples);
+    const dryMixLength = mix.length;
     report(0.8);
     await microYield();
-    if (listenerCfg && listenerCfg.extraLpf) {
-      samples = applyBiquad(samples, biquadCoefs('lowpass', mixRate, listenerCfg.extraLpf, 0.8));
-    }
-    samples = await runDspChain(samples, mixRate, room.chain, room.mix);
-    if (engine.outputFir) samples = applyFirZeroPhase(samples, engine.outputFir);
-    if (volume !== 1) {
-      for (let i = 0; i < samples.length; i++) samples[i] *= volume;
+    // Until W3-17c: the listener's low-pass and the old room code at the
+    // seam, in floats as they were (mixSeam); the room's tail lengthens the
+    // mix. A render with neither meets no float here.
+    const lowpass = listenerCfg && listenerCfg.extraLpf ? biquadCoefs('lowpass', MIX_RATE, listenerCfg.extraLpf, 0.8) : null;
+    if (lowpass || (room.chain && room.chain.length && room.mix > 0)) {
+      let y = mixToFloat(mix);
+      if (lowpass) y = applyBiquad(y, lowpass);
+      mix = toMixInts(await runDspChain(y, MIX_RATE, room.chain, room.mix));
     }
     report(0.9);
     await microYield();
 
-    /* ---- 6) Output rate; keep every source frame plus any room tail ---- */
-    const tail = Math.max(0, Math.round((samples.length - dryMixLength) * playbackRate / mixRate));
-    samples = resampleSinc(samples, mixRate, playbackRate);
+    /* ---- 6) mixOut, the device's rate, the output's length ---- */
+    // The blocks, the clip, volume and the 16-bit rounding, then the device
+    // stage. The output keeps the source's duration at the device's rate,
+    // cut or padded with zeros, plus the room's tail at that rate.
+    const atDevice = whole(createOutStage(volume, deviceRate, opts.onMixBlock), mix);
+    const tail = Math.max(0, Math.round((mix.length - dryMixLength) * deviceRate / MIX_RATE));
     const outLength = playbackLength + tail;
-    if (samples.length !== outLength) {
-      const aligned = new Float32Array(outLength);
-      aligned.set(samples.subarray(0, outLength));
-      samples = aligned;
-    }
-    samples = softLimit(samples, 0.98);
-    for (let i = 0; i < samples.length; i++) {
-      if (!Number.isFinite(samples[i])) throw new Error(`DSP produced a non-finite sample at index ${i}.`);
-    }
+    samples = new Float32Array(outLength);
+    for (let i = 0, n = Math.min(outLength, atDevice.length); i < n; i++) samples[i] = atDevice[i] / 32768;
 
-    const blob = encodeWav(samples, playbackRate);
+    const blob = encodeWav(samples, deviceRate);
     report(1);
-    return { samples, sampleRate: playbackRate, blob, realOpus: enableCodec,
+    return { samples, sampleRate: deviceRate, blob, realOpus: enableCodec,
       codecInfo: { ...codecInfo, codec: codecKey, autoGain, voiceRate: codec.voiceRate } };
   }
 
@@ -1373,12 +1666,16 @@
   /* WAV encoder (16-bit PCM mono)                                      */
   /* ------------------------------------------------------------------ */
 
-  // Float samples to 16-bit PCM, the conversion every download format uses.
+  // Float samples to 16-bit PCM, the conversion every download format uses:
+  // round(s x 32768), ties to even, clamped to -32768..32767. A render's
+  // samples are whole numbers over 32768, so each is written as itself.
+  // (Until W3-10 positive samples were scaled by 32767 and truncated: every
+  // positive sample of every file was one unit low.)
   function toInt16(samples) {
     const out = new Int16Array(samples.length);
     for (let i = 0; i < samples.length; i++) {
-      const s = clamp(samples[i], -1, 1);
-      out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      const r = roundEven(samples[i] * 32768);
+      out[i] = r > 32767 ? 32767 : r < -32768 ? -32768 : r;
     }
     return out;
   }
@@ -1444,29 +1741,6 @@
       const keep = Math.max(start, Math.ceil((next * down - half) / up));
       if (keep > start) { buf = buf.slice(keep - start); start = keep; }
       return out;
-    };
-  }
-
-  // resampleLinear, a block at a time.
-  function streamResampleLinear(inRate, outRate) {
-    if (inRate === outRate) return (x) => x;
-    const ratio = inRate / outRate;
-    let buf = new Float32Array(0), start = 0, total = 0, next = 0;
-    return (x) => {
-      const merged = new Float32Array(buf.length + x.length);
-      merged.set(buf); merged.set(x, buf.length);
-      buf = merged; total += x.length;
-      const out = [];
-      for (;;) {
-        const pos = next * ratio, i0 = pos | 0;
-        if (i0 + 1 > total - 1) break;
-        const frac = pos - i0;
-        out.push(buf[i0 - start] * (1 - frac) + buf[i0 + 1 - start] * frac);
-        next++;
-      }
-      const keep = Math.floor(next * ratio);
-      if (keep > start) { buf = buf.slice(keep - start); start = keep; }
-      return Float32Array.from(out);
     };
   }
 
@@ -1540,6 +1814,14 @@
     return resampleKernel(up, down).half / up / inRate;
   }
 
+  // How long the live chain's last stage waits, in seconds: above 44.1 kHz
+  // the device stage waits for the next mix sample (one 44100 Hz sample at
+  // most); at 44.1 kHz there is no stage; below, the sinc resampler's wait.
+  function outputWait(ioRate) {
+    const rate = Math.round(ioRate);
+    return rate > MIX_RATE ? 1 / MIX_RATE : rate === MIX_RATE ? 0 : sincWait(MIX_RATE, rate);
+  }
+
   // The live chain of the `steam` profile with the codec on (W3-11b): the
   // render's own stages (createRender's steam stage), fed as the
   // microphone's blocks arrive, with the key held from the chain's start to
@@ -1578,7 +1860,7 @@
     if (codec.codecRate !== STEAM_RATE || codec.voiceRate !== STEAM_VOICE_RATE || codec.decoderEq) {
       throw new Error('The steam rule runs at 24000 Hz into a 44100 Hz voice rate, with no decoder EQ.');
     }
-    const S = SteamSender.STEAM_SENDER, engine = VOICE_ENGINE, mixRate = engine.mixRate;
+    const S = SteamSender.STEAM_SENDER;
     const opus = await loadOpusModule();
     const bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
 
@@ -1620,18 +1902,18 @@
     after.push(...mixStages());
 
     // contentDelay: how many samples (at ioRate) the output's index sits
-    // behind the input's. Here only the causal stages after the mix point
-    // shift it (the output FIR, run causally; a render runs it zero-phase):
-    // the capture FIR's delay is dropped, the lookahead is trimmed where
-    // packets are laid, and the reach only holds samples back. latencyMs is
-    // that and every hold-back: the resamplers' waits (to 24 kHz, Steam's
-    // resampler's 16 inputs, the mixer's and the context's), the capture
-    // FIR's dropped delay, the reach and the lookahead.
+    // behind the input's: 0 (W3-10). Nothing shifts it: the capture FIR's
+    // delay is dropped, the lookahead is trimmed where packets are laid, the
+    // reach only holds samples back, and after the mix point the entry and
+    // mixOut have no memory, the voice is not upsampled, and the device
+    // stage starts at phase 0 (below 44.1 kHz the sinc resampler is
+    // time-aligned). latencyMs is every hold-back: the resamplers' waits (to
+    // 24 kHz, Steam's resampler's 16 inputs, and the context's: outputWait),
+    // the capture FIR's dropped delay, the reach and the lookahead.
     const firDelay = (taps) => (taps ? (taps.length - 1) / 2 : 0);
-    const contentSeconds = firDelay(engine.outputFir) / mixRate;
-    const contentDelay = Math.round(contentSeconds * ioRate);
+    const contentDelay = 0;
     const holdBack = (r) => sincWait(ioRate, STEAM_RATE) + (firDelay(captureEq) + r + lookahead + swr.TAPS / 2) / STEAM_RATE
-      + sincWait(STEAM_VOICE_RATE, mixRate) + sincWait(mixRate, ioRate);
+      + outputWait(ioRate);
     const latencyMs = (r) => 1000 * (contentDelay / ioRate + holdBack(r));
 
     let talking = true, pushed = 0, given = 0, slot = 0;
@@ -1738,21 +2020,25 @@
     const volume = clamp(finiteOr(opts.volume, engine.volume), 0, 1);
     const framesPerPacket = clamp(Math.round(finiteOr(opts.frameMs, 20) / 20), 1, 10);
     const rand = mulberry32(finiteOr(opts.seed, 0xC0FFEE) >>> 0);
-    const mixRate = engine.mixRate;
 
     // The mix point, a stage boundary (opts.onGain, a test hook, sees the
-    // voice-rate signal there as a render's does), and the stages after it:
-    // the mixer's rate, the listener's low-pass, the output FIR, the volume,
-    // the context's rate, the limiter.
+    // voice-rate signal there as a render's does), and the stages after it,
+    // the render's own (W3-10): the entry and the upsampling (their states
+    // made with the chain), the listener's low-pass at the seam, the blocks
+    // (opts.onMixBlock, counted from the chain's first sample at its mix
+    // point), mixOut. Then the context's rate: the device stage's linear rule
+    // at any rate above 44.1 kHz (the context is the listener's device, so
+    // opts.deviceRate is not read here), nothing at 44.1 kHz, and below it
+    // the sinc resampler: a context under 44.1 kHz is the browser's, not the
+    // game's. Rooms are not applied live.
     const mixStages = () => {
       const stages = [];
       if (typeof opts.onGain === 'function') stages.push((x) => { opts.onGain(x); return x; });
-      stages.push(codec.mixer === 'linear' ? streamResampleLinear(codec.voiceRate, mixRate) : streamResampleSinc(codec.voiceRate, mixRate));
-      if (listenerCfg && listenerCfg.extraLpf) stages.push(streamBiquad(biquadCoefs('lowpass', mixRate, listenerCfg.extraLpf, 0.8)));
-      if (engine.outputFir) stages.push(streamFir(engine.outputFir));
-      stages.push((x) => { if (volume !== 1) for (let i = 0; i < x.length; i++) x[i] *= volume; return x; });
-      stages.push(streamResampleSinc(mixRate, ioRate));
-      stages.push((x) => softLimit(x, 0.98));
+      const rate = Math.round(ioRate);
+      const seam = listenerCfg && listenerCfg.extraLpf ? mixSeam(streamBiquad(biquadCoefs('lowpass', MIX_RATE, listenerCfg.extraLpf, 0.8))) : null;
+      const out = createOutputStage({ voiceRate: codec.voiceRate, volume, deviceRate: rate > MIX_RATE ? rate : MIX_RATE, onMixBlock: opts.onMixBlock, seam });
+      stages.push(out.push, mixToFloat);
+      if (rate < MIX_RATE) stages.push(streamResampleSinc(MIX_RATE, rate));
       return stages;
     };
 
@@ -1842,11 +2128,13 @@
     const codes = [];   // opus-codec.mjs FRAME codes of the frames since takeFrameCodes()
     // The output is the input this many samples (at ioRate) later: the
     // group delay of the causal FIRs (capture and decoder EQ at the codec
-    // rate, the output FIR at the mix rate), which a render applies
-    // zero-phase, and the Opus lookahead, which a render trims. The pre-roll
-    // only holds output back; it does not shift it.
+    // rate), which a render applies zero-phase, and the codec's lookahead,
+    // which a render trims. The pre-roll only holds output back; it does not
+    // shift it. The stages after the mix point shift nothing against a
+    // render (the upsampler's one or three mix samples of lateness are in
+    // the render too).
     const firDelay = (taps) => (taps ? (taps.length - 1) / 2 : 0);
-    const delaySeconds = (firDelay(captureEq) + firDelay(decoderEq) + (voice ? voice.lookahead : 0)) / codecRate + firDelay(engine.outputFir) / mixRate;
+    const delaySeconds = (firDelay(captureEq) + firDelay(decoderEq) + (voice ? voice.lookahead : 0)) / codecRate;
     const contentDelay = Math.round(delaySeconds * ioRate);
     const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0 }, dtx: 0, lost: 0, late: 0,
       bytes: 0, gateOpen: false, lastMode: null, inputPeak: 0, outputPeak: 0, spurts: 0, talking,
@@ -1948,14 +2236,13 @@
   const NO_SAMPLES = new Float32Array(0);
   const passStage = { push: (x) => x, flush: () => NO_SAMPLES };
 
-  // The lengths resampleSinc and resampleLinear give.
+  // The length resampleSinc gives.
   function sincLength(n, inRate, outRate) {
     inRate = Math.round(inRate); outRate = Math.round(outRate);
     if (!n || inRate === outRate) return n;
     const g = gcd(inRate, outRate);
     return Math.max(1, Math.round(n * (outRate / g) / (inRate / g)));
   }
-  const linearLength = (n, inRate, outRate) => (!n || inRate === outRate ? n : Math.max(1, Math.round(n / (inRate / outRate))));
 
   // Passes at most `length` samples in all.
   function cutAt(length) {
@@ -1983,36 +2270,6 @@
         if (!outLength) return NO_SAMPLES;
         return cut(run(new Float32Array(Math.max(0, Math.ceil(((outLength - 1) * down + half + 1) / up) - fed))));
       }
-    };
-  }
-
-  // resampleLinear of an inLength-sample signal, ending as it ends: the last
-  // outputs lean on the last input, not on zeros past it. An empty signal
-  // gives none (outLength 0).
-  function linearStage(inRate, outRate, inLength) {
-    if (inRate === outRate) return passStage;
-    const ratio = inRate / outRate, last = inLength - 1, outLength = linearLength(inLength, inRate, outRate);
-    let buf = NO_SAMPLES, start = 0, total = 0, next = 0;
-    const run = () => {
-      const out = [];
-      for (; next < outLength; next++) {
-        const pos = next * ratio, i0 = Math.min(last, pos | 0), i1 = Math.min(last, i0 + 1);
-        if (i1 >= total) break;
-        const frac = pos - (pos | 0);
-        out.push(buf[i0 - start] * (1 - frac) + buf[i1 - start] * frac);
-      }
-      const keep = Math.max(start, Math.min(last, (next * ratio) | 0));
-      if (keep > start) { buf = buf.slice(keep - start); start = keep; }
-      return Float32Array.from(out);
-    };
-    return {
-      push(x) {
-        const merged = new Float32Array(buf.length + x.length);
-        merged.set(buf); merged.set(x, buf.length);
-        buf = merged; total += x.length;
-        return run();
-      },
-      flush: run
     };
   }
 
@@ -2195,8 +2452,7 @@
     const received     = opts.received && opts.received.frameLog ? opts.received : null;
 
     const srcRate = source.sampleRate, length = source.length;
-    const mixRate = engine.mixRate;
-    const playbackRate = Math.max(mixRate, Math.round(srcRate));
+    const deviceRate = deviceRateOf(opts.deviceRate);
     const frameMs = 20;
     const framesPerPacket = clamp(Math.round(finiteOr(opts.frameMs, frameMs) / frameMs), 1, 10);
     const report = (f) => { if (typeof opts.onProgress === 'function') opts.onProgress(f); };
@@ -2211,12 +2467,11 @@
       throw new RangeError('TF2Audio.createRender does not stream talk-spurt re-timing yet (retime); use TF2Audio.process.');
     }
 
-    // Each stage's whole length, as process()'s stages give them.
+    // Each stage's whole length, as process()'s stages give them; the
+    // output's is the source's duration at the device's rate.
     const codecLength = sincLength(length, srcRate, codecRate);
     const voiceLength = sincLength(codecLength, codecRate, codec.voiceRate);
-    const mixLength = codec.mixer === 'linear' ? linearLength(voiceLength, codec.voiceRate, mixRate)
-      : sincLength(voiceLength, codec.voiceRate, mixRate);
-    const outLength = Math.round(length * playbackRate / srcRate);
+    const outLength = Math.round(length * deviceRate / srcRate);
 
     /* ---- 1-2) Sender: resample to the codec rate; capture filters ---- */
     const stages = [sincStage(srcRate, codecRate, length)];
@@ -2318,7 +2573,6 @@
           return hardClip(y, INT16_FULL_SCALE);
         }));
       }
-      if (typeof opts.onGain === 'function') stages.push(sampleStage((x) => { opts.onGain(x); return x; }));
     } else if (autoGain) {
       stages.push(sincStage(codecRate, codec.voiceRate, codecLength));
       // decoded() as process() builds it. The codec stage fills its frame
@@ -2341,33 +2595,20 @@
         return hardClip(y, INT16_FULL_SCALE);
       }));
     }
+    // The mix point, on every profile, as process() has it.
+    if (typeof opts.onGain === 'function') stages.push(sampleStage((x) => { opts.onGain(x); return x; }));
 
-    /* ---- 5) Mixer at 44.1 kHz and the output stage ---- */
-    stages.push(codec.mixer === 'linear' ? linearStage(codec.voiceRate, mixRate, voiceLength)
-      : sincStage(codec.voiceRate, mixRate, voiceLength));
-    if (listenerCfg && listenerCfg.extraLpf) stages.push(biquadStage(biquadCoefs('lowpass', mixRate, listenerCfg.extraLpf, 0.8)));
-    if (engine.outputFir) stages.push(firStage(engine.outputFir, mixLength));
-    if (volume !== 1) {
-      stages.push(sampleStage((x) => {
-        const y = new Float32Array(x);
-        for (let i = 0; i < y.length; i++) y[i] *= volume;
-        return y;
-      }));
-    }
-
-    /* ---- 6) Output rate, cut or padded to process()'s length ---- */
-    stages.push(sincStage(mixRate, playbackRate, mixLength));
+    /* ---- 5-6) The mixer, mixOut and the device stage (W3-10) ---- */
+    // process()'s stages, as they come: the entry and the upsampling, the
+    // listener's low-pass at the seam, the blocks, mixOut, the device stage.
+    // Nothing waits for a block; the device stage waits for one mix sample.
+    const seam = listenerCfg && listenerCfg.extraLpf ? mixSeam(streamBiquad(biquadCoefs('lowpass', MIX_RATE, listenerCfg.extraLpf, 0.8))) : null;
+    stages.push(createOutputStage({ voiceRate: codec.voiceRate, volume, deviceRate, onMixBlock: opts.onMixBlock, seam }));
+    // Cut, or padded with zeros, to process()'s length; as floats over 32768.
     let emitted = 0;
-    const finalSamples = (y) => {
-      y = softLimit(y, 0.98);
-      for (let i = 0; i < y.length; i++) {
-        if (!Number.isFinite(y[i])) throw new Error(`DSP produced a non-finite sample at index ${emitted + i}.`);
-      }
-      emitted += y.length;
-      return y;
-    };
+    const finalSamples = (y) => { emitted += y.length; return mixToFloat(y); };
     const cut = cutAt(outLength);
-    stages.push({ push: (y) => finalSamples(cut(y)), flush: () => finalSamples(new Float32Array(outLength - emitted)) });
+    stages.push({ push: (y) => finalSamples(cut(y)), flush: () => finalSamples(new Int32Array(outLength - emitted)) });
 
     async function through(k, x) {
       for (; k < stages.length; k++) x = await stages[k].push(x);
@@ -2387,7 +2628,7 @@
 
     return {
       outputLength: outLength,
-      sampleRate: playbackRate,
+      sampleRate: deviceRate,
       push: (chunk) => guarded(async () => {
         if (pushed + chunk.length > length) {
           throw new RangeError(`TF2Audio.createRender: ${pushed + chunk.length} samples pushed to a ${length}-sample source.`);
@@ -2471,7 +2712,6 @@
     resampleLinear,
     firwin2,
     applyFirZeroPhase,
-    softLimit,
     hardClip,
     receiverAutoGain,
     createGain,
@@ -2488,7 +2728,15 @@
     streamFir,
     streamAutoGain,
     streamLossMask,
-    steamGiveOut
+    steamGiveOut,
+    // the mixer and the output stage (W3-10); W3-17c calls the first three
+    mixEntry,
+    mixUpsample2,
+    mixOut,
+    mixClip,
+    mixDevicePosition,
+    createDeviceStage,
+    createOutputStage
   };
 
   if (typeof window !== 'undefined') window.TF2Audio = TF2Audio;

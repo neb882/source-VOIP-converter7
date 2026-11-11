@@ -369,10 +369,19 @@
       samples: packets.map(data => ({ data, duration: 960 })) };
   }
 
+  // round(s x 32768), ties to even, clamped: a render's samples are whole
+  // 16-bit values over 32768, so each is written as itself (audio.js toInt16).
+  function pcm16(s) {
+    const v = s * 32768;
+    let r = Math.round(v);
+    if (r - v === 0.5 && (r & 1)) r -= 1;
+    return Math.max(-32768, Math.min(32767, r));
+  }
+
   function encodePcm(samples, rate) {
     // QuickTime 'sowt': 16-bit little-endian PCM, one sample per frame.
     const data = new Uint8Array(samples.length * 2), view = new DataView(data.buffer);
-    for (let i = 0; i < samples.length; i++) view.setInt16(i * 2, Math.max(-32768, Math.min(32767, Math.round(samples[i] * 32767))), true);
+    for (let i = 0; i < samples.length; i++) view.setInt16(i * 2, pcm16(samples[i]), true);
     const entry = box('sowt', new Uint8Array(6), u16(1), u16(0), u16(0), u32(0), u16(1), u16(16), u16(0), u16(0), u32(rate * 65536));
     return { codec: 'PCM', timescale: rate, entry, preSkip: 0, length: samples.length, pcm: data };
   }
@@ -383,8 +392,8 @@
     const movie = parse(bytes, { audio: false });
     if (!movie) throw new Error('only MP4 and MOV files can carry the voice back into their video');
     // Audio sample entries hold the rate as 16.16 fixed point, so 65536 Hz
-    // and up cannot be written; renders above 48 kHz (a 96 kHz device) go in
-    // at 48 kHz, which keeps everything the voice path passes.
+    // and up cannot be written; renders above 48 kHz (a device rate above
+    // 48 kHz) go in at 48 kHz, which keeps everything the voice path passes.
     if (rate > 48000) { samples = resample(samples, rate, 48000); rate = 48000; }
     const { u8: src, timescale } = movie;
     const keep = movie.tracks.filter(t => t.handler !== 'soun' && t.samples.length);

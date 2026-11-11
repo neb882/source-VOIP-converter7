@@ -109,7 +109,11 @@ async function main() {
       const variants = [];
       for (const [name, opts] of settings) {
         console.error(`Comparing ${path.basename(sourcePath)} / ${channel} / ${name}...`);
-        const rendered = (await audio.process({ sampleRate: rate, length, numberOfChannels: 1, getChannelData: () => input }, opts)).samples;
+        // The render is at the device's rate (W3-10; 48000 Hz by default), the
+        // rate the recording is compared at.
+        const render = await audio.process({ sampleRate: rate, length, numberOfChannels: 1, getChannelData: () => input }, opts);
+        if (render.sampleRate !== rate) throw new Error(`rendered at ${render.sampleRate} Hz, not ${rate} Hz`);
+        const rendered = render.samples;
         const split = Math.floor(length / 2);
         variants.push({ name, clipSignature: clipSignature(rendered, rate),
           levelTracking: levelTracking(recorded, rendered, rate),

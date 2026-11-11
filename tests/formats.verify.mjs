@@ -182,7 +182,14 @@ console.log('\n[Formats 2] WAV reader and conversion');
   const read = TF2Formats.readWav(wav);
   const written = A.toInt16(Float32Array.from(pcm, s => s / 32768));
   check('readWav returns the samples encodeWav wrote', read.sampleRate === 48000 && read.samples.every((v, i) => v === written[i]));
-  check('toInt16 matches the WAV conversion at full scale', [...A.toInt16(Float32Array.of(-1, -0.5, 0, 0.5, 1, 2, -2))].join() === '-32768,-16384,0,16383,32767,32767,-32768');
+  // round(s x 32768), ties to even, clamped (W3-10). Until then positive
+  // samples were scaled by 32767 and truncated: 0.5 gave 16383, not 16384.
+  check('toInt16 matches the WAV conversion at full scale', [...A.toInt16(Float32Array.of(-1, -0.5, 0, 0.5, 1, 2, -2))].join() === '-32768,-16384,0,16384,32767,32767,-32768');
+  check('toInt16 writes every 16-bit value over 32768 as itself', (() => {
+    const all = Float32Array.from({ length: 65536 }, (_, i) => (i - 32768) / 32768), back = A.toInt16(all);
+    return back.every((v, i) => v === i - 32768);
+  })());
+  check('toInt16 rounds to the nearest, ties to even', [...A.toInt16(Float32Array.of(0.5 / 32768, 1.5 / 32768, 2.5 / 32768, -0.5 / 32768, -1.5 / 32768, 0.7 / 32768, -0.7 / 32768))].join() === '0,2,2,0,-2,1,-1');
   check('WAV passes through unchanged', (await TF2Formats.fromWav(wav, 'wav')) === wav || sha256(await TF2Formats.fromWav(wav, 'wav')) === sha256(wav));
   const flac = decodeFlac(await TF2Formats.fromWav(wav, 'flac'));
   check('WAV to FLAC is lossless', flac.info.rate === 48000 && flac.samples.every((v, i) => v === read.samples[i]));
