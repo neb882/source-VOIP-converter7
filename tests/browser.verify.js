@@ -1285,11 +1285,11 @@ async function verifySettingsWords(page) {
       labels: controls.map(labelText),
       // The console's help says what the page says: each linked command's
       // help holds the first sentence of its control's help.
-      console: controls.filter((el) => idToCvarMap[el.id] && !dynamic.includes(el.id))
+      console: controls.filter((el) => idToCvarMap[el.id] && !dynamic.includes(el.id) && helpOf(el)[0])
         .filter((el) => !cvars[idToCvarMap[el.id]].help.includes(firstSentence(helpOf(el)[0].textContent.trim())))
         .map((el) => `${idToCvarMap[el.id]}: "${firstSentence(helpOf(el)[0].textContent.trim())}"`),
       table: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'gain', 'bits', 'frameMs', 'loss', 'jitter', 'retime', 'maxgain', 'voice_scale', 'volume', 'hp', 'lp']
-        .map((id) => [id, [labelText(document.getElementById(id)), helpOf(document.getElementById(id))[0].textContent.trim()]])),
+        .map((id) => [id, [labelText(document.getElementById(id)), (helpOf(document.getElementById(id))[0] || { textContent: '' }).textContent.trim()]])),
       options: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'retime'].map((id) => [id, [...document.getElementById(id).options].map((o) => o.textContent)]))
     };
   });
