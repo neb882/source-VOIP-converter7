@@ -112,6 +112,15 @@ As W3-17d's report says how (a scratch copy, one edit, the section run under the
 | W6 | Max gain's console help the old one | the console-help check (voice_maxgain) |
 | W7 | the selects' font at 20 px on a narrow screen | the 390 px fit: 258 to 287 px against 246 |
 
+## Fix round
+
+The review found the walk too lenient (its item 9): a control pointed at another control's sentence passed, and a
+sentence of spaces was caught only by the console-help check. The walk now requires each control's described-by
+element to be its own, but for the two groups that share one sentence by design, which the test names (the six
+measures; the custom room's three knobs), and its text at least 20 characters after trimming. Breaks: `steam_uptime`
+pointed at `codec-help` fails "each control's sentence is its own"; `device_rate`'s sentence made spaces fails the
+walk ("without: device_rate"). The codec control's markup and sentence are unchanged.
+
 ## Departures from the order
 
 1. **The codec's sentence** says "the vaudio_ ones" where the order says "the others" (above).

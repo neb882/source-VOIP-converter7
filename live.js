@@ -268,7 +268,7 @@
       // the others the gate's pre-roll, capture EQ and lookahead), the jitter
       // buffer and the audio device's buffers.
       const device = ((live.ctx.baseLatency || 0) + (live.ctx.outputLatency || 0)) * 1000;
-      const ms = 10 + (live.chainLatencyMs || s.latencyMs || 0) + w.queued / live.ctx.sampleRate * 1000 + device;
+      const ms = 10 + (s.latencyMs || live.chainLatencyMs || 0) + w.queued / live.ctx.sampleRate * 1000 + device;
       ui.latency.textContent = `${Math.max(0, ms).toFixed(0)} ms${w.underruns ? ` · ${w.underruns} dropout${w.underruns === 1 ? '' : 's'}` : ''}`;
     }
     setMeter(ui.inMeter, s.inputPeak);

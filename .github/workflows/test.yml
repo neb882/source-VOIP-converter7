@@ -8,7 +8,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -27,7 +27,7 @@ jobs:
         # has, and says so. A missing library would fail the browser suite at launch, not pass.
         run: |
           pnpm exec playwright install chromium
-          timeout 300 pnpm exec playwright install-deps chromium \
+          timeout 180 pnpm exec playwright install-deps chromium \
             || echo "::warning::Ubuntu's package mirrors could not be reached; the browser suite runs on the runner image's own libraries and fonts."
       - name: Run DSP and browser verification
         run: pnpm test:all
