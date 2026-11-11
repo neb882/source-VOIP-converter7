@@ -134,16 +134,22 @@
         opens++;
       }
       if (gain) pcm = gain.process(pcm);          // the whole packet, in arrival order
-      let from = keepSample ? 0 : Math.min(1, pcm.length), n = pcm.length - from;
+      // The packet writes `total` samples, and written(k) is the value of its k-th: the one
+      // place where a written value is made (the interpolator's output; today the packet's
+      // sample k + 1, or sample k with test.keepSample).
+      const shift = keepSample ? 0 : 1;
+      const total = Math.max(0, pcm.length - shift);
+      const written = (k) => pcm[k + shift];
+      let skip = 0, n = total;
       if (n > size) {                             // more than the ring: the packet's oldest go too
         dropOldest(count);
         const lost = n - size;
         drops.push({ pulled, count: lost, tag: label });
-        dropped += lost; from += lost; n = size;
+        dropped += lost; skip = lost; n = size;
       } else if (count + n > size) dropOldest(count + n - size);
       let w = (head + count) % size;
-      for (let i = 0; i < n; i++) {
-        data[w] = pcm[from + i];
+      for (let k = skip; k < total; k++) {
+        data[w] = written(k);
         tags[w] = label;
         if (++w === size) w = 0;
       }
