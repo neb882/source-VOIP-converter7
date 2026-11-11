@@ -270,6 +270,23 @@ for (const [name, opts, plan] of [
   ['celt_22, auto-gain off', { codec: 'celt_22', agc: false }, '12345'],
   ['speex, auto-gain off', { codec: 'speex', agc: false }, 'uneven']
 ]) add(name, 48000, () => voice(8, 48000, 12), opts, [plan]);
+// Added for W3-20b: the `miles` profile (vaudio_miles of the Source engines of
+// 2006 and 2007, not a TF2 codec), on the sources the Speex cases use: the
+// profiles' 20 s source; the 8 s source with the gate and loss, net_split, and
+// at rates that need no resampling into the codec and that do; 100 samples at
+// 96 kHz; W3-19's source at voice_maxgain 1 and with the auto-gain off.
+add('miles', 48000, at48(20, 1), { codec: 'miles' }, ['uneven', '960']);
+for (const [name, rate, opts, plan] of [
+  ['miles, gate on, loss 15%, jitter 300 ms', 48000, { codec: 'miles', gate: true, lossPct: 15, jitterMs: 300 }, 'uneven'],
+  ['miles, loss 15%, net_split 40 ms', 48000, { codec: 'miles', lossPct: 15, frameMs: 40 }, 'uneven'],
+  ['miles, source at 11.025 kHz', 11025, { codec: 'miles' }, 'uneven'],
+  ['miles, source at 8 kHz', 8000, { codec: 'miles' }, 'uneven']
+]) add(name, rate, () => voice(8, rate, 4), opts, [plan]);
+add('miles, 100 samples at 96 kHz', 96000, () => voice(0, 96000, 8, 100), { codec: 'miles' }, ['7']);
+for (const [name, opts, plan] of [
+  ['miles, voice_maxgain 1, gate on, loss 15%', { codec: 'miles', maxGain: 1, gate: true, lossPct: 15 }, 'uneven'],
+  ['miles, auto-gain off', { codec: 'miles', agc: false }, 'uneven']
+]) add(name, 48000, () => voice(8, 48000, 12), opts, [plan]);
 // Added in the review's fix round. Output lengths that are not whole
 // numbers (n x playbackRate / srcRate), so process()'s rounding of the
 // output length and the stream's cut or padding of its end are both seen: at
@@ -430,6 +447,10 @@ addRoom('steam, dsp_room 137 (no room)', { listenerPos: null, dspRoom: 137 }, nu
 // 'celt_22, one sample' and 'speex, 100 samples' are shorter than a block.
 // The five cases added for W3-19 did not move, nor did any case of another
 // profile.
+// W3-20b (the miles profile: vaudio_miles of the Source engines of 2006 and
+// 2007, not a TF2 codec) added eight cases of it, recorded once from the
+// branch's code after every check of tests/miles.verify.mjs passed, in a
+// commit of their own, beside the W3-19 cases. No other hash moved.
 // BC-1 (on `steam` loss takes whole messages: one draw a message, a lost end
 // marker carrying the decoder, the refusal over 12 frames, each played frame
 // at its own time) re-recorded the WAV, codecInfo and GAIN_GOLDEN hashes of
@@ -491,6 +512,14 @@ const GOLDEN = {
   "speex, voice_maxgain 1, gate on, loss 15%": ["caea3afdfcf22a35a9ef1c5ad4901fa03c7e2c12f2955b5267b0d9e9a684e720", "8ad2ba901507b7bb789da1640bd75ae31030abbf43acc287d53565bf6e5071d6"],
   "celt_22, auto-gain off": ["2c669b8273e98667d984c2664c1e0b9a8c62b68d11a2bda46d57da0e11402839", "75e87f1ae98592ac715d9df84f113f03a394b0dd3bc2db6395e248e74270d7f0"],
   "speex, auto-gain off": ["464708d2ee000726b7a8c6207213a4c58ae5e1baff4f6c38204353581a303942", "e09f64118c40ee075f889a916162de4334a3bca400233fcda302dc646d1c56a1"],
+  "miles": ["34e380ce9b0ca2fc87dbcbbc86b2b2da3eab5a4443f99a78e4db3952130b5762", "bae44dbb31ceaf49bece3e1c1d0ef12973dff0a37958017d4a4459d3fa86c9c0"],
+  "miles, gate on, loss 15%, jitter 300 ms": ["029d9c7f8a232feb781572d51f23ae0ad0f840e1845f46ddd5a60a86007a1042", "f8e7c3265f0a82af91beee2def97c7f23234019fda98bb86d25f00ebf9c61cff"],
+  "miles, loss 15%, net_split 40 ms": ["294db754f1eb7315726c77d8ceb64dca40258772fc24148cd5c6ce16d90c75a9", "0fddfd7a8c18b3f5ea7ae9ce60231894752fe106e2f0538c1ef246e865ecf94d"],
+  "miles, source at 11.025 kHz": ["5390c0d2d1bbf235822812a521bfa8d54680e0d0db755de1cdaa18d3486b1a55", "287dd4f4e2da9b6128500a61e804604d6089916be485c20f2854770386ff49a9"],
+  "miles, source at 8 kHz": ["a4911fb7124bb5c3dc488552ccfefb95720f5024215079149827bafa41e34bca", "287dd4f4e2da9b6128500a61e804604d6089916be485c20f2854770386ff49a9"],
+  "miles, 100 samples at 96 kHz": ["d0ecac18c80cdcd89e4886cb09250ef382184643379d6bce996ce00cc4327e25", "8841b76a34de8756e4a36b23a4050070288033c5f6dfea0661fe2d9f5ef3339b"],
+  "miles, voice_maxgain 1, gate on, loss 15%": ["88dd402c87a5efef714b1066d7ab1126482981f4c95d66e354e4840e11a888ef", "fbaa48443545fa715a1bece6517994d6c3b6bac2dea9f53b7725ca5fc7810dae"],
+  "miles, auto-gain off": ["f3c25fde1d33be115865f2ed6a0bbc8584047cd63716bd0d460e7181aa3cc2e2", "9c237e99c7c3a8e2e668d4715c5912933fc4aae63edddd54c05f2670aa951c24"],
   "steam, 192004 samples at 24000 Hz (an output length of 352807.35)": ["f0a8821f065aaaed88a257a6626e966d1d1c75c9c7a528749f9818c537bf91ce", "4ff570d0b80d42531e0ee8c80450d73c6e9c5f13bade05fad73715c704711405"],
   "steam, 256007 samples at 32000 Hz (an output length of 352809.65)": ["246207f8891188114c92855cc66d3e9bd771475bfe8cf342d54b11ca0c6255a2", "924b7ab9c414cd20107b2422a3f5f5867c6bd5ddb93efbbed4797ba8fafed15d"],
   "steam, 302401 samples at 37800 Hz (an output length of 352801.17)": ["558c0e3b035fe5aeedf9c87b1e124edd60423d7fd21b811b0a8a1c525d420774", "28af3a677cef1f5f3b3919770a5285c604983d096c638794b28d6d46d450c3de"],
@@ -571,6 +600,14 @@ const GAIN_GOLDEN = {
   "speex, voice_maxgain 1, gate on, loss 15%": "3172a6c4e7475272a4e497f0cdbfe1b7a23ad570328e4082788b77c7e1932d7f",
   "celt_22, auto-gain off": "244966c198753c4fe6b309120edd95d5deb36fde2378a9cece96cec73b25f80a",
   "speex, auto-gain off": "f7371400ffd34ddb2e312029cc7bf37b5d224273ffcaec4bedcd2b7b815ecfe6",
+  "miles": "365994ce07ae8cb75a3ae36815873d4c17cdee58abc2308a85cb0ca31ea33733",
+  "miles, gate on, loss 15%, jitter 300 ms": "9c33c2e4245ebe4d79abd2b1dc1397d93fdff8beb1647dbb723349d4907952cc",
+  "miles, loss 15%, net_split 40 ms": "e9936e476e6adb2a8ceba6e7c343186e3a75e7f7accaa0f472f81a3d156c5c55",
+  "miles, source at 11.025 kHz": "1d349ac4a3e3cf153c1526f54d0aab1e9a17b8ae5c648f35d4d8cb3627e76a2e",
+  "miles, source at 8 kHz": "26fa5cc2a52d15a9ef5406c8f4fde5a8c6e0d108dbb21209c04372fd2139db9a",
+  "miles, 100 samples at 96 kHz": "edb4aebe22367a72fb3dc44672a31d6c018a31b11db1eaaa2582e0bb2e54755c",
+  "miles, voice_maxgain 1, gate on, loss 15%": "663beb6f267484d58b3fed730c37a9dce2b58ab14a344fd9cfe431b74e9bca41",
+  "miles, auto-gain off": "a7a8f07cb6716f76366acd622e60b3a1a6370df8d27e7c78e8cf6b985a7fb2d8",
   "steam, 192004 samples at 24000 Hz (an output length of 352807.35)": "a82b7c82a2715817377f21d35c03ecb152e2c082f9ad51aa281c4ce5cae3ff00",
   "steam, 256007 samples at 32000 Hz (an output length of 352809.65)": "24ea514ae6b60a115046b478043e144b0ee8d09bafcccccc3410602388b6d9b9",
   "steam, 302401 samples at 37800 Hz (an output length of 352801.17)": "a73c7d15d47d6d0b9a85b8fa2919ee11b74f2ade5306e9fa2dda588eead2b9a7",

@@ -867,9 +867,10 @@ const FRAME_STYLE = [
   { name: 'Hybrid', color: '#2fa58a', text: 'Hybrid: SILK below 8 kHz, CELT above' },
   { name: 'CELT', color: '#9a6ad6', text: 'CELT: transform coding, full band' },
   { name: 'DTX', color: '#9a7414', text: 'DTX: no speech detected; the decoder plays comfort noise' },
-  { name: 'lost', color: '#ff4040', text: 'lost: never arrived; the decoder conceals the gap (PLC), or under vaudio_speex the gap plays as zeros' },
+  { name: 'lost', color: '#ff4040', text: 'lost: never arrived; the decoder conceals the gap (PLC), or under vaudio_speex and vaudio_miles the gap plays as zeros' },
   { name: 'late', color: '#ff9d2e', text: 'late: arrived after its playout time, played as silence' },
-  { name: 'Speex', color: '#c8609a', text: 'Speex: CELP speech coding, narrowband, here on 11.025 kHz sound up to 5.5 kHz' }
+  { name: 'Speex', color: '#c8609a', text: 'Speex: CELP speech coding, narrowband, here on 11.025 kHz sound up to 5.5 kHz' },
+  { name: 'VR12', color: '#86b83a', text: 'VR12: a vocoder at 2.9 kbit/s, here on 11.025 kHz sound; vaudio_miles, not a TF2 codec' }
 ];
 const FRAME_LOST = 5, FRAME_LATE = 6;
 

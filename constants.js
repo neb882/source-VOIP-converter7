@@ -237,17 +237,21 @@ const PRESET_ALIASES = { sewers: 'underwater' };
 
 /* -------------------------------------------------------------------------
  * Codec profiles. Each runs a real codec: the Steam profiles the bundled
- * libopus 1.1.5, the CELT profiles CELT 0.11 and `speex` Speex 1.0.2. Only
- * `steam` is calibrated against a real TF2 recording; the CELT profiles'
+ * libopus 1.1.5, the CELT profiles CELT 0.11, `speex` Speex 1.0.2 and
+ * `miles` Voxware VR12. Only `steam` is calibrated against a real TF2
+ * recording; the CELT profiles'
  * settings are read from the game's own module (W3-03) and their codec is
  * the game's build (W3-08); Speex's codec and settings are read from the
  * game's module (W3-09) and reproduce a 32-bit game's recording (W3-18).
+ * `miles` is not a TF2 codec (the Source engines of 2006 and 2007) and is
+ * unverified (W3-20b).
  *
  *   engine      : 'celt011' for CELT 0.11 (frameSize samples per packetBytes
  *                 packet, scaled by snd_bits / 16); 'speex' for the game's
  *                 Speex 1.0.2 module (frameSize samples in packetBytes
  *                 bytes at codecRate, 11025 Hz; snd_bits does not change
- *                 it); otherwise Opus
+ *                 it); 'vr12' for vaudio_miles's VR12 (the same, 360
+ *                 samples in 12 bytes); otherwise Opus
  *   codecRate   : codec sample rate (Opus: 8/12/16/24/48 kHz)
  *   modeRate    : CELT only, optional: the rate the CELT mode is created
  *                 with, when the engine feeds it sound at another rate
@@ -285,7 +289,8 @@ const PRESET_ALIASES = { sewers: 'underwater' };
  *                 is entered into the mixer: 44100 Hz is mixed as it is,
  *                 22050 Hz upsampled by two once and 11025 Hz twice, by the
  *                 mixer's own rule (audio.js mixUpsample2; W3-10)
- *   status      : 'measured' | 'experimental' | 'modeled'
+ *   status      : 'measured' | 'experimental' | 'modeled' | 'unverified'
+ *                 (nothing reads it)
  * ------------------------------------------------------------------------- */
 const CODEC_PROFILES = {
   steam: {
@@ -367,6 +372,33 @@ const CODEC_PROFILES = {
     displayName: 'vaudio_speex (Speex 1.0.2 on 11 kHz sound, 11 kbps)',
     engine: 'speex', codecRate: 11025, frameSize: 160, packetBytes: 20, bitrate: 11025,
     voiceRate: 11025, status: 'modeled'
+  },
+  // vaudio_miles: NOT A TF2 CODEC. A codec of the Source engine family that
+  // could be selected in the Source engines of 2006 and 2007 (Source SDK Base
+  // 2006 and 2007); current TF2 ships its files and refuses the name. The
+  // codec stage is those engines', read from their files (W3-20b): Voxware's
+  // VR12 (vendor/voxware-vr12, W3-20a) behind the module's wrapper, 360
+  // samples in 12 bytes, each sample cut to its top 8 bits before the codec.
+  // Those engines capture, code, decode and play voice at 11025 Hz for every
+  // codec and resample nothing, so VR12, an 8000 Hz codec, codes 11025 Hz
+  // sound as if it were 8000 Hz: a frame lasts 32.65 ms, the wire carries
+  // 2940 bit/s and the band reaches 5.5 kHz. The sender's encoder and the
+  // receiver's channel are two codec objects, each reset at the render's
+  // start; nothing resamples after the decoder; the gain runs on the decoded
+  // samples from the first (W3-19). The wrapper's start-up block, uninitialised
+  // memory in the engines, is coded as zeros here. Three stand-ins: a new talk
+  // spurt (the app's gate, or the live key) resets both sides, where the
+  // engines reset the receiver only after a pause longer than its buffer; the
+  // gain is held through time nothing was sent, where the engines reset it
+  // when a channel is assigned; a lost or late frame plays as 360 zeros in its
+  // own place, where in the engines nothing is queued for it. Everything after
+  // the gain (the mixer, rooms, output) is TF2's of today. Unverified: it has
+  // not been checked against any recording of a running engine. snd_bits picks
+  // nothing.
+  miles: {
+    displayName: 'vaudio_miles (Voxware VR12 on 11 kHz sound, 2.9 kbps; Source 2006/2007, not TF2)',
+    engine: 'vr12', codecRate: 11025, frameSize: 360, packetBytes: 12, bitrate: 2940,
+    voiceRate: 11025, status: 'unverified'
   }
 };
 
