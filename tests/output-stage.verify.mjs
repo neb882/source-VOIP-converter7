@@ -526,5 +526,53 @@ console.log('\n[14] The live chain is the render after the mix point');
   }
 }
 
+console.log('\n[15] The live chain\'s room stage: let go and attached again, the same samples as attached throughout (W3-17d)');
+{
+  // The room module, loaded as Node loads it (the stage takes a path made
+  // with the table given). The live monitor's worker lets the path go once
+  // it holds no room, no fade and no water, and attaches it again for a
+  // room: neither may change a sample against the path left attached, at any
+  // voice rate, push size or timing (a push ending on a block's last sample
+  // among them).
+  const { createRequire } = await import('node:module');
+  const req = createRequire(new URL('room-dsp.js', root));
+  const R = req(new URL('room-dsp.js', root).pathname), table = req(new URL('room-presets.js', root).pathname);
+  const idle = (p) => { const s = p.state(); return s.room.preset === null && s.room.previous === null && (s.room.requested === undefined || s.room.requested === null)
+    && !s.room.fading && !s.water.on && !s.water.asked; };
+  const results = [];
+  for (const voiceRate of [11025, 22050, 44100]) {
+    const per = 512 * voiceRate / 44100, N = voiceRate * 3;
+    let seed = 5;
+    const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+    const voice = Float32Array.from({ length: N }, () => Math.round(0.3 * (2 * rnd() - 1) * 32768) / 32768);
+    for (const chunk of [per, 160, 127, 1000, ...(voiceRate === 11025 ? [1] : [])]) {
+      for (const offset of [0, 37, 300]) {
+        const run = (letGo) => {
+          const holder = { path: R.createRoomPath({ seed: 9, room: 6, table }), attached: true }, switches = [];
+          holder.path.spurtStart();
+          holder.onSwitch = (on, at) => switches.push(on);
+          const stage = A.createOutputStage({ voiceRate, volume: 1, liveRoom: holder });
+          const parts = [], off = Math.round(0.5 * voiceRate) + offset, on = Math.round(1.5 * voiceRate) + offset;
+          let wanted = true;
+          for (let i = 0; i < N; i += chunk) {
+            if (off >= i && off < i + chunk) { holder.path.setRoom(null); wanted = false; }
+            if (on >= i && on < i + chunk) { holder.path.setRoom(6); wanted = true; holder.attached = true; }
+            parts.push(stage.push(voice.subarray(i, Math.min(N, i + chunk))));
+            if (letGo && holder.attached && !wanted && idle(holder.path)) holder.attached = false;
+          }
+          return { y: join(parts, Int32Array), switches };
+        };
+        const kept = run(false), freed = run(true), m = Math.min(kept.y.length, freed.y.length);
+        const d = firstDiff(kept.y.subarray(0, m), freed.y.subarray(0, m));
+        results.push({ voiceRate, chunk, offset, ok: d < 0 && m > 0.9 * N && freed.switches.join().endsWith('false,true') && freed.switches.filter((x) => !x).length === 1, d, sw: freed.switches.join() });
+      }
+    }
+  }
+  const bad = results.filter((r) => !r.ok);
+  check('let go when idle and attached again for a room, the stage gives the samples of the path left attached: 11025, 22050 and 44100 Hz, pushes of a block, 160, 127, 1000 (and 1), three timings',
+    bad.length === 0, bad.length ? bad.slice(0, 4).map((r) => `${r.voiceRate} Hz, ${r.chunk}, +${r.offset}: ${r.d < 0 ? `switches ${r.sw}` : `differs at ${r.d}`}`).join('; ')
+      : `${results.length} runs, each let go and attached again`);
+}
+
 console.log(`\n${passed} output-stage checks passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

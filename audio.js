@@ -590,11 +590,18 @@
   // Attached, each 512-sample block is a render's room block (createRoomMix's
   // arithmetic: the path's shares at the block's start, two entries, each part
   // upsampled on its own, the path's sum), so up to 511 mix samples are held
-  // back. The switch is taken at the first block start after `attached`
-  // changes: the direct part's upsampler states run on through it, and the
-  // room part's are 0 while not attached (the room's entries are 0 then), so
-  // a path attached or let go while it holds no room and no water changes no
-  // sample; one attached with a room fades it in with the slot's own fade.
+  // back. The switch is taken at a block start after `attached` changes. The
+  // direct part's upsampler states run on through it. A path is let go only
+  // at the start of a block after one whose room share was 0 and once the
+  // room part's upsampler states have run out to 0 (one block more after the
+  // last room entry, at most): the block in which the slot drops a faded-out
+  // room has its shares from before the drop, and its last room entry is
+  // still in those states. So the room part is all zeros when it stops, the
+  // idle path's sum is the direct part alone, and nothing of the room is cut.
+  // Attached again, the room part's states start from 0, as they stood. So
+  // letting the path go and attaching it again changes no sample against the
+  // path left attached; one attached with a room fades it in with the slot's
+  // own fade.
   // holder.holding says whether the stage holds samples back now. onBlock
   // (the block's first voice sample, counted from the chain's first) and
   // onSwitch(attached, that sample) are tests' hooks. A chain never flushes.
@@ -606,12 +613,20 @@
     const roomStates = Array.from({ length: stages }, () => ({ prev: 0 }));
     const up = (e, states) => { for (const st of states) e = mixUpsample2(e, st); return e; };
     const held = new Int32Array(per);
-    let phase = 0, at = 0, active = !!(holder.attached && holder.path);
+    let phase = 0, at = 0, lastRoom = 0, active = !!(holder.attached && holder.path);
     holder.holding = active;
     if (active && holder.onSwitch) holder.onSwitch(true, 0);
-    function block(start) {
+    // The block's update and shares are taken at its first sample, as the
+    // engine's mixer takes them before the block, so a room asked for while
+    // a block is held is taken at the next block, as when no block is held.
+    let sh = null;
+    function begin(start) {
       if (holder.onBlock) holder.onBlock(start);
-      const path = holder.path, sh = path.shares();
+      sh = holder.path.shares();
+      lastRoom = sh.room;
+    }
+    function block() {
+      const path = holder.path;
       const vd = MIX_VOICE_VOLUME * sh.direct / 256, vr = MIX_VOICE_VOLUME * sh.room / 256;
       const direct = new Int32Array(per), wet = new Int32Array(per);
       for (let i = 0; i < per; i++) { direct[i] = mixEntry(held[i], vd); wet[i] = mixEntry(held[i], vr); }
@@ -629,7 +644,10 @@
         };
         for (let i = 0; i < x.length; i++, at++) {
           if (phase === 0) {
-            const want = !!(holder.attached && holder.path);
+            let want = !!(holder.attached && holder.path);
+            // Not let go while the room part still has something in it.
+            if (active && !want && (lastRoom !== 0 || roomStates.some((st) => st.prev !== 0))) want = true;
+            if (want && !active) for (const st of roomStates) st.prev = 0;
             if (want !== active) {
               dry();
               active = want;
@@ -639,8 +657,9 @@
           }
           const v = mixSample(x[i]);
           if (active) {
+            if (phase === 0) begin(at);
             held[phase] = v;
-            if (phase === per - 1) parts.push(block(at - phase));
+            if (phase === per - 1) parts.push(block());
           } else run.push(v);
           phase = phase === per - 1 ? 0 : phase + 1;
         }

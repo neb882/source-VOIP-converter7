@@ -1242,7 +1242,7 @@ async function verifyLiveRoom(page) {
       const to = Math.round(seconds * rate);
       for (; fed < to; fed += block) { const b = mic.slice(fed, Math.min(to, fed + block)); channel.port1.postMessage({ type: 'in', samples: b.buffer }, [b.buffer]); }
       fed = to;
-      await until(() => heard() >= fed - rate * 0.3);
+      await until(() => heard() >= fed - rate * (codec === 'steam' ? 0.3 : 0.1));
     };
     worker.postMessage({ type: 'start', rate, port: channel.port2, opts }, [channel.port2]);
     await until(() => readies.length > 0);
@@ -1274,12 +1274,13 @@ async function verifyLiveRoom(page) {
       return e;
     };
     const mix = [];
+    const sets = [];
     let next = 0, hand = null, share = null, sharesSeen = [], spurts = 0, setAt = [], attach = [], detach = [], blocks = 0, current = null;
     const add = (y) => { for (const v of y) mix.push(v); };
     const dryTo = (to) => { if (to > next) { add(up(voice.slice(next, to).map((v) => TF2Room.entry(v, 256)), directState)); next = to; } };
     for (const c of probe.log) {
       if (c.call === 'create') hand = TF2Room.createRoomPath({ seed: c.seed, room: c.room, water: c.water, table: TF2_ROOM_PRESETS });
-      else if (c.call === 'set') { setAt.push(blocks); sharesSeen.push('set'); if (c.preset !== undefined) hand.setRoom(c.preset); hand.setWater(c.water); }
+      else if (c.call === 'set') { setAt.push(blocks); sharesSeen.push('set'); sets.push({ preset: c.preset, fading: hand.state().room.fading }); if (c.preset !== undefined) hand.setRoom(c.preset); hand.setWater(c.water); }
       else if (c.call === 'spurtStart') { spurts++; sharesSeen.push('spurt'); hand.spurtStart(); }
       else if (c.call === 'attach') { attach.push(c.at); dryTo(c.at); }
       else if (c.call === 'detach') { detach.push(c.at); next = Math.max(next, c.at); }
@@ -1304,7 +1305,7 @@ async function verifyLiveRoom(page) {
     const loud = (at) => voice.slice(Math.max(0, at - 4410), at).some((v) => Math.abs(v) > 300);
     return { blocks, same, m, mixLength: mix.length, outLength: out.length, readies: readies.map((r) => r.room), spurts, senderSpurts: probe.stats.spurts,
       sharesSeen, setAt, attach, detach, attachLoud: attach.map(loud), latencies, final: { holding: probe.holding, attached: probe.attached, latencyMs: probe.stats.latencyMs },
-      state: probe.state, created: probe.log.find((c) => c.call === 'create') };
+      state: probe.state, created: probe.log.find((c) => c.call === 'create'), sets };
   }, spec);
   const hold = 1000 * 511 / 44100;
   // steam: no room at the start, a room switched on mid-spurt, the great
@@ -1336,6 +1337,14 @@ async function verifyLiveRoom(page) {
     && celt.readies.length === 1 && celt.state.room.preset === 17 && celt.state.water.on === false && celt.spurts === celt.senderSpurts,
     'celt_22 live: started under water with dsp_room 40 (under water, no room), then preset 17, then 40 again (the room stays 17) and the water off: the mix made again, sample for sample',
     `${celt.same} of ${celt.m} samples, ${celt.blocks} blocks, room ${celt.state.room.preset}`);
+  // Preset 6, none, and before the fade to none has ended dsp_room 40 (not
+  // held): the room still fades to none, and then the path is let go.
+  const late = await run({ codec: 'celt_22', first: { room: { preset: 6 }, underwater: false }, seconds: 3,
+    steps: [[1.0, { room: null }], [1.15, { room: { preset: 40 } }]] });
+  check(late.sets.some((x) => x.preset === 40 && x.fading) && late.m > 0.9 * late.mixLength && late.same === late.m && late.detach.length === 1 && !late.final.attached && !late.final.holding
+    && late.state.room.preset === null && Math.abs(Math.max(...late.latencies) - late.final.latencyMs - hold) < 1e-6,
+    'none, then dsp_room 40 during the fade: the room fades to none and the path is let go (no 11.6 ms kept for the session)',
+    `let go at voice sample ${late.detach[0]}; ${late.final.latencyMs.toFixed(2)} ms after`);
   // A rebuild for another setting keeps the path, its room and its count.
   const rebuilt = await run({ codec: 'steam', first: { room: { preset: 6 }, underwater: false }, seconds: 3,
     steps: [[1.0, { room: { preset: 6 }, micGain: 1.5 }]] });

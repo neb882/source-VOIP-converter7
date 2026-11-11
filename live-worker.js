@@ -30,7 +30,7 @@ let talking = true, inputTotal = 0, recording = null;
 // The room: { path, attached } (and the probe's hooks), which the chains'
 // mix stages read; whether a room or the water is asked for; the key of the
 // settings the chain was built with, less the room's own.
-let room = null, roomWanted = false, chainKey = null, probe = null;
+let room = null, chainKey = null, probe = null;
 
 function report(error) {
   self.postMessage({ type: 'error', message: error && error.message ? error.message : String(error) });
@@ -46,11 +46,14 @@ const settingsKey = (opts) => JSON.stringify({ ...opts, room: undefined, underwa
 // The room the settings ask for, set on the path: setRoom (taken at the
 // slot's next block once a fade has ended, with the 200 ms cross-fade; an
 // equal room is no change) and setWater (from the next block, no fade). A
-// number the table does not hold changes nothing.
+// number the table does not hold is given to the slot too, which keeps what
+// it holds and drops a request not yet taken, as the engine's comparison of
+// its variable does (room-dsp.js; Decision 11).
 function setRoomOf(asked) {
-  if (asked.unheld === null) room.path.setRoom(asked.preset);
+  const p = asked.unheld === null ? asked.preset : asked.unheld;
+  room.path.setRoom(p);
   room.path.setWater(asked.water);
-  if (probe) probe.log.push({ call: 'set', preset: asked.unheld === null ? asked.preset : undefined, water: asked.water });
+  if (probe) probe.log.push({ call: 'set', preset: p, water: asked.water });
 }
 
 // The path, made with the first chain: in the room and the water asked for,
@@ -108,11 +111,10 @@ function configure(opts) {
   enqueue(async () => {
     if (mine !== generation) return;   // a later change supersedes this one
     const asked = TF2Audio.roomPreset(opts);
-    roomWanted = asked.preset !== null || asked.water || (asked.unheld !== null && room !== null && !roomIdle());
     if (!room) makeRoom(opts, asked);
     else {
       setRoomOf(asked);
-      if (roomWanted) room.attached = true;
+      if (asked.preset !== null || asked.water) room.attached = true;
     }
     const key = settingsKey(opts);
     if (chain && key === chainKey) return;   // the room alone: no new chain
@@ -150,8 +152,10 @@ async function processBlock(block) {
   }
   c.outTotal += out.length;
   // With neither a room nor the water, the path is let go once its fade to
-  // none has ended: the mix stage stops running it at its next block.
-  if (room && room.attached && !roomWanted && roomIdle()) room.attached = false;
+  // none has ended: the mix stage stops running it at a block start once its
+  // room part has run out. Read from the path's own state, whatever was
+  // asked last (a number the table does not hold leaves the room as it is).
+  if (room && room.attached && roomIdle()) room.attached = false;
   c.frameTotal += codes.length;
   if (out.length) port.postMessage({ type: 'out', samples: out.buffer }, [out.buffer]);
 }
