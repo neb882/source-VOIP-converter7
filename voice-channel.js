@@ -12,13 +12,15 @@
  *     gain is reset, and the channel waits waitTicks(bufferMs, fps) client ticks
  *     (voice_buffer_ms counted down by one frame's duration per 15 ms tick; the
  *     packet's own tick is the first) before it plays;
- *   - every packet runs through the gain whole, then all but its first sample go
- *     into a 0.5 s ring (the engine's interpolator writes n - 1 samples, each
- *     0.999 of the next one: under the 16-bit step, so the kept samples are the
- *     packet's samples 1..n-1); what does not fit drops the oldest samples;
+ *   - every packet runs through the gain whole, then the engine's interpolator
+ *     writes n - 1 samples of it into a 0.5 s ring of 16-bit values (the k-th
+ *     is sample k + 1 pulled 0.1% toward sample k, truncated toward zero, with
+ *     a fraction carried from packet to packet); what does not fit drops the
+ *     oldest samples;
  *   - the mixer's pull reads what it asks for, fades the last voice_fadeouttime
- *     of the queue, pads an underrun with one repeat of what it read and then
- *     zeros, and marks the channel starved when the ring is empty;
+ *     of the queue (in single precision, truncated toward zero), pads an
+ *     underrun with one repeat of what it read and faded and then zeros, and
+ *     marks the channel starved when the ring is empty;
  *   - the next tick frees a starved channel, unless a packet came first (it is
  *     appended: no wait, no gain reset).
  * The game's mixer asks for one sample more (513) on its first block after a
@@ -27,7 +29,9 @@
  * createTimeline plays the mixer's way.
  *
  * createChannel(opts) -> { add(pcm, tag), tick(), pull(n), and read-only
- * inUse, playing, starved, count, opens, waitTicks, dropped, drops }.
+ * inUse, playing, starved, count, opens, waitTicks, dropped, drops, fraction }, in
+ * 16-bit units; createTimeline(opts), the game's clock around one channel, at
+ * 1/32768 of them.
  * No imports; runs as a page script, in a worker and under Node.
  */
 (function (root) {
@@ -61,6 +65,12 @@
     // that drives a channel; pull() takes what it is asked for.
     mixBlock: 512,
     firstBlock: 513,
+    // The interpolator's fraction when a channel is assigned (W3-03 §1, read); never reset
+    // otherwise, it is carried from packet to packet (run: TF2's own routine, both builds).
+    fraction: 0.999,
+    // The ring holds 16-bit values: createChannel works in them. createTimeline takes and
+    // gives samples at 1/32768 of them (the resampler's Int16Array over 32768).
+    unit: 32768,
   });
   Object.freeze(VOICE_CHANNEL.bufferMsRange);
   Object.freeze(VOICE_CHANNEL.fpsRange);
@@ -98,6 +108,8 @@
       (waitTicks(bufferMs, fps) - 1) * VOICE_CHANNEL.tick + OPENING_SECONDS);
   }
 
+  // Samples in and out are in 16-bit units (whole values, as the game's ring holds them; a
+  // value that is not whole is truncated by the interpolator's arithmetic).
   // opts: fps, bufferMs, fadeTime (seconds), gain ({ process(pcm) -> pcm, reset() }: run on
   // every packet whole and reset when the channel opens; without it samples pass unchanged),
   // test (only to show that a replay of a log can fail, never from the page:
@@ -111,7 +123,10 @@
     if (!Number.isInteger(size) || size < 1) throw new RangeError('test.ring must be a positive whole number of samples');
     const wait = t.waitTicks !== undefined ? t.waitTicks : waitTicks(o.bufferMs, o.fps);
     if (!Number.isInteger(wait)) throw new RangeError('test.waitTicks must be a whole number');
-    const fade = Math.max(2, Math.floor(VOICE_CHANNEL.rate * finiteOr(o.fadeTime, VOICE_CHANNEL.fadeTime)));
+    // The fade's length and step, in the engine's single precision: 4410 samples and
+    // fround(1 / 4409) at voice_fadeouttime 0.1.
+    const fade = Math.max(2, Math.trunc(Math.fround(VOICE_CHANNEL.rate * Math.fround(finiteOr(o.fadeTime, VOICE_CHANNEL.fadeTime)))));
+    const step = Math.fround(1 / (fade - 1));
     const keepSample = !!t.keepSample, noGrace = !!t.noGrace;
 
     // The ring, preallocated, and the tag of the packet each sample came from.
@@ -119,6 +134,7 @@
     let head = 0, count = 0;                      // read position and samples queued
     let inUse = false, playing = false, starved = false, left = 0;
     let opens = 0, dropped = 0, pulled = 0;
+    let frac = VOICE_CHANNEL.fraction;            // the interpolator's position past a packet's start
     const drops = [];                             // { pulled, count, tag }, one per run of one tag
 
     // k samples leave from the play position: an overflow, heard as a skip.
@@ -141,17 +157,24 @@
       if (!pcm || typeof pcm.length !== 'number') throw new TypeError('add() takes the packet\'s samples');
       const label = typeof tag === 'number' ? tag : -1;
       if (!inUse) {                               // Voice_AssignChannel
-        inUse = true; head = 0; count = 0; left = wait; playing = false;
+        inUse = true; head = 0; count = 0; left = wait; playing = false; frac = VOICE_CHANNEL.fraction;
         if (gain) gain.reset();
         opens++;
       }
       if (gain) pcm = gain.process(pcm);          // the whole packet, in arrival order
-      // The packet writes `total` samples, and written(k) is the value of its k-th: the one
-      // place where a written value is made (the interpolator's output; today the packet's
-      // sample k + 1, or sample k with test.keepSample).
-      const shift = keepSample ? 0 : 1;
-      const total = Math.max(0, pcm.length - shift);
-      const written = (k) => pcm[k + shift];
+      // The interpolator at a step of 1.0 (run: TF2's own routine, both builds): from the
+      // carried position pos, while pos < n - 1 it writes trunc(s[i] + (s[i+1] - s[i]) x f),
+      // i and f the whole and fractional parts of pos, and moves pos on by 1; the fraction
+      // left is carried to the next packet. So n - 1 samples, the k-th being s[k + 1] pulled
+      // 0.1% toward s[k]; packets do not touch each other. written(pos) is the one place
+      // where a written value is made. With test.keepSample, s[0] is written first, whole.
+      const len = pcm.length;
+      const written = (pos) => {
+        const i = Math.trunc(pos), f = pos - Math.floor(pos);
+        return Math.trunc(pcm[i] + (pcm[i + 1] - pcm[i]) * f) + 0;    // + 0: no -0 in a 16-bit ring
+      };
+      let total = keepSample && len > 0 ? 1 : 0, end = frac;
+      while (end < len - 1) { total++; end += 1; }
       let skip = 0, n = total;
       if (n > size) {                             // more than the ring: the packet's oldest go too
         dropOldest(count);
@@ -159,12 +182,17 @@
         drops.push({ pulled, count: lost, tag: label });
         dropped += lost; skip = lost; n = size;
       } else if (count + n > size) dropOldest(count + n - size);
-      let w = (head + count) % size;
-      for (let k = skip; k < total; k++) {
-        data[w] = written(k);
+      let w = (head + count) % size, k = 0;
+      const put = (v) => {                        // the packet's k-th write, unless the ring dropped it
+        if (k++ < skip) return;
+        data[w] = v;
         tags[w] = label;
         if (++w === size) w = 0;
-      }
+      };
+      if (keepSample && len > 0) put(Math.trunc(pcm[0]) + 0);
+      let pos = frac;
+      while (pos < len - 1) { put(written(pos)); pos += 1; }
+      frac = pos - Math.floor(pos);               // kept for the next packet
       count += n;
       starved = false;
     }
@@ -192,13 +220,15 @@
       head = (head + got) % size;
       count -= got;
       const after = count;
-      if (after < fade) {                         // the samples with fewer than fade - 1 behind them
-        for (let i = 0; i < got; i++) {
-          const r = (got - 1 - i) + after;
-          if (r < fade - 1) samples[i] *= r / (fade - 1);
+      if (after < fade) {
+        // The fade (run: TF2's own routine, both builds): a sample with r samples queued behind
+        // it, r < fade, is scaled by 1 - j x step, j = fade - 1 - r, in single precision, and
+        // truncated toward zero.
+        for (let i = Math.max(0, got - fade + after), j = Math.max(0, fade - got - after); i < got; i++, j++) {
+          samples[i] = Math.trunc(Math.fround(Math.fround(1 - Math.fround(j * step)) * samples[i])) + 0;
         }
       }
-      if (got < n) {                              // underrun: the last samples read once more, then zeros
+      if (got < n) {                              // underrun: the last samples read (faded) once more, then zeros
         const k = Math.min(got, n - got);
         samples.copyWithin(got, got - k, got);
       }
@@ -219,6 +249,7 @@
       get waitTicks() { return wait; },
       get dropped() { return dropped; },
       get drops() { return drops.map((d) => ({ pulled: d.pulled, count: d.count, tag: d.tag })); },
+      get fraction() { return frac; },
     });
   }
 
@@ -240,6 +271,10 @@
   //
   // opts: fps, bufferMs, fadeTime (as createChannel), gain (as createChannel: reset when a
   // channel opens, run on every message whole), length (output samples, required).
+  //
+  // Scale: push's pcm, the gain and the output are at 1/32768 of the channel's 16-bit units
+  // (1.0 is 32768 units). The boundary is here: the gain's output is multiplied by 32768 as it
+  // enters the channel, and what the channel gives is divided by 32768.
   //
   // push({ tick, pcm, source }): one message as the receiver gets it: its game tick (never
   // before the last one given), its decoded samples at 44.1 kHz (a Float32Array of any length;
@@ -277,8 +312,9 @@
     const fps = finiteOr(o.fps, VOICE_CHANNEL.fps), bufferMs = finiteOr(o.bufferMs, VOICE_CHANNEL.bufferMs);
     const user = o.gain || null;
     let gainResets = 0;
-    const gain = {
-      process: (pcm) => (user ? user.process(pcm) : pcm),
+    const UNIT = VOICE_CHANNEL.unit;
+    const gain = {                                // the gain at the caller's scale, then into 16-bit units
+      process: (pcm) => Float64Array.from(user ? user.process(pcm) : pcm, (v) => v * UNIT),
       reset() { gainResets++; if (user) user.reset(); },
     };
     const ch = createChannel({ fps, bufferMs, fadeTime: o.fadeTime, gain });
@@ -342,13 +378,13 @@
         samples = new Float32Array(N);
         let j = 0;
         if (!first) {                             // the sample the last block kept
-          samples[j] = kept.value;
+          samples[j] = kept.value / UNIT;
           hear(kept.pos, kept.s, at + j);
           j++;
         }
         for (let i = 0; i < n - 1; i++, j++) {
           const p = placeOf(r.tags[i]);
-          samples[j] = r.samples[i];
+          samples[j] = r.samples[i] / UNIT;
           hear(p.pos, p.s, at + j);
         }
         const p = placeOf(r.tags[n - 1]);
