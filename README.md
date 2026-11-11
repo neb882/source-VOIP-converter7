@@ -68,7 +68,7 @@ FLAC and MP3 are made from the WAV when a file is saved. MP3 is lossy on top of 
 4. **Mixer and output:** as the game's engine does it, in whole numbers. The voice enters the 44.1 kHz mix at 255/256 of its level, truncated; a 22.05 kHz voice (the CELT profiles) is upsampled by two once and an 11.025 kHz voice (`speex`) twice, by the engine's own rule (each new sample the mean of its neighbours, rounded down). With a room, or under water, the voice is entered twice, at the direct share and the room's share of 256 that the room's preset gives, each part upsampled on its own; the room's part passes the room's preset, the two are added, and under water the sum passes the game's water preset (14), all in the engine's 32-bit integers, before the clip. The reverb's tail runs on after the voice, so a render with a room is longer than its source, and the download carries the tail. Then the mix is clipped to ±32767, multiplied by `volume` and rounded to 16 bits. There is no filter and no limiter. "Rooms" below says what the page offers.
 5. **The listener's sound device:** the listener's PC converts the game's 44.1 kHz sound to its device's rate by linear interpolation, which softens the top octave a little (about −1 dB at 8 kHz and −5 dB at 18 kHz) and leaves faint images, about 65 dB under a 1 kHz tone. That is modelled from the recordings, which were made at 48 kHz. **Listener's sound device** (`snd_device_rate`) picks 48000 Hz (usual) or 44100 Hz, where nothing is converted. The download is at that rate, with every sample written exactly as rendered.
 
-The quick presets reset every control. The live chain strip under the controls shows what the next render will do.
+The quick presets reset every control. The live chain strip under the controls shows what the next render will do, naming `voice_scale` and the gain target when they are not the game's defaults.
 
 ## Profiles
 
@@ -155,7 +155,7 @@ The same decoded PCM, settings and pinned runtime always produce the same output
 
 ## Controls and console
 
-Advanced controls are grouped in signal order. Every control has a console name.
+Advanced controls are grouped in signal order. Every control has one sentence under it saying what it does to the sound and, where it is not plain, whose default it is; the console's `help <command>` says the same. Most controls also have a console name (how long the sender's Steam has run and the live monitor's low latency do not).
 
 | Group | Controls |
 | --- | --- |
@@ -165,7 +165,7 @@ Advanced controls are grouped in signal order. Every control has a console name.
 | **Listener room & output** | the manual `dsp_room` and the automatic room's six measures, `volume` (1, the game's default), and the listener's sound device (`snd_device_rate` in the console: 48000 or 44100 Hz), a setting of the listener's PC |
 | **Extras: not in the game** | mic gain (`voice_micgain`), the high- and low-pass (`dsp_hpf`, `dsp_lpf`), the voice gate's switch and threshold (`voice_vad`, `voice_vad_threshold`: on `steam` the mean level of a capture chunk, −40 dBFS by default; on the other profiles a 20 ms frame's RMS, −39.5), skipping the codec (`snd_codec`), the bitrate scale (`snd_bits`), the packet length (`net_split`), the auto-gain's switch (`voice_agc`), talk-spurt timing (`voice_retime`), the custom room (`dsp_custom_*`, `dsp_room 99`) and the live monitor's low latency |
 
-The codec (`sv_voicecodec`), the listener position (`dsp_room`) and **Listener under water** (`underwater` in the console) sit above the groups. A label shows a variable's name only where the game has that variable; the app's own names are console commands. The Fullband Opus codec is not in the game, and its menu entry says so.
+The codec (**Voice codec**, `sv_voicecodec`), the listener position (`dsp_room`) and **Listener under water** (`underwater` in the console) sit above the groups. A label shows a variable's name only where the game has that variable; the app's own names are console commands. The Fullband Opus codec is not in the game, and its menu entry says so.
 
 Some controls behave differently from their names:
 - `voice_scale` acts inside the fixed-point auto-gain, as in the game. Values below 1 do not simply scale the result: 0.5 lowers voice by 8–11 dB and adds a 344 Hz sawtooth.
