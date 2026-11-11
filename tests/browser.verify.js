@@ -1958,10 +1958,15 @@ async function verifyVersionLine(browser) {
   }
 }
 
-// A browser of its own, with these switches (the microphone refused, none).
+// A browser of its own, with these switches (the microphone refused, none):
+// the full Chromium, in its new headless mode. Playwright's headless shell,
+// its default, has no permission prompt at all: a page without the
+// permission gets NotSupportedError ("Not supported") there, where a browser
+// that can ask gets NotAllowedError on a refusal.
 async function launchBrowser(args) {
   const options = { headless: true, args };
   if (process.env.CHROMIUM_EXECUTABLE) options.executablePath = process.env.CHROMIUM_EXECUTABLE;
+  else options.channel = 'chromium';
   try { return await chromium.launch(options); }
   catch (error) {
     if (!String(error.message).includes('Executable doesn\'t exist')) throw error;

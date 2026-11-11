@@ -235,7 +235,9 @@ run stand for the head.
 
 CI (`tests`, GitHub): `4a7683d` passed (the verification step: success). `ad13b3e` failed: "PCM microphone capture
 contains the synthetic input at the expected duration" (the cancelled render started again; fixed in `47904d9`).
-`47904d9` failed at [Browser 3i] (the race; fixed in `8dd8253` and `5bae5d4`). The head's own run cannot be written into the commit it runs on: the hand-back gives it.
+`47904d9` and `8dd8253` failed at [Browser 3i] (the race; fixed in `8dd8253`, then `5bae5d4`). `15c0423` failed at
+"no microphone permission: after a press on Live …" ("Could not start the live monitor: Not supported": CI's
+headless shell, "Departures", 10); the refusal browsers run on the full Chromium since. The head's own run cannot be written into the commit it runs on: the hand-back gives it.
 
 Scanned before the last push: `git diff origin/main...HEAD` and the commit messages hold no recording, no personal
 detail, no SteamID but the test's universe-0 ones already in the suite, and no model name outside the commits'
@@ -348,7 +350,14 @@ fails at that check's step.
    an older key is cancelled first" needs a change during a render. The batch still makes it inert.
 9. **A cancelled render** is not started again by itself (the fix after CI): only other settings or the button
    start one.
-10. **The meta description** (amendment 5): "Make any audio or video sound like Team Fortress 2 voice chat: real
+10. **The refusal checks run on the full Chromium** (`channel: 'chromium'`, its new headless mode; the installed
+    one where `CHROMIUM_EXECUTABLE` is set). Playwright's default headless shell, which CI runs, has no permission
+    prompt: a page without the permission gets `NotSupportedError`, "Not supported" (what the audit saw), not
+    `NotAllowedError`; the page then shows "Could not start the live monitor: Not supported", as the order's
+    "anything else" says. The page goes by the order's names only; whether `NotSupportedError` should also read as
+    a refusal is a question for the orchestrator (in a browser that cannot ask, "allow it in the address bar" may
+    not help).
+11. **The meta description** (amendment 5): "Make any audio or video sound like Team Fortress 2 voice chat: real
     Opus, and the game's receiver auto-gain and clipping, measured against recordings of the game. Rooms are off
     by default; they follow the game's own code, and two of them match recordings in echo times and level. Runs
     locally in your browser."
