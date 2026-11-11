@@ -882,11 +882,12 @@
     };
   }
 
-  // The engine codecs on the frame path (codec.engine: CELT, Speex) with the
-  // gain on (W3-19): the game's gain works in blocks of 128 samples counted
-  // from the first sample the decoder gives, so it runs on the decoder's
-  // stream from that sample, the codec's delay (lookahead: 64 samples for
-  // celt_22, 128 for celt_44, 80 for speex) included, and the delay is
+  // The engine codecs on the frame path (codec.engine: CELT, Speex, VR12)
+  // with the gain on (W3-19): the game's gain works in blocks of 128 samples
+  // counted from the first sample the decoder gives, so it runs on the
+  // decoder's stream from that sample, the codec's delay (lookahead: 64
+  // samples for celt_22, 128 for celt_44, 80 for speex, 305 for miles, whose
+  // engines' gain routine is the same) included, and the delay is
   // dropped after it. The output keeps its length and alignment; only the
   // gain's block grid and its first block move. Returns how many samples the
   // gain runs on before the render's first: the lookahead, or 0 for every
@@ -1181,7 +1182,7 @@
   const tailAtDevice = (mix, deviceRate) => Math.round(mix * deviceRate / MIX_RATE);
 
   // opus-codec.mjs FRAME: what happened to each codec frame.
-  const FRAME_CODES = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6, speex: 7 };
+  const FRAME_CODES = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6, speex: 7, vr12: 8 };
 
   // Frame statistics for voice that arrived already coded (opts.received),
   // in the shape roundTrip's info takes, for the codec lane and net_graph.
@@ -1681,7 +1682,7 @@
     } else if (enableCodec) {
       const opus = await loadOpusModule();
       const bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
-      // The codec's own frame length: 20 ms for Opus, frameSize for CELT and Speex.
+      // The codec's own frame length: 20 ms for Opus, frameSize for CELT, Speex and VR12.
       const codecFrameMs = codec.frameSize ? 1000 * codec.frameSize / codecRate : frameMs;
       const common = {
         gate: gateOn ? { thresholdDb: gateDb, prerollFrames: Math.round(gateSpec.prerollMs / codecFrameMs),
@@ -1695,6 +1696,8 @@
           packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)), ...celtModeRate(codec) })
         : codec.engine === 'speex'
         ? await opus.speexRoundTrip(samples, codecRate, common)
+        : codec.engine === 'vr12'
+        ? await opus.vr12RoundTrip(samples, codecRate, common)
         : await opus.roundTrip(samples, codecRate, bitrate, { ...common,
           application: codec.application, signal: codec.signal,
           runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
@@ -2028,7 +2031,7 @@
 
     let talking = true, pushed = 0, given = 0, slot = 0, roomSpurt = null;
     const one = new Int16Array(1), codes = [];
-    const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0 }, dtx: 0, lost: 0, late: 0,
+    const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0, vr12: 0 }, dtx: 0, lost: 0, late: 0,
       bytes: 0, gateOpen: false, lastMode: null, inputPeak: 0, outputPeak: 0, spurts: 0, talking,
       droppedLate: 0, movedLate: 0, latencyMs: 0 };
     // What the chain holds back now (the room's block only while it holds one).
@@ -2242,11 +2245,14 @@
           packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)), ...celtModeRate(codec) })
         : codec.engine === 'speex'
         ? await opus.createSpeexStream(codecRate)
+        : codec.engine === 'vr12'
+        ? await opus.createVr12Stream(codecRate)
         : await opus.createVoiceStream(codecRate, Math.max(6000, Math.round(codec.bitrate * bits / 16)), {
           application: codec.application, signal: codec.signal,
           runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
     }
-    // 20 ms for Opus; CELT and Speex have their own frame (23.2 ms for vaudio_celt, 14.51 ms for vaudio_speex).
+    // 20 ms for Opus; CELT, Speex and VR12 have their own frame (23.2 ms for vaudio_celt, 14.51 ms for
+    // vaudio_speex, 32.65 ms for vaudio_miles).
     const frameSize = codec.frameSize || codecRate / 50, frameSeconds = frameSize / codecRate;
     const threshold = 10 ** (gateDb / 20);
     // opts.lowLatency (live only, not how TF2 behaves): no pre-roll, so the
@@ -2270,7 +2276,7 @@
     const firDelay = (taps) => (taps ? (taps.length - 1) / 2 : 0);
     const delaySeconds = (firDelay(captureEq) + firDelay(decoderEq) + (voice ? voice.lookahead : 0)) / codecRate;
     const contentDelay = Math.round(delaySeconds * ioRate);
-    const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0 }, dtx: 0, lost: 0, late: 0,
+    const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0, vr12: 0 }, dtx: 0, lost: 0, late: 0,
       bytes: 0, gateOpen: false, lastMode: null, inputPeak: 0, outputPeak: 0, spurts: 0, talking,
       latencyMs: 0 };
     // What the chain holds back now: the room's block only while it holds one.
@@ -2356,7 +2362,7 @@
     }
 
     return { process, stats, contentDelay, codecRate, frameSize, frameSeconds, version: voice ? voice.version : null,
-      // Speex reports its own bitrate (11025 bit/s), whatever snd_bits says.
+      // Speex and VR12 report their own bitrate (11025 and 2940 bit/s), whatever snd_bits says.
       bitrate: voice?.bitrate ?? Math.max(6000, Math.round(codec.bitrate * bits / 16)), vbr: !!codec.encoder?.vbr, dtx: !!codec.encoder?.dtx,
       gateDb: gateOn ? gateDb : null, autoGain, voiceRate: codec.voiceRate, realOpus: !!voice,
       setTalking(on) { talking = !!on; stats.talking = talking; },
@@ -2455,11 +2461,12 @@
   const sampleStage = (f) => ({ push: f, flush: () => NO_SAMPLES });
 
   // The voice gate and the codec a frame at a time, as roundTrip,
-  // celtRoundTrip and speexRoundTrip run them over a length-sample signal at
-  // the codec rate. Frame f is final once frame f + preroll is measured (no
-  // later frame's pre-roll reaches it), so the input held is a few frames.
-  // Decoded frame f lands at f * size - lookahead; gated and late frames
-  // leave zeros. kind: 'opus' | 'celt' | 'speex'. lead (gainLead): how many
+  // celtRoundTrip, speexRoundTrip and vr12RoundTrip run them over a
+  // length-sample signal at the codec rate. Frame f is final once frame
+  // f + preroll is measured (no later frame's pre-roll reaches it), so the
+  // input held is a few frames. Decoded frame f lands at f * size - lookahead;
+  // gated and late frames leave zeros. kind: 'opus' | 'celt' | 'speex' |
+  // 'vr12'. lead (gainLead): how many
   // of the delay's samples are kept in front, for the gain to run on before
   // they are dropped; the stage then gives length + lead samples, frame f at
   // f * size - lookahead + lead.
@@ -2468,7 +2475,8 @@
     const frames = Math.ceil((length + lookahead) / size);
     const lossMask = makeLossMask(frames);
     const frameLog = new Uint8Array(frames), frameBytes = new Uint16Array(frames);
-    const modes = kind === 'speex' ? { silk: 0, hybrid: 0, celt: 0, speex: 0 } : { silk: 0, hybrid: 0, celt: 0 };
+    const modes = kind === 'speex' ? { silk: 0, hybrid: 0, celt: 0, speex: 0 }
+      : kind === 'vr12' ? { silk: 0, hybrid: 0, celt: 0, vr12: 0 } : { silk: 0, hybrid: 0, celt: 0 };
     const preroll = gate ? gate.preroll : 0, hold = gate ? gate.hold : 0, input = new Float32Array(size);
     let encodedBytes = 0, lostFrames = 0, underrunFrames = 0, gatedFrames = 0, dtxFrames = 0, spurts = 0, open = false;
     let held = new Float32Array(8 * size), heldStart = 0, heldLength = 0, received = 0;
@@ -2544,7 +2552,7 @@
         if (received !== length) throw new Error(`createRender: the codec got ${received} of ${length} samples`);
         return advance();
       },
-      // The counts roundTrip, celtRoundTrip and speexRoundTrip report.
+      // The counts roundTrip, celtRoundTrip, speexRoundTrip and vr12RoundTrip report.
       counts() {
         return { lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames, spurts, encodedBytes, modes, frameLog, frameBytes };
       }
@@ -2708,6 +2716,9 @@
       } else if (codec.engine === 'speex') {
         kind = 'speex';
         voice = await opus.createSpeexStream(codecRate);
+      } else if (codec.engine === 'vr12') {
+        kind = 'vr12';
+        voice = await opus.createVr12Stream(codecRate);
       } else {
         kind = 'opus';
         voice = await opus.createVoiceStream(codecRate, bitrate, { application: codec.application, signal: codec.signal,
@@ -2848,7 +2859,7 @@
     };
   }
 
-  // The info roundTrip, celtRoundTrip and speexRoundTrip return, from a
+  // The info roundTrip, celtRoundTrip, speexRoundTrip and vr12RoundTrip return, from a
   // codec stage's counts and the settings process() gives them.
   function codecResultInfo(kind, voice, codec, counts, gate, gateOpts, bitrate, packetBytes, sampleRate) {
     const { lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames, spurts, encodedBytes, modes, frameLog, frameBytes } = counts;
@@ -2870,6 +2881,16 @@
         packetBytes: voice.packetBytes,
         lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts, ...gateInfo,
         encodedBytes, modes, plc: 'zeros', wrappedSamples: voice.wrapped, frameLog, frameBytes };
+    }
+    if (kind === 'vr12') {
+      // vaudio_miles's VR12 on 11025 Hz sound (not a TF2 codec); a lost frame
+      // plays as zeros; resets counts each codec object's resets.
+      return { backend: 'vr12', version: voice.version, runtime: 'voxware-vr12', sampleRate,
+        bitrate: voice.bitrate, application: 'vr12', signal: 'auto',
+        vbr: false, dtx: false, frameSamples: size, frameMs: 1000 * size / sampleRate,
+        packetBytes: voice.packetBytes,
+        lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts, ...gateInfo,
+        encodedBytes, modes, plc: 'zeros', resets: voice.resets, frameLog, frameBytes };
     }
     // Opus, with the defaults roundTrip and its encoder settings give.
     return { backend: 'libopus', version: voice.version, runtime: codec.encoder?.runtime ?? '1.6.1', sampleRate, bitrate,

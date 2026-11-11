@@ -235,6 +235,18 @@ check('Level tracking rejects unequal lengths', true);
   check(`Real take against a Speex render: its 14.5 ms frames (code 7) count as coded (${speexTrack.points} windows from ${speexTrack.overlap.t0} to ${speexTrack.overlap.t1} s, ${speexDelay.toFixed(3)} ms)`,
     speex.codecInfo.frameLog.every(c => c === 7) && speexCount === Math.ceil((Math.round(seconds * 11025) + 80) / 160) && speexTrack.points > 0
     && near(speexDelay, 1000, .1) && speexTrack.overlap.t0 > .3 * seconds - 1.5 && speexTrack.overlap.t0 < .3 * seconds + 1);
+  // W3-20b: a `miles` render (vaudio_miles, not a TF2 codec) logs its frames
+  // with their own code (8), and they count as coded too, on its grid of 360
+  // samples of 11025 Hz sound (32.65 ms). The first 30% are marked unsent.
+  const miles = await audio.process({ sampleRate: sr, length: src.length, numberOfChannels: 1, getChannelData: () => src }, { codec: 'miles' });
+  const milesTake = TF2Reference.warpSegments(miles.samples, sr, [{ a: -1, b: 1, start: 0, end: seconds + 2 }], sr, Math.round((seconds + 2) * sr)).map(v => .316 * v + 1e-4 * random());
+  const milesFrame = miles.codecInfo.frameSamples / miles.codecInfo.sampleRate, milesCount = miles.codecInfo.frameLog.length;
+  const milesLog = miles.codecInfo.frameLog.map((c, f) => (f < .3 * seconds / milesFrame ? 0 : c));
+  const milesTrack = TF2Reference.track(milesTake, sr, src, sr, { reference: { samples: miles.samples, rate: sr, frames: milesLog, frameSeconds: 360 / 11025 } });
+  const milesDelay = milesTrack.segments[milesTrack.segments.length - 1].delayMs;
+  check(`Real take against a miles render: its 32.65 ms frames (code 8) count as coded (${milesTrack.points} windows from ${milesTrack.overlap.t0} to ${milesTrack.overlap.t1} s, ${milesDelay.toFixed(3)} ms)`,
+    miles.codecInfo.frameLog.every(c => c === 8) && milesCount === Math.ceil((Math.round(seconds * 11025) + 305) / 360) && milesTrack.points > 0
+    && near(milesDelay, 1000, .1) && milesTrack.overlap.t0 > .3 * seconds - 1.5 && milesTrack.overlap.t0 < .3 * seconds + 1);
 }
 
 // Segment measures for the pre-registered predictions (tests/predictions).

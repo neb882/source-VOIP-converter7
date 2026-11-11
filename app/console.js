@@ -320,13 +320,13 @@ const cvars = {
   },
   'dsp_hpf':         { help: 'Not in the game: a filter before the codec. 0 is off. A high-pass, its cutoff in Hz; the app\'s name', link: 'hp' },
   'dsp_lpf':         { help: 'Not in the game: a filter before the codec. 20000 is off. A low-pass, its cutoff in Hz; the app\'s name', link: 'lp' },
-  'snd_bits':        { help: 'The bitrate, in sixteenths: 16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex has one bitrate and ignores this. The app\'s name', link: 'bits' },
+  'snd_bits':        { help: 'The bitrate, in sixteenths: 16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex and vaudio_miles each have one bitrate and ignore this. The app\'s name', link: 'bits' },
   'net_fakeloss':    { help: 'The share of voice frames that never arrive. Not the game\'s own number: its net_fakeloss 5 lost about 22% of them (10: 45%, 15: 64%). In %, lost in bursts of about 2.2 frames', link: 'loss' },
   'net_fakejitter':  { help: 'Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that. In ms; one late frame in ten plays as silence', link: 'jitter' },
   'net_split':       { help: 'How much voice one network packet carries. A lost packet loses all of it. Frames per packet, as ms: 20 is one frame, 40 two. The app\'s name', link: 'frameMs' },
   'snd_codec':       { help: 'For comparison only: the sound goes to the receiver without being coded (0). 1 runs the codec. The app\'s name', link: 'warble_on' },
   'sv_voicecodec':   {
-    help: 'What the game sends voice with: steam (Steam voice, today\'s), celt_22 (vaudio_celt), celt_44 (vaudio_celt_high), speex (vaudio_speex), steam_48 (Fullband Opus: not in the game)',
+    help: 'What the game sends voice with: steam (Steam voice, today\'s), celt_22 (vaudio_celt), celt_44 (vaudio_celt_high), speex (vaudio_speex), steam_48 (Fullband Opus: not in the game); miles (vaudio_miles of the Source engines of 2006 and 2007: not a TF2 codec, unverified)',
     link: 'codec',
     normalize: (v) => CODEC_PROFILES[v] ? v : null
   },
@@ -544,6 +544,16 @@ function updateSignalChain() {
   if (thresholdLabel) thresholdLabel.title = help;
   els.vadThreshold.title = help;
   updateRoomControls();
+  // The note under the codec control: shown for vaudio_miles only (W3-20b),
+  // and named in the control's aria-describedby only while shown (a screen
+  // reader reads a hidden element that aria-describedby names).
+  const codecNote = document.getElementById('codec-note');
+  if (codecNote) {
+    const shown = els.codec.value === 'miles';
+    codecNote.hidden = !shown;
+    const ids = (els.codec.getAttribute('aria-describedby') || '').split(/\s+/).filter((id) => id && id !== 'codec-note');
+    els.codec.setAttribute('aria-describedby', [...ids, ...(shown ? ['codec-note'] : [])].join(' '));
+  }
   if (!els.chain) return;
   const codec = CODEC_PROFILES[els.codec.value] || CODEC_PROFILES.steam;
   const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
@@ -574,6 +584,8 @@ function updateSignalChain() {
       ? `CELT 0.11 ${codec.modeRate ? `${codec.modeRate / 1000} kHz mode on ${codec.codecRate / 1000} kHz sound` : `${codec.codecRate / 1000} kHz`} · ${Math.max(8, Math.round(codec.packetBytes * bits / 16))}-byte packets of ${(1000 * codec.frameSize / codec.codecRate).toFixed(1)} ms`
       // The game's module has one setting for vaudio_speex: snd_bits picks nothing.
       : codec.engine === 'speex' ? `Speex 1.0.2 on ${codec.codecRate / 1000} kHz sound · ${codec.packetBytes}-byte frames of ${(1000 * codec.frameSize / codec.codecRate).toFixed(2)} ms · ${codec.bitrate / 1000} kbit/s${bits !== 16 ? ' · snd_bits not used' : ''}`
+      // vaudio_miles (the Source engines of 2006 and 2007): one setting too.
+      : codec.engine === 'vr12' ? `VR12 on ${codec.codecRate / 1000} kHz sound · ${codec.packetBytes}-byte frames of ${(1000 * codec.frameSize / codec.codecRate).toFixed(2)} ms · ${codec.bitrate / 1000} kbit/s · not a TF2 codec${bits !== 16 ? ' · snd_bits not used' : ''}`
       : `Opus ${codec.codecRate / 1000} kHz · ${codec.encoder?.vbr ? 'VBR ' : ''}${kbps} kbps${codec.encoder?.dtx ? ' · DTX' : ''} · ${mode}`, codecOn ? '' : 'off'],
     ['Network', `${packetMs} ms packets · ${loss}% lost${jitter > 0 ? ` · ${jitter} ms jitter` : ''}`, loss > 0 || jitter > 0 ? 'hot' : ''],
     // What differs from the game's defaults is named, so the strip is a full

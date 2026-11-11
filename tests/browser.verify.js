@@ -761,6 +761,128 @@ async function verifySpeexPage(page) {
 // The CELT profiles on the page (W3-06): the menu's labels, the chain strip,
 // and a render with each, as the game's module runs them. Ends back on the
 // Modern preset with a Steam render.
+// W3-20b: the miles profile (vaudio_miles of the Source engines of 2006 and
+// 2007, not a TF2 codec) on the page: the codec menu's two groups, the note
+// under the control, a render's words, its playback and download, the console
+// and a share link.
+const MILES_NOTE = 'vaudio_miles is not a TF2 codec. The Source engines of 2006 and 2007 could run it; current TF2 ships its files and refuses the name. '
+  + 'It has not been checked against any recording of a running engine. Everything after the receiver\'s gain is TF2\'s of today.';
+async function verifyMilesPage(page) {
+  console.log('\n[Browser 3c2b] The miles profile on the page (W3-20b)');
+  const menu = await page.evaluate(() => {
+    const select = document.getElementById('codec');
+    return { groups: [...select.querySelectorAll('optgroup')].map((g) => [g.label, [...g.querySelectorAll('option')].map((o) => o.value)]),
+      loose: [...select.children].filter((c) => c.tagName === 'OPTION').map((o) => o.value),
+      option: select.querySelector('option[value="miles"]')?.textContent || '', described: (select.getAttribute('aria-describedby') || '').split(/\s+/),
+      label: document.querySelector('label[for="codec"]').textContent.replace(/\s+/g, ' ').trim() };
+  });
+  check(JSON.stringify(menu.groups) === JSON.stringify([['Team Fortress 2', ['steam', 'celt_22', 'celt_44', 'speex']], ['Not in Team Fortress 2', ['steam_48', 'miles']]])
+    && menu.loose.length === 0,
+    'the codec menu has two groups: "Team Fortress 2" holds exactly steam, celt_22, celt_44 and speex; "Not in Team Fortress 2" exactly steam_48 and miles',
+    JSON.stringify(menu.groups));
+  check(/^vaudio_miles: not in TF2( \(VR12, 2\.9 kbit\/s\)| \(VR12\))$/.test(menu.option) && /sv_voicecodec/.test(menu.label),
+    'the miles option says itself that it is not in TF2; the control keeps sv_voicecodec', `${menu.option}; ${menu.label}`);
+  // The control's accessible description, as the browser computes it (CDP):
+  // a screen reader reads a hidden element that aria-describedby names, so the
+  // note is named there only while it is shown (review round, S1).
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Accessibility.enable');
+  const description = async () => {
+    const { root } = await cdp.send('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#codec' });
+    const { nodes } = await cdp.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+    return (nodes[0] && nodes[0].description && nodes[0].description.value || '').replace(/\s+/g, ' ').trim();
+  };
+  const notes = {};
+  for (const key of ['steam', 'steam_48', 'celt_22', 'celt_44', 'speex', 'miles', 'steam']) {
+    await page.locator('#codec').selectOption(key);
+    const seenNote = await page.evaluate(() => {
+      const n = document.getElementById('codec-note');
+      return { hidden: n.hidden, shown: n.getClientRects().length > 0, text: n.textContent.replace(/\s+/g, ' ').trim(),
+        described: document.getElementById('codec').getAttribute('aria-describedby') };
+    });
+    notes[key === 'steam' && notes.miles ? 'steam again' : key] = { ...seenNote, description: await description() };
+  }
+  await cdp.detach();
+  await page.locator('#codec').selectOption('miles');
+  const others = ['steam', 'steam_48', 'celt_22', 'celt_44', 'speex', 'steam again'];
+  check(others.every((k) => notes[k].hidden && !notes[k].shown) && !notes.miles.hidden && notes.miles.shown && notes.miles.text === MILES_NOTE,
+    'the note under the codec control is hidden for the other five profiles and shown, with its exact text, for miles (and hidden again after it)',
+    JSON.stringify(Object.fromEntries(Object.entries(notes).map(([k, v]) => [k, v.shown]))) + ` ${notes.miles.text}`);
+  const help = await page.evaluate(() => document.getElementById('codec-help').textContent.replace(/\s+/g, ' ').trim());
+  check(others.every((k) => notes[k].described === 'codec-help' && notes[k].description === help)
+    && notes.miles.described === 'codec-help codec-note' && notes.miles.description === `${help} ${MILES_NOTE}`,
+    'the control\'s accessible description is its help alone on a TF2 profile (no note), and the help and the note on miles',
+    `steam: "${notes.steam.description}"; miles: "${notes.miles.description}"`);
+  // A render: the console, the status line, the chain strip and the lane.
+  const before = await page.evaluate(() => state.renderId);
+  const consoleFrom = 'test: the miles render starts here';
+  await page.evaluate((n) => logLine(n, 'sys'), consoleFrom);
+  await page.locator('#process').click();
+  await page.waitForFunction((id) => state.renderId > id && !state.processing, before, { timeout: 60000 });
+  await page.waitForFunction(() => [...document.querySelectorAll('#viz-legend .lg-item')].some(e => e.querySelector('.lg-box')));
+  const seen = await page.evaluate((from) => {
+    const items = [...document.querySelectorAll('#viz-legend .lg-item')].filter(e => e.querySelector('.lg-box'));
+    const chain = [...document.querySelectorAll('#signal-chain li')].find(li => li.querySelector('b').textContent === 'Codec');
+    return { legend: items.map(e => e.textContent), legendTitles: items.map(e => e.title || e.querySelector('[title]')?.title || ''),
+      // The console's lines (one element each) after the marker.
+      console: (() => { const all = [...document.getElementById('console-out').children].map(e => e.textContent); return all.slice(all.lastIndexOf(from) + 1); })(),
+      status: document.getElementById('source-status').textContent,
+      chain: chain ? chain.textContent : '', frames: state.lastCodecInfo.frames, codes: [...state.lastCodecInfo.frameLog] };
+  }, consoleFrom);
+  const lines = seen.console.filter(l => l.includes('S_Voice'));
+  const first = lines.findIndex(l => /S_Voice: Voxware VR12/.test(l));
+  check(first >= 0 && /S_Voice: Voxware VR12 \(voxware-vr12 eedf465\), 2\.94 kbps CBR, 12-byte packets of 32\.7 ms, a lost frame plays as zeros \(VR12 100%\)/.test(lines[first])
+    && /S_Voice: vaudio_miles is not a TF2 codec \(Source engines of 2006 and 2007\); not checked against any recording/.test(lines[first + 1] || ''),
+    'the S_Voice line names Voxware VR12, its 12-byte frames and zeros for a lost frame, and the next line says it is not a TF2 codec', lines.join(' | '));
+  check(/Ready · Voxware VR12 \(not in TF2\) · 2\.94 kbps/.test(seen.status), 'the status line names Voxware VR12, not in TF2', seen.status);
+  const words = 'VR12 on 11.025 kHz sound · 12-byte frames of 32.65 ms · 2.94 kbit/s · not a TF2 codec';
+  check(seen.chain === `Codec${words}`, 'the chain strip\'s Codec cell describes VR12 on 11.025 kHz sound and says it is not a TF2 codec', seen.chain);
+  check(seen.legend.length === 1 && seen.legend[0] === `VR12 ${seen.frames}` && seen.codes.every(c => c === 8),
+    'a miles render\'s codec lane counts every frame as VR12 (code 8)', seen.legend.join(', '));
+  const texts = [...seen.legend, ...seen.legendTitles, ...lines, seen.status, seen.chain, menu.option];
+  check(texts.every(t => !/CELT|Opus|SILK|Speex/.test(t)), 'none of them calls a miles render CELT, Opus, SILK or Speex',
+    texts.filter(t => /CELT|Opus|SILK|Speex/.test(t)).join(' / '));
+  const at8 = await page.evaluate(() => {
+    const set = (v) => { els.bits.value = v; for (const type of ['input', 'change']) els.bits.dispatchEvent(new Event(type, { bubbles: true })); };
+    set('8');
+    const text = [...document.querySelectorAll('#signal-chain li')].find(li => li.querySelector('b').textContent === 'Codec').textContent;
+    set('16');
+    return text;
+  });
+  check(at8 === `Codec${words} · snd_bits not used`, 'at snd_bits 8 the cell adds that snd_bits is not used', at8);
+  // It plays and downloads, as W3-17d's check of each room does it.
+  const got = await page.evaluate(async () => {
+    const a = els.audio;
+    if (!(a.duration > 0)) await new Promise((r) => a.addEventListener('loadedmetadata', r, { once: true }));
+    a.muted = true; await a.play(); await new Promise((r) => setTimeout(r, 150));
+    const played = a.currentTime; a.pause(); a.currentTime = 0; a.muted = false;
+    return { length: state.processedBuffer.length, rate: state.processedRate, source: Math.round(state.decodedSource.length * state.processedRate / state.decodedSource.sampleRate),
+      duration: a.duration, played, key: state.lastCodecKey };
+  });
+  const wav = await readRenderedWav(page);
+  const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#download').click()]);
+  const saved = fs.readFileSync(await download.path());
+  check(wav.frames === got.length && got.length === got.source && saved.length === 44 + 2 * got.length
+    && saved.equals(Buffer.from(await page.evaluate(async () => [...new Uint8Array(await state.lastWav.arrayBuffer())])))
+    && Math.abs(got.duration - got.length / got.rate) < 0.01 && got.played > 0 && /_tf2_miles\.wav$/.test(download.suggestedFilename()),
+    'a miles render plays, and its download is the rendered WAV', `${got.length} samples; ${download.suggestedFilename()}`);
+  // The console and a share link.
+  const picked = await page.evaluate(() => {
+    execCommand('exec preset_modern');
+    execCommand('sv_voicecodec miles');
+    const byConsole = els.codec.value;
+    execCommand('exec preset_modern');
+    history.replaceState(null, '', '#codec=miles'); applyHashConfig();
+    const byLink = els.codec.value, note = !document.getElementById('codec-note').hidden;
+    history.replaceState(null, '', location.pathname);
+    execCommand('exec preset_modern');
+    return { byConsole, byLink, note };
+  });
+  check(picked.byConsole === 'miles' && picked.byLink === 'miles' && picked.note,
+    'the console\'s sv_voicecodec miles selects it, and a link with #codec=miles restores it (the note shown)', JSON.stringify(picked));
+}
+
 async function verifyCeltPage(page) {
   console.log('\n[Browser 3c3] The CELT profiles on the page');
   const render = async () => {
@@ -981,6 +1103,26 @@ async function verifyLiveMonitor(page) {
     && !speexTake.legend.some(t => /^(SILK|Hybrid|CELT|DTX) /.test(t))
     && ![speexTake.console, speexTake.status, ...speexTake.legend].some(t => /CELT|Opus|SILK/.test(t)),
     'the live panel and a recorded speex take name Speex, not CELT or Opus', `mode ${mode}; ${speexTake.console}; ${speexTake.legend.join(', ')}`);
+  // W3-20b: the miles profile live: the panel's mode, and a recorded take, name VR12.
+  await page.locator('#codec').selectOption('miles');
+  await page.waitForFunction(() => TF2Live.stats && TF2Live.stats.codec === 'miles' && TF2Live.stats.sent > 15, null, { timeout: 20000 });
+  const milesMode = await page.locator('#live-mode').textContent();
+  await page.evaluate(() => logLine('test: the miles take starts here', 'sys'));
+  const milesFrom = 'test: the miles take starts here';
+  await page.locator('#live-record').click();
+  await page.waitForTimeout(1500);
+  await page.locator('#live-record').click();
+  await page.waitForFunction((n) => document.getElementById('console-out').textContent.split(n).pop().includes('S_Voice'), milesFrom, { timeout: 20000 });
+  const milesTake = await page.evaluate((n) => ({ console: document.getElementById('console-out').textContent.split(n).pop().split('\n').filter(l => l.includes('S_Voice')).join(' | '),
+    status: document.getElementById('source-status').textContent,
+    legend: [...document.querySelectorAll('#viz-legend .lg-item')].filter(e => e.querySelector('.lg-box')).map(e => e.textContent),
+    backend: state.lastCodecInfo.backend, plc: state.lastCodecInfo.plc }), milesFrom);
+  check(milesMode === 'VR12' && /S_Voice: Voxware VR12 \(voxware-vr12 eedf465\), 2\.94 kbps CBR, 32\.7 ms, a lost frame plays as zeros \(VR12 100%\)/.test(milesTake.console)
+    && /S_Voice: vaudio_miles is not a TF2 codec/.test(milesTake.console)
+    && /Voxware VR12 \(not in TF2\) · 2\.94 kbps/.test(milesTake.status) && milesTake.legend.some(t => /^VR12 \d+$/.test(t)) && milesTake.backend === 'vr12' && milesTake.plc === 'zeros'
+    && ![milesTake.console, milesTake.status, ...milesTake.legend].some(t => /CELT|Opus|SILK|Speex/.test(t)),
+    'the live panel\'s mode reads VR12 with miles, and a recorded take names Voxware VR12, not CELT, Opus, SILK or Speex',
+    `mode ${milesMode}; ${milesTake.console}; ${milesTake.legend.join(', ')}`);
   // vaudio_celt_high live: the 44100 Hz mode on 22050 Hz sound, 46.4 ms frames.
   await page.locator('#codec').selectOption('celt_44');
   await page.waitForFunction(() => TF2Live.stats && TF2Live.stats.codec === 'celt_44' && TF2Live.stats.sent > 20, null, { timeout: 20000 });
@@ -1163,14 +1305,16 @@ async function verifyRoomsPage(page) {
     const cvar = (id) => { const l = label(id); return l ? [...l.querySelectorAll('.cvar')].map((c) => c.textContent).join(' ') : 'no label'; };
     return { legend: box.querySelector('legend').textContent, inBox, missing: [...game, ...pcs, ...extras].filter((id) => !document.getElementById(id)),
       wrongCvar: [...game, ...pcs, ...extras].filter((id) => cvar(id) !== (named[id] || '')).map((id) => `${id}: "${cvar(id)}"`),
-      fullband: document.querySelector('#codec option[value="steam_48"]').textContent };
+      fullband: document.querySelector('#codec option[value="steam_48"]').textContent,
+      miles: document.querySelector('#codec option[value="miles"]').textContent };
   }, { game: CONTROLS_GAME, pcs: CONTROLS_PCS, extras: CONTROLS_EXTRAS, named: CONTROLS_NAMED });
   check(/Extras: not in the game/.test(classified.legend) && classified.missing.length === 0
     && JSON.stringify([...classified.inBox].sort()) === JSON.stringify([...CONTROLS_EXTRAS].sort())
     && !classified.inBox.some((id) => CONTROLS_GAME.includes(id) || CONTROLS_PCS.includes(id)),
     'the fieldset "Extras: not in the game" holds exactly the order\'s extras, and none of the game\'s or the PCs\' controls', classified.inBox.join(', '));
-  check(classified.wrongCvar.length === 0 && /not (in )?the game/.test(classified.fullband),
-    'a control shows a variable\'s name only if the game has that variable; the Fullband Opus option says it is not in the game', classified.wrongCvar.join('; ') || classified.fullband);
+  check(classified.wrongCvar.length === 0 && /not (in )?the game/.test(classified.fullband) && /not in TF2/.test(classified.miles),
+    'a control shows a variable\'s name only if the game has that variable; the Fullband Opus option says it is not in the game, the vaudio_miles option that it is not in TF2',
+    classified.wrongCvar.join('; ') || `${classified.fullband}; ${classified.miles}`);
   // The labels of item 5.
   const labels5 = await page.evaluate(() => ({ avg: document.querySelector('label[for="avggain"]').textContent.replace(/\s+/g, ' ').trim(),
     agc: document.querySelector('#agc option[value="1"]').textContent }));
@@ -1399,14 +1543,17 @@ async function verifySettingsWords(page) {
   const dup = words.labels.filter((l, i) => words.labels.indexOf(l) !== i);
   check(dup.length === 0 && words.labels.every(Boolean), 'no two controls in the panel have the same label text', dup.join(', '));
   const t = words.table;
-  check(t.codec[0] === 'Voice codec sv_voicecodec' && t.codec[1] === 'What the game sends voice with. Steam voice is today\'s; the vaudio_ ones are the game\'s older codecs.'
-    && JSON.stringify(words.options.codec) === JSON.stringify(['Steam voice (Opus, 32 kbps)', 'Fullband Opus: not in the game', 'vaudio_celt (CELT, 22 kHz)', 'vaudio_celt_high (44 kHz mode)', 'vaudio_speex (Speex, 11 kHz)'])
+  // W3-20b put the codec menu's entries in two groups, the game's first, and
+  // added vaudio_miles to the second, so the help names the first group.
+  check(t.codec[0] === 'Voice codec sv_voicecodec' && t.codec[1] === 'What the game sends voice with. Steam voice is today\'s; the rest of the first group are its older codecs.'
+    && JSON.stringify(words.options.codec) === JSON.stringify(['Steam voice (Opus, 32 kbps)', 'vaudio_celt (CELT, 22 kHz)', 'vaudio_celt_high (44 kHz mode)', 'vaudio_speex (Speex, 11 kHz)',
+      'Fullband Opus: not in the game', words.options.codec[5]]) && /^vaudio_miles: not in TF2/.test(words.options.codec[5])
     && t.warble_on[0] === 'Skip the codec' && JSON.stringify(words.options.warble_on) === '["Off","On"]'
     && t.warble_on[1] === 'For comparison only: the sound goes to the receiver without being coded.'
     && t.capture_channel[0] === 'Channel of a stereo file' && words.options.capture_channel[0] === 'Left'
     && t.capture_channel[1] === 'Which channel the game\'s microphone gets. Left is what one stereo cable gave it; a mono file is not affected.'
     && t.gain[1] === 'Loudness into the game. Above 1 the sender clips, as an overdriven microphone does.'
-    && t.bits[0] === 'Bitrate, in sixteenths' && t.bits[1] === '16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex has one bitrate and ignores this.'
+    && t.bits[0] === 'Bitrate, in sixteenths' && t.bits[1] === '16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex and vaudio_miles each have one bitrate and ignore this.'
     && t.frameMs[0] === 'Frames per packet, as ms' && t.frameMs[1] === 'How much voice one network packet carries. A lost packet loses all of it.'
     && t.loss[1] === 'The share of voice frames that never arrive. Not the game\'s own number: its net_fakeloss 5 lost about 22% of them.'
     && t.jitter[1] === 'Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that.'
@@ -1613,6 +1760,7 @@ const RUNTIME_FILES = ['audio-worker.js', 'mic-capture.js', 'live-worker.js', 'l
   'vendor/libopus-1.1/index.mjs', 'vendor/libopus-1.1/libopus-1.1.5.wasm.mjs',
   'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs',
   'vendor/speex-1.0.2/index.mjs', 'vendor/speex-1.0.2/speex-1.0.2.wasm.mjs',
+  'vendor/voxware-vr12/index.mjs', 'vendor/voxware-vr12/voxware-vr12.wasm.mjs',
   'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs'];
 
 // A first visit: the service worker installs and takes control while the
@@ -1808,6 +1956,7 @@ async function main() {
     await page.locator('#console-input').fill('net_graph 0');
     await page.locator('#console-input').press('Enter');
     await verifySpeexPage(page);
+    await verifyMilesPage(page);
     await verifyCeltPage(page);
     await verifyRoomsPage(page);
     await verifySettingsWords(page);
@@ -2149,9 +2298,9 @@ async function main() {
       const cache = await caches.open(name);
       const needed = ['batch.js', 'formats.js', 'flac.js', 'zip.js', 'meter.js', 'reference.js', 'video.js', 'filerate.js', 'demo.js', 'live.js', 'live-worker.js', 'live-worklet.js',
         'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs', 'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs',
-        'vendor/speex-1.0.2/index.mjs', 'vendor/speex-1.0.2/speex-1.0.2.wasm.mjs'];
+        'vendor/speex-1.0.2/index.mjs', 'vendor/speex-1.0.2/speex-1.0.2.wasm.mjs', 'vendor/voxware-vr12/index.mjs', 'vendor/voxware-vr12/voxware-vr12.wasm.mjs'];
       return (await Promise.all(needed.map(path => cache.match(new URL(path, location.href).href)))).every(Boolean);
-    }, SHELL_CACHE), 'batch, format, meter, reference, video, file-rate, demo, live-monitor, CELT, Speex and MP3 encoder files are cached for offline use');
+    }, SHELL_CACHE), 'batch, format, meter, reference, video, file-rate, demo, live-monitor, CELT, Speex, VR12 and MP3 encoder files are cached for offline use');
     // Restore the normal registration while still online. Otherwise reloading
     // registers sw.js again and races another replacement against file loading.
     await activateServiceWorker(page, 'sw.js');
@@ -2171,6 +2320,12 @@ async function main() {
     await page.waitForFunction(() => document.getElementById('console-out').textContent.includes('S_Voice: Speex 1.0.2'));
     check((await page.locator('#console-out').textContent()).includes('S_Voice: Speex 1.0.2, 11.025 kbps CBR, 20-byte packets of 14.5 ms'),
       'the speex profile converts audio offline with Speex 1.0.2 in 20-byte packets');
+    // And the miles profile's (W3-20b).
+    await page.locator('#codec').selectOption('miles');
+    await page.locator('#process').click();
+    await page.waitForFunction(() => document.getElementById('console-out').textContent.includes('S_Voice: Voxware VR12'));
+    check((await page.locator('#console-out').textContent()).includes('S_Voice: Voxware VR12 (voxware-vr12 eedf465), 2.94 kbps CBR, 12-byte packets of 32.7 ms'),
+      'the miles profile converts audio offline with Voxware VR12 in 12-byte packets');
     await context.setOffline(false);
     check(pageErrors.length === 0, 'complete conversion and recording flow has no page errors', pageErrors.join('; '));
 
