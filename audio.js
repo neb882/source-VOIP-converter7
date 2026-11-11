@@ -9,15 +9,19 @@
  * Receiver: libopus 1.1.5 decode + native concealment and comfort noise ->
  *           engine voice rate -> Source-style auto-gain with int16 clamp ->
  *           the 44.1 kHz mixer as integers (the voice entered at 255/256,
- *           upsampled by two for the engine codecs; room DSP) -> clip,
- *           volume and 16-bit rounding -> the listener's device rate by
- *           linear interpolation (48 kHz by default)
+ *           upsampled by two for the engine codecs; with a room entered
+ *           twice, its room share through the room's slot, and under water
+ *           the sum through the water preset) -> clip, volume and 16-bit
+ *           rounding -> the listener's device rate by linear interpolation
+ *           (48 kHz by default)
  *
  * The Steam profile, voice gate and receiver path are identified from 2026
  * voice_loopback recordings of music, speech and a calibrated test signal,
  * and from Steam's own voice packets in a SourceTV demo
- * (tests/REFERENCE_2026.md). Room processors are effects built from Valve's
- * preset data, not Valve's implementations.
+ * (tests/REFERENCE_2026.md). The room is the engine's arithmetic as read
+ * (room-dsp.js and its table room-presets.js, order W3-17), loaded before
+ * this file as the globals TF2Room and TF2_ROOM_PRESETS; a render with no
+ * room and not under water does not need them.
  * Same decoded PCM + settings + pinned runtime gives repeatable output.
  *
  * TF2Audio.process(buffer, opts) -> { samples, sampleRate, blob, codecInfo }
@@ -51,12 +55,6 @@
       t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
-  }
-
-  // Deterministic hash -> [0,1). Used for comb detuning in the room DSP.
-  function hash01(a, b, c) {
-    const s = Math.sin(a * 12.9898 + b * 78.233 + (c || 0) * 37.719) * 43758.5453;
-    return s - Math.floor(s);
   }
 
   // Cooperative yield — keeps the UI responsive during long renders
@@ -498,22 +496,81 @@
     };
   }
 
-  // Until W3-17c the listener's low-pass (and, in process(), the old room
-  // code) sit at the seam between the upsampling and mixOut, in floats as
-  // they were: the mix over 32768, the stage, then each sample rounded to
-  // the nearest integer, ties to even. W3-17c removes both and puts its room
-  // path here. A render with neither meets no float at the seam.
-  function toMixInts(y) {
-    const out = new Int32Array(y.length);
-    for (let i = 0; i < y.length; i++) {
-      if (!Number.isFinite(y[i])) throw new Error(`DSP produced a non-finite sample in the mix (at ${i}).`);
-      out[i] = roundEven(y[i] * 32768);
-    }
-    return out;
-  }
   const mixToFloat = (x) => Float32Array.from(x, (v) => v / 32768);
-  function mixSeam(run) {
-    return { push: (x) => toMixInts(run(mixToFloat(x))), flush: () => NO_INTS };
+
+  // The voice's mix with a room on or under water (W3-17c; the order's part
+  // c, item 4), in the engine's order (W3-07 section 1; the order's Decision
+  // 3): at the voice's own rate each sample is entered twice by mixEntry,
+  // at the volumes 255 x direct / 256 and 255 x room / 256, the shares the
+  // room path gives for the 512-sample mixer block the sample's mix samples
+  // fall in (asked at the block's start, before the path runs it); each of
+  // the two buffers is upsampled by mixUpsample2 with states of its own
+  // (none for a 44100 Hz voice); the path (room-dsp.js createRoomPath) adds
+  // the room slot's output to the direct buffer and, under water, runs the
+  // sum through the water preset. Its output is the sum before the clip,
+  // which goes on to W3-10's blocks, mixOut and device stage unchanged.
+  //   The path is given whole blocks, each starting on a block's first
+  // sample, counted from the render's first mix sample (MIX_BLOCK_ORIGIN 0,
+  // the path's own count): a block is 512 voice samples at 44100 Hz, 256 at
+  // 22050 and 128 at 11025 (a voice sample's mix samples never straddle two
+  // blocks). So the stream keeps the voice's partial block until it is
+  // whole: up to 511 mix samples. Nothing else is held back.
+  //   flush() ends the voice. The voice's last block is filled with zeros
+  // and, after it, blocks of zeros run until the path's tail rule holds
+  // (room-dsp.js tailLeft: Decision 8): the mix is the voice's own mix (N,
+  // 2N + 1 or 4N + 3 samples, as W3-10 makes it; zeros follow it) and the
+  // tail, cut at the sample where the rule held, or at the voice's own end
+  // if it held before that. tail() then gives the tail's length in mix
+  // samples, what the mix runs on past the voice's own end (0 to 882,000).
+  // An empty voice gives the path zeros from the start: the rule holds
+  // after 22,050 of them, the room's silent tail.
+  function createRoomMix(voiceRate, room) {
+    const stages = { 44100: 0, 22050: 1, 11025: 2 }[voiceRate];
+    if (stages === undefined) throw new RangeError(`TF2Audio: the mixer takes a voice at 11025, 22050 or 44100 Hz, not ${voiceRate}.`);
+    const per = MIX_BLOCK >> stages, path = room.path;
+    const directStates = Array.from({ length: stages }, () => ({ prev: 0 }));
+    const roomStates = Array.from({ length: stages }, () => ({ prev: 0 }));
+    const up = (e, states) => { for (const st of states) e = mixUpsample2(e, st); return e; };
+    const held = new Int32Array(per);
+    let fill = 0, fed = 0, start = 0, ruleEnd = -1, tail = 0;
+    // The held voice samples (zeros past `fill`) as one mixer block.
+    function block() {
+      const asked = path.shares(), sh = room.shares || asked;
+      const vd = MIX_VOICE_VOLUME * sh.direct / 256, vr = MIX_VOICE_VOLUME * sh.room / 256;
+      const direct = new Int32Array(per), wet = new Int32Array(per);
+      for (let i = 0; i < per; i++) { direct[i] = mixEntry(held[i], vd); wet[i] = mixEntry(held[i], vr); }
+      const out = path.process(up(direct, directStates), up(wet, roomStates));
+      // Where the tail rule last held (the mix sample after it), or -1 while
+      // a voice sample has started it over since.
+      const t = path.tailLeft();
+      if (!t.ended) ruleEnd = -1;
+      else if (t.at >= 0) ruleEnd = start + t.at + 1;
+      start += MIX_BLOCK;
+      return out;
+    }
+    return {
+      push(x) {
+        const parts = [];
+        for (let i = 0; i < x.length; i++) {
+          held[fill++] = mixSample(x[i]);
+          if (fill === per) { parts.push(block()); fill = 0; }
+        }
+        fed += x.length;
+        return parts.length ? joinInts(parts) : NO_INTS;
+      },
+      flush() {
+        const voiceEnd = fed ? fed * (1 << stages) + (1 << stages) - 1 : 0, from = start, parts = [];
+        do {
+          held.fill(0, fill);
+          fill = 0;
+          parts.push(block());
+        } while (ruleEnd < 0);
+        const end = Math.max(voiceEnd, ruleEnd);
+        tail = end - voiceEnd;
+        return joinInts(parts).subarray(0, end - from);
+      },
+      tail: () => tail
+    };
   }
 
   // The mixer's blocks, reported to onMixBlock(start, length, mix), a test
@@ -575,9 +632,9 @@
     };
   }
 
-  // The mix from the gain's output: the entry and the upsampling, then the
-  // seam (a stage on the mix's integers, or none).
-  const createMixStage = (voiceRate, seam) => stageChain([createMixEntry(voiceRate), ...(seam ? [seam] : [])]);
+  // The mix from the gain's output: the entry and the upsampling, or with a
+  // room (a resolved room, below) createRoomMix.
+  const createMixStage = (voiceRate, room) => (room ? createRoomMix(voiceRate, room) : createMixEntry(voiceRate));
   // From the mix's sum to the device: the blocks, mixOut, the device stage.
   const createOutStage = (volume, deviceRate, onMixBlock) =>
     stageChain([createMixBlocks(onMixBlock), createMixOut(volume), createDeviceStage(deviceRate)]);
@@ -586,9 +643,11 @@
   // the whole stage, from the gain's output (voice-rate floats) to the
   // device's 16-bit integers, a piece at a time: what createRender and the
   // live chain run after their mix point. push(x) gives what became final;
-  // flush() ends the voice.
-  function createOutputStage({ voiceRate, volume, deviceRate = MIX_RATE, onMixBlock, seam = null }) {
-    return stageChain([createMixStage(voiceRate, seam), createOutStage(volume, deviceRate, onMixBlock)]);
+  // flush() ends the voice. `room` (a render's resolved room) puts the room
+  // into the mix; mix.tail() then gives the tail's length in mix samples.
+  function createOutputStage({ voiceRate, volume, deviceRate = MIX_RATE, onMixBlock, room = null }) {
+    const mix = createMixStage(voiceRate, room);
+    return Object.assign(stageChain([mix, createOutStage(volume, deviceRate, onMixBlock)]), { mix });
   }
 
   // The device's rate from opts.deviceRate: an integer from 44100 to 192000;
@@ -834,224 +893,6 @@
     return (await opus.roundTrip(samples, rate, bitrate, options)).samples;
   }
 
-  /* ==================================================================== */
-  /* SOURCE ENGINE DSP PROCESSORS                                         */
-  /*                                                                      */
-  /* The engine's dsp_room is not a convolution reverb — it's a serial    */
-  /* chain of small IIR processors. These implement the ones the room     */
-  /* presets use, with parameters transcribed from dsp_presets.txt into   */
-  /* constants.js: DFR (series allpass diffusor), RVA (parallel feedback  */
-  /* combs, low-passed and optionally modulated), DLY (low-passed echo),  */
-  /* AMP (tremolo/distortion), MDY (modulated delay).                     */
-  /* ==================================================================== */
-
-  const DFR_BASE_MS = [13.7, 21.3, 29.1, 40.9];
-
-  function dspDFR(x, rate, p) {
-    const n = clamp(Math.round(p.ndly) || 2, 1, 4);
-    const g = clamp(p.fb != null ? p.fb : 0.15, 0, 0.9);
-    const size = p.size != null ? p.size : 1.0;
-    let cur = x;
-    for (let i = 0; i < n; i++) {
-      const D = Math.max(1, Math.round(DFR_BASE_MS[i] * size * rate / 1000));
-      const out = new Float32Array(cur.length);
-      const buf = new Float32Array(D);
-      let w = 0;
-      for (let t = 0; t < cur.length; t++) {
-        const vd = buf[w];
-        const v = cur[t] + g * vd;
-        out[t] = vd - g * v;
-        buf[w] = v;
-        w = (w + 1) % D;
-      }
-      cur = out;
-    }
-    return cur;
-  }
-
-  async function dspRVA(x, rate, p) {
-    const n = clamp(Math.round(p.ndly) || 1, 1, 12);
-    const fb = clamp(p.fb || 0, 0, 0.97);
-    const gain = p.gain != null ? p.gain : 1.0;
-    const lpA = p.cutoff > 0 ? Math.exp(-TAU * p.cutoff / rate) : 0;
-    const fpar = p.fpar !== 0;
-    const modSamp = (p.fmod || 0) * rate / 1000;
-    const modHz = p.rate || 0;
-    // Normalise each comb to unity *average* power (not unity peak), so the
-    // preset gains behave like Valve's "0 dB in = 0 dB out" convention.
-    const combScale = Math.sqrt(Math.max(0.06, 1 - fb * fb));
-
-    const out = new Float32Array(x.length);
-    for (let c = 0; c < n; c++) {
-      // spread comb delays sizeMin..sizeMax with a deterministic detune
-      const frac = n === 1 ? 1 : c / (n - 1);
-      const hiMs = p.sizeMax != null ? p.sizeMax : 50;
-      const loMs = p.sizeMin != null ? Math.min(p.sizeMin, hiMs) : hiMs;
-      let dMs = loMs + (hiMs - loMs) * frac;
-      dMs *= 1 + 0.017 * (hash01(c, 7, 3) - 0.5);
-      const D = Math.max(2, Math.round(dMs * rate / 1000));
-      const bufSize = D + Math.ceil(modSamp) + 4;
-      const buf = new Float32Array(bufSize);
-      let w = 0, lpState = 0;
-      const phase = TAU * hash01(c, 13, 1);
-
-      for (let t = 0; t < x.length; t++) {
-        // modulated fractional delay read
-        let Dt = D;
-        if (modSamp > 0 && modHz > 0) {
-          Dt = D + modSamp * Math.sin(TAU * modHz * t / rate + phase);
-          if (Dt < 1) Dt = 1;
-        }
-        const rp = w - Dt;
-        const ri = Math.floor(rp);
-        const rf = rp - ri;
-        const i0 = ((ri % bufSize) + bufSize) % bufSize;
-        const i1 = (i0 + 1) % bufSize;
-        let dl = buf[i0] * (1 - rf) + buf[i1] * rf;
-        if (fpar && lpA > 0) {                    // low-pass inside the loop
-          lpState = lpState * lpA + dl * (1 - lpA);
-          dl = lpState;
-        }
-        const y = x[t] + fb * dl;
-        buf[w] = y;
-        w = (w + 1) % bufSize;
-        out[t] += y * combScale;
-      }
-      await microYield();               // one yield per comb keeps UI alive
-    }
-    const sc = gain / Math.sqrt(n);
-    for (let t = 0; t < out.length; t++) out[t] *= sc;
-    if (!fpar && p.cutoff > 0) {                  // filter on the summed output
-      const a = Math.exp(-TAU * p.cutoff / rate);
-      let s = 0;
-      for (let t = 0; t < out.length; t++) { s = s * a + out[t] * (1 - a); out[t] = s; }
-    }
-    return out;
-  }
-
-  function dspDLY(x, rate, p) {
-    const D = Math.max(1, Math.round((p.delay || 100) * rate / 1000));
-    const fb = clamp(p.fb || 0, 0, 0.95);
-    const gain = p.gain != null ? p.gain : 1.0;
-    const lpA = p.cutoff > 0 ? Math.exp(-TAU * p.cutoff / rate) : 0;
-    const out = new Float32Array(x.length);
-    const buf = new Float32Array(D);
-    let w = 0, lpState = 0;
-    for (let t = 0; t < x.length; t++) {
-      let dl = buf[w];
-      if (lpA > 0) { lpState = lpState * lpA + dl * (1 - lpA); dl = lpState; }
-      const e = x[t] + fb * dl;
-      buf[w] = e;
-      w = (w + 1) % D;
-      out[t] = gain * e;
-    }
-    return out;
-  }
-
-  function dspAMP(x, rate, p) {
-    const gain = p.gain != null ? p.gain : 1.0;
-    const out = new Float32Array(x.length);
-    const modrate = p.modrate || 0;
-    const depth = p.moddepth || 0;
-    const glideA = Math.exp(-1 / (Math.max(1, p.modglide || 10) / 1000 * rate));
-    const interval = modrate > 0 ? Math.max(1, Math.round(rate / modrate)) : 0;
-    let cur = gain, target = gain, phaseHigh = true;
-
-    const vthresh = p.vthresh || 0;
-    const distmix = p.distmix || 0;
-
-    for (let t = 0; t < x.length; t++) {
-      if (interval > 0 && t % interval === 0) {
-        phaseHigh = !phaseHigh;                   // alternate gain / gain*(1-depth)
-        target = phaseHigh ? gain : gain * (1 - depth);
-      }
-      cur = cur * glideA + target * (1 - glideA);
-      let y = x[t] * cur;
-      if (distmix > 0 && vthresh > 0 && vthresh < 1) {
-        const clipped = clamp(y, -vthresh, vthresh) / vthresh;
-        y = y * (1 - distmix) + clipped * distmix;
-      }
-      out[t] = y;
-    }
-    return out;
-  }
-
-  function dspMDY(x, rate, p) {
-    const D = Math.max(2, Math.round((p.delay || 100) * rate / 1000));
-    const fb = clamp(p.fb || 0, 0, 0.95);
-    const gain = p.gain != null ? p.gain : 1.0;
-    const depthSamp = D * (p.moddepth || 0);
-    const modHz = p.modrate || 0;
-    const bufSize = D + Math.ceil(depthSamp) + 4;
-    const out = new Float32Array(x.length);
-    const buf = new Float32Array(bufSize);
-    let w = 0;
-    for (let t = 0; t < x.length; t++) {
-      let Dt = D;
-      if (depthSamp > 0 && modHz > 0) {
-        Dt = D - depthSamp * 0.5 * (1 + Math.sin(TAU * modHz * t / rate));
-        if (Dt < 1) Dt = 1;
-      }
-      const rp = w - Dt;
-      const ri = Math.floor(rp);
-      const rf = rp - ri;
-      const i0 = ((ri % bufSize) + bufSize) % bufSize;
-      const i1 = (i0 + 1) % bufSize;
-      const dl = buf[i0] * (1 - rf) + buf[i1] * rf;
-      const e = x[t] + fb * dl;
-      buf[w] = e;
-      w = (w + 1) % bufSize;
-      out[t] = gain * e;
-    }
-    return out;
-  }
-
-  // Map the emulator's custom knobs (duration s, decay, mix) onto an RVA.
-  function customChain(env) {
-    const duration = Math.max(0.05, env.duration != null ? env.duration : 1.5);
-    const decay = Math.max(0.5, env.decay != null ? env.decay : 3.0);
-    const fb = clamp(Math.pow(0.001, 0.045 / duration), 0.3, 0.97); // T60 ≈ duration
-    const cutoff = clamp(9000 / decay, 800, 12000);
-    return [
-      { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-      { type: 'rva', sizeMax: clamp(duration * 60, 25, 220), sizeMin: 12,
-        ndly: 5, fb, gain: 1.2, cutoff, fpar: 1, fmod: 0, rate: 0 }
-    ];
-  }
-
-  /**
-   * Run a preset's processor chain and crossfade with the dry signal
-   * (Source crossfades dsp output by `mix`). Renders extra tail and trims
-   * trailing silence below -66 dBFS.
-   */
-  async function runDspChain(x, rate, chain, mix) {
-    if (!chain || !chain.length || mix <= 0) return x;
-    const tail = Math.min(4 * rate, 6 * rate);
-    let wet = new Float32Array(x.length + tail);
-    wet.set(x);
-    for (const p of chain) {
-      if (p.type === 'dfr') wet = dspDFR(wet, rate, p);
-      else if (p.type === 'rva') wet = await dspRVA(wet, rate, p);
-      else if (p.type === 'dly') wet = dspDLY(wet, rate, p);
-      else if (p.type === 'amp') wet = dspAMP(wet, rate, p);
-      else if (p.type === 'mdy') wet = dspMDY(wet, rate, p);
-      await microYield();
-    }
-    const m = clamp(mix, 0, 1);
-    // The diffusor decorrelates wet from dry, so the crossfade adds
-    // incoherently; normalise so the blend stays near 0 dB overall.
-    const norm = 1 / Math.sqrt((1 - m) * (1 - m) + m * m);
-    const out = new Float32Array(wet.length);
-    for (let i = 0; i < wet.length; i++) {
-      out[i] = ((i < x.length ? x[i] * (1 - m) : 0) + wet[i] * m) * norm;
-    }
-    // trim trailing silence
-    const thr = 0.0005;
-    let end = out.length - 1;
-    while (end > x.length && Math.abs(out[end]) < thr) end--;
-    return out.slice(0, Math.min(out.length, end + 1 + Math.round(0.15 * rate)));
-  }
-
   /* ------------------------------------------------------------------ */
   /* Main processing function                                            */
   /* ------------------------------------------------------------------ */
@@ -1072,23 +913,121 @@
     return codec.modeRate != null ? { modeRate: codec.modeRate } : {};
   }
 
-  function resolveRoom(opts) {
-    let dspId = 0;
-    if (opts.listenerPos && LISTENER_POSITIONS[opts.listenerPos]) {
-      dspId = LISTENER_POSITIONS[opts.listenerPos].dsp;
-    } else if (opts.dspRoom != null && DSP_PRESETS[opts.dspRoom]) {
-      dspId = opts.dspRoom;
+  /* ------------------------------------------------------------------ */
+  /* The room (W3-17c)                                                  */
+  /*                                                                    */
+  /* room-dsp.js (TF2Room) and its table room-presets.js                */
+  /* (TF2_ROOM_PRESETS) are the engine's arithmetic as read (order      */
+  /* W3-17, parts a and b). This file reads them as globals, loaded     */
+  /* before it (index.html, the workers' importScripts), and only for a */
+  /* render with a room or under water; without them such a render     */
+  /* stops and names them. The mix stage is createRoomMix, above.       */
+  /* ------------------------------------------------------------------ */
+
+  function roomModule() {
+    const R = typeof TF2Room !== 'undefined' ? TF2Room : null;
+    const table = typeof TF2_ROOM_PRESETS !== 'undefined' ? TF2_ROOM_PRESETS : null;
+    if (!R || typeof R.createRoomPath !== 'function' || !table) {
+      throw new Error('TF2Audio: a room or under water needs room-dsp.js (TF2Room) and room-presets.js (TF2_ROOM_PRESETS), loaded before audio.js.');
     }
-    const preset = DSP_PRESETS[dspId] || DSP_PRESETS[0];
-    if (!preset.custom) return { chain: preset.chain || [], mix: preset.mix || 0 };
-    const supplied = opts.customEnv || {};
-    const env = {
-      duration: clamp(finiteOr(supplied.duration, finiteOr(preset.duration, 1.5)), 0.05, 6),
-      decay: clamp(finiteOr(supplied.decay, finiteOr(preset.decay, 3)), 0.5, 8),
-      mix: clamp(finiteOr(supplied.mix, finiteOr(preset.mix, 0.25)), 0, 1)
-    };
-    return { chain: customChain(env), mix: env.mix };
+    return { R, table };
   }
+
+  // The custom room's knobs when a render gives none (the page's own
+  // defaults, DSP_PRESETS[99]'s until W3-17d).
+  const CUSTOM_ROOM = { duration: 1.5, decay: 3, mix: 0.25 };
+
+  // The custom room (dsp_room 99: the app's own, not the game's) on the
+  // engine's processors, as a preset of the table's form, its knobs mapped
+  // as the old room code mapped them: a two-stage all-pass diffusor, then a
+  // reverb of five lines from 12 ms to duration x 60 ms (25 to 220 ms), the
+  // first line's feedback 0.001^(0.045 / duration) (0.3 to 0.97: a decay of
+  // about `duration` seconds), gain 1.2, a low-pass in the loop at 9000 /
+  // decay Hz (800 to 12000; not one of the module's pinned cutoffs, so it is
+  // computed). Its shares are not the header's: trunc(mix x 256) to the
+  // room, trunc(256 - mix x 256) direct (resolveRoom). At a high mix its
+  // 32-bit products can wrap, as the engine's own do at a fully wet share.
+  function customPreset(env) {
+    const values = (v) => v.concat(new Array(16 - v.length).fill(0));
+    const feedback = clamp(Math.pow(0.001, 0.045 / env.duration), 0.3, 0.97);
+    const cutoff = clamp(9000 / env.decay, 800, 12000);
+    return { name: 'custom', h: [env.mix, env.mix, 0, 0, 0, 0],
+      p: [[10, values([1, 2, 0.15])], [2, values([clamp(env.duration * 60, 25, 220), 12, 5, feedback, 1.2, cutoff, 1])]] };
+  }
+
+  // What the options ask of the room: { spec, water }. spec is null (no
+  // room), { preset: n }, { auto: key or measures } or { custom: { duration,
+  // decay, mix } }; water is opts.underwater. With no opts.room the page's
+  // older options are read and mapped, so no caller breaks (W3-17d changes
+  // what the page sends): a listenerPos of LISTENER_POSITIONS gives the
+  // preset number it stood for, and `water` under water with no room; else
+  // dspRoom gives that preset, 99 the custom room with customEnv's knobs.
+  function roomRequest(opts) {
+    const pos = typeof opts.listenerPos === 'string' && Object.hasOwn(LISTENER_POSITIONS, opts.listenerPos) ? opts.listenerPos : null;
+    let spec = opts.room;
+    const water = !!opts.underwater || pos === 'water';
+    if (spec === undefined) {
+      if (pos) spec = pos === 'water' ? null : { preset: LISTENER_POSITIONS[pos].dsp };
+      else if (opts.dspRoom != null && opts.dspRoom !== '') {
+        const n = Number(opts.dspRoom);
+        spec = n === 99 ? { custom: opts.customEnv || {} } : { preset: n };
+      } else spec = null;
+    }
+    return { spec: spec && typeof spec === 'object' ? spec : null, water };
+  }
+
+  // A render's room (W3-17c, the order's part c, items 2 and 3), or null for
+  // no room and not under water: then nothing of the room runs, no path is
+  // made and the module is not needed (Decision 4). No room: null,
+  // { preset: 0 }, { preset: 1 } alone (the automatic room with nothing
+  // built yet, which is dry), a number the table does not hold (Decision
+  // 11: 30 to 101, the diffuse pairs, 134 and up), a custom room whose
+  // trunc(mix x 256) is 0. A room: { preset: n } for a number the table
+  // holds (2 to 29, and the automatic room's templates); { auto } built by
+  // buildAutomatic from a case's key or the measures; { custom }.
+  //   Otherwise { path, shares, info }: the room path made for the render's
+  // first sample, the room set (no fade at the start) and under water from
+  // the start if asked (its water preset already settled), its random taps
+  // drawn from the render's seed (Decision 7); spurtStart() called once,
+  // now: a render has no voice channel yet, so the one channel starts with
+  // it (W3-02c will call it at each channel it opens). shares is the custom
+  // room's own shares, or null for the path's; info is codecInfo.room.
+  function resolveRoom(opts, seed) {
+    const { spec, water } = roomRequest(opts);
+    let preset = null, info = null, shares = null;
+    if (spec && spec.custom !== undefined) {
+      const c = spec.custom && typeof spec.custom === 'object' ? spec.custom : {};
+      const env = { duration: clamp(finiteOr(c.duration, CUSTOM_ROOM.duration), 0.05, 6),
+        decay: clamp(finiteOr(c.decay, CUSTOM_ROOM.decay), 0.5, 8), mix: clamp(finiteOr(c.mix, CUSTOM_ROOM.mix), 0, 1) };
+      if (Math.trunc(env.mix * 256) > 0) {
+        preset = customPreset(env);
+        info = { custom: env };
+        shares = { room: Math.trunc(env.mix * 256), direct: Math.trunc(256 - env.mix * 256) };
+      }
+    } else if (spec && spec.auto !== undefined) {
+      const { R, table } = roomModule();
+      const b = R.buildAutomatic(spec.auto, { table });
+      preset = b.preset;
+      info = { auto: b.key, ...(b.key === null ? { measures: { ...b.measures } } : {}), shape: b.shape, shaft: b.shaft,
+        classes: { ...b.classes }, pair: [...b.pair], copy: b.copy };
+    } else if (spec && Number.isInteger(spec.preset) && spec.preset !== 0 && spec.preset !== 1) {
+      const { R, table } = roomModule();
+      if (R.presetOf(spec.preset, table)) {
+        preset = spec.preset;
+        info = { preset: spec.preset };
+      }
+    }
+    if (preset === null && !water) return null;
+    const { R, table } = roomModule();
+    const path = R.createRoomPath({ seed, room: preset, water, table });
+    path.spurtStart();
+    const sh = shares || path.shares();
+    return { path, shares, info: { ...info, shares: { room: sh.room, direct: sh.direct }, underwater: water } };
+  }
+
+  // A tail of `mix` samples at 44100 Hz as samples at the device's rate:
+  // what it adds to the output's length.
+  const tailAtDevice = (mix, deviceRate) => Math.round(mix * deviceRate / MIX_RATE);
 
   // opus-codec.mjs FRAME: what happened to each codec frame.
   const FRAME_CODES = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6, speex: 7 };
@@ -1411,9 +1350,18 @@
    *
    * opts = {
    *   codec:        key of CODEC_PROFILES                               ['steam']
-   *   listenerPos:  key of LISTENER_POSITIONS. Overrides dspRoom.
-   *   dspRoom:      numeric id into DSP_PRESETS (when listenerPos absent)
-   *   customEnv:    { duration, decay, mix } override for DSP_PRESETS[99]
+   *   room:         the listener's room (W3-17c; resolveRoom): null,
+   *                 { preset: n } (a preset of the table, 2 to 29),
+   *                 { auto: a key of TF2Room.ROOM_CASES or ROOM_PLACES, or
+   *                 measures } (the automatic room), or { custom: {
+   *                 duration, decay, mix } } (the app's own room)     [none]
+   *   underwater:   the listener under water: the mix's sum through the
+   *                 water preset (14)                               [false]
+   *   listenerPos, dspRoom, customEnv: the page's older room options, read
+   *                 when `room` is not given: a key of LISTENER_POSITIONS
+   *                 gives its preset (`water`: under water, no room), else
+   *                 dspRoom gives that preset (99: the custom room, its
+   *                 knobs customEnv)
    *   captureChannel: 'left' | 'right' | 'mix' for stereo input    ['left']
    *   micGain:      sender capture gain; > 1 clips the int16 capture   [1]
    *   hp / lp:      optional sender filters in Hz (off: hp <= 10,
@@ -1440,7 +1388,8 @@
    *                 with agc off), as it reaches the mixer
    *   onMixBlock:   tests only: (start, length, mix) for each 512-sample
    *                 block of the 44100 Hz mix and a short last one, mix a
-   *                 copy of the block's sum before the clip (an Int32Array)
+   *                 copy of the block's sum before the clip (an Int32Array;
+   *                 with a room, the room path's output, its tail included)
    *   agc:          receiver auto-gain (false = unity gain)             [true]
    *   retime:       TF2's early talk-spurt starts (finding 19)          [false]
    *   avgGain:      voice_avggain, mean (0) to peak (1) normalization   [0.5]
@@ -1462,7 +1411,12 @@
    * Resolves to { samples: Float32Array, sampleRate, blob, codecInfo }:
    * samples at sampleRate, the device's rate; each a whole 16-bit value
    * over 32768, which the WAV holds exactly; as long as the source at that
-   * rate, round(length x deviceRate / sourceRate), plus a room's tail.
+   * rate, round(length x deviceRate / sourceRate), plus a room's tail at
+   * that rate, round(tail x deviceRate / 44100). With a room or under water
+   * codecInfo has one key more, `room`: the preset's number, or the case's
+   * key (null for measures, which are then given) with the shape, classes,
+   * pair and copy of the automatic room, or the custom room's knobs; the
+   * shares of 256; underwater; tail, the tail's length in mixer samples.
    */
   async function process(audioBuffer, opts = {}) {
     if (!audioBuffer || typeof audioBuffer.getChannelData !== 'function' ||
@@ -1474,8 +1428,9 @@
     const codecKey = Object.hasOwn(CODEC_PROFILES, opts.codec) ? opts.codec : 'steam';
     const codec = CODEC_PROFILES[codecKey];
     const engine = VOICE_ENGINE;
-    const room = resolveRoom(opts);
-    const listenerCfg = opts.listenerPos ? LISTENER_POSITIONS[opts.listenerPos] : null;
+    // The room, made for the render's first sample (null: none, nothing of
+    // it runs).
+    const room = resolveRoom(opts, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
 
     const codecRate    = codec.codecRate;
     const micGain      = clamp(finiteOr(opts.micGain, 1), 0, 20);
@@ -1628,21 +1583,15 @@
 
     /* ---- 5) The mixer at 44.1 kHz: the entry and the upsampling ---- */
     // The same stages as createRender and the live chain run, here given
-    // the whole voice and ended.
+    // the whole voice and ended. With a room (createRoomMix) the voice is
+    // entered twice and the room path gives the sum before the clip, its
+    // tail after the voice's end.
     const whole = (stage, x) => joinInts([stage.push(x), stage.flush()]);
-    let mix = whole(createMixStage(codec.voiceRate, null), samples);
-    const dryMixLength = mix.length;
+    const mixStage = createMixStage(codec.voiceRate, room);
+    const mix = whole(mixStage, samples);
+    const tail = room ? mixStage.tail() : 0;
     report(0.8);
     await microYield();
-    // Until W3-17c: the listener's low-pass and the old room code at the
-    // seam, in floats as they were (mixSeam); the room's tail lengthens the
-    // mix. A render with neither meets no float here.
-    const lowpass = listenerCfg && listenerCfg.extraLpf ? biquadCoefs('lowpass', MIX_RATE, listenerCfg.extraLpf, 0.8) : null;
-    if (lowpass || (room.chain && room.chain.length && room.mix > 0)) {
-      let y = mixToFloat(mix);
-      if (lowpass) y = applyBiquad(y, lowpass);
-      mix = toMixInts(await runDspChain(y, MIX_RATE, room.chain, room.mix));
-    }
     report(0.9);
     await microYield();
 
@@ -1651,15 +1600,14 @@
     // stage. The output keeps the source's duration at the device's rate,
     // cut or padded with zeros, plus the room's tail at that rate.
     const atDevice = whole(createOutStage(volume, deviceRate, opts.onMixBlock), mix);
-    const tail = Math.max(0, Math.round((mix.length - dryMixLength) * deviceRate / MIX_RATE));
-    const outLength = playbackLength + tail;
+    const outLength = playbackLength + tailAtDevice(tail, deviceRate);
     samples = new Float32Array(outLength);
     for (let i = 0, n = Math.min(outLength, atDevice.length); i < n; i++) samples[i] = atDevice[i] / 32768;
 
     const blob = encodeWav(samples, deviceRate);
     report(1);
     return { samples, sampleRate: deviceRate, blob, realOpus: enableCodec,
-      codecInfo: { ...codecInfo, codec: codecKey, autoGain, voiceRate: codec.voiceRate } };
+      codecInfo: { ...codecInfo, codec: codecKey, autoGain, voiceRate: codec.voiceRate, ...(room ? { room: { ...room.info, tail } } : {}) } };
   }
 
   /* ------------------------------------------------------------------ */
@@ -1712,7 +1660,7 @@
   /* frames back for its pre-roll (120 ms), as the sender must. The     */
   /* `steam` profile with the codec on runs the render's own stages     */
   /* (steamLiveChain, W3-11b) and holds back the sender's reach. Rooms  */
-  /* (dsp_room) are not applied.                                        */
+  /* (dsp_room) and under water are not applied live yet (W3-17d).      */
   /* ------------------------------------------------------------------ */
 
   // resampleSinc, a block at a time: the same kernel and output positions,
@@ -2001,7 +1949,6 @@
     const codecKey = Object.hasOwn(CODEC_PROFILES, opts.codec) ? opts.codec : 'steam';
     const codec = CODEC_PROFILES[codecKey];
     const engine = VOICE_ENGINE;
-    const listenerCfg = opts.listenerPos ? LISTENER_POSITIONS[opts.listenerPos] : null;
     const codecRate = codec.codecRate;
     const micGain = clamp(finiteOr(opts.micGain, 1), 0, 20);
     const hp = clamp(finiteOr(opts.hp, 0), 0, codecRate * 0.45);
@@ -2024,19 +1971,19 @@
     // The mix point, a stage boundary (opts.onGain, a test hook, sees the
     // voice-rate signal there as a render's does), and the stages after it,
     // the render's own (W3-10): the entry and the upsampling (their states
-    // made with the chain), the listener's low-pass at the seam, the blocks
-    // (opts.onMixBlock, counted from the chain's first sample at its mix
-    // point), mixOut. Then the context's rate: the device stage's linear rule
-    // at any rate above 44.1 kHz (the context is the listener's device, so
-    // opts.deviceRate is not read here), nothing at 44.1 kHz, and below it
-    // the sinc resampler: a context under 44.1 kHz is the browser's, not the
-    // game's. Rooms are not applied live.
+    // made with the chain), the blocks (opts.onMixBlock, counted from the
+    // chain's first sample at its mix point), mixOut. Then the context's
+    // rate: the device stage's linear rule at any rate above 44.1 kHz (the
+    // context is the listener's device, so opts.deviceRate is not read
+    // here), nothing at 44.1 kHz, and below it the sinc resampler: a context
+    // under 44.1 kHz is the browser's, not the game's. Rooms are not applied
+    // live yet (W3-17d), and under water neither; the old listener's
+    // low-pass is gone (W3-17c).
     const mixStages = () => {
       const stages = [];
       if (typeof opts.onGain === 'function') stages.push((x) => { opts.onGain(x); return x; });
       const rate = Math.round(ioRate);
-      const seam = listenerCfg && listenerCfg.extraLpf ? mixSeam(streamBiquad(biquadCoefs('lowpass', MIX_RATE, listenerCfg.extraLpf, 0.8))) : null;
-      const out = createOutputStage({ voiceRate: codec.voiceRate, volume, deviceRate: rate > MIX_RATE ? rate : MIX_RATE, onMixBlock: opts.onMixBlock, seam });
+      const out = createOutputStage({ voiceRate: codec.voiceRate, volume, deviceRate: rate > MIX_RATE ? rate : MIX_RATE, onMixBlock: opts.onMixBlock });
       stages.push(out.push, mixToFloat);
       if (rate < MIX_RATE) stages.push(streamResampleSinc(MIX_RATE, rate));
       return stages;
@@ -2229,8 +2176,8 @@
   /* process() waits instead and is flushed at the end with the zeros   */
   /* process() reads as missing. The gate decides a frame once its      */
   /* pre-roll is measured; the codec restarts at each talk spurt as     */
-  /* roundTrip does; the loss mask is drawn once over all frames.       */
-  /* Rooms and talk-spurt re-timing are not streamed yet.               */
+  /* roundTrip does; the loss mask is drawn once over all frames. A     */
+  /* room streams (W3-17c); talk-spurt re-timing does not.              */
   /* ------------------------------------------------------------------ */
 
   const NO_SAMPLES = new Float32Array(0);
@@ -2408,17 +2355,24 @@
    * process() a piece at a time, for sources too long to hold several
    * copies of. source = { sampleRate, length, numberOfChannels: 1 } (the
    * mono capture signal; no samples); opts are process()'s. Resolves to
-   * { outputLength, sampleRate, push(chunk), finish(), free() }:
+   * { outputLength, maxTail, sampleRate, push(chunk), finish(), free() }:
+   *   outputLength the output's length without a room's tail (the source's
+   *                duration at the device's rate)
+   *   maxTail      the most a room's tail can add to it: the tail's cap
+   *                (882,000 mixer samples, 20 s) at the device's rate; 0
+   *                with no room and not under water. A caller with one
+   *                buffer for the output makes it outputLength + maxTail
    *   push(chunk)  float PCM of the source in order, any size; resolves to
-   *                the output samples that became final (maybe none)
+   *                the output samples that became final (maybe none); with
+   *                a room never more than outputLength in all
    *   finish()     after exactly `length` samples were pushed; resolves to
    *                { samples, codecInfo, realOpus }, samples the rest of
-   *                the output
+   *                the output, a room's tail included
    *   free()       releases the codec (finish() does too)
    * Concatenated, the output is process()'s samples and codecInfo is its
-   * codecInfo; steamUptime is taken as process() takes it. A room (dspRoom,
-   * listenerPos, customEnv) and retime are rejected with a RangeError: not
-   * streamed yet. Each push and finish must resolve before the next call.
+   * codecInfo; steamUptime is taken as process() takes it. retime is
+   * rejected with a RangeError: not streamed (W3-02f removes the rule).
+   * Each push and finish must resolve before the next call.
    */
   async function createRender(source, opts = {}) {
     if (!source || !Number.isFinite(source.sampleRate) || source.sampleRate <= 0 ||
@@ -2429,8 +2383,7 @@
     const codecKey = Object.hasOwn(CODEC_PROFILES, opts.codec) ? opts.codec : 'steam';
     const codec = CODEC_PROFILES[codecKey];
     const engine = VOICE_ENGINE;
-    const room = resolveRoom(opts);
-    const listenerCfg = opts.listenerPos ? LISTENER_POSITIONS[opts.listenerPos] : null;
+    const room = resolveRoom(opts, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
 
     const codecRate    = codec.codecRate;
     const micGain      = clamp(finiteOr(opts.micGain, 1), 0, 20);
@@ -2457,12 +2410,8 @@
     const framesPerPacket = clamp(Math.round(finiteOr(opts.frameMs, frameMs) / frameMs), 1, 10);
     const report = (f) => { if (typeof opts.onProgress === 'function') opts.onProgress(f); };
 
-    // What process() would do that is not streamed yet. A room setting that
-    // resolves to no effect (dsp_room 1, a custom room at mix 0) streams.
-    if (room.chain && room.chain.length && room.mix > 0) {
-      const setting = opts.listenerPos && LISTENER_POSITIONS[opts.listenerPos] ? `listenerPos "${opts.listenerPos}"` : `dspRoom ${opts.dspRoom}`;
-      throw new RangeError(`TF2Audio.createRender does not stream a room yet (${setting}); use TF2Audio.process.`);
-    }
+    // What process() would do that is not streamed: the flat re-timing rule,
+    // with a room or without (W3-02f removes the rule).
     if (opts.retime && enableCodec && !received) {
       throw new RangeError('TF2Audio.createRender does not stream talk-spurt re-timing yet (retime); use TF2Audio.process.');
     }
@@ -2599,16 +2548,33 @@
     if (typeof opts.onGain === 'function') stages.push(sampleStage((x) => { opts.onGain(x); return x; }));
 
     /* ---- 5-6) The mixer, mixOut and the device stage (W3-10) ---- */
-    // process()'s stages, as they come: the entry and the upsampling, the
-    // listener's low-pass at the seam, the blocks, mixOut, the device stage.
-    // Nothing waits for a block; the device stage waits for one mix sample.
-    const seam = listenerCfg && listenerCfg.extraLpf ? mixSeam(streamBiquad(biquadCoefs('lowpass', MIX_RATE, listenerCfg.extraLpf, 0.8))) : null;
-    stages.push(createOutputStage({ voiceRate: codec.voiceRate, volume, deviceRate, onMixBlock: opts.onMixBlock, seam }));
+    // process()'s stages, as they come: the entry and the upsampling (with a
+    // room: createRoomMix, which keeps the voice's partial mixer block until
+    // it is whole, and gives the tail at the end), the blocks, mixOut, the
+    // device stage. With no room nothing waits for a block; the device stage
+    // waits for one mix sample.
+    const output = createOutputStage({ voiceRate: codec.voiceRate, volume, deviceRate, onMixBlock: opts.onMixBlock, room });
+    stages.push(output);
     // Cut, or padded with zeros, to process()'s length; as floats over 32768.
+    // With a room that length is known at the end (the tail's): until then
+    // at most outLength samples are given out, and what the device stage
+    // gives past them waits for finish(), which cuts or pads it to the tail.
     let emitted = 0;
+    const over = [];
     const finalSamples = (y) => { emitted += y.length; return mixToFloat(y); };
-    const cut = cutAt(outLength);
-    stages.push({ push: (y) => finalSamples(cut(y)), flush: () => finalSamples(new Int32Array(outLength - emitted)) });
+    stages.push({
+      push(y) {
+        const keep = Math.max(0, Math.min(y.length, outLength - emitted));
+        if (room && keep < y.length) over.push(y.slice(keep));
+        return finalSamples(keep < y.length ? y.subarray(0, keep) : y);
+      },
+      flush() {
+        const rest = new Int32Array(outLength + (room ? tailAtDevice(output.mix.tail(), deviceRate) : 0) - emitted);
+        let at = 0;
+        for (const y of over) { if (at >= rest.length) break; rest.set(y.subarray(0, rest.length - at), at); at += y.length; }
+        return finalSamples(rest);
+      }
+    });
 
     async function through(k, x) {
       for (; k < stages.length; k++) x = await stages[k].push(x);
@@ -2628,6 +2594,7 @@
 
     return {
       outputLength: outLength,
+      maxTail: room ? tailAtDevice(roomModule().R.TAIL_CAP, deviceRate) : 0,
       sampleRate: deviceRate,
       push: (chunk) => guarded(async () => {
         if (pushed + chunk.length > length) {
@@ -2660,7 +2627,8 @@
         state = 'finished';
         report(1);
         return { samples: joinSamples(parts), realOpus: enableCodec,
-          codecInfo: { ...codecInfo, codec: codecKey, autoGain, voiceRate: codec.voiceRate } };
+          codecInfo: { ...codecInfo, codec: codecKey, autoGain, voiceRate: codec.voiceRate,
+            ...(room ? { room: { ...room.info, tail: output.mix.tail() } } : {}) } };
       }),
       // During a push, the codec is released once that push has finished.
       free() { if (state === 'open') state = 'been freed'; if (!busy) release(); }
@@ -2720,7 +2688,6 @@
     applyBiquad,
     mulberry32,
     buildLossMask,
-    runDspChain,
     realOpusRoundTrip,
     createLiveChain,
     createRender,
@@ -2729,7 +2696,8 @@
     streamAutoGain,
     streamLossMask,
     steamGiveOut,
-    // the mixer and the output stage (W3-10); W3-17c calls the first three
+    // the mixer and the output stage (W3-10); a room's mix (W3-17c) calls
+    // the first two, its entries checked against TF2Room.entry
     mixEntry,
     mixUpsample2,
     mixOut,
