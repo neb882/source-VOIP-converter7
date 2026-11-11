@@ -40,6 +40,14 @@ export function toInt16(floats) {
   return out;
 }
 
+// The module's float cosine and arc cosine (tests/speex102/vsx_math.c), which
+// the codec calls in its LSP conversions: { cosf, acosf }, each a float in and
+// a float out. For the tests.
+export async function mathFunctions() {
+  const x = await load();
+  return { cosf: x.vsx_cosf, acosf: x.vsx_acosf };
+}
+
 // encode(Int16Array of 160) gives 20 bytes; decode(20 bytes) gives an
 // Int16Array of 160, and decodeFloats(20 bytes) the decoder's floats before
 // that conversion. reset() is the module's ResetState. encoderCtl and

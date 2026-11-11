@@ -1,15 +1,19 @@
 // Build Speex 1.0.2 (floating point) to WebAssembly: the library the game's
 // vaudio_speex module links (docs/reports/W3-09-steam-voice.md, section 5).
 //
-//   node tests/speex102/build.mjs [speex-1.0.2-checkout] [musl-1.2.5-checkout]
+//   node tests/speex102/build.mjs [--without=name,...] [speex-1.0.2-checkout] [musl-1.2.5-checkout]
 //
-// Builds the Speex-1.0.2 tag of Xiph's repository, the library's sources
-// unchanged, as the other codec builds are: git, clang with the wasm32
-// target and wasm-ld; the small C library of tests/libopus11 (with the few
-// additions in ./libc.c) and musl's libm are compiled in, so the module has no
-// imports. Checkouts not given are cloned at the pinned commits; the script
-// stops if a checkout's commit differs. Writes
-// vendor/speex-1.0.2/speex-1.0.2.wasm.mjs and copies the licences beside it.
+// Builds the Speex-1.0.2 tag of Xiph's repository with the arithmetic of the
+// game's module (W3-18): ./patch.mjs rewrites 25 places of libspeex in plain C
+// before compiling, and ./vsx_math.c adds the module's float cosine and arc
+// cosine (tables in ./vsx_tables.h, made by ./gen-tables.mjs). Built as the
+// other codec builds are: git, clang with the wasm32 target and wasm-ld; the
+// small C library of tests/libopus11 (with the few additions in ./libc.c) and
+// musl's libm are compiled in, so the module has no imports. Checkouts not
+// given are cloned at the pinned commits; the script stops if a checkout's
+// commit differs. Writes vendor/speex-1.0.2/speex-1.0.2.wasm.mjs and copies the
+// licences beside it. --without leaves the named changes of patch.mjs out (for
+// the tests' mutations; such a build is not the vendored one).
 //
 // tests/speex102/native.mjs builds the same sources natively for comparison.
 import { execFileSync } from 'node:child_process';
@@ -17,6 +21,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { patchLibspeex, parseWithout } from './patch.mjs';
 
 export const URL_SPEEX = 'https://gitlab.xiph.org/xiph/speex.git';
 export const TAG = 'Speex-1.0.2', COMMIT = '4a6fa8d6fd1283df196ebd9a67fb1514618406ba';
@@ -50,16 +55,24 @@ export function checkout(given, tmp, name, url, tag, commit) {
 }
 export const cloneSpeex = (given, tmp) => checkout(given, tmp, 'speex', URL_SPEEX, TAG, COMMIT);
 export const cloneMusl = (given, tmp) => checkout(given, tmp, 'musl', 'https://git.musl-libc.org/git/musl', MUSL_TAG, MUSL_COMMIT);
-export const sourceFiles = (src) => SOURCES.map(s => path.join(src, 'libspeex', `${s}.c`));
+// The C files of the build: libspeex of the checkout with the changes of
+// patch.mjs (but those in `without`), copied to <tmp>/libspeex, and the math
+// file. Returns the folder and the files.
+export function patchedSources(src, tmp, without = []) {
+  const dir = patchLibspeex(src, path.join(tmp, 'libspeex'), without);
+  return { dir, files: [...SOURCES.map(s => path.join(dir, `${s}.c`)), path.join(here, 'vsx_math.c')] };
+}
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const { rest, without } = parseWithout(process.argv.slice(2));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'speex102-'));
   try {
-    const src = cloneSpeex(process.argv[2], tmp);
-    const musl = cloneMusl(process.argv[3], tmp);
-    const sources = [...sourceFiles(src), path.join(libc, 'libc.c'), path.join(here, 'libc.c'), path.join(here, 'api.c')];
+    const src = cloneSpeex(rest[0], tmp);
+    const musl = cloneMusl(rest[1], tmp);
+    const patched = patchedSources(src, tmp, without);
+    const sources = [...patched.files, path.join(libc, 'libc.c'), path.join(here, 'libc.c'), path.join(here, 'api.c')];
     const cflags = ['--target=wasm32', '-O2', '-nostdlibinc', '-isystem', path.join(here, 'include'), '-isystem',
-      path.join(libc, 'include'), `-I${path.join(src, 'libspeex')}`, ...DEFINES, '-ffp-contract=off', '-w'];
+      path.join(libc, 'include'), `-I${patched.dir}`, ...DEFINES, '-ffp-contract=off', '-w'];
     const objects = sources.map((s, i) => {
       const o = path.join(tmp, `${i}.o`);
       run('clang', [...cflags, '-c', s, '-o', o]);
@@ -78,8 +91,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
       run('clang', [...muslFlags, '-c', path.join(musl, 'src/math', `${f}.c`), '-o', o]);
       objects.push(o);
     }
+    // vsx_cosf and vsx_acosf are exported for the tests (index.mjs, mathFunctions).
     const exports = ['sx_create', 'sx_destroy', 'sx_encode', 'sx_decode', 'sx_reset', 'sx_encoder_get', 'sx_decoder_get',
-      'malloc', 'free'];
+      'malloc', 'free', 'vsx_cosf', 'vsx_acosf'];
     const wasm = path.join(tmp, 'speex.wasm');
     run('wasm-ld', ['--no-entry', '--stack-first', '-z', 'stack-size=1048576', '--gc-sections',
       ...exports.map(e => `--export=${e}`), ...objects, '-o', wasm]);
@@ -89,14 +103,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     if (imports.length) throw new Error(`Unexpected imports: ${imports.join(', ')}`);
     const clang = run('clang', ['--version']).split('\n')[0];
     const vendor = path.join(root, 'vendor/speex-1.0.2');
-    const out = path.join(vendor, 'speex-1.0.2.wasm.mjs');
-    fs.mkdirSync(vendor, { recursive: true });
-    fs.copyFileSync(path.join(src, 'COPYING'), path.join(vendor, 'COPYING.speex'));
-    fs.copyFileSync(path.join(musl, 'COPYRIGHT'), path.join(vendor, 'COPYRIGHT.musl'));
-    fs.writeFileSync(out, `// Speex 1.0.2 (xiph/speex ${TAG} ${COMMIT}, floating point) with musl 1.2.5 libm\n` +
+    const out = without.length ? path.join(tmp, '..', `speex-1.0.2-without-${without.join('+')}.wasm.mjs`) : path.join(vendor, 'speex-1.0.2.wasm.mjs');
+    if (!without.length) {
+      fs.mkdirSync(vendor, { recursive: true });
+      fs.copyFileSync(path.join(src, 'COPYING'), path.join(vendor, 'COPYING.speex'));
+      fs.copyFileSync(path.join(musl, 'COPYRIGHT'), path.join(vendor, 'COPYRIGHT.musl'));
+    }
+    fs.writeFileSync(out, `// Speex 1.0.2 (xiph/speex ${TAG} ${COMMIT}, floating point) with the arithmetic of the game module\n` +
+      `// (tests/speex102/patch.mjs${without.length ? `, without ${without.join(', ')}` : ''}, vsx_math.c) and musl 1.2.5 libm\n` +
       `// (${MUSL_COMMIT}) as WebAssembly, built by tests/speex102/build.mjs with ${clang}.\n` +
       `export default '${bytes.toString('base64')}';\n`);
-    console.log(`${path.relative(root, out)}: ${bytes.length} bytes of wasm, ${sources.length + MUSL_MATH.length} sources, no imports`);
+    console.log(`${without.length ? out : path.relative(root, out)}: ${bytes.length} bytes of wasm, ${sources.length + MUSL_MATH.length} sources, no imports`);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

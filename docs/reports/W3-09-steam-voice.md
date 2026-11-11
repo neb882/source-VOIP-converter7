@@ -576,6 +576,17 @@ In order:
   clip.
 - There is no concealment path: `DecodeFrame` always reads 20 bytes.
 
+**The arithmetic (added 2026-11-11, W3-18).** The reading above is of what the module does, not of how it computes
+it. The module's codec arithmetic is SSE2 in single precision (it executes no x87 instruction), compiled with the
+compiler's fast floating-point model, so in 25 places of 7 files of libspeex 1.0.2 it does not compute what strict C
+of the same source computes: some sums are added eight at a time, three double expressions are computed in float, two
+divisions are multiplications by a reciprocal, a few additions are re-ordered, and `cos`, `acos`, `exp` and `log`
+are in places the C runtime's float routines, whose cosine and arc cosine are not correctly rounded. A build of the
+unchanged source gives the same sound, coded differently from one frame on (it equals the game's recording, Set M, in
+92,967 of 145,920 samples). The app's build states those 25 places in plain C and has those two routines
+(`tests/speex102/patch.mjs`, `tests/speex102/vsx_math.c`), and equals the module, run in a CPU emulator, on every clip
+and argument it was scored on, and the game's decoded recording sample for sample (the orchestrator's private run on that build; `docs/reports/W3-18-speex-exact.md`, `tests/REFERENCE_2026.md` Set M).
+
 ### The wrapper (what `createSpeexStream` has to copy)
 
 - **`Compress(samples, count, out, room, final)`:** it keeps the samples that did not fill a frame. While what
