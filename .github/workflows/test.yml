@@ -21,6 +21,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Install browser
-        run: pnpm exec playwright install --with-deps chromium
+        # The browser itself comes from Playwright's own servers. Its system packages (on this
+        # image only extra fonts are missing) come from Ubuntu's package mirrors, which are at
+        # times unreachable from the runners for hours: then the suite runs on what the image
+        # has, and says so. A missing library would fail the browser suite at launch, not pass.
+        run: |
+          pnpm exec playwright install chromium
+          timeout 300 pnpm exec playwright install-deps chromium \
+            || echo "::warning::Ubuntu's package mirrors could not be reached; the browser suite runs on the runner image's own libraries and fonts."
       - name: Run DSP and browser verification
         run: pnpm test:all
