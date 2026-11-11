@@ -1358,7 +1358,7 @@ function drawAverageView(w, h) {
       ctx.font = '9px Verdana, sans-serif';
       x += ctx.measureText(text).width + 12;
     }
-    if (Object.values(v.curves).some(c => c.match)) drawLabel(`${Object.values(v.curves).find(c => c.match).match} matched to the TF2 voice`, x, 17, 'rgba(200, 210, 220, 0.55)');
+    if (Object.values(v.curves).some(c => c.match)) drawLabel(`${Object.values(v.curves).find(c => c.match).match} matched to the render`, x, 17, 'rgba(200, 210, 220, 0.55)');
   }
   els.canvas.dataset.view = v.pending ? '' : `avg:${refLabel.toLowerCase()}:${range.t0.toFixed(4)}-${range.t1.toFixed(4)}`;
 

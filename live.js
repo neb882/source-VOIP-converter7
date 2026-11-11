@@ -17,7 +17,7 @@
  * separate channels, so a press or release can land about a block off. On the other profiles push-to-talk sends only while the key is held
  * (the gate still applies inside) and low latency drops the frame gate's
  * 120 ms pre-roll. Record this session keeps the microphone and the voice
- * and loads them into the app as the original and its TF2 voice (mountLiveTake).
+ * and loads them into the app as the original and its render (mountLiveTake).
  * Needs the app/ page scripts (state, els, renderOptions, logLine, mountLiveTake).
  */
 (function () {

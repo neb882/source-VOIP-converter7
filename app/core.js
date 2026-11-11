@@ -127,7 +127,7 @@ const state = {
   mapName: 'cp_process',
   isConnected: true,
   simEnabled: true,
-  abMode: 'wet',         // 'wet' (the TF2 voice), 'dry' (the original) or 'real' (a real take)
+  abMode: 'wet',         // 'wet' (the render), 'dry' (the original) or 'real' (a real take)
   vizMode: 'wave',       // 'wave', 'bars' or 'spec' (spectrogram)
   renderId: 0,           // invalidates cached visualizer images per render
   lastCodecInfo: null,   // codec statistics of the last render (net_graph)

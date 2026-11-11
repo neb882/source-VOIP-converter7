@@ -431,13 +431,14 @@ async function verifyVisualizerTools(page) {
     && !document.getElementById('meter-rows').textContent.includes('…'), null, { timeout: 60000 });
   const meter = await page.evaluate(() => [...document.querySelectorAll('#meter-rows tr')].map(r => [...r.children].map(c => c.textContent)));
   const lufs = (row) => Number(row[1].replace('−', '-'));
-  // W4-01a: the rows are named TF2 and ORIGINAL (no element says wet or dry).
-  check(meter[0][0] === 'TF2' && meter[1][0] === 'ORIGINAL' && Number.isFinite(lufs(meter[0])) && Number.isFinite(lufs(meter[1])),
-    'meter lists integrated loudness for the render (TF2) and the source (ORIGINAL)', `${meter[0][1]} / ${meter[1][1]} LUFS`);
+  // W4-01a: the rows are named RENDER and ORIGINAL (no element says wet or
+  // dry; the owner, 2026-11-11: one neutral name for the render).
+  check(meter[0][0] === 'RENDER' && meter[1][0] === 'ORIGINAL' && Number.isFinite(lufs(meter[0])) && Number.isFinite(lufs(meter[1])),
+    'meter lists integrated loudness for the render (RENDER) and the source (ORIGINAL)', `${meter[0][1]} / ${meter[1][1]} LUFS`);
   await page.locator('#ab-match').click();
   const matched = await page.locator('#ab-match').textContent();
   const gains = await page.evaluate(() => ({ louder: state.abLouder, offset: state.abOffsetDb }));
-  check(/^Matched: (TF2 voice|original) −?\d+\.\d dB$/.test(matched) && gains.offset <= 0
+  check(/^Matched: the (render|original) −?\d+\.\d dB$/.test(matched) && gains.offset <= 0
     && Math.abs(Math.abs(gains.offset) - Math.abs(lufs(meter[0]) - lufs(meter[1]))) < 0.11,
     'loudness matching lowers the louder version by the LUFS difference', matched);
   await page.locator('#ab-match').click();
@@ -448,11 +449,11 @@ async function verifyVisualizerTools(page) {
   await page.keyboard.press('b');
   const after = await hearing();
   check(before.mode === 'wet' && after.mode === 'dry' && after.pressed === 'dry' && after.now === 'Hearing the original',
-    'the B key switches Hear from the TF2 voice to the original', JSON.stringify(after));
+    'the B key switches Hear from the render to the original', JSON.stringify(after));
   // With the player focused (as after a first render), B switches too.
   await page.locator('#preview').focus();
   await page.keyboard.press('b');
-  check((await hearing()).mode === 'wet', 'and with the player focused, back to the TF2 voice');
+  check((await hearing()).mode === 'wet', 'and with the player focused, back to the render');
 }
 
 async function verifyLanesAndSelection(page) {
@@ -609,7 +610,7 @@ async function verifyAverageAndRealTake(page) {
     'a real take is found in the source and lined up (delay and clock)', `${take.segments} segment, ${(take.delay * 1000).toFixed(2)} ms, ${take.ppm.toFixed(1)} ppm; ${take.status}`);
   const within = take.bands.slice(0, 13).map(t => Math.abs(Number(t.replace('−', '-'))));
   check(within.every(d => d <= .3), 'the report finds the take and the render alike, band by band up to 12 kHz', take.bands.join(' '));
-  check(take.rows.includes('REAL') && take.rows.includes('Δ real'), 'the meter adds the real take and the TF2 voice minus the real take');
+  check(take.rows.includes('REAL') && take.rows.includes('Δ real'), 'the meter adds the real take and the render minus the real take');
   // Hear gains "Real take" once a take is loaded; B cycles to it.
   check(!(await page.locator('#ab-group [data-ab="real"]').isHidden()), 'Hear offers "Real take" once a take is loaded');
   await page.locator('h1').click();
@@ -623,7 +624,7 @@ async function verifyAverageAndRealTake(page) {
   check(await page.evaluate(() => !state.realTake && state.abMode === 'wet') && await page.locator('#ab-group [data-ab="wet"]').getAttribute('aria-pressed') === 'true'
     && await page.locator('#ab-group [data-ab="real"]').isHidden()
     && !(await page.evaluate(() => [...document.querySelectorAll('#meter-rows tr th')].some(th => th.textContent === 'REAL'))),
-    'removing the take returns Hear to the TF2 voice and the original, and the meter to two rows');
+    'removing the take returns Hear to the render and the original, and the meter to two rows');
   await page.locator('#viz-avg').click();
   await page.locator('#viz-wave').click();
 }
@@ -697,6 +698,27 @@ async function verifyDemo(page) {
   const demoStatus = await renderStatus(page);
   check(/^Rendered in \d+\.\d s · 3\.\d s of sound at [\d,]+ Hz · Steam voice, as the demo carries it/.test(demoStatus),
     'the render\'s status line names the codec the demo carries', demoStatus);
+  // A demo's frames without a packet are not only the gate's (review, N1).
+  check(/ · \d+\.\d\d s with no voice packets$/.test(demoStatus) && !/gate/.test(demoStatus),
+    'for a demo, the line gives the time with no voice packets, not the gate\'s reason', demoStatus);
+  // The sender's settings, which a demo's render does not read, do not
+  // render it again; a receiver's setting does (review, N2).
+  {
+    const mark = 'test: the demo\'s settings';
+    await page.evaluate((m) => logLine(m, 'sys'), mark);
+    await page.evaluate(() => { execCommand('voice_micgain 2'); execCommand('dsp_hpf 300'); execCommand('net_fakeloss 20'); });
+    await page.waitForTimeout(1000);
+    const sender = await page.evaluate(() => ({ processing: state.processing, stale: state.stale }));
+    const started = await rendersStartedSince(page, mark);
+    await page.evaluate(() => { execCommand('voice_micgain 1'); execCommand('dsp_hpf 0'); execCommand('net_fakeloss 0'); execCommand('voice_scale 0.5'); });
+    await waitRendered(page);
+    const receiver = await rendersStartedSince(page, mark);
+    await page.evaluate(() => execCommand('voice_scale 1'));
+    await waitRendered(page);
+    check(started === 0 && !sender.processing && !sender.stale && receiver === 1,
+      'with a demo as the source, the sender\'s settings (mic gain, a filter, loss) start no render and mark nothing; voice_scale renders it again',
+      `${started} then ${receiver} render${receiver === 1 ? '' : 's'} started`);
+  }
   // The lane places frame f at (f * frame - lookahead) / rate.
   const lane = await page.evaluate(() => ({ at: frameAt(state.lastCodecInfo, 1.0), frame: Math.floor(1.0 * state.lastCodecInfo.sampleRate / state.lastCodecInfo.frameSamples) }));
   check(lane.at === lane.frame, 'the codec lane finds the demo\'s frame at a given time', `frame ${lane.at} at 1 s`);
@@ -1238,7 +1260,7 @@ async function verifyRoomsPage(page) {
   check(lines.open.evidence === null && /dsp_slow_cpu 1/.test(lines.open.detail) && lines.open.room === null && lines.open.water === false
     && /no room$/.test(lines.open.mixer),
     'no room: no line about the recordings, the help names dsp_slow_cpu 1, the render is asked for no room', lines.open.detail);
-  check(lines.water.evidence === 'Read from the game\'s code. One recording under water matches its level (0.77 of the dry voice) and its lack of tremolo.'
+  check(lines.water.evidence === 'Read from the game\'s code. One recording under water matches its level (0.77 of the direct voice) and its lack of tremolo.'
     && lines.water.room === null && lines.water.water === true && /under water$/.test(lines.water.mixer),
     'under water alone: its own line, and the render is asked for no room under water', lines.water.evidence);
   const evidence = 'Room effects follow the game\'s own code. The two rooms marked "as recorded" match recordings of the game in echo times and level, '
@@ -1867,6 +1889,94 @@ async function verifyJourney(browser, base) {
       // A steady tone: the gate held nothing, and the line says nothing of it.
       check(await page.evaluate(() => state.lastCodecInfo.gatedFrames === 0) && !done.status.includes('not sent'),
         'with no frames held by the gate, the line says nothing of it', done.status);
+      // A change while it renders (review, S1): the render that comes is
+      // labelled with the settings it was made with, so the page marks it.
+      await setControl(page, 'voice_scale', '0.6');
+      await page.locator('#process').click();
+      await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
+      await setControl(page, 'loss', '5');
+      await waitRendered(page, 120000);
+      const after = await marks();
+      check(after.renders === r + 2 && after.status === STALE_TEXT && after.button === 'Render again' && after.stale.every(Boolean)
+        && await page.evaluate(() => state.renderedKey !== settingsKey() && JSON.parse(state.renderedKey).lossPct === 0),
+        'a 61 s source: a change made while it renders leaves that render marked as made with the earlier settings', after.status);
+    } finally { await context.close(); }
+  }
+
+  // A change while a render runs, on a short source (review, S1): the render
+  // for older settings stops or is followed by one for the controls', and
+  // what is shown is what a render of the controls' settings gives.
+  {
+    const { context, page } = await fresh();
+    try {
+      await chooseFile(page, { name: 'during.wav', mimeType: 'audio/wav', buffer: wavSpeech(20) });
+      await setControl(page, 'voice_scale', '0.6');
+      await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
+      await setControl(page, 'voice_scale', '0.7');
+      await waitRendered(page);
+      const shown = await wavHash(page), key = await page.evaluate(() => state.renderedKey === settingsKey() && !state.stale);
+      await renderNow(page);
+      const again = await wavHash(page);
+      check(key && shown === again, 'a short source: after a change made while a render runs, the render shown is the controls\' settings\' (a fresh render of them is the same WAV)',
+        `${shown.slice(0, 12)} / ${again.slice(0, 12)}`);
+      // The focus is not taken from a field being typed in (review, N5).
+      await page.locator('#console-details summary').click();
+      await page.evaluate(() => { window.__sourceBefore = state.decodedSource; });
+      await page.locator('#file').setInputFiles({ name: 'typing.wav', mimeType: 'audio/wav', buffer: wavSpeech(10) });
+      await page.locator('#console-input').focus();
+      await page.keyboard.type('echo hi');
+      await page.waitForFunction(() => state.decodedSource !== window.__sourceBefore && state.renderedSource === state.decodedSource && renderIdle(), null, { timeout: 60000 });
+      check(await page.evaluate(() => document.activeElement && document.activeElement.id) === 'console-input',
+        'a first render does not take the focus from a field being typed in');
+    } finally { await context.close(); }
+  }
+
+  // A render that fails is not started again by itself (review, B1): the
+  // Opus module cannot load (as offline before it is cached).
+  {
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    try {
+      await context.route('**/opus-codec.mjs', (route) => route.abort());
+      const page = await context.newPage();
+      page.setDefaultTimeout(30000);
+      await page.goto(base, { waitUntil: 'domcontentloaded' });
+      const mark = 'test: a render that fails';
+      await page.evaluate((m) => logLine(m, 'sys'), mark);
+      await page.locator('#file').setInputFiles({ name: 'fails.wav', mimeType: 'audio/wav', buffer: wavSpeech(3) });
+      await page.waitForFunction(() => /^The render failed/.test(els.renderStatus.textContent) && !state.processing, null, { timeout: 30000 });
+      await page.waitForTimeout(2500);
+      const failed = await page.evaluate(() => ({ status: els.renderStatus.textContent, error: els.renderStatus.classList.contains('error'), processing: state.processing }));
+      const starts = await rendersStartedSince(page, mark);
+      check(starts === 1 && failed.error && /^The render failed/.test(failed.status) && !failed.processing,
+        'a render that fails is not started again by itself; its error stays on screen', `${starts} started; ${failed.status}`);
+      await page.locator('#process').click();
+      await page.waitForFunction(() => !state.processing && /^The render failed/.test(els.renderStatus.textContent), null, { timeout: 30000 });
+      await page.waitForTimeout(1500);
+      check(await rendersStartedSince(page, mark) === 2, 'the button tries it again, once', `${await rendersStartedSince(page, mark)} started`);
+    } finally { await context.close(); }
+  }
+
+  // The owner's words (2026-11-11): one neutral name for the render, with
+  // vaudio_miles as with Steam voice: "Rendered" on the switch, RENDER and
+  // ORIGINAL in the table, no version labelled TF2.
+  {
+    const { context, page } = await fresh();
+    try {
+      await chooseFile(page, { name: 'words.wav', mimeType: 'audio/wav', buffer: wavSpeech(2) });
+      for (const codec of ['steam', 'miles']) {
+        if (codec !== 'steam') { await page.locator('#codec').selectOption(codec); await page.waitForFunction(() => state.lastCodecKey === 'miles' && renderIdle(), null, { timeout: 60000 }); }
+        await page.waitForFunction(() => document.querySelectorAll('#meter-rows tr').length >= 2 && !document.getElementById('meter-rows').textContent.includes('…'), null, { timeout: 60000 });
+        const labels = await page.evaluate(() => ({ hear: [...document.querySelectorAll('#ab-group .ab-choice')].filter((b) => !b.hidden).map((b) => b.textContent),
+          group: document.getElementById('ab-label').textContent, rows: [...document.querySelectorAll('#meter-rows tr th')].map((t) => t.textContent),
+          // (the real take's button, hidden here, is a recording of TF2 and says so)
+          titles: [...document.querySelectorAll('#ab-group .ab-choice, #meter-rows tr')].filter((e) => !e.hidden).map((e) => e.title || '').join(' | '),
+          legend: document.getElementById('viz-legend').textContent, now: document.getElementById('ab-now').textContent, key: state.lastCodecKey }));
+        const tf2 = [...labels.hear, ...labels.rows, labels.titles, labels.legend, labels.now].filter((t) => /TF2/.test(t));
+        check(labels.key === codec && JSON.stringify(labels.hear) === '["Rendered","Original"]' && labels.group === 'Hear (B):'
+          && labels.rows[0] === 'RENDER' && labels.rows[1] === 'ORIGINAL' && labels.now === 'Hearing the render' && tf2.length === 0,
+          `with ${codec}: the switch reads "Hear (B): Rendered | Original", the table RENDER and ORIGINAL, and no version is labelled TF2`,
+          `${labels.hear.join(' | ')}; ${labels.rows.join(', ')}${tf2.length ? `; TF2 in: ${tf2.join(' / ')}` : ''}`);
+      }
     } finally { await context.close(); }
   }
 
@@ -1935,6 +2045,11 @@ async function verifyVersionLine(browser) {
     page.on('pageerror', (error) => errors.push(error.message));
     await page.goto(`${base}/`, { waitUntil: 'networkidle' });
     await page.evaluate(() => navigator.serviceWorker.ready);
+    // The first visit's takeover (the page had no worker) shows no notice,
+    // only the version (review, S2).
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller && !document.getElementById('version-line').hidden);
+    const first = await page.evaluate(() => ({ notice: document.getElementById('update-notice').hidden, footer: document.getElementById('version-line').textContent }));
+    check(first.notice && first.footer === `version ${number} · `, 'the first visit\'s worker taking over shows the version and no notice', first.footer);
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForFunction(() => !document.getElementById('version-line').hidden);
     const footer = await page.evaluate(() => ({ text: document.getElementById('version-line').textContent, controlled: !!navigator.serviceWorker.controller,
@@ -2019,7 +2134,14 @@ async function verifyAccess(browser, base) {
     await input.focus();
     await page.keyboard.press('Shift+Tab');
     const emptyBack = await focused();
+    // A word no command starts with: Tab moves on (review, N5).
+    await input.fill('zzqq');
+    await input.focus();
+    await page.keyboard.press('Tab');
+    const noMatch = { focus: await focused(), value: await input.inputValue() };
+    check(noMatch.focus !== 'console-input' && noMatch.value === 'zzqq', 'console: with a word no command starts with, Tab leaves it', JSON.stringify(noMatch));
     await input.fill('voice_sc');
+    await input.focus();
     await page.keyboard.press('Shift+Tab');
     const typedBack = { focus: await focused(), value: await input.inputValue() };
     await input.focus();

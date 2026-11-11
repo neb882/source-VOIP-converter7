@@ -110,10 +110,16 @@ function captureSource(source, channel) {
 
 // The key of the settings a render is made with: the batch's and the page's
 // (W4-01a). With a demo as the source, its own codec renders, whatever the
-// codec control holds.
+// codec control holds, and the sender's settings, which a render of voice
+// already received does not read (audio.js, opts.received), are left out:
+// changing them does not render a demo again.
+const DEMO_IGNORES = ['captureChannel', 'micGain', 'hp', 'lp', 'bits', 'gate', 'gateThresholdDb', 'steamUptime', 'lossPct', 'jitterMs', 'frameMs'];
 function settingsKey(demo = null) {
   const opts = renderOptions();
-  if (demo) opts.codec = demo.codecKey;
+  if (demo) {
+    opts.codec = demo.codecKey;
+    for (const name of DEMO_IGNORES) delete opts[name];
+  }
   return JSON.stringify(opts);
 }
 
@@ -349,9 +355,12 @@ const secondsText = (s) => `${s.toFixed(1)} s`;
 // 32 kbps) · 0.12 s not sent (too quiet for the gate)": the codec by the
 // codec control's own words (so vaudio_miles and Fullband Opus keep "not in
 // TF2" and "not in the game"), the last part only when the gate held frames.
+// A demo's frames with no packet are not only the gate's (a key released
+// counts too): "N s with no voice packets".
 function renderedStatus(samples, sampleRate, took, codecName, codecInfo) {
   const frame = (codecInfo && codecInfo.frameMs) || 20;
-  const held = codecInfo && codecInfo.gatedFrames > 0 ? ` · ${(codecInfo.gatedFrames * frame / 1000).toFixed(2)} s not sent (too quiet for the gate)` : '';
+  const unsent = codecInfo && codecInfo.gatedFrames > 0 ? (codecInfo.gatedFrames * frame / 1000).toFixed(2) : null;
+  const held = unsent === null ? '' : codecInfo.backend === 'demo' ? ` · ${unsent} s with no voice packets` : ` · ${unsent} s not sent (too quiet for the gate)`;
   return `Rendered in ${secondsText(took / 1000)} · ${secondsText(samples.length / sampleRate)} of sound at ${sampleRate.toLocaleString('en-US')} Hz`
     + `${codecName ? ` · ${codecName}` : ''}${held}`;
 }
@@ -500,8 +509,8 @@ function reconcileRender() {
   if (!state.decodedSource || renderAfter) { updateStale(); return; }
   const key = currentRenderKey();
   const onScreen = state.renderedSource === state.decodedSource ? state.renderedKey : null;
-  // A render the user cancelled is not started again by itself: only a
-  // change to other settings, or the button, starts one.
+  // A render the user cancelled, or one that failed, is not started again by
+  // itself: only a change to other settings, or the button, starts one.
   const cancelled = state.cancelledSource === state.decodedSource && key === state.cancelledKey;
   const short = state.decodedSource.duration <= AUTO_RENDER_SECONDS && !cancelled;
   if (state.processing) {
@@ -602,6 +611,9 @@ async function runRender({ button }) {
       console.error(e);
       logLine(`render failed: ${e.message}`, 'err');
       setRenderStatus(`The render failed: ${e.message}`, 'error');
+      // Not tried again by itself: the same settings would fail the same way.
+      state.cancelledKey = key;
+      state.cancelledSource = source;
     }
   } finally {
     state.processing = false;
@@ -629,13 +641,13 @@ els.process.addEventListener('click', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Hear: the TF2 voice, the original or a real take                   */
+/* Hear: the render, the original or a real take                      */
 /* ------------------------------------------------------------------ */
 
 // Hear plays the render ('wet'), the original ('dry') or, with a real take
 // loaded, the take ('real'). All versions play in sync; switching is an
 // instant mute swap, with no re-buffering. B cycles them.
-const AB_LABELS = { wet: 'Hearing the TF2 voice', dry: 'Hearing the original', real: 'Hearing the real take' };
+const AB_LABELS = { wet: 'Hearing the render', dry: 'Hearing the original', real: 'Hearing the real take' };
 function setAbMutes() {
   els.audio.muted = state.abMode !== 'wet';
   if (els.audioDry) els.audioDry.muted = state.abMode !== 'dry';

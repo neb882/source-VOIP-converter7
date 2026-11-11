@@ -21,7 +21,7 @@ const ROOM_EVIDENCE = 'Room effects follow the game\'s own code. The two rooms m
   + 'the other shapes are examples. No room has been checked sample for sample yet.';
 // The custom room (dsp_room 99) is the app's own: no line claims the game's code for it.
 const CUSTOM_EVIDENCE = 'The custom room is the app\'s own, not the game\'s: no recording can check it.';
-const WATER_EVIDENCE = 'Read from the game\'s code. One recording under water matches its level (0.77 of the dry voice) and its lack of tremolo.';
+const WATER_EVIDENCE = 'Read from the game\'s code. One recording under water matches its level (0.77 of the direct voice) and its lack of tremolo.';
 
 const ROOM_GROUPS = [
   ['recorded', 'Automatic room, as recorded'],

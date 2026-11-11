@@ -27,10 +27,12 @@ state.abLouder = null;        // 'WET' or 'DRY'
 // The versions' internal labels are WET (the render), DRY (the original)
 // and REAL (a take); the page shows them as these (W4-01a: no element says
 // wet or dry).
-const VERSION_NAMES = { WET: 'TF2', DRY: 'ORIGINAL', REAL: 'REAL', SOURCE: 'SOURCE' };
+// One neutral name for the render, whatever the codec (the owner,
+// 2026-11-11): a render with vaudio_miles or Fullband Opus is not TF2's voice.
+const VERSION_NAMES = { WET: 'RENDER', DRY: 'ORIGINAL', REAL: 'REAL', SOURCE: 'SOURCE' };
 const versionName = (label) => VERSION_NAMES[label] || label;
-// In a sentence: "the TF2 voice", "the original", "the real take".
-const VERSION_WORDS = { WET: 'TF2 voice', DRY: 'original', REAL: 'real take' };
+// In a sentence: "the render", "the original", "the real take".
+const VERSION_WORDS = { WET: 'the render', DRY: 'the original', REAL: 'the real take' };
 
 // TF2Meter.analyze on a copy of `samples`, in a worker when there is one.
 function analyzeCopy(samples, rate) {
@@ -157,7 +159,7 @@ async function updateMeter() {
   // where a difference means something.
   const diff = new Set(['integrated', 'truePeak', 'samplePeak', 'rms', 'plr', 'lra']);
   const byLabel = (label) => results[sources.findIndex(src => src.label === label)] || null;
-  for (const [label, other, title] of [['Δ', 'DRY', 'the TF2 voice minus the original'], ['Δ real', 'REAL', 'the TF2 voice minus the real take']]) {
+  for (const [label, other, title] of [['Δ', 'DRY', 'the render minus the original'], ['Δ real', 'REAL', 'the render minus the real take']]) {
     const a = byLabel('WET'), b = byLabel(other);
     if (!a || !b) continue;
     const tr = row(label, METER_COLUMNS.map(([key]) => {

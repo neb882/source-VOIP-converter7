@@ -68,7 +68,7 @@ FLAC and MP3 are made from the WAV when a file is saved. MP3 is lossy on top of 
 4. **Mixer and output:** as the game's engine does it, in whole numbers. The voice enters the 44.1 kHz mix at 255/256 of its level, truncated; a 22.05 kHz voice (the CELT profiles) is upsampled by two once and an 11.025 kHz voice (`speex`, `miles`) twice, by the engine's own rule (each new sample the mean of its neighbours, rounded down). With a room, or under water, the voice is entered twice, at the direct share and the room's share of 256 that the room's preset gives, each part upsampled on its own; the room's part passes the room's preset, the two are added, and under water the sum passes the game's water preset (14), all in the engine's 32-bit integers, before the clip. The reverb's tail runs on after the voice, so a render with a room is longer than its source, and the download carries the tail. Then the mix is clipped to ±32767, multiplied by `volume` and rounded to 16 bits. There is no filter and no limiter. "Rooms" below says what the page offers.
 5. **The listener's sound device:** the listener's PC converts the game's 44.1 kHz sound to its device's rate by linear interpolation, which softens the top octave a little (about −1 dB at 8 kHz and −5 dB at 18 kHz) and leaves faint images, about 65 dB under a 1 kHz tone. That is modelled from the recordings, which were made at 48 kHz. **Listener's sound device** (`snd_device_rate`) picks 48000 Hz (usual) or 44100 Hz, where nothing is converted. The download is at that rate, with every sample written exactly as rendered.
 
-The quick presets set every control but three, which are properties of a PC: the capture channel, how long the sender's Steam has run and the listener's sound device. A preset is lit whenever the controls match it, however they got there, and a line under the presets names what differs from the defaults ("Modern, changed: Voice scale 0.5 · Reset"), with the PC's settings after "also"; **Reset** returns every control to its default. The settings, and whether the advanced controls are open, are remembered between visits in this browser's own storage (nowhere else); a share link's settings win over them. The live chain strip under the controls shows what the next render will do, naming `voice_scale` and the gain target when they are not the game's defaults.
+The quick presets set every control but three, which are properties of a PC: the capture channel, how long the sender's Steam has run and the listener's sound device. A preset is lit whenever the controls match it, however they got there, and a line under the presets names what differs from the defaults ("Modern, changed: Voice scale 0.5 · Reset"), with the PC's settings after "also"; **Reset** returns every control to its default. The settings, and whether the advanced controls are open, are remembered between visits in this browser's own storage (nowhere else); a share link's settings win over them, and once applied they are what is remembered, in place of what was. The live chain strip under the controls shows what the next render will do, naming `voice_scale` and the gain target when they are not the game's defaults.
 
 ## Profiles
 
@@ -198,7 +198,7 @@ The developer console supports Source-style `;` chaining, `alias`, `toggle`, `fi
 
 ## Visualizer and meter
 
-The visualizer has three views. All three follow **Hear** (the TF2 voice, the original or a real take).
+The visualizer has three views. All three follow **Hear** (the render, the original or a real take).
 - **WAVE:** peak and RMS envelope, down to individual samples. **dB** switches to a dBFS amplitude scale for quiet detail: fades, the gate's tails, DTX comfort noise and noise floors. Full-scale samples are marked red.
 - **BARS:** a log-frequency spectrum from 20 Hz, 8192-point, in dBFS; live while playing, computed at the playhead when paused. The version you are not hearing is drawn over it as a line. With a real take loaded, that is the take when you hear the render, and the render otherwise.
   - **AVG** switches to the long-term average spectrum of the render against the source, or against a real take once one is loaded. It covers the selection or the whole file, with 1/6-octave smoothing and silent windows skipped. The reference is shifted to the render's loudness, and a lane below shows the difference in dB: the chain's tonal footprint at a glance.
@@ -227,21 +227,21 @@ Only the visible range is analysed, at the display's full pixel resolution. The 
   - The legend under the view counts each type.
 - **LUFS** adds a loudness lane: momentary (400 ms, thin) and short-term (3 s, bold) loudness of the render (blue) and the source (white), each drawn at the centre of its window. Dashed lines mark each version's integrated loudness.
 
-**Selection and loop.** Shift + drag, or a drag along the time ruler, selects a range. Shift + click moves the nearer end. The meter then measures just the selection, the TF2 voice and the original, with a header offering **Zoom to selection** (Z) and **Clear** (Esc). **LOOP** (L) loops the selection or, with none, the whole file.
+**Selection and loop.** Shift + drag, or a drag along the time ruler, selects a range. Shift + click moves the nearer end. The meter then measures just the selection, the render and the original, with a header offering **Zoom to selection** (Z) and **Clear** (Esc). **LOOP** (L) loops the selection or, with none, the whole file.
 
-**Meter.** Under the visualizer, the meter lists for the render (TF2) and the source (ORIGINAL):
+**Meter.** Under the visualizer, the meter lists for the render (RENDER) and the source (ORIGINAL):
 - integrated loudness and maximum short-term and momentary loudness (ITU-R BS.1770-4, gated)
 - loudness range (EBU Tech 3342)
 - true peak (4× oversampled), sample peak and RMS
 - peak-to-loudness ratio and DC offset
 
-A Δ row gives the TF2 voice minus the original. Values are measured as one channel; played as dual mono they read 3 dB higher.
+A Δ row gives the render minus the original. Values are measured as one channel; played as dual mono they read 3 dB higher.
 
 **Match loudness**, beside **Hear**, makes the comparison fair: the louder version plays quieter by the difference in integrated loudness over the whole file, so neither wins just by being louder.
 
-**Shortcuts:** Space plays and pauses, B switches **Hear** (the TF2 voice, the original, a real take), L loops. With the view focused: + − 0 and the arrows navigate, Z zooms to the selection and Esc clears it.
+**Shortcuts:** Space plays and pauses, B switches **Hear** (Rendered, Original, Real take), L loops. With the view focused: + − 0 and the arrows navigate, Z zooms to the selection and Esc clears it.
 
-With a real take loaded, the meter adds a REAL row and a "Δ real" row (the TF2 voice minus the real take), and loudness matching plays every version at the level of the quietest.
+With a real take loaded, the meter adds a REAL row and a "Δ real" row (the render minus the real take), and loudness matching plays every version at the level of the quietest.
 
 The meter shows a real codec property. When DTX replaces a steady tone below about 60 Hz, libopus 1.1.x's comfort noise is nearly DC, and TF2 plays it as is. See finding 18 in [REFERENCE_2026.md](tests/REFERENCE_2026.md).
 
@@ -258,7 +258,7 @@ The meter shows a real codec property. When DTX replaces a steady tone below abo
 The status line reports the spurts, the latency trims and other re-timings, the clock and the correlation.
 
 The aligned take then:
-- plays as a third version under **Hear** (B cycles the TF2 voice, the original and the real take)
+- plays as a third version under **Hear** (B cycles the render, the original and the real take)
 - shows in WAVE, SPEC, the loudness lane and AVG
 - joins the meter
 
