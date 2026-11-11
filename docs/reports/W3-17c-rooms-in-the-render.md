@@ -45,7 +45,7 @@ reached: W3-10 as merged is shaped as Decision 3 says, and nothing needed a chan
 | `ca40b00` | `room-dsp.js`: the five `ROOM_PLACES` rows; `tests/room-dsp.verify.mjs`: their checks in place of "starts empty" |
 | `fdd693a` | `tests/accuracy.takes.json`: the seven rows' `room` |
 | `b926961` | `tests/REFERENCE_2026.md` (the app-today texts) and `tests/predictions/PREDICTIONS.md` (the dated note) |
-| `e6e606e` | two more checks after a mutation went uncaught: the tail rule holding inside the voice |
+| `e6e606e` | two more checks, the tail rule holding inside the voice, written for mutations A7 and A8 when planning them (no other check sees either) |
 | (this report's commit) | the report; the custom room at its knobs' ends against the room by hand (after mutation A21 passed); the memory check's buffer sized for a tail |
 
 ## What was built
@@ -148,7 +148,7 @@ More of this order's, beyond the list:
   the same source with no room (the room is after the mix point).
 - **[2b], where the tail rule holds inside the voice**: a voice ending in 3 s of silence has no tail and the source's
   length; a voice with 3 s of silence in its middle and a tone after it has the tail of its end. Both against the room
-  by hand. Added after mutation A7 passed every other check. And the custom room at its knobs' ends (duration 0.05 and
+  by hand. Written for mutations A7 and A8, which no other check sees (no golden case pauses long enough). And the custom room at its knobs' ends (duration 0.05 and
   6, decay 0.5 and 8, where the old mapping's clamps act) against the room by hand, added after mutation A21.
 - **[3]**: `createRender` refuses `retime` alone and with a room; `outputLength` and `maxTail` with a room and without;
   the old options render as the new ones (`listenerPos` water as `underwater`, tunnel and `dspRoom` 6 as preset 6, a
@@ -187,7 +187,7 @@ the same way, failed only "every recorded render is a case of the matrix" (the c
 | A4b | the entry at `share`, the 255 left out (`255 x share / 256`) | 33 | the same |
 | A5 | the tail not cut where the rule held (the last block whole) | 19 | the room by hand before the clip (tail and length), the hashes, the lengths |
 | A6 | the tail one sample long | 31 | the hashes, the room by hand, the stream lengths |
-| A7 | the rule's hold not started over by a later voice sample | 1 | "preset 6 on a tone, 3 s of silence, a tone" only. **Missed by every other check**; that check (and the one under A8) was added for it, in `e6e606e` |
+| A7 | the rule's hold not started over by a later voice sample | 1 | "preset 6 on a tone, 3 s of silence, a tone" only: **every other check passes on it**. That check and A8's were written for these two before the batch ran (`e6e606e`), since no golden case has a pause long enough for the rule to hold |
 | A8 | the mix ended where the rule held even before the voice's end | 1 | "preset 6 on a tone, then 3 s of silence" only (added with A7's) |
 | A9 | the custom room's shares rounded, not truncated | 4 | the custom case's hash and by-hand model; `codecInfo.room`'s 76/179 |
 | A10 | `{ preset: 1 }` a room (the table's preset 1, a NULL processor, at 26/229) | 5 | "dsp_room 1 (no effect)"'s recorded hashes and spec model; "no room path made" in the no-room cases; `{room:{preset:1}}` renders as no room |
