@@ -363,3 +363,30 @@ figures.
   `finish()` by 42 MB at 48 kHz and 79 MB at 192 kHz, since the tail's blocks are joined whole before the device stage.
   Left as it is, by the coordinator's ruling; the loop is bounded (the review round), not restructured.
 - The page, the live chain and the rest of README: W3-17d.
+
+## The orchestrator's private run (2026-11-11)
+
+On the branch at 9002376, before the review round (which changed no sample of these renders), against the run made
+at W3-10's merge. `node tests/accuracy.mjs --takes <the private takes>`; the echoes by a private script on the room
+investigation's method (the autocorrelation of the noise-like half-seconds above 300 Hz, the render at 48000 Hz).
+
+- **No room (Sets A, B, E, F and Set D's PC B): every figure of the table unchanged.** The two result files differ in
+  those rows only in the seconds the work took.
+- **Set C with `set_c_room`** (shares 41/214, pair 102/103). Level of the render less the take, before to after:
+  baseline +1.2 to +0.0 dB; loss 5 +1.3 to +0.1; jitter +1.1 to -0.1; loss 15 -0.3 to -1.4; combined -0.4 to -1.7.
+  The two heavy-loss takes show the loss model's own error, as the order said they would
+  (`docs/reports/bad-connections-plan.md` has what that error is). Share of samples at the clamp, take / render:
+  baseline 1.1 / 1.9 to 1.1 / 1.1; jitter 1.0 / 1.8 to 1.1 / 1.1. Level error over the segments, rms / worst:
+  baseline 0.43 / 2.2 to 0.39 / 2.1 dB. Spurt counts unchanged (13).
+- **Set C's echoes** (baseline; 24.0 noise-like seconds in take and render), normalised autocorrelation, take /
+  render: 57.96 ms 0.2335 / 0.2363; 105.17 ms 0.0259 / 0.0268; 119.17 ms 0.0345 / 0.0361; 134.17 ms 0.0315 / 0.0328;
+  148.17 ms 0.0328 / 0.0337. Eight further peaks from 32 to 152 ms are equal in place and sign. The pattern from 31
+  to 540 ms, each less the dry render's: correlation 0.886, amplitude ratio 0.96 (the order asked for 0.88 and a
+  value at 57.96 ms within 0.01).
+- **Set D, PC A with `set_d_street`** (shares 23/232, pair 118/119): level +0.1 dB as before; rms / worst 0.14 / 0.6
+  to 0.12 / 0.5 dB; clamp share 7.6 / 9.8 to 7.6 / 9.3. Echoes, take / render: 68.02 ms 0.0224 / 0.0304; 120.04 ms
+  0.0146 / 0.0140; 308.02 ms 0.0102 / 0.0092. The order expected each within 20%: the second and third are; the
+  first is 36% high in the render, 3.6 times the take's scatter (0.0022). Not explained, not tuned.
+- The alignment question the builder left open: the table's delays, trims and spurt counts of the no-room takes are
+  unchanged, and Set C's and Set D's moved by at most 0.05 s in the delay's range, so the tail in the guide render
+  does not upset the alignment.
