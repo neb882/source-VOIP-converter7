@@ -2101,8 +2101,8 @@ async function main() {
     const celt = { ...opts, codec: 'celt_22', gate: true };
     const c20 = await TF2Audio.process(mkBuffer(src, SR), celt), c80 = await TF2Audio.process(mkBuffer(src, SR), { ...celt, frameMs: 80 });
     check('net_split on steam with no jitter: 20 and 80 ms give the same samples at 25% loss; on celt_22 they still differ',
-      lossy.samples.length === f80.samples.length && lossy.samples.every((v, i) => v === f80.samples[i]) && lossy.codecInfo.network.lostMessages > 0
-      && diffRms(c20.samples, c80.samples) > 1e-6, `${lossy.codecInfo.network.lostMessages} of ${lossy.codecInfo.network.messages} messages lost`);
+      lossy.samples.length === f80.samples.length && lossy.samples.every((v, i) => v === f80.samples[i]) && lossy.codecInfo.network?.lostMessages > 0
+      && diffRms(c20.samples, c80.samples) > 1e-6, `${lossy.codecInfo.network?.lostMessages} of ${lossy.codecInfo.network?.messages} messages lost`);
     check('net_split is reported in whole frames', f80.codecInfo.framesPerPacket === 4);
     const dead = await TF2Audio.process(mkBuffer(src, SR), { ...opts, lossPct: 100 });
     check('100% loss -> silence', rms(dead.samples) < 1e-6, `rms ${rms(dead.samples).toExponential(2)}`);
