@@ -294,7 +294,7 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
   if (referenceDecoded && renderGuide()) alignReferenceTake();
   else updateReferenceReport();
   // The codec that ran: libopus for the Steam profiles, or an engine codec.
-  const codecName = { celt: 'CELT 0.11', speex: 'Speex 1.0.2', vr12: 'Voxware VR12' }[codecInfo.backend] || 'Real Opus';
+  const codecName = { celt: 'CELT 0.11', speex: 'Speex 1.0.2', vr12: 'Voxware VR12 (not in TF2)' }[codecInfo.backend] || 'Real Opus';
   const method = realOpus ? `${codecName} · ${codecInfo.bitrate / 1000} kbps` : 'Codec bypassed';
   setStatus(`Ready · ${method} · ${(took / 1000).toFixed(1)}s render · ${sampleRate.toLocaleString()} Hz`, 'success');
   logLine(`ChangeLevel: rendered ${samples.length} samples @ ${sampleRate}Hz in ${took}ms`, 'sys');

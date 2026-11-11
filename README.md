@@ -15,7 +15,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-For GitHub Pages, enable Pages from the root of your publishing branch; no build is required. **Keep `.nojekyll`, `vendor/` (all four codec folders), `opus-codec.mjs`, `audio-worker.js`, `mic-capture.js`, `live-worker.js` and `live-worklet.js`** alongside the HTML, CSS, other scripts and icons. `node_modules/` is not needed on the website.
+For GitHub Pages, enable Pages from the root of your publishing branch; no build is required. **Keep `.nojekyll`, `vendor/` (all seven folders: the five codec folders, the MP3 encoder and Steam's resampler), `opus-codec.mjs`, `audio-worker.js`, `mic-capture.js`, `live-worker.js` and `live-worklet.js`** alongside the HTML, CSS, other scripts and icons. `node_modules/` is not needed on the website.
 
 Use HTTPS or localhost. Opening `index.html` as a local file does not reliably support codec modules or microphone capture. After the app and its service worker load, conversion works offline. Background cache updates never reload the page or discard loaded audio; refresh when you are ready to use updated page code.
 
@@ -371,7 +371,7 @@ pnpm test:all
 
 These tests establish implementation behavior; the accuracy claims rest on the paired comparison above. CI runs Node 22 and Chromium.
 
-`pnpm vendor:opus` copies the pinned 1.6.1 runtime and notices verbatim. `pnpm build:opus11` rebuilds the libopus 1.1.5 module from the tagged sources, `pnpm build:celt` the CELT 0.11 module from its pinned commit, and `node tests/speex102/build.mjs` the Speex 1.0.2 module from its release tag (`node tests/speex102/native.mjs` compares it with a native build of the same sources). `pnpm build:lame` rebuilds the LAME 3.100 module from the release tarball, checked against its SHA-256. They need clang with the wasm32 target and wasm-ld. `pnpm test:vendor` checks the 1.6.1 files against the installed dependency and the libopus 1.1.5, CELT 0.11 and Speex 1.0.2 modules against their recorded hashes. The runtimes and licenses are required distribution files.
+`pnpm vendor:opus` copies the pinned 1.6.1 runtime and notices verbatim. `pnpm build:opus11` rebuilds the libopus 1.1.5 module from the tagged sources, `pnpm build:celt` the CELT 0.11 module from its pinned commit, and `node tests/speex102/build.mjs` the Speex 1.0.2 module from its release tag (`node tests/speex102/native.mjs` compares it with a native build of the same sources). `pnpm build:lame` rebuilds the LAME 3.100 module from the release tarball, checked against its SHA-256. They need clang with the wasm32 target and wasm-ld. `pnpm test:vendor` checks the 1.6.1 files against the installed dependency and the libopus 1.1.5, CELT 0.11, Speex 1.0.2 and VR12 modules against their recorded hashes (`node tests/vr12/build.mjs` rebuilds the VR12 module; `vendor/voxware-vr12/README.md`). The runtimes and licenses are required distribution files.
 
 ## Files and licensing
 

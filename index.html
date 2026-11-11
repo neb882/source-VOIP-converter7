@@ -76,7 +76,7 @@
       <div class="controls" id="controls-wrapper">
         <div class="control control-wide">
           <label for="codec">Voice codec <code class="cvar">sv_voicecodec</code></label>
-          <select id="codec" aria-describedby="codec-help codec-note">
+          <select id="codec" aria-describedby="codec-help">
             <optgroup label="Team Fortress 2">
               <option value="steam" selected>Steam voice (Opus, 32 kbps)</option>
               <option value="celt_22">vaudio_celt (CELT, 22 kHz)</option>
@@ -258,7 +258,7 @@
           <div class="control">
             <label for="bits">Bitrate, in sixteenths</label>
             <input id="bits" type="number" value="16" min="4" max="16" aria-describedby="bits-help">
-            <p id="bits-help" class="control-help">16 is the codec's own bitrate; 8 is half of it. vaudio_speex has one bitrate and ignores this.</p>
+            <p id="bits-help" class="control-help">16 is the codec's own bitrate; 8 is half of it. vaudio_speex and vaudio_miles each have one bitrate and ignore this.</p>
           </div>
           <div class="control">
             <label for="frameMs">Frames per packet, as ms</label>

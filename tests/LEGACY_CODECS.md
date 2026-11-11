@@ -157,7 +157,10 @@ orchestrator's private investigation of the owner's older engine files; the fact
   - **The delay**, from the envelope (the codec is a vocoder): a steady voiced sound (harmonics 1/h below 5 kHz, -12
     dBFS RMS) switched on at 24 places in a frame, at pitches of 100, 140 and 190 Hz; the lag that best lines up the
     55-sample RMS envelopes of input and decoded sound has a median of 304.5 samples (quartiles 274.75 and 348, range
-    200 to 411, less than a frame apart). The profile drops 305 samples (27.66 ms).
+    200 to 411, less than a frame apart). The profile drops 305 samples (27.66 ms). The median moves with the grid
+    by up to 15 samples (1.4 ms): pitches of 120, 160 and 220 Hz give 316, a level of -6 dBFS 319.5, a 110-sample
+    envelope 311 (the review's runs). The lags fall in a sawtooth whose period is 180 samples, one VR12 frame inside
+    the wrapper's 360: as the onset moves 15 samples on, the lag falls by 15 until it jumps back.
   - **The 8-bit cut.** Any input whose 16-bit samples all lie from -256 to 255 codes as its signs alone (0 and -256);
     digital silence stays digital silence. In the pauses of the tests' speech-like signal (-78.7 dBFS at 11025 Hz) the
     cut gives -45.6 dBFS, the decoder -57.1 and the gain -37.1; under `speex` the same pauses decode at -82.7 and reach

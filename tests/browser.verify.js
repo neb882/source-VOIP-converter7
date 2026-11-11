@@ -780,21 +780,40 @@ async function verifyMilesPage(page) {
     && menu.loose.length === 0,
     'the codec menu has two groups: "Team Fortress 2" holds exactly steam, celt_22, celt_44 and speex; "Not in Team Fortress 2" exactly steam_48 and miles',
     JSON.stringify(menu.groups));
-  check(/^vaudio_miles: not in TF2( \(VR12, 2\.9 kbit\/s\)| \(VR12\))$/.test(menu.option) && /sv_voicecodec/.test(menu.label)
-    && menu.described.includes('codec-help') && menu.described.includes('codec-note'),
-    'the miles option says itself that it is not in TF2; the control keeps sv_voicecodec and names the note in aria-describedby', `${menu.option}; ${menu.label}; ${menu.described.join(' ')}`);
+  check(/^vaudio_miles: not in TF2( \(VR12, 2\.9 kbit\/s\)| \(VR12\))$/.test(menu.option) && /sv_voicecodec/.test(menu.label),
+    'the miles option says itself that it is not in TF2; the control keeps sv_voicecodec', `${menu.option}; ${menu.label}`);
+  // The control's accessible description, as the browser computes it (CDP):
+  // a screen reader reads a hidden element that aria-describedby names, so the
+  // note is named there only while it is shown (review round, S1).
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Accessibility.enable');
+  const description = async () => {
+    const { root } = await cdp.send('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#codec' });
+    const { nodes } = await cdp.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+    return (nodes[0] && nodes[0].description && nodes[0].description.value || '').replace(/\s+/g, ' ').trim();
+  };
   const notes = {};
-  for (const key of ['steam', 'steam_48', 'celt_22', 'celt_44', 'speex', 'miles']) {
+  for (const key of ['steam', 'steam_48', 'celt_22', 'celt_44', 'speex', 'miles', 'steam']) {
     await page.locator('#codec').selectOption(key);
-    notes[key] = await page.evaluate(() => {
+    const seenNote = await page.evaluate(() => {
       const n = document.getElementById('codec-note');
-      return { hidden: n.hidden, shown: n.getClientRects().length > 0, text: n.textContent.replace(/\s+/g, ' ').trim() };
+      return { hidden: n.hidden, shown: n.getClientRects().length > 0, text: n.textContent.replace(/\s+/g, ' ').trim(),
+        described: document.getElementById('codec').getAttribute('aria-describedby') };
     });
+    notes[key === 'steam' && notes.miles ? 'steam again' : key] = { ...seenNote, description: await description() };
   }
-  check(['steam', 'steam_48', 'celt_22', 'celt_44', 'speex'].every((k) => notes[k].hidden && !notes[k].shown)
-    && !notes.miles.hidden && notes.miles.shown && notes.miles.text === MILES_NOTE,
-    'the note under the codec control is hidden for the other five profiles and shown, with its exact text, for miles',
+  await cdp.detach();
+  await page.locator('#codec').selectOption('miles');
+  const others = ['steam', 'steam_48', 'celt_22', 'celt_44', 'speex', 'steam again'];
+  check(others.every((k) => notes[k].hidden && !notes[k].shown) && !notes.miles.hidden && notes.miles.shown && notes.miles.text === MILES_NOTE,
+    'the note under the codec control is hidden for the other five profiles and shown, with its exact text, for miles (and hidden again after it)',
     JSON.stringify(Object.fromEntries(Object.entries(notes).map(([k, v]) => [k, v.shown]))) + ` ${notes.miles.text}`);
+  const help = await page.evaluate(() => document.getElementById('codec-help').textContent.replace(/\s+/g, ' ').trim());
+  check(others.every((k) => notes[k].described === 'codec-help' && notes[k].description === help)
+    && notes.miles.described === 'codec-help codec-note' && notes.miles.description === `${help} ${MILES_NOTE}`,
+    'the control\'s accessible description is its help alone on a TF2 profile (no note), and the help and the note on miles',
+    `steam: "${notes.steam.description}"; miles: "${notes.miles.description}"`);
   // A render: the console, the status line, the chain strip and the lane.
   const before = await page.evaluate(() => state.renderId);
   const consoleFrom = 'test: the miles render starts here';
@@ -816,7 +835,7 @@ async function verifyMilesPage(page) {
   check(first >= 0 && /S_Voice: Voxware VR12 \(voxware-vr12 eedf465\), 2\.94 kbps CBR, 12-byte packets of 32\.7 ms, a lost frame plays as zeros \(VR12 100%\)/.test(lines[first])
     && /S_Voice: vaudio_miles is not a TF2 codec \(Source engines of 2006 and 2007\); not checked against any recording/.test(lines[first + 1] || ''),
     'the S_Voice line names Voxware VR12, its 12-byte frames and zeros for a lost frame, and the next line says it is not a TF2 codec', lines.join(' | '));
-  check(/Ready · Voxware VR12 · 2\.94 kbps/.test(seen.status), 'the status line names Voxware VR12', seen.status);
+  check(/Ready · Voxware VR12 \(not in TF2\) · 2\.94 kbps/.test(seen.status), 'the status line names Voxware VR12, not in TF2', seen.status);
   const words = 'VR12 on 11.025 kHz sound · 12-byte frames of 32.65 ms · 2.94 kbit/s · not a TF2 codec';
   check(seen.chain === `Codec${words}`, 'the chain strip\'s Codec cell describes VR12 on 11.025 kHz sound and says it is not a TF2 codec', seen.chain);
   check(seen.legend.length === 1 && seen.legend[0] === `VR12 ${seen.frames}` && seen.codes.every(c => c === 8),
@@ -1100,7 +1119,7 @@ async function verifyLiveMonitor(page) {
     backend: state.lastCodecInfo.backend, plc: state.lastCodecInfo.plc }), milesFrom);
   check(milesMode === 'VR12' && /S_Voice: Voxware VR12 \(voxware-vr12 eedf465\), 2\.94 kbps CBR, 32\.7 ms, a lost frame plays as zeros \(VR12 100%\)/.test(milesTake.console)
     && /S_Voice: vaudio_miles is not a TF2 codec/.test(milesTake.console)
-    && /Voxware VR12 · 2\.94 kbps/.test(milesTake.status) && milesTake.legend.some(t => /^VR12 \d+$/.test(t)) && milesTake.backend === 'vr12' && milesTake.plc === 'zeros'
+    && /Voxware VR12 \(not in TF2\) · 2\.94 kbps/.test(milesTake.status) && milesTake.legend.some(t => /^VR12 \d+$/.test(t)) && milesTake.backend === 'vr12' && milesTake.plc === 'zeros'
     && ![milesTake.console, milesTake.status, ...milesTake.legend].some(t => /CELT|Opus|SILK|Speex/.test(t)),
     'the live panel\'s mode reads VR12 with miles, and a recorded take names Voxware VR12, not CELT, Opus, SILK or Speex',
     `mode ${milesMode}; ${milesTake.console}; ${milesTake.legend.join(', ')}`);
@@ -1435,7 +1454,7 @@ async function verifySettingsWords(page) {
     && t.capture_channel[0] === 'Channel of a stereo file' && words.options.capture_channel[0] === 'Left'
     && t.capture_channel[1] === 'Which channel the game\'s microphone gets. Left is what one stereo cable gave it; a mono file is not affected.'
     && t.gain[1] === 'Loudness into the game. Above 1 the sender clips, as an overdriven microphone does.'
-    && t.bits[0] === 'Bitrate, in sixteenths' && t.bits[1] === '16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex has one bitrate and ignores this.'
+    && t.bits[0] === 'Bitrate, in sixteenths' && t.bits[1] === '16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex and vaudio_miles each have one bitrate and ignore this.'
     && t.frameMs[0] === 'Frames per packet, as ms' && t.frameMs[1] === 'How much voice one network packet carries. A lost packet loses all of it.'
     && t.loss[1] === 'The share of voice frames that never arrive. Not the game\'s own number: its net_fakeloss 5 lost about 22% of them.'
     && t.jitter[1] === 'Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that.'

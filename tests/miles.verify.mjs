@@ -589,23 +589,26 @@ console.log('\n[miles] 10. The live chain');
     }
     const codes = chain.takeFrameCodes();
     chain.free();
-    return { out: join(parts), gained: join(gained), codes, stats: chain.stats, chain, s: w.log.streams[0] };
+    return { out: join(parts), gained: join(gained), codes, stats: chain.stats, chain, s: w.log.streams[0], streams: w.log.streams.length };
   };
   // The reference for what a live stream coded: the frames it was given, in
   // order, as 16 bits, a reset of both objects at each restart; the decoded
-  // stream with zeros for the frames not sent.
+  // stream with zeros for the frames not sent. `complete` says whether the
+  // first stream's log held a frame for every frame sent (a chain that made a
+  // new stream at a key press leaves the rest in the second).
   const referenceLive = async (run) => {
-    const ref = await reference(), parts = [];
-    let k = 0, packetsEqual = true;
+    const ref = await reference(), parts = [], events = run.s.events;
+    let k = 0, packetsEqual = true, complete = true;
     for (const code of run.codes) {
       if (code === FRAME.gated) { parts.push(new Float32Array(SIZE)); continue; }
-      while (run.s.events[k].restart) { await ref.spurt(); k++; }
-      const e = run.s.events[k++], p = ref.encode(q16(e.frame));
+      while (k < events.length && events[k].restart) { await ref.spurt(); k++; }
+      if (k >= events.length) { complete = false; packetsEqual = false; parts.push(new Float32Array(SIZE)); continue; }
+      const e = events[k++], p = ref.encode(q16(e.frame));
       if (!sameBytes(p, e.packet)) packetsEqual = false;
       parts.push(code === FRAME.lost || code === FRAME.late ? new Float32Array(SIZE) : Float32Array.from(ref.decode(p), v => v / 32768));
     }
     ref.free();
-    return { decoded: join(parts), packetsEqual };
+    return { decoded: join(parts), packetsEqual, complete };
   };
   const src = voiced(3, 48000);
   for (const rate of [48000, 44100]) {
@@ -631,6 +634,8 @@ console.log('\n[miles] 10. The live chain');
   check('a scripted key: the frames not sent are zeros at the gain\'s input, restart() runs once, at the press',
     notSent.length > 10 && keyed.s.restarts === 1 && keyed.s.events.findIndex(e => e.restart) > 0 && keyed.stats.spurts === 2,
     `${notSent.length} frames not sent, ${keyed.s.restarts} restart`);
+  check('... and the chain keeps its one stream (its two codec objects) through the press: it makes no new codecs there',
+    keyed.streams === 1 && kref.complete, `${keyed.streams} stream${keyed.streams === 1 ? '' : 's'} made; the first coded ${kref.complete ? 'every' : 'not every'} frame sent`);
   check('... and the gain\'s output is the reference\'s with both objects reset at the press',
     kref.packetsEqual && same(keyed.gained, kwant), `${differing(keyed.gained, kwant)} of ${keyed.gained.length} differ`);
   // With loss: the render's frame codes.

@@ -179,7 +179,8 @@ rules below are given by what must hold, and the words of `main` decide the rest
   ` (VR12, 2.9 kbit/s)` if that fits the control's box at 390 px by the page's own check, else ` (VR12)`.
   The control's label keeps `sv_voicecodec`: the old engines have that variable too.
 - Under the control, a paragraph `id="codec-note"`, hidden unless `miles` is chosen, named in the control's
-  `aria-describedby` beside what is there, with exactly: "vaudio_miles is not a TF2 codec. The Source
+  `aria-describedby` beside what is there (*corrected 2026-11-11, W3-20b's review: named in aria-describedby only
+  while shown; a screen reader reads a hidden element that aria-describedby names*), with exactly: "vaudio_miles is not a TF2 codec. The Source
   engines of 2006 and 2007 could run it; current TF2 ships its files and refuses the name. It has not been
   checked against any recording of a running engine. Everything after the receiver's gain is TF2's of
   today."
