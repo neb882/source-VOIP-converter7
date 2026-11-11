@@ -7,9 +7,12 @@
 /* Source loading (file or microphone)                                */
 /* ------------------------------------------------------------------ */
 
-// `mono` is the L+R mix used for display and the dry A/B; stereo sources also
-// keep their left channel so the render can capture it like a stereo cable.
-function mountSource(mono, sampleRate, name, left = null) {
+// `mono` is the L+R mix used for display and as the original under Hear;
+// stereo sources also keep their left channel so the render can capture it
+// like a stereo cable. The new source renders by itself (W4-01a), unless
+// `render` is false: a recorded live session arrives with its render, and a
+// demo renders once its packets are in place (loadDemoFile).
+function mountSource(mono, sampleRate, name, left = null, { render = true } = {}) {
   const duration = mono.length / sampleRate;
   if (!Number.isFinite(duration) || duration <= 0) throw new Error('the clip has no decodable audio');
   if (duration > MAX_AUDIO_SECONDS) throw new Error('the clip exceeds the 10 minute limit');
@@ -26,6 +29,8 @@ function mountSource(mono, sampleRate, name, left = null) {
   state.lastWav = null;
   state.lastExports = {};
   state.processedBuffer = null;
+  state.renderedSource = null;
+  state.renderedKey = null;
   state.decodedSource = { sampleRate, duration, length: mono.length,
     numberOfChannels: 1, getChannelData: () => mono, left };
   state.dryBlob = URL.createObjectURL(TF2Audio.encodeWav(mono, sampleRate));
@@ -37,16 +42,18 @@ function mountSource(mono, sampleRate, name, left = null) {
   if (els.audioDry) { els.audioDry.pause(); els.audioDry.removeAttribute('src'); els.audioDry.load(); }
   clearReferenceTake();
   if (els.reference) els.reference.hidden = false;
-  els.abToggle.disabled = true;
-  els.abToggle.textContent = 'A/B: Wet';
   state.abMode = 'wet';
+  setAbMutes();
+  updateAbButtons();
   state.lastCodecInfo = null;
+  setRenderStatus('');
   resetVizView();
   refreshVisualizer();
   updateMeter();
   setStatus(`${name} · ${duration.toFixed(1)}s · ${sampleRate.toLocaleString()} Hz`, 'success');
   logLine(`FS_MountFile: "${name}" (${duration.toFixed(1)}s) mounted.`, 'sys');
   updateSignalChain();
+  if (render) renderNewSource();
 }
 
 // The audio device's context, which resamples what it decodes to the
@@ -94,6 +101,20 @@ async function loadSourceFromArrayBuffer(ab, name, again = null) {
   }
 }
 
+// What the page says when the browser gives it no microphone (W4-01c), by
+// the error's name, which every browser shares; null for any other error.
+// `button`: the button to press again ("Live" or "Record").
+function microphoneRefusal(error, button) {
+  const name = error && error.name;
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return `The browser did not let this page use the microphone. Allow it for this site (the icon in the address bar), then press ${button} again.`;
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return `No microphone was found. Plug one in, or choose it in the system's sound settings, then press ${button} again.`;
+  }
+  return null;
+}
+
 async function startRecord() {
   if (state.recorder || state.processing) return;
   if (!navigator.mediaDevices?.getUserMedia || typeof AudioWorkletNode === 'undefined') {
@@ -125,7 +146,7 @@ async function startRecord() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-    });
+    }).catch((error) => { error.microphone = true; throw error; });
     context = new (window.AudioContext || window.webkitAudioContext)();
     await context.audioWorklet.addModule('mic-capture.js');
     source = context.createMediaStreamSource(stream);
@@ -166,7 +187,7 @@ async function startRecord() {
     logLine('+voicerecord (PCM capture)', 'cmd');
   } catch (e) {
     await cleanup();
-    setStatus(`Microphone unavailable: ${e.message}`, 'error');
+    setStatus((e && e.microphone && microphoneRefusal(e, 'Record')) || `Microphone unavailable: ${e.message}`, 'error');
     logLine(`VoiceRecord: ${e.message}`, 'err');
   }
 }
@@ -264,7 +285,7 @@ els.conIn.addEventListener('keydown', (e) => {
       if (state.cmdHistory.length > 50) state.cmdHistory.shift();
       state.cmdIndex = state.cmdHistory.length;
       LS.set('tf2ve_history', state.cmdHistory);
-      execCommand(val);
+      consoleAnswer(val);
       els.conIn.value = '';
       updateConsoleHint();
     }
@@ -282,9 +303,15 @@ els.conIn.addEventListener('keydown', (e) => {
     } else {
       state.cmdIndex = state.cmdHistory.length; els.conIn.value = ''; updateConsoleHint();
     }
-  } else if (e.key === 'Tab') {
-    e.preventDefault();
-    completeConsole();
+  } else if (e.key === 'Tab' && !e.shiftKey) {
+    // Tab completes only a word with no space that some command starts
+    // with; otherwise it moves the focus on, as anywhere else (W4-01c).
+    // Shift+Tab always moves the focus back.
+    const val = els.conIn.value;
+    if (val && !/\s/.test(val) && consoleMatches(val).length) {
+      e.preventDefault();
+      completeConsole();
+    }
   }
 });
 
@@ -331,7 +358,7 @@ async function loadDemoFile(f, speakerId = null) {
     const frames = Math.min(decoded.frameLog.length, Math.ceil(keep / decoded.frameSamples));
     if (keep < decoded.samples.length) logLine(`demo: the voice runs ${(decoded.samples.length / decoded.rate / 60).toFixed(1)} minutes; the first 10 are kept.`, 'warn');
     const name = `${f.name.replace(/\.dem$/i, '')}_${speaker.id.replace(/\s+/g, '')}.dem`;
-    mountSource(decoded.samples.slice(0, keep), decoded.rate, name);
+    mountSource(decoded.samples.slice(0, keep), decoded.rate, name, null, { render: false });
     state.sourceDemo = { file: f, parsed, speaker, codecKey,
       received: { frameLog: decoded.frameLog.slice(0, frames), frameBytes: decoded.frameBytes.slice(0, frames), frameMs: 1000 * decoded.frameSeconds,
         spurts: decoded.spurts, version: speaker.codec === 'steam' ? 'Steam packets from the demo' : `${speaker.codec} packets from the demo` } };
@@ -341,7 +368,8 @@ async function loadDemoFile(f, speakerId = null) {
     const h = parsed.header, kbps = speaker.frames > speaker.dtx ? (speaker.bytes * 8 / (speaker.frames * decoded.frameSeconds) / 1000) : 0;
     logLine(`demo: ${h.server || 'server'} on ${h.map}, ${h.seconds.toFixed(1)} s, voice codec ${speaker.codec}; ${speakers.length} speaker${speakers.length === 1 ? '' : 's'}.`, 'sys');
     logLine(`demo: ${speaker.id}: ${speaker.frames} frames in ${speaker.spurts || '?'} talk spurts, ${speaker.dtx} DTX, ${speaker.lost} lost before the server, ${kbps.toFixed(1)} kbps while talking.`, 'sys');
-    setStatus(`${name} · ${(keep / decoded.rate).toFixed(1)}s of voice as sent · Process plays it through TF2's receiver`, 'success');
+    setStatus(`${name} · ${(keep / decoded.rate).toFixed(1)}s of voice as sent · rendered through TF2's receiver alone`, 'success');
+    renderNewSource();
   } catch (error) {
     if (selection !== sourceLoadId) return;
     setStatus(`Could not read the demo's voice: ${error.message}`, 'error');
@@ -389,7 +417,7 @@ async function loadSourceFile(f) {
     if (keep) {
       state.sourceVideo = { bytes: keep, name: f.name, info };
       logLine(`FS_MountFile: video (${info.container.toUpperCase()}, ${info.codec}) kept; Download video puts the render back into it.`, 'sys');
-      setStatus(`${els.status.textContent} · video: process, then Download video (${info.container.toUpperCase()})`, 'success');
+      setStatus(`${els.status.textContent} · video: Download video (${info.container.toUpperCase()}) once it is rendered`, 'success');
     } else if (video) {
       logLine(`FS_MountFile: ${info && info.note ? info.note : 'only MP4 and MOV videos can take the render back; this one gives its audio only.'}`, 'warn');
       setStatus(`${els.status.textContent} · the video's audio only (only MP4 and MOV can take the render back)`, 'success');

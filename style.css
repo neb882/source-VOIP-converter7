@@ -45,6 +45,19 @@ h1 { margin: 0 0 6px; font-size: clamp(22px, 5vw, 30px); font-weight: 300; lette
 }
 .facts b { color: var(--accent); font-weight: 600; }
 
+/* A newer version is ready (W4-01a): shown above step 1 */
+.update-notice {
+  margin: 0 0 16px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: 6px;
+  background: rgba(102, 192, 244, 0.1); color: #dfe7ee; font-size: 13px; line-height: 1.45;
+}
+.update-notice[hidden] { display: none; }
+
+/* Read by a screen reader, not shown */
+.visually-hidden {
+  position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
 /* Sections */
 .panel {
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
@@ -71,6 +84,14 @@ input[type="file"]::file-selector-button {
   background: var(--btn-bg); border: none; color: white;
   padding: 9px 14px; border-radius: 4px; cursor: pointer; margin-right: 10px;
 }
+/* The file is step 1's main action (W4-01a): its button is the page's primary one. */
+#file { flex-grow: 0; min-width: 0; max-width: 100%; }
+#file::file-selector-button {
+  background: linear-gradient(to bottom, var(--lime) 5%, #536904 95%);
+  padding: 12px 20px; font-size: 14px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+}
+#file:hover::file-selector-button { filter: brightness(1.1); }
+.drop-hint { flex: 1 1 auto; color: var(--muted); font-size: 12.5px; }
 
 /* Buttons */
 button, .button {
@@ -90,8 +111,8 @@ button:focus-visible, .button:focus-visible, select:focus-visible, input:focus-v
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 
-/* Mic record button states */
-#mic { flex-grow: 0; background: var(--btn-bg); }
+/* Mic record button states; Live has Record's plain style (W4-01a) */
+#mic, #live-toggle { flex-grow: 0; background: var(--btn-bg); }
 #mic.recording {
   background: linear-gradient(to bottom, #d04007 5%, #692204 95%);
   animation: rec-pulse 1.2s ease-in-out infinite;
@@ -112,6 +133,13 @@ button:focus-visible, .button:focus-visible, select:focus-visible, input:focus-v
   border-color: var(--lime); background: linear-gradient(to bottom, #36571b, #25391a);
 }
 .preset-row .preset-btn[aria-pressed="true"] .preset-desc { color: #cfe7a1; }
+/* What differs from the defaults, under the presets (W4-01a) */
+.preset-line {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: -4px 0 14px; font-size: 12.5px; line-height: 1.45; color: #c9d6e2;
+}
+.preset-line[hidden] { display: none; }
+.preset-line .preset-reset { flex: 0 0 auto; padding: 4px 12px; font-size: 12px; }
 
 .mode-row {
   grid-column: 1 / -1; display: flex; align-items: center; gap: 12px;
@@ -131,28 +159,32 @@ body:not(.advanced) .advanced-control { display: none !important; }
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; min-width: 0;
 }
 .chain-group legend {
-  padding: 0 6px; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #dfe7ee;
+  padding: 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #dfe7ee;
 }
 .chain-index {
   display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: 4px; border-radius: 3px;
-  background: var(--btn-bg); color: var(--accent); font-size: 10px;
+  background: var(--btn-bg); color: var(--accent); font-size: 11px;
 }
+/* The advanced groups (W4-01c: one element the switch controls) */
+.advanced-groups { grid-column: 1 / -1; display: grid; gap: 12px; min-width: 0; }
 
-label { display: block; font-size: 11px; font-weight: bold; color: var(--accent); margin-bottom: 7px; text-transform: uppercase; line-height: 1.35; }
+/* W4-01c: labels and legends at least 12 px, the variable's name beside them 11 px */
+label { display: block; font-size: 12px; font-weight: bold; color: var(--accent); margin-bottom: 7px; text-transform: uppercase; line-height: 1.35; }
 .cvar {
-  font-family: "Lucida Console", Consolas, "Courier New", monospace; font-size: 10px; font-weight: normal;
+  font-family: "Lucida Console", Consolas, "Courier New", monospace; font-size: 11px; font-weight: normal;
   text-transform: none; color: var(--muted); white-space: nowrap;
 }
 .section-label {
   margin-bottom: 12px; border-bottom: 1px solid #444; padding-bottom: 4px;
-  font-size: 11px; font-weight: bold; color: var(--accent); text-transform: uppercase;
+  font-size: 12px; font-weight: bold; color: var(--accent); text-transform: uppercase;
 }
 
 input[type=number], input[type=range], select {
   width: 100%; background: #0e1218; border: 1px solid #3e4853; color: white;
   padding: 8px; border-radius: 4px; font-size: 14px;
 }
-select { cursor: pointer; }
+/* A chosen text that does not fit ends in an ellipsis, not mid-letter (W4-01c) */
+select { cursor: pointer; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
 
 /* A sentence of help under a control */
 .control-help { margin: 7px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
@@ -160,7 +192,7 @@ select { cursor: pointer; }
 .control-help[hidden] { display: none; }
 /* A checkbox with its label on one line */
 .check-label { display: flex; align-items: center; gap: 8px; margin-bottom: 0; cursor: pointer; }
-.check-label input[type=checkbox] { width: 18px; height: 18px; margin: 0; flex: 0 0 auto; accent-color: var(--accent); }
+.check-label input[type=checkbox] { width: 20px; height: 20px; margin: 0; flex: 0 0 auto; accent-color: var(--accent); }
 
 /* The extras: the app's own controls, not in the game */
 #extras { border-style: dashed; }
@@ -189,13 +221,35 @@ select { cursor: pointer; }
 
 /* Render & listen */
 .action-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+/* The player, with Hear and Match loudness beside it (W4-01a) */
+.player-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 12px; }
+.player-row audio { flex: 1 1 320px; width: auto; min-width: 0; margin-top: 0; }
+.hear-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; flex: 1 1 auto; }
+.ab-group { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.ab-label { display: inline-flex; align-items: center; padding: 0 10px; font-size: 12px; font-weight: bold; color: var(--accent); background: rgba(14, 18, 24, 0.85); }
+.ab-choice {
+  flex: 0 0 auto; padding: 9px 14px; font-size: 13px; font-weight: normal; border-radius: 0;
+  background: var(--btn-bg); box-shadow: none; border-left: 1px solid var(--border);
+}
+.ab-choice[aria-pressed="true"] { background: linear-gradient(to bottom, #36571b, #25391a); color: #fff; box-shadow: inset 0 -2px 0 var(--lime); }
+.ab-match-wrap { display: flex; align-items: center; gap: 8px; flex: 1 1 260px; min-width: 0; }
+.ab-match-wrap .ab-button { flex: 0 0 auto; padding: 9px 14px; font-size: 13px; }
+.ab-match-help { font-size: 11.5px; line-height: 1.4; color: var(--muted); }
 .action-row .ab-button { flex: 0 0 auto; min-width: 130px; padding: 12px 16px; font-size: 14px; }
+/* The render's status, under the player (W4-01a) */
+.render-status { margin: 8px 0 0; min-height: 1.4em; font-size: 12.5px; line-height: 1.45; color: #9ae66e; }
+.render-status.error { color: #ff7777; }
+.render-status.stale { color: var(--amber); }
+/* A render made with other settings than the controls hold, dimmed */
+.viz-container.stale, .viz-legend.stale, .meter.stale { opacity: 0.45; }
 .format-select { width: auto; flex: 0 0 auto; padding: 11px 8px; }
 .demo-speaker { width: auto; flex: 0 1 16em; min-width: 0; padding: 11px 8px; }
 .button-quiet { flex-grow: 0; background: var(--btn-bg); }
 
-/* Meter */
-.meter { margin-top: 10px; overflow-x: auto; }
+/* Meter: the table scrolls sideways in a box of its own (W4-01c) */
+.meter { margin-top: 10px; }
+.meter-scroll { overflow-x: auto; }
+.meter-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .meter table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 .meter caption { caption-side: bottom; text-align: left; padding-top: 5px; font-size: 10.5px; color: var(--muted); }
 .meter th, .meter td { padding: 4px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid #26303a; }
@@ -213,7 +267,7 @@ select { cursor: pointer; }
 .live-devices select { flex: 1 1 auto; min-width: 0; padding: 6px; font-size: 13px; }
 .live-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 10px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .live-status b { color: #dfe7ee; font-weight: 600; }
-.live-tx { font-weight: bold; color: #6b7580; min-width: 7em; }
+.live-tx { font-weight: bold; color: #9aa4ae; min-width: 7em; }
 .live-tx.live-on { color: var(--lime); }
 .live-meter { display: inline-flex; align-items: center; gap: 6px; }
 .live-meter-label { font-size: 10px; text-transform: uppercase; }
@@ -221,8 +275,11 @@ select { cursor: pointer; }
 .live-meter-bar span { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--accent); transition: width 80ms linear; }
 .live-meter-bar span.live-hot { background: #ff4040; }
 .live-note { margin: 8px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+/* An error there has the status line's error style (W4-01c) */
+.live-note.error { font-size: 12px; color: #ff7777; }
 .live-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; font-size: 12.5px; }
 .live-controls label { display: inline-flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; }
+.live-controls input[type=checkbox] { width: 20px; height: 20px; margin: 0; flex: 0 0 auto; accent-color: var(--accent); }
 .live-controls kbd { padding: 0 4px; border: 1px solid #3a434d; border-radius: 3px; font-size: 11px; background: #1a2027; }
 #live-record.live-recording { background: #7a1f1f; border-color: #c03a3a; }
 #live-talk { touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -305,7 +362,7 @@ canvas { width: 100%; height: 100%; display: block; }
   overflow: hidden; background: rgba(14, 18, 24, 0.85);
 }
 .viz-mode {
-  flex-grow: 0; padding: 4px 10px; font-size: 10px; font-weight: bold;
+  flex-grow: 0; padding: 4px 10px; font-size: 11px; font-weight: bold;
   letter-spacing: 0.5px; background: transparent; color: var(--muted);
   border: none; border-radius: 0; box-shadow: none;
 }
@@ -317,7 +374,7 @@ canvas { width: 100%; height: 100%; display: block; }
 .viz-mode:disabled { background: transparent; color: #4a535d; box-shadow: none; }
 .viz-select {
   width: auto; min-height: 0; margin: 0; padding: 2px 4px; border: none; border-left: 1px solid var(--border); border-radius: 0;
-  background: transparent; color: var(--muted); font-size: 10px; font-weight: bold; letter-spacing: 0.5px; cursor: pointer;
+  background: transparent; color: var(--muted); font-size: 11px; font-weight: bold; letter-spacing: 0.5px; cursor: pointer;
 }
 .viz-select:hover { color: #fff; }
 .viz-select option { background: #151a20; color: #dfe7ee; }
@@ -348,6 +405,7 @@ canvas { width: 100%; height: 100%; display: block; }
 }
 
 audio { width: 100%; margin-top: 12px; height: 40px; filter: invert(0.9) hue-rotate(180deg); }
+audio:focus-visible { outline: 2px solid #c9910b; outline-offset: 2px; }
 
 /* net_graph HUD, drawn over the visualizer like the in-game overlay */
 #net-graph {
@@ -378,8 +436,8 @@ audio { width: 100%; margin-top: 12px; height: 40px; filter: invert(0.9) hue-rot
   font-size: 12px; user-select: none;
 }
 .console-details summary:hover { color: #fff; }
-.summary-hint { color: #6f7a85; }
-.summary-hint code { color: #9aa6b1; font-size: 11px; }
+.summary-hint { color: #98a3ad; }
+.summary-hint code { color: #b3bec8; font-size: 11px; }
 .console-wrapper {
   margin-top: 8px;
   background: rgba(40, 40, 40, 0.98);
@@ -418,10 +476,12 @@ audio { width: 100%; margin-top: 12px; height: 40px; filter: invert(0.9) hue-rot
   font-family: inherit; font-size: inherit; padding: 8px; outline: none;
   position: relative; z-index: 2;
 }
+/* The focus ring the other controls have (W4-01c) */
+#console-input:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* Autocomplete hint sits behind the input text */
 #console-hint {
   position: absolute; left: 18px; top: 8px;
-  color: #666; pointer-events: none; z-index: 1;
+  color: #a3a3a3; pointer-events: none; z-index: 1;
   font-family: inherit; font-size: inherit; white-space: pre;
 }
 /* Autocomplete tap target — Tab completion for touch keyboards */
@@ -436,8 +496,9 @@ audio { width: 100%; margin-top: 12px; height: 40px; filter: invert(0.9) hue-rot
 
 button, .button, select { touch-action: manipulation; }
 
-footer { margin-top: 22px; font-size: 11px; color: #5d6873; border-top: 1px solid #2c333b; padding-top: 14px; text-align: center; }
-footer a { color: #7d8b98; }
+/* 4.5 to 1 and more against the card (W4-01c) */
+footer { margin-top: 22px; font-size: 11px; color: #8f98a0; border-top: 1px solid #2c333b; padding-top: 14px; text-align: center; }
+footer a { color: #a9b6c2; }
 
 @media (prefers-reduced-motion: reduce) {
   #mic.recording { animation: none; }
@@ -462,6 +523,18 @@ footer a { color: #7d8b98; }
   .mode-row span { line-height: 1.45; }
   .upload-row button, .action-row button { min-height: 44px; }
   .action-row .ab-button { flex: 1 1 100%; }
+  /* W4-01c: number boxes, selects and file controls 44 px high; a checkbox
+     20 px, in a row 44 px high */
+  input[type=number], select, input[type=file] { min-height: 44px; }
+  .check-label, .live-controls label { min-height: 44px; }
+  .ab-choice, .ab-match-wrap .ab-button, .preset-line .preset-reset { min-height: 44px; }
+  /* The table's box shows there is more to its right; its first column stays */
+  .meter-scroll {
+    background:
+      linear-gradient(to left, #12141a 30%, rgba(18, 20, 26, 0)) right center / 32px 100% no-repeat local,
+      radial-gradient(farthest-side at 100% 50%, rgba(102, 192, 244, 0.45), rgba(102, 192, 244, 0)) right center / 14px 100% no-repeat scroll;
+  }
+  .meter-scroll th:first-child { position: sticky; left: 0; z-index: 1; background: #12141a; }
   .format-select { flex: 1 1 100%; }
   .bi-actions button { min-height: 40px; min-width: 44px; }
   .signal-chain { grid-template-columns: 1fr; gap: 4px; }

@@ -10,7 +10,7 @@
  * from it when saved. A render made with settings that have since changed is
  * marked, and "Render" redoes it.
  *
- * Depends on the app/ page scripts: els, state, LS, renderOptions, captureSource,
+ * Depends on the app/ page scripts: els, state, LS, renderOptions, settingsKey, captureSource,
  * startWorkerJob, canUseWorker, exportWav, cachedExport, currentFormat,
  * outputName, saveBlob, loadSourceFile, isVideoFile, isDemoFile, logLine, MAX_FILE_BYTES,
  * MAX_VIDEO_BYTES, MAX_AUDIO_SECONDS; and on TF2Audio, TF2Formats, TF2Zip.
@@ -47,7 +47,6 @@
   const byPath = (a, b) => a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' });
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const clock = (seconds) => { const t = Math.round(seconds); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
-  const settingsKey = () => JSON.stringify(renderOptions());
   const dbText = (v) => (Number.isFinite(v) ? v.toFixed(1).replace('-', '−') : '−∞');
   const loudness = (stats) => (stats && stats.integrated !== null
     ? ` · ${dbText(stats.integrated)} LUFS · ${dbText(stats.truePeak)} dBTP` : '');

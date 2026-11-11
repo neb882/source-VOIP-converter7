@@ -62,7 +62,16 @@ const els = {
   ngLoss:    document.getElementById('ng-loss-val'),
   ngIn:      document.getElementById('ng-in'),
   ngOut:     document.getElementById('ng-out'),
-  abToggle:  document.getElementById('ab-toggle'),
+  // Which version plays, in words, for a screen reader (the "Hear" choice
+  // is the buttons of #ab-group; app/render.js, setAbMode).
+  abToggle:  document.getElementById('ab-now'),
+  abGroup:   document.getElementById('ab-group'),
+  renderStatus: document.getElementById('render-status'),
+  vizContainer: document.getElementById('viz-container'),
+  vizLegend: document.getElementById('viz-legend'),
+  presetLine: document.getElementById('preset-line'),
+  presetLineText: document.getElementById('preset-line-text'),
+  presetReset: document.getElementById('preset-reset'),
   hp:        document.getElementById('hp'),
   lp:        document.getElementById('lp'),
   bits:      document.getElementById('bits'),
@@ -118,7 +127,7 @@ const state = {
   mapName: 'cp_process',
   isConnected: true,
   simEnabled: true,
-  abMode: 'wet',         // 'wet' or 'dry'
+  abMode: 'wet',         // 'wet' (the render), 'dry' (the original) or 'real' (a real take)
   vizMode: 'wave',       // 'wave', 'bars' or 'spec' (spectrogram)
   renderId: 0,           // invalidates cached visualizer images per render
   lastCodecInfo: null,   // codec statistics of the last render (net_graph)
@@ -128,6 +137,17 @@ const state = {
   recorder: null,        // active PCM capture session
   recTick: null,         // recording timer interval
   processing: false,
+  // W4-01a: the render on screen and the one running, by the key of the
+  // settings each was made with (settingsKey, app/render.js), and the
+  // source the one on screen was made from.
+  renderedKey: null,
+  renderingKey: null,
+  renderedSource: null,
+  stale: false,          // the render on screen was made with other settings, and none is coming
+  cancelledKey: null,    // the settings of a render the user cancelled, which does not start again by itself
+  cancelledSource: null,
+  lastLitPreset: 'modern', // the built-in preset the controls last matched (app/console.js)
+  settingsRestored: false, // boot has applied the remembered settings; changes are now remembered
   batchRunning: false,   // batch.js is rendering its queue
   processId: 0,
   cancelProcessing: null
@@ -138,6 +158,26 @@ const MAX_VIDEO_BYTES = 1024 * 1024 * 1024;   // a video's audio is small; its p
 const MAX_DEMO_BYTES = 512 * 1024 * 1024;     // a demo is read whole; about 170 KB per second of game
 const MAX_AUDIO_SECONDS = 10 * 60;
 const MAX_RECORDING_SECONDS = 5 * 60;
+// W4-01a: a changed setting renders by itself, 400 ms after the last change,
+// while the source is at most this long (a minute renders in about 4 s);
+// a longer one is marked as not rendered with these settings and waits for
+// the button.
+const AUTO_RENDER_SECONDS = 60;
+const AUTO_RENDER_DELAY_MS = 400;
+
+// W4-01a: every key of CONFIG_FIELDS (app/console.js) is in exactly one of
+// these two lists (the browser suite checks it, so a control added later
+// cannot be left out). A built-in preset sets every field of the first, to
+// its own value or, where it names none, to the default; the second holds
+// properties of a PC, which presets leave alone (W3-10).
+const PRESET_SET_FIELDS = ['codec', 'pos', 'dsp', 'uw', 'asky', 'aw', 'al', 'ah', 'aopen', 'arefl',
+  'gain', 'vs', 'hp', 'lp', 'bits', 'agc', 'maxgain', 'avggain', 'vad', 'vadthr', 'vol', 'frame', 'loss', 'warble',
+  'cdur', 'cdec', 'cmix', 'jit', 'retime'];
+const KEPT_ACROSS_PRESETS = ['uptime', 'dev', 'chan'];
+// The built-in presets (PRESETS, constants.js) name their fields by option
+// names; these are the share link's keys they set.
+const PRESET_KEYS = { codec: 'codec', position: 'pos', underwater: 'uw', hp: 'hp', lp: 'lp',
+  voice_scale: 'vs', gain: 'gain', loss: 'loss', jitter: 'jit' };
 
 // The threshold control's default for a profile (W3-11b): for `steam`,
 // Steam's own gate, the mean of |x| over a capture chunk at 1% of full scale
