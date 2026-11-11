@@ -59,6 +59,13 @@ Each rule's reason is in brackets, so a rule can be dropped once its reason no l
   file. Also, it doesn't have to be emulator only. Use whatever tools and means that you deem as necessary and
   useful". Running a module gives the game's own output for any input without a recording session; the network and
   credentials precaution is ours.]
+- Code a third party has published under an open licence may be vendored even where its author took it from a
+  shipped file (2026-11-11: the VR12 codec, `vendor/voxware-vr12`), in a folder of its own with its licence and a
+  README of ours saying where it comes from and at which commit. We add nothing from the owner's files to it, and we
+  take nothing from it that rests on leaked source: what such a project says about the game is re-established from
+  the owner's own files before it is used. [The owner left this to the orchestrator: "I'm leaving it up to your
+  discretion". A codec cannot be built without its codebooks, and these were already public; one folder keeps the
+  decision reversible by one commit.]
 - No Valve art, footage or logos. It is a fan project.
 - No uploads and no runtime CDN: everything runs in the browser from this folder. [That is the app's promise.]
 - Deterministic: the same decoded PCM and settings give the same samples (seeded randomness). [The tests and the
