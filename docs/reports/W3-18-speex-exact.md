@@ -208,9 +208,14 @@ The page's words did not change.
 - `pnpm test` before the re-recording (each suite in turn, under the heavy lock): every suite exit 0 but
   `render-stream.verify.mjs`, which failed the eight Speex checks above and no other.
 - After: `render-stream.verify.mjs` 500 passed, 0 failed; `speex102.verify.mjs` 85 passed.
-- `pnpm test:all` under the heavy lock (with `CHROMIUM_EXECUTABLE`): see the hand-back.
+- `pnpm test:all` under the heavy lock (with `CHROMIUM_EXECUTABLE`), on `e1f0066` (the code as pushed; only
+  documents changed after): exit 0 in 704 s. The vendor check's three lines; `214 passed, 0 failed`, `69 gain checks`,
+  `147 Opus checks`, `85 Speex 1.0.2 and speex profile checks`, `42 paired-reference`, `68 passed, 0 failed`, `53
+  file-rate`, `50 passed, 0 failed`, `46 video`, `36 demo`, `500 render-stream checks passed, 0 failed`, `102
+  output-stage`, `129 voice channel`, `109 steam sender`, `43 swresample`, `216 room`, `246 browser checks passed`.
 - `node tests/speex102/native.mjs`: "The WebAssembly module matches the native build bit for bit."; clips 147 of 147;
   vectors all equal. `--mutations`: "11 of 11 changes left out fail at least one clip."
 - `node tests/speex102/gen-tables.mjs --check`: "vsx_tables.h is what the generator makes."
 - `pnpm test:vendor`: "Speex 1.0.2 build matches its recorded hash."
-- CI: see the hand-back.
+- CI: run 42975039742 on `282bee5` (the code and the documents but for this section): success. The run on this
+  report's commit is in the hand-back.
