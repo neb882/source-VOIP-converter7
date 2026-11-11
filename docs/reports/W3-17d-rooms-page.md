@@ -37,12 +37,14 @@ passed on the first push (see "Runs"). No golden hash moved and none was recorde
 - **Labels** (item 5): "On (the game's rule)"; "Gain target: mean (0) to peak (1)" with `voice_avggain`; the old "Open
   / Outdoor — dry (0)" is gone. README's rooms paragraph, its mixer line, the live note and the file table are
   rewritten; the Facepunch link stays as where presets 0 to 29 were first taken from.
-- **The live chain:** the worker (`live-worker.js`) keeps the room path outside the chain. A change of room or of the
-  water alone calls `setRoom` (the engine's 200 ms cross-fade) or `setWater` (the next block, no fade) and does **not**
-  rebuild the chain; a rebuild for another setting keeps the path, its lines and its count of blocks. With a room or
-  under water the chain's mix stage is the render's room mix (`createRoomMix`: whole 512-sample blocks, 11.6 ms more in
-  `stats.latencyMs`, none in `contentDelay`); without, it holds nothing back, as W3-10 left it. A spurt's first delivered
-  message (frame) calls `spurtStart()`, the stand-in for a channel's start.
+- **The live chain** (as rebuilt in the fix round, below): the worker (`live-worker.js`) makes one room path with the
+  first chain and keeps it for the session. A change of room or of the water, from no room too, calls `setRoom` (the
+  engine's 200 ms cross-fade) or `setWater` (the next block, no fade) and does **not** rebuild the chain, so Steam's
+  sender and the gain run on; a rebuild for another setting keeps the path, its lines and its count of blocks. The
+  chain's mix stage (`createLiveRoomMix`) runs the path from the next 512-sample block while a room or the water is on
+  (11.6 ms more in `stats.latencyMs` while it holds a block, none in `contentDelay`) and lets it go at a block once a
+  room has faded to none and the water is off, when it holds nothing back again. A spurt's first delivered message
+  (frame) calls `spurtStart()` on the path, attached or not: the stand-in for a channel's start.
 - **The room's cost in the live worker** (great hall during a fade from preset 6, measured in the live worker's own
   scope in headless Chromium on this machine, 4 cores, other agents' jobs queued but not running): **141 ns a sample**
   (median of 40 fades; best 130), against 98 to 109 ns for the great hall alone. At 44.1 kHz that is 6.2 ms a second,
@@ -80,7 +82,8 @@ passed on the first push (see "Runs"). No golden hash moved and none was recorde
    `aopen`, `arefl`; `dsp` takes any whole number.
 4. **Every control classified.** See "Controls".
 5. **Labels.** As above.
-6. **The live chain.** `audio.js`: `createLiveChain` takes `opts.roomPath` and gives `createOutputStage` a room
+6. **The live chain** (as first built; the fix round, below, replaced `opts.roomPath` by the worker's holder and the
+   room mix by `createLiveRoomMix`). `audio.js`: `createLiveChain` takes `opts.roomPath` and gives `createOutputStage` a room
    `{ path, shares: null, cap: Infinity }` (the path's own shares; a chain never flushes, so the tail rule is not
    asked); `roomHoldSeconds` (511 / 44100 s) is added to the frame chain's `latencyMs` and to the steam chain's
    `holdBack` (so `lowLatencySavingMs` is unchanged); `spurtStarts()` is called by the steam chain where the timeline
@@ -112,7 +115,7 @@ times and level (Set C +0.0 dB and its echoes; Set D +0.1 dB, its three echoes a
 no room is checked sample for sample. The page says:
 
 > Room effects follow the game's own code. The two rooms marked "as recorded" match recordings of the game in echo
-> times and level, and room 6 matches one echo by echo. The 2Fort places use the measures the game printed there; the
+> times and level, and room 6 matches a recording echo by echo. The 2Fort places use the measures the game printed there; the
 > other shapes are examples. No room has been checked sample for sample yet.
 
 Under water alone, the order's "Read from the game's code; no recording yet." is no longer true (Set K's R5 under
@@ -197,8 +200,10 @@ lock): see "Breaks".
 5. **The console's line for an unheld number** is the amendment's ("the app does not have this room"), not item 2's
    "... the room is unchanged, as in the game", which is the engine's behaviour only past its last preset.
 6. **A room change does not rebuild the live chain** (the order assumes nothing either way). Rebuilding would restart
-   Steam's sender and the gain at every change of room, which the game does not do; the path's cross-fade is then the
-   only thing that changes.
+   Steam's sender and the gain, which a room change in the game does not touch. *Corrected in the fix round:* as first
+   built, a first room or a first dive from no room did rebuild the chain (the path was made then, and the chain had
+   to be built with it), so this was true only of later changes; since the fix round it holds from no room too, and
+   the suite starts a case with no room and switches one on mid-spurt in one chain.
 7. **The live monitor's low latency moved** from the live panel into the extras fieldset, as item 4's third row puts
    it there; it is hidden with the advanced controls, and its label now starts "Live monitor:".
 8. **`tests/predictions/PREDICTIONS.md`** gets the dated note CLAUDE.md asks for when a hashed model file changes
@@ -213,11 +218,40 @@ lock): see "Breaks".
   through the sinc resampler, as it does the rest; not checked with a room (the suite's live room runs at 44.1 kHz).
 - **`spurtStart()` live is a stand-in**, called when the sender's spurt opens (its first delivered message), before its
   samples reach the mix; with a fixed room it changes nothing (W3-17c, A16). W3-02c brings the channel.
-- **A rebuild drops the chain's partial block** (up to 511 mix samples): the path then gets the new chain's first
-  block. A rebuild drops the sender's state too, as before.
+- **A rebuild for another setting drops the chain's partial block** (up to 511 mix samples): the path then gets the
+  new chain's first block. A rebuild drops the sender's state too, as before; a room change no longer rebuilds.
 - **The probe's timer** in a running worker is too coarse for one block; the fade's cost is from the worker's own
   scope (above).
 - The old room's `extraLpf` field is gone from `LISTENER_POSITIONS` (W3-17c had removed its use).
+
+## Fix round (the review's nine items)
+
+Each fix with the check that fails on its break (the same runner as "Breaks": a scratch copy, one edit, the section
+run under the lock). The three sections touched pass on the fixed tree: 38 checks.
+
+| # | The finding | The fix | Its check, and what it says on the break |
+| --- | --- | --- | --- |
+| 1 | the live check replayed the module on the buffers the worker logged, so it compared the module with itself; the signal's pauses were shorter than the hold (one spurt) | the worker logs the voice at the chain's mix point (`onGain`) and the path's calls; the test makes the mix again from that voice alone: each sample as 16 bits, entered by `TF2Room.entry` at 256 without a room or at the shares of a path run by hand, each part upsampled by the engine's rule written in the test, the hand path's sum, the clip; it must equal the worker's output. The voice: bursts of 1.2 s every 2 s (four spurts). Also: spurt starts = the sender's spurts, at least 3, and after the great hall is taken mid-spurt preset 6's 26/256 holds until a spurt start, then 41/256 | `audio.js` shares fixed at 0/256: "the worker's output is the mix made again …" fails (115,128 of 299,605 samples). `spurtStart()` on every delivered message: "a voice channel starts at each talk spurt and nowhere else …" fails (106 spurt starts for 4 spurts; 26/256 for 2 blocks) |
+| 2 | the line about the game's code showed for the custom room and for a number that renders no room | `evidenceLine()`: the custom room's own line ("The custom room is the app's own, not the game's: no recording can check it."); none for a number the table does not hold or a custom room at mix 0; under water then the water's line | the game's line for 99: the custom-room check fails; a line for 40: the same check fails |
+| 3 | the hidden line kept its text and stayed in `aria-describedby` | emptied when hidden and left out of the attribute | text kept and the attribute kept: "at the default the listener position's accessible description is its own line only" fails (the browser's computed description, read over the DevTools protocol, held the water sentence) |
+| 4 | a live start with a number not held and under water had no water | the path is made with the water as asked (`room: null, water: true`); the probe logs what was made | the old construction: the `celt_22` case (started with 40 under water) fails, 67,511 of 197,632 samples |
+| 5 | a first room or a first dive from no room rebuilt the chain | the worker makes the path with the first chain, detached; `createLiveRoomMix` attaches it at a block start, so no change of room or water rebuilds the chain | room changes in the settings key again (a rebuild each): the steam case fails (13,180 of 271,806 samples: the voice is no longer one chain's) |
+| 6 | old links with `pos=manual&dsp=1` rendered the automatic room | `dsp` 1 with none of the six measures (an old setting) is `open`; a new one carries them | the rule taken out: the share links check fails (oldAuto false) |
+| 7 | wording | "room 6 matches a recording echo by echo"; REFERENCE's two sentences corrected, each with a dated correction note saying only what Set K supports | the evidence line's text is checked word for word |
+| 8 | the path and its hold stayed after a fade to none until a rebuild | after each block the worker lets the path go once it is idle (no room now, before or asked, no fade, no water); the stage stops at the next block start, where nothing is held, so no sample changes; `stats.latencyMs` follows what the stage holds | the let-go removed: "… let go after its fade to none" fails (let go at undefined) |
+| 9 | the help walk took a control pointed at another's sentence, and a sentence of spaces | each control's described-by element must be its own (no other control points at it) but for the two groups the test names (the six measures, the custom room's three knobs); its text at least 20 characters trimmed | `steam_uptime` pointed at `codec-help`: "each control's sentence is its own" fails; `device_rate`'s sentence made spaces: the walk fails ("without: device_rate") |
+
+Runs after the fix round, under the lock: `pnpm test:all` exit 0 in 12 min 35 s: the five vendor builds match; `verify.js`
+214, gain 93, Opus 147, Speex 86, vr12 31, paired reference 42, formats 68, file rate 53, meter 50, video 46, demo 36,
+render-stream 520 (0 failed: no golden hash moved), output-stage 102, voice channel 129, Steam sender 109, swresample 43,
+room 215; **284 browser checks passed**.
+
+The live chain after the fix round: `createLiveRoomMix(voiceRate, holder)` in `audio.js` (next to `createRoomMix`),
+selected by `createOutputStage({ liveRoom })`; with the holder not attached it is `createMixEntry`'s arithmetic sample
+for sample, so a chain without a room is W3-10's (the Node suites' live-chain checks pass unchanged); `stats.latencyMs`
+is a getter on both chains. The suite's live cases: steam from no room (preset 6 switched on mid-spurt, the great hall
+mid-spurt, none), `celt_22` started under water with 40, then 17, then 40 and the water off, and a rebuild that keeps
+the path. The room's cost (above) is the path's own and did not change.
 
 ## Breaks
 
