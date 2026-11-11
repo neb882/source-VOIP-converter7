@@ -798,6 +798,475 @@ same main's before this branch, to the last digit printed.
 - If equality between `createRender` and `process()` needs the stage to behave differently in the two.
 - If a golden hash moves.
 
+### Amendment of 2026-11-11 (plan review before the build)
+
+A planner's pass on main at `23568c6` (cache v33; `audio.js` and `voice-channel.js` as BC-1 left them). **Where
+this section and the text above differ, this section holds; what it does not name stands.** Line numbers are that
+commit's. W4-01a, c and b merge before the build and will move them, so each is given with its function's name.
+
+How statements about the game are marked: *(read: report)* a rule read from the game's code, with the report that
+read it; *(measured: count)* seen in a log or a take; *(inferred)* follows from the rules and was not seen.
+**Re-measured** means a scratch run of this pass on the merged modules: `process()` on the layouts of section 10d
+with the real capture path, sender and resampler, and a stand-in for the codec that returns zeros with the codec's
+delay of 156 samples (the codec changes no gate decision, no tick and no count); the packets as `onResampled`
+gives them were fed to `createTimeline` as built. Seeds 1 to 50 unless said. One count was taken with the real
+codec and is marked so. The scripts are not in the repository: the builder's section derives the figures again.
+
+#### 1. One order becomes three
+
+| Part | What | Files that change | Starts after | Budget |
+| --- | --- | --- | --- | --- |
+| **W3-02c-1** | the module as read: the first pull, the blocks on the mixer's grid, the zero | `voice-channel.js`, `tests/voice-channel.verify.mjs` | now (it touches no file the page orders touch) | half a day; one day if the interpolator is ruled in (decision 3) |
+| **W3-02c-2** | `process()` and `createRender()` run the channel behind `opts.timeline`; a lost message through the queue (BC-3's build) | `audio.js` and the files of "Files" below | W3-02c-1 and W4-01b | 2 days |
+| **W3-02c-3** | the live chain runs the channel | `audio.js` (`steamLiveChain`), `voice-channel.js` (a timeline with no fixed length), `live-worker.js`, tests | W3-02c-2 and the owner's ruling (decision 1) | 1.5 days |
+
+Branches: `claude/w3-02c1-channel-as-read`, `claude/w3-02c2-timeline-option`, `claude/w3-02c3-live-channel`.
+
+Why three and not one day: the module needs corrections the order forbade ("may not touch `voice-channel.js`"),
+and they move that module's pinned counts and nothing else, so they are a part of their own that can be built
+beside the page orders. The render's part grew: the packets are now laid in one shared place that also carries
+BC-1's loss, the refusal and the source's frame log, all of which must keep running under `'game'`; the streamed
+render needs a bound on ticks that the order did not give; W4-01b's two kept places ask for the option to be
+listed; and section 10d's figures are all re-stated. The live chain was "not changed" in the order's point 7 and
+stays so in c-2; the brief for this pass names it as part of c, so it is cut out as c-3 and waits for a ruling.
+
+#### 2. The option, and where the channel enters today's code
+
+**The option (point 1 stands, with this added).** `opts.timeline`: `'source'` (the default, and any other value)
+or `'game'`. `opts.fps` (300) and `opts.bufferMs` (100), limited as `waitTicks` limits them (`voice-channel.js:75`:
+10 to 1000 and 1 to 5000). They are read by `process()` and `createRender()` only. None of the three exists in
+`audio.js` today, and `voice-channel.js` is loaded by no page, worker or render. **Without `'game'` no line of this
+order runs and `codecInfo` has no `channel` member** (the recorded `codecInfo` hashes are taken over every member).
+Point 3's `codecInfo.channel = { timeline: 'source', reason }` is written only when `'game'` was asked for and
+ignored.
+
+**`steam`: inside `steamTimeline.add`** (`audio.js:1408`, `add` at 1455 to 1512). Since BC-1 this one function
+takes each message's decoded packet, runs the resampler, refuses a packet of more than 12 frames, runs the gain
+and lays the sound on the source's timeline; `process()` (`audio.js:1755`), `createRender()` (`audio.js:2782`)
+and the live chain (`audio.js:2098`, `add` at 2171) all make one and call it. Under `'game'`:
+
+- **Stays, on both timelines** (these lines run as they are): the counts (1456 and 1457), the spurt's anchor
+  (1458 to 1462), `onDecoded`, the resampler's one call per message and `onResampled` (1464 to 1468), the
+  packet's place `cursor + 882 x skipped` (1470), the refusal test (1471 to 1476), the source's frame log
+  (`mark`, 1505), the cursor and the spans. They give the channel its `source` and give `codecInfo.sent`.
+- **Replaced under `'game'`**: the gain's block (1478 to 1492) and `lay` (1504). In their place the packet goes
+  to the timeline of `TF2VoiceChannel.createTimeline`: `push({ tick: msg.tick, pcm, source })`, where `pcm` is
+  the resampler's `Int16Array` over 32768 (line 1477, whole and uncut), and the gain is the object the timeline
+  was made with.
+- `steamTimeline` gets one more member of its `cfg`, the channel's timeline; with none (every `'source'` render
+  and the live chain) `add` is the code of today, statement for statement.
+
+**`process()`** (`audio.js:1660`). The timeline is made beside `steamTimeline` (1755) with `length: voiceLength`
+(1754: the source's length at 44.1 kHz), `fps`, `bufferMs` and the gain object. After the loop of 1758 to 1761,
+`finish()` gives the samples and `info`; the samples stand where `timeline.take(voiceLength)` stands (1762).
+Stage 4's scale and clip for `agc: false` (1814 to 1817) is not run again: it is the gain object's (below).
+`opts.onGain` (1838) receives the channel's output. The mix stage (1846), the output stage and the length (1858
+to 1861) are untouched.
+
+**`createRender()`** (`audio.js:2692`). The same timeline, made at 2782. `push` (2793 to 2797) returns what the
+channel's `push` and `advance` gave, in place of `timeline.take(steamGiveOut(...))`; `flush` (2798 to 2801)
+returns `finish().samples`. **The bound for `advance`** (the order did not give one): after `P` samples have been
+given to the sender, no later message has a tick below `max(last + 1, ceil((P / 24000 + relay) / tick))`, with
+`last` the tick of the last message made and `relay` and `tick` the sender's own constants (0.002 and 0.015 s).
+It should hold because a read never comes before the last sample of its chunk was captured (`steam-sender.js`:
+a capture step is ready no earlier than its end) and a message is known once its chunk's last sample is pushed.
+A bound that is too high makes `push` throw (`voice-channel.js:341`), so the chunked cases below test it. The
+render then holds back the channel's delay `D` plus at most a tick and a block; the report says the figure.
+
+**The engine codecs' frame path** (`process()` 1773 to 1806 and stage 4 at 1818 to 1835; `createRender()` 2803
+to 2871) gets no channel: they have no sender model and their ring is another size ("The model"). `'game'` is
+ignored there, as in point 3, whose list gains **`miles`** (W3-20b).
+
+**The room mix and the output stage** come after the channel and are not changed: `createMixStage` (736, called
+at 1846), `createRoomMix` (529), `createMixBlocks` (682), `createOutStage` (738, called at 1858). The room mix
+works in whole 512-sample blocks from the render's first mix sample, and the channel's blocks start at output
+samples `512 b - D`. W3-02c-1 puts `D` on a whole number of blocks, so the channel's pulls and the mixer's blocks
+are the same blocks, as in the game *(read: W3-07, the mixer's 512-sample blocks; W3-10's upsampler read, section
+3)*, and **`MIX_BLOCK_ORIGIN` stays 0** (`audio.js:346`). The 2026-11-10 note's "it sets W3-10's origin to its
+own" is withdrawn; the comment at `audio.js:337` to 346 that expects it is corrected by c-2.
+
+**`spurtStart()` in a render.** The note has this order call the room path's `spurtStart()` at each channel it
+opens. In a render the room never changes, and the call only fixes two limits from the room's values
+(`room-dsp.js:962`), so no sample depends on how often it is called and no test could show the call. c-2 does not
+add it and corrects the comment at `audio.js:1142`; c-3 does, where the listener can change rooms.
+
+**The live chain** (`steamLiveChain`, `audio.js:2063`): untouched in c-2. `createLiveChain` ignores the three
+options; a check shows a chain made with `timeline: 'game'` gives the samples of one made without.
+
+#### 3. BC-1 and the channel: what stays, what the channel replaces
+
+BC-1 put loss on whole messages and gave the source's timeline stand-ins for what the queue does. With the option
+off none of this order's code runs, so every recorded hash stays. With it on:
+
+| BC-1's part | Where | Under `'game'` |
+| --- | --- | --- |
+| Which messages are lost: one draw per message, or `opts.loseMessage` | `steamMessageLoss` (1258), `steamLoser` (1267), before the decoder | **stays**: the same messages are lost on both timelines |
+| The decoder's rules: a gap is concealed, at most 10 frames, when the next message arrives; a lost end marker carries the decoder over | `opus-codec.mjs:258` to 320 | **stays**: the decoder is before the channel |
+| The refusal of a packet over 11,264 samples | `STEAM_ROOM` (1248), `steamFits` (1250), the test at 1471 | **stays**: decided after the resampler, before the channel. The channel is given an empty packet for it (decision 5) |
+| `codecInfo.network` | `network()` (1544) | **stays**, equal on both timelines |
+| A late frame (the jitter control): 480 zeros no decoder made, passed around the gain | the mask in the round trip; 1481 to 1491 | **stays until BC-4** (decision 8); the rule moves into the gain object |
+| The silent time: 882 samples for each frame nobody fills, past the ten concealed | `place` (1470) | **replaced**: the ring has no places. The packet joins the end of the queue on its tick. `place` is kept as `source`, for `info` only |
+| A refused packet's time, and frames lost at a spurt's end | the cursor (1474) | **replaced** the same way |
+| One gain for the render, reset once | `createGain` at 1756 | **replaced**: reset at each channel the timeline opens |
+| The live chain's rules for a packet behind what was given out | 1494 to 1503 | not reached in a render |
+
+What the queue does instead of the silent time *(read: W3-03, the queue's rule; the effect measured privately on
+the loss takes of Set C, numbers below)*: while nothing arrives the ring drains; the sound that follows a gap
+closes up to what was queued, so it plays earlier against the source by the time nobody filled; a gap that
+outlasts the queue runs it dry (the fade over the last 100 ms, then padding), the channel is freed, and the next
+message opens a new one with a new wait and a gain reset. *(Measured, private, loss 15%: of 16 lost runs longer
+than 10 frames, 9 end with the sound earlier by whole frames, 20 ms twice and 260 to 340 ms seven times, and 6
+end 48 to 459 ms later after 450 to 720 ms of low sound, which is a restart.)*
+
+So a `'game'` render differs from the `'source'` render of the same options in these and nothing else: the wait
+and the place of each spurt; one sample fewer per packet; the overflow at a restart; the fade, the padding and
+the freeing; a gain reset at each open; and under loss the closing-up above. Three checks hold it to that (in "The
+builder runs" below): the packets handed to the channel are the `'source'` render's `onResampled` packets, value
+for value; `codecInfo.sent.frameLog` is the `'source'` render's `frameLog`; `codecInfo.network` is equal.
+
+**What is pushed.** A sound message: its packet, `source` = `place`. A silence record: its resampled zeros,
+`source` -1. An end message with no frames that arrived: an empty `pcm` (point 2 stands; an empty packet opens a
+channel if none is in use, *read: W3-03*). **A lost message: nothing** (this is all BC-3 builds). **A refused
+message: an empty `pcm`** on its tick, counted in `codecInfo.network.refusedMessages` as on the source's timeline
+(the 2026-11-10 note had "not pushed, and `codecInfo.channel` counts it"; *measured once, privately: in Set J's
+log exactly 1 of 645 packet lines adds no samples, and it stands where the refused message was*). The note's
+question whether the source's timeline should refuse too is closed: BC-1 built it.
+
+So point 2's rule for `source` changes in one place: within a spurt a message's `source` is the cursor plus 882
+for each frame nobody fills, which without loss is "the one before plus that `pcm.length`" as written.
+
+A lost silence record joins two spurts in `info.spurts` (the timeline closes a spurt at a record). It changes no
+sample; it is left as built and said in the report.
+
+#### 4. W3-02c-1: the module as read
+
+**Files.** May touch `voice-channel.js` and `tests/voice-channel.verify.mjs`. Nothing else.
+
+1. **The first pull, as read** *(read: `docs/reports/W3-10-upsampler-read.md`, section 3)*. The mixer keeps one
+   sample of look-ahead: on a channel's first block it asks for 513 samples, mixes the first 512 and keeps the
+   last; every later block mixes the kept sample and then the first 511 of its 512 new ones, and keeps the last.
+   Nothing is dropped and the stream stays in order. `createTimeline` plays the last 512 of the first pull and
+   never hears the queue's first sample (`voice-channel.js:288` to 293); it is changed to the read rule. What
+   becomes of the kept sample when a channel is freed was not read (the voice source's side of the pull was not
+   re-read), and it changes no sample: a channel is freed only after a pull that emptied the ring, and the fade
+   and the padding leave that pull's last sample exactly 0. "The first pull" in "The model" and the table's row
+   "The extra sample at a start: counted; dropped unheard" are replaced by this.
+2. **The blocks on the mixer's grid.** `D = 512 x round(44100 x zero / 512)` in place of `round(44100 x latency)`
+   (`voice-channel.js:259`): with today's zero 11,264 samples at 67 fps (was 11,025), 12,800 at 100 (13,010) and
+   22,016 at 300 (22,050), a move of the whole output by 5.4, 4.8 and 0.8 ms. `D` is the model's figure for
+   lining a render up with its source; the game has none *(inferred)*.
+3. **The zero** (decision 2). `latency` takes a restarted spurt's delay as the wait plus the 160 ms its opening
+   packet carries, as if the packet arrived the moment its last sample was captured. With the merged sender it
+   arrives later: re-measured on layouts P and Q, seeds 1 to 10, an opened spurt starts +27.5 to +95.3 ms after
+   its place at 300 fps (mean +54.4, 42 spurts) and +24.7 to +83.5 ms at 67 fps (mean +52.8, 50 spurts). If
+   ruled as recommended, the zero is `latency` plus that mean as one named constant, measured again by the
+   builder over the suite's 50 seeds; `info.latency` stays the channel's own figure.
+4. **The interpolator** (decision 3), only if ruled in.
+5. The suite's pinned counts and offsets are derived again; the report lists each that moved and by how much.
+   `createChannel`'s `add`, `tick` and `pull` are not changed by 1 to 3.
+
+**The builder runs.** `pnpm test`. New lines, each failing when broken: the first block after a start plays the
+queue's first 512 samples and the next block begins with the 513th (break: today's rule); every block's first
+output sample is a multiple of 512 from the output's start at 67, 100 and 300 fps (break: `D` unrounded).
+
+**The orchestrator runs privately**, before and after: the Set G replay of W3-02a (`--fixture`): **the engine
+column stays all zeros and the fault columns stay as tabled** (the replay drives `createChannel`, which did not
+change); and `tests/retiming.mjs --engine` as in W3-02b. That check reads 47% of transitions and a start error
+of 129 ms on the speech take since W3-16 (117 ms with the zero taken out by hand), against W3-02b's bars of 45%
+and 110 ms, with 130 ms as the line that holds W3-02c. With the zero of item 3 the expected figure is near 117
+ms: inside the band "go on, and say so in PROGRESS". Above 130 ms c-2 is held.
+
+#### 5. W3-02c-2: the order above, statement by statement
+
+**Branch.** `claude/w3-02c2-timeline-option`, from main after W3-02c-1 and W4-01b. Budget 2 days.
+
+**Files.** May touch: `audio.js` (`steamTimeline`, `process()`, `createRender()`; `gainRule` and `createGain`,
+only for `reset` taking the settings; the two comments named in section 2; W4-01b's list of options read after
+its second kept place), `tests/gain.verify.mjs` (that argument only), `index.html` (the script, after
+`steam-sender.js` at line 465), `sw.js` (`ASSETS` at 17; `CACHE` at 16 raised by one from main's), `audio-worker.js`
+(`importScripts`, line 6), `tests/verify.js` (the loader at 35; the new section 10d), `tests/render-stream.verify.mjs`
+(the script list at 33; new cases added to `GOLDEN`, none changed), `tests/stages.verify.mjs` (W4-01b's suite: one
+case), `tests/browser.verify.js` (the check of loaded scripts at 2109), `tests/predictions/PREDICTIONS.md`.
+`audio.js` finds the module as `steamModules()` finds the sender (`audio.js:1291`).
+May not touch: `voice-channel.js` and its suite (c-1 built them), `steam-sender.js`, `opus-codec.mjs`,
+`room-dsp.js`, `constants.js`, `reference.js`, `app/`, `live-worker.js` (c-3 loads the script there),
+`tests/accuracy.mjs`, `tests/predictions/predictions.json`, `docs/PROGRESS.json`, any existing entry of `GOLDEN`
+or `GAIN_GOLDEN`.
+
+**Spec.**
+
+- *Point 1*: stands, with section 2's addition.
+- *Point 2*: its first paragraph is replaced by sections 2 and 3. Its bullets:
+  - `pcm`: stands (`audio.js:1477`).
+  - `source`: as section 3.
+  - An end message with no frames: stands. A lost message and a refused one: section 3.
+  - The resampler: stands (one per render, `audio.js:1753` and 2781).
+  - The gain: stands. Today `gainRule`'s `reset()` takes nothing and the three settings are fixed when the rule
+    is made (`audio.js:789` to 797; `createGain` at 861). Either form the order allows is acceptable. With
+    `agc: false` the object multiplies by `voice_scale` and clips as `audio.js:1814` to 1817 do; it does not
+    round (the mix entry does: `mixSample`, `audio.js:356`).
+  - A late frame: stands; it is the rule of `audio.js:1481` to 1491, moved into the object.
+  - "The timeline's output replaces the auto-gain's (stage 4)": it replaces `steamVoice` (`audio.js:1762`).
+    With the gate off: stands; section 6 has the figures.
+- *Point 3*: stands, with `miles` added. `retime` with `'game'` is the `RangeError` only where `'game'` would
+  run; it is tested before `createRender()`'s own refusal of `retime` (`audio.js:2730`). Where `'game'` is
+  ignored, `retime` runs as today.
+- *Point 4*: stands. The played logs are **new arrays** of the sent logs' length: slot `i` takes the sent slot
+  `floor((info.source[i] x 80 / 147 + lookahead) / 480)` (the inverse of `centre` in `steamTimeline`), or 0
+  where `info.source[i]` is -1 or `i` is past its end. `codecInfo.network` is unchanged. `codecInfo.retimed` is
+  absent.
+- *Point 5*: stands, at the device's rate (`audio.js:1858` to 1861). The timeline cuts its own overshoot at
+  `voiceLength`; with a room the tail follows as today.
+- *Point 6*: stands, with section 2's bound. If the budget must shrink, `createRender()` refuses `'game'` as it
+  refuses `retime`, and half a day is saved (decision 7; not recommended).
+- *Point 7*: stands for c-2 and is replaced by c-3.
+- New: **`opts.onMessage`**, the test hook of section 10d, is on W4-01b's list of hooks that only observe.
+
+**The builder runs.**
+
+- `pnpm test`. **Every entry of `GOLDEN` (76 cases, WAV and `codecInfo`) and of `GAIN_GOLDEN` passes unchanged.**
+  The `'game'` cases of the order stand, with these added: loss 15% alone and loss 5% alone (BC-3); one room
+  preset; `deviceRate` 44100; `miles` and `steam_48` (ignored: equal to their `'source'` hashes).
+- Section 10d, restated for today's output stage. Renders of this section use `deviceRate: 44100`.
+  - **A shift, where nothing else acts**: compared at the mix point (`opts.onGain`: the voice at 44.1 kHz), not
+    in the output. As written, with these changes: there is no three-tap stage and no smear; a window that holds
+    a packet's edge still has no single `d` (the dropped sample is inside it), so the second position stands.
+    Re-measured at `fps: 150`: the queue stays between 224 and 394 ms after the first 2 s (seeds 1 to 10), with
+    no fade, no overflow and one open, and 356 to 360 packets have ticks between 10 and 30 s (17.90 a second):
+    the order's 340 to 375 stands. If the interpolator is in (decision 3), `===` becomes "equal to c-1's blend
+    of the two neighbours".
+  - **The wiring is the module's**: stands, with `source` as section 3 and three lines added: the packets the
+    hook receives are the `'source'` render's `onResampled` packets over 32768, in order, a refused one
+    replaced by an empty one and a lost message absent; `codecInfo.sent.frameLog` and `frameBytes` equal the
+    `'source'` render's `frameLog` and `frameBytes`; `codecInfo.network` is equal.
+  - **The layouts**: as written, with a lead of 1 s and a tail of 1.5 s of the noise fixed. The capture filter
+    is inside this pass's run, so the ranges below leave room only for the noise's own values. They are for the
+    module as built today: **c-1 moves every offset by `(D before - D after) / 44.1` ms, and the builder shifts
+    each range by that and says so.**
+
+    | Line | Asked | Re-measured, seeds 1 to 50 (1 to 10) |
+    | --- | --- | --- |
+    | P: the 300 ms pause makes no spurt | every seed | 50 of 50 at both rates |
+    | P: the 500 ms pause makes its own spurt in some seeds only; both cases among seeds 1 to 10, else 1 to 30 | as written | 24 of 50 (3 of 10: seeds 5, 7, 9; 16 of 30) |
+    | P: when it does, that spurt is not `opened`; `offsetStartMs` at 300 fps | 0 to +105 | +23.4 to +83.4 (+42.3 to +51.5) |
+    | the same at 67 fps | +60 to +190 | +85.1 to +168.1 (+114.0 to +125.7) |
+    | Q at 300 fps: `spurts[1]` not `opened` | in at least 7 of 10 | 45 of 50 (8 of 10; 26 of 30) |
+    | its `offsetStartMs` where appended | -320 to -160 | -303.4 to -177.3 (-297.2 to -177.3) |
+    | Q at 67 fps: `spurts[1]` `opened` | every seed | 50 of 50 |
+    | An `opened` spurt's `offsetStartMs`, both layouts, both rates | +10 to +110 | +24.7 to +95.3 |
+    | P at 300 fps: `spurts[0].droppedMs` | 70 to 230 | 92.9 to 207.6 |
+    | P at 300 fps: the spurt after 1200 ms is `opened`; its `droppedMs` | 65 to 155 | 86.5 to 133.8 |
+    | Q at 300 fps: `spurts[0].droppedMs` | 60 to 145 | 83.6 to 124.9 |
+    | Q at 300 fps: the spurt after 1200 ms is `opened`; its `droppedMs` | 65 to 150 | 86.5 to 128.5 |
+    | 300 fps: `channel.drops` | not empty | 7 to 24 entries (seeds 1 to 10) |
+    | 67 fps: every `droppedMs` 0, `drops` empty | every seed | 50 of 50 |
+
+    The order's ranges that no longer hold: the 500 ms pause's -20 to +60, the 900 ms pause's -330 to -190 and
+    its "8 of 10", "within 80 ms of the source" at 67 fps, and P's 60 to 210. The line "where it is appended,
+    the codes begin `round(-offsetStartMs / 20)` slots earlier" stands.
+  - **What a wrong build does.** The order's list is about broken senders, measured on a sender that is gone;
+    the sender has been pinned by its own suite since W3-16, and this pass did not run broken senders again.
+    Section 10d is about the wiring, so the builder shows one wiring break for each line: `source` without the
+    pre-roll (the wiring line); a new timeline for each spurt (Q's `spurts[1]` is `opened` at 300 fps); `fps`
+    not handed on (a `droppedMs` above 0 at 67); `bufferMs` not handed on (`codecInfo.channel.waitTicks` is 15
+    and 60 at `bufferMs` 50 and 200); the gain not handed on, or made once (the next line); a tick taken from
+    anything but the message (the wiring line's fresh timeline differs); the bound for `advance` one tick high
+    (a chunked render throws) or left out (the streamed render holds everything back to the end: its `push`
+    returns nothing while the source runs).
+  - **The gain is reset where the engine resets it**: stands, with the run "at most 128 samples" (the first 128
+    a new channel is given, less the packet's dropped first; the first pull no longer takes one and nothing
+    smears) and **"at least 40 of them non-zero"** in place of 100. *Measured with the real codec, layout Q,
+    noise at -40 dBFS, seeds 1 to 10: of samples 1 to 127 of the 40 opening packets, 53 to 91 are 2 units or more,
+    which is what the mix entry keeps (median 61); with noise at -50 dBFS, 32 to 74.* At 67 fps `spurts[0]`,
+    `[1]` and `[3]` of Q are `opened` and `spurts[2]` is appended, in every one of seeds 1 to 10.
+  - **A late frame is not decoded silence**; the same seed, another seed, `lossPct` 20; the ignored cases
+    (`miles` added) and the `RangeError`: stand.
+  - **A lost message through the queue** (new; BC-3's build), with `opts.loseMessage`, each compared with the
+    `'source'` render of the same loss by the shift check's rule: one message lost inside a long spurt at
+    `fps: 150`: the channel is given one packet fewer, nothing opens, and on both sides of the gap a `d` fits,
+    growing by one for each packet handed on (the concealed frames come with the next packet, so nothing closes
+    up); a run of lost messages longer than 10 frames at 300 fps, short enough that the queue outlasts it (the
+    fade may touch the samples just before the gap): after it `d` has grown by a further 882 for each frame
+    nobody filled; a run that outlasts the queue at 67 fps: `opens` rises
+    by one, with a gain reset; a message of more than 12 frames after 8 or more concealed ones: the hook sees
+    an empty packet, `info.packets` counts it and `network.refusedMessages` is 1.
+  - **W4-01b's suite**: `timeline: 'game'`, `fps` and `bufferMs` each changed with warm stages reuse the second
+    kept place (its counter) and equal a fresh render by hash.
+- The browser suite: the script is loaded on the page and in the render worker and is in the service worker's
+  list. CI passes. The report's figures for the demo speech stand.
+
+**Must not move in c-2**: the recorded hashes; `tests/voice-channel.verify.mjs`; W4-01b's existing cases; the
+live chain's samples with and without the option; the three private runs below.
+
+**The orchestrator runs privately.**
+
+- Before and after, as written, with `net_loss15` added to `--only`: the four rows identical to the last digit.
+- The Set G replay: unchanged from c-1's run.
+- New, after: the speech take's source rendered with `timeline: 'game'` at 300 and 67 fps and tracked as the
+  suite tracks a take. Expected: the render's own clock reads about 406 ppm fast inside spurts (section 6); the
+  transitions and the start error are recorded on this first run and set no bar.
+- New, after: the loss takes of Set C against `'game'` renders at their loss: lost runs a second and the share
+  of silent time. *Measured privately: the take at 15% has 3.90 lost runs a second and 10.1% silent; a crude
+  copy of the queue under the read rule gave 4.22 (3.80 to 4.58 over seeds) and 11.7% (4.2 to 17.4), and showed
+  drops of 60 to 220 ms that the takes lack.* If the real channel still shows those drops, say so in PROGRESS:
+  it is BC-3's first question for block 1.
+
+**Stop and ask** (the two of the order, and): if a `'game'` render needs any statement of `steamTimeline`'s
+`'source'` path changed; if the channel's blocks cannot be the mixer's with the origin at 0; if a kept place of
+W4-01b would have to hold anything this order makes; if the bound for `advance` cannot be had without touching
+`steam-sender.js`.
+
+#### 6. The one sample dropped from every packet
+
+The channel writes a packet's samples 1 to n-1 *(read: W3-03, the interpolator at fraction 0.999 writes n-1
+samples; measured: finding 24, the takes run 404 to 416 ppm fast with no loss)*. It is in `createChannel.add`
+since W3-02a (`voice-channel.js:137`), so **c-2 takes it by wiring the module**; until then the app models it for
+no profile, as PROGRESS says. What it does:
+
+- **Rate.** Re-measured: 17.90 messages a second, so 17.90 / 44100 = 406 ppm. Inside a spurt the sound runs
+  that much fast against the source and the queue shrinks by 0.4 ms a second; each restart begins again.
+- **Length.** None: the render keeps the source's length (point 5). The queue gets shallower; the output is not
+  shortened.
+- **The accuracy table's clock column** is the take's own drift against the source, found by tracking. The suite
+  does not pass the option, so no row moves in c-2. A `'game'` render carries the 406 ppm itself, which the
+  private run above reads.
+- **A long unbroken spurt** (the gate off, or sound that never pauses) *(inferred from the model; no recording
+  is long enough)*. Re-measured over 40 minutes, 8 seeds: the queue first falls under the fade's 100 ms after
+  1.3 to 2.8 minutes at 67 fps, 3.1 to 4.4 at 100 and 11.3 to 11.7 at 300; the first underrun comes after 5.3
+  to 6.5, 7.1 to 8.4 and 15.5 to 15.9 minutes; from then on there is an underrun every several seconds (58 to
+  237 in the 40 minutes) and the channel restarts only when a packet comes a tick late. Over one 40 s spurt
+  with the gate on, the queue's lowest and highest after the first 2 s (seeds 1 to 10): 96.5 to 277.3 ms at 67
+  fps, 142.9 to 312.1 at 100, 224.2 to 393.4 at 150, 293.9 to 463.1 at 200, 361.0 to 488.4 at 300. So at 67
+  fps the fade already touches some blocks of a long spurt.
+- **The live chain** (c-3) gets the same drift in its queue; with a key held for minutes it reaches the fade as
+  above.
+
+#### 7. The frame rate the wait depends on
+
+The wait is `waitTicks(bufferMs, fps)` ticks, the opening packet's own tick the first *(read: W3-03, section 1;
+measured: 7, 10 and 30 lines in every one of 34 channels of Set G's logs)*: 90 ms after the opening packet at
+66.67 fps, 135 ms at 100, 435 ms at 300. **c-2 needs the setting as an engine option only**: `opts.fps`, default
+300 (`fps_max`'s default), limited to 10 to 1000. The page's control, its default and its words are W3-02d's, as
+planned. One thing for d's words: the countdown loses one frame's duration per tick *(read)*, so the figure is the
+frame rate the listener's game reaches, not the cap: a listener whose game runs under `fps_max` waits less
+*(inferred)*.
+
+#### 8. What W4-01b asks of these orders
+
+Its claim holds. Its first kept place is the capture signal; its second is the codec stage's result: for `steam`
+the sender's messages (their ticks among them), the decoded packets and what `codecInfo` is made from. Loss is
+drawn before the second place; the resampler, the refusal, the gain and the channel all come after it. c-2 must:
+
+- put `timeline`, `fps` and `bufferMs` on the list of options read only after the second place, and `onMessage`
+  with the hooks that only observe (an unlisted option is in both keys: a missed reuse, never a stale render);
+- write into nothing taken from a kept place: the decoded packets and their blocks are read only, and the played
+  frame log is a new array;
+- keep W4-01b's progress line in the loop, once per 64 messages;
+- add the case to `tests/stages.verify.mjs` named above.
+
+`createRender()` keeps nothing (W4-01b, item 8), so nothing applies there. For BC-4: `jitterMs` is on the list
+"read after the first place" because the late frames are drawn in the codec stage; if BC-4 makes jitter a delay
+of the arrival tick, it is then read after the second place and BC-4 moves it.
+
+#### 9. W3-02c-3: the live chain
+
+Not built until decision 1 is ruled. In `steamLiveChain` the packets go through `steamTimeline.add` with what was
+given out (`audio.js:2171`) and come back by `take` (2193); the room mix is `createLiveRoomMix` (610), in
+512-sample blocks from the chain's first mix sample; `spurtStarts()` is called at a spurt's opening message
+(2163). With the channel: `D` is 0 (a monitor cannot play sound before it arrives), so the monitor gains the
+wait itself, 90 ms at 67 fps to 435 ms at 300, on top of today's delay; the channel's blocks are the room mix's;
+`spurtStarts()` moves to the channel's opens; the rules for a packet behind what was given out (1494 to 1503)
+are not used; `createTimeline` gets a form with no fixed `length`; `live-worker.js` loads the script (line 26)
+and already hands the chain the page's render options (line 121). Its check is BC-1's, re-stated: the chain's
+output equals the `'game'` render's, moved by the render's `D`, with and without loss.
+
+#### 10. BC-3 and BC-4
+
+**BC-3 (loss through the queue): its build is folded into c-2.** Under `'game'` a lost message is not handed to
+the channel, and that is all there is to build: the draining, the fade, the padding and the restart are the
+channel's already, and the checks are in section 5. What stays as BC-3 is a private check and one small tool
+change: `tests/voicequeue/log-to-fixture.mjs` must pass over the dropped-packet lines the new log carries (its
+rule "two other lines in a row begin a new session" would cut the log apart). It is checked against **block 1**
+of the run sheet of 2026-11-11 (lost packets counted; takes at loss 5 and 15 and at `fps_max 67`; placed drops
+of 1 to 32 packets): the block's `bufsize` lines replayed tick for tick with its own dropped packets.
+
+**BC-4 (jitter as arrival times): stays an order of its own, after c-2.** It needs things c does not have: a
+delay for each packet, in order, from lag and jitter (`j = min(net_fakejitter, lag / 2)`, *read: the
+bad-connections plan*); a new meaning for the jitter control, since jitter without lag does nothing in the game;
+several packets on one tick in the log tool; and the retiring of the late-frame fit, which moves every recorded
+hash with jitter and so needs its own "must move" and "must not move" lists. It is checked against **block 2**
+(lag 100 with jitter 50; a 400 ms lag spike; the same at 67 fps). c-2 leaves it one seam: the arrival tick is
+taken in one place, where the packet is handed to the channel.
+
+#### 11. Open decisions
+
+Each with the recommendation and what it rests on.
+
+1. **Does the live monitor run the channel, with the game's delay?** (the owner's). Recommended: yes, as c-3,
+   after the ruling; until then the chain ignores the option. Rests on: the wait is read and measured (section
+   7); that a monitor 90 to 435 ms later is wanted is not known.
+2. **The zero.** Recommended: c-1 adds the mean time from a packet's last sample to its arrival (about 53 ms,
+   re-measured, section 4) to the delay taken out, so a restarted spurt sits on the source in the mean, as "The
+   model" says it should. Cost: an opened spurt then starts between about 28 ms early and 42 ms late where today
+   it is 25 to 95 ms late, so a source that begins with sound can lose up to about 28 ms of its head in some
+   seeds. The other way: leave the zero, and take the mean out in the private check only. Rests on: measured
+   on the model (the figures above; PROGRESS has the merged sender's messages about 32 ms later than the old
+   one's); the zero is no rule of the game.
+3. **The interpolator's arithmetic.** As built the ring keeps samples 1 to n-1 unblended, on the ground that the
+   blend is "under the 16-bit step" ("The model", the table). A private run of 2026-11-11 of the 2006 and 2007
+   engines' own routine in an emulator gives each written sample as `s[k] + (s[k+1] - s[k]) x fraction`,
+   truncated toward zero, the fraction starting at 0.999 and carried on *(measured: 3,590 of 3,590 and 7,190 of
+   7,190 samples equal; on a slow sine 1,753 samples equal the next sample and 1,837 are one unit away; on
+   full-scale noise up to 66 units away; a fraction held fixed is wrong on 1 of 7,190)*. For TF2's own file the
+   fraction and the n-1 writes are read (W3-03); its rounding to 16 bits was neither read nor run. Recommended:
+   the orchestrator runs TF2's routine the same way first; if it agrees, c-1 builds it from the private
+   findings (the carrying of the fraction between packets is written there) and the table's row is corrected;
+   if it is not run before c-1, c-1 leaves the samples unblended and the row says "up to one unit on about half
+   the samples, more on steep sound; not built". Rests on: read (count and fraction), measured on older engines
+   (arithmetic), inferred for TF2.
+4. **The fade's product** is carried as a float and rounded to the nearest where it enters the mix (`mixSample`,
+   `audio.js:356`); how the engine brings it to 16 bits was not read. Recommended: leave it, listed as
+   unverified; the run of decision 3 can settle it. Rests on: inferred; at most one unit, and only over the
+   last 100 ms before a queue runs dry.
+5. **A refused message at the channel.** Recommended: an empty packet on its tick (it keeps a channel in use
+   and can open one). Rests on: measured once (section 3); what the engine does with Steam's refusal was not
+   read (W3-16's read, section 3). Block 1 can settle it.
+6. **`D` on whole blocks** (recommended) or the mixer's origin moved under `'game'`. Rests on: read (the pulls
+   are the mixer's blocks); `D` is the model's own, so rounding it changes nothing of the game, and the origin
+   stays one constant for the render and the live chain.
+7. **`createRender()` streams `'game'` in c-2** (recommended) or refuses it until an app file calls it (none
+   does today). Rests on: W2-02's rule that the two are equal; the bound of section 2 is the only new part.
+8. **A late frame under `'game'`**: keep the stand-in until BC-4 (recommended), so the decoder's input and
+   W4-01b's second kept place are the same on both timelines. Rests on: finding 9 as corrected (jitter loses and
+   conceals nothing, *measured*); so the stand-in is known to be wrong on both timelines and is BC-4's to
+   retire.
+9. **Section 10d's ranges** as tabled in section 5. Rests on: re-measured, 50 seeds.
+10. **No `spurtStart()` at a channel's open in a render** (recommended; c-3 adds it live). Rests on: read from
+    `room-dsp.js`; no sample depends on it.
+
+#### 12. Not settled here
+
+- The monitor's delay (decision 1): the owner's.
+- What a refused message does to a channel, and Steam's own concealment against the bundled library's: block 1.
+- Whether the game really fades and pads a long unbroken spurt as section 6 infers: it would take a recording of
+  several minutes of steady sound at `fps_max 67` with the channel's log on. It is not on the run sheet.
+- How a `'game'` render of the speech take scores (the private run after c-2), and whether the 60 to 220 ms
+  drops of the crude copy of the queue survive in the real channel.
+- The rounding to 16 bits of the blend and of the fade in TF2's own file (decisions 3 and 4).
+- The broken senders of the order's list were not run again on the merged sender (section 5).
+
+#### 13. For the orders after this one
+
+- **W3-02d.** `tests/accuracy.mjs` renders with the page's own `renderOptions()` (lines 99 and 100). When d makes
+  `'game'` the page's default every row of the accuracy table would move: d pins `timeline: 'source'` in that
+  suite, or the suite first learns to track a render on the game's timeline. The live monitor is handed the
+  page's options too (`live-worker.js:121`): until c-3 the chain ignores `timeline`. The page's `retime` control
+  (`index.html:277`, `voice_retime` in `app/console.js:308`) and `'game'` together are a `RangeError`: the page
+  must not send both. `opts.fps` is the frame rate reached (section 7).
+- **W3-02e** reads `codecInfo.frameLog` (played) and `codecInfo.sent` (sent) as point 4 leaves them.
+- **W3-02f** removes `retimeSpurts` (`audio.js:941`) and its three call sites (1767, 1805, 2730).
+- **W3-02g** lifts point 3's `received` case; the decoder's 17-frame cut is still its.
+
 ## W3-02d: the page: controls, the default, the words
 
 **Branch:** `claude/w3-02d-timeline-page`, from `main` **after W3-02c**. **Time budget:** 1 day. Decided
