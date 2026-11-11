@@ -32,8 +32,8 @@ answers of 2026-11-10, and the brief's amendments of the plan review (2026-11-11
   the step before could still be running; the check now waits for no render, has the file ready before, and asks
   that the long render be stopped (not only its result dropped).
 - **The browser suite:** 299 checks on main (`8157a32`), 338 after part a, 361 after part c, **363** at the head.
-  Every check the order names, and each new one, was shown to fail with the code it covers broken (60 breaks,
-  "Breaks").
+  Every check the order names, and each new one, was shown to fail with the code it covers broken (66 breaks,
+  "Breaks"; one, A21, guards a browser behaviour Chromium did not show, and D3 was absorbed by a second path).
 
 ## Commits
 
@@ -237,7 +237,8 @@ CI (`tests`, GitHub): `4a7683d` passed (the verification step: success). `ad13b3
 contains the synthetic input at the expected duration" (the cancelled render started again; fixed in `47904d9`).
 `47904d9` and `8dd8253` failed at [Browser 3i] (the race; fixed in `8dd8253`, then `5bae5d4`). `15c0423` failed at
 "no microphone permission: after a press on Live …" ("Could not start the live monitor: Not supported": CI's
-headless shell, "Departures", 10); the refusal browsers run on the full Chromium since. The head's own run cannot be written into the commit it runs on: the hand-back gives it.
+headless shell, "Departures", 10); the refusal browsers run on the full Chromium since. `d7db8d8`, the last code
+commit, passed (run 43105842401: the vendor check, every Node suite, 363 browser checks). The head's own run cannot be written into the commit it runs on: the hand-back gives it.
 
 Scanned before the last push: `git diff origin/main...HEAD` and the commit messages hold no recording, no personal
 detail, no SteamID but the test's universe-0 ones already in the suite, and no model name outside the commits'
