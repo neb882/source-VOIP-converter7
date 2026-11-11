@@ -62,12 +62,11 @@ any recording of a running engine.
   ` · snd_bits not used` when the bitrate scale is not 16.
 - Render: `S_Voice: Voxware VR12 (voxware-vr12 eedf465), 2.94 kbps CBR, 12-byte packets of 32.7 ms, a lost frame plays
   as zeros (VR12 100%)`, then `S_Voice: vaudio_miles is not a TF2 codec (Source engines of 2006 and 2007); not
-  checked against any recording`. Status: `Ready · Voxware VR12 · 2.94 kbps · …`. Lane legend `VR12 <frames>`, colour
+  checked against any recording`. Status: `Ready · Voxware VR12 (not in TF2) · 2.94 kbps · …` (since the review round; it was `Ready · Voxware VR12 · …`). Lane legend `VR12 <frames>`, colour
   `#86b83a`, title "VR12: a vocoder at 2.9 kbit/s, here on 11.025 kHz sound; vaudio_miles, not a TF2 codec".
 - Console: `sv_voicecodec`'s help ends "; miles (vaudio_miles of the Source engines of 2006 and 2007: not a TF2 codec,
-  unverified)"; `snd_bits`'s says "vaudio_speex and vaudio_miles have one bitrate and ignore this". The page's own
-  `snd_bits` sentence (`#bits-help`, outside the codec control) still names `vaudio_speex` alone: the order allows only
-  the codec control in `index.html`.
+  unverified)"; `snd_bits`'s and the page's `#bits-help` say "vaudio_speex and vaudio_miles each have one bitrate and
+  ignore this" (the page's sentence since the review round, S2).
 - Live panel mode: `VR12`.
 
 ## The three measurements
@@ -77,8 +76,11 @@ any engine.
 
 1. **The delay** (section B's grid: 72 runs, P 100, 140 and 190 Hz, onsets 3600 + 15 k, k 0 to 23): median **304.5**
    samples, rounded **305** (27.66 ms); quartiles **274.75** and **348** (linear interpolation); range **200 to 411**
-   (211 apart: less than a frame, and not in two groups: the lag falls by 15 as the onset moves 15 within a codec
-   frame, a sawtooth). The test computes it again and requires 305.
+   (211 apart: less than a frame, and not in two groups: a sawtooth whose period is 180 samples, one VR12 frame
+   inside the wrapper's 360-sample frame; the lag falls by 15 as the onset moves 15, then jumps back). The test
+   computes it again and requires 305. Corrected in the review round: this said "within a codec frame"; and the
+   median moves with the grid by up to 15 samples (1.4 ms): the reviewer's pitches 120/160/220 Hz give 316, a level of
+   -6 dBFS 319.5, a 110-sample envelope 311.
 2. **Where the 8-bit cut shows.** `voice(20, 48000, 1)`, frames of the 11025 Hz capture under -60 dBFS as pauses
    (11.5 s) and over -35 as spurts (1.9 s), two frames' margin:
 
@@ -207,3 +209,38 @@ owner's modules or the upstream project's README was read or used; only the four
   files) caps the packet rate only for `speex`; at 30.6 frames a second `miles` is under the tick's 66.7, so nothing
   changes. No decision of the order failed to hold.
 - **Not done:** no registered prediction (decision 10); BC-1's lines untouched.
+
+## Review round (2026-11-11)
+
+- **S1, the note read on every profile.** `#codec`'s `aria-describedby` is now `codec-help` in the markup;
+  `updateSignalChain` (`app/console.js`) adds `codec-note` when it shows the note (miles) and removes it when it hides
+  it. New browser check: the control's accessible description, read through CDP (`Accessibility.getPartialAXTree`),
+  is the help alone on steam, steam_48, celt_22, celt_44, speex and steam again after miles, and the help and the note
+  on miles. A dated correction is under the order's line (`docs/work-orders/W3-20b-miles-profile.md`, D).
+- **S2.** `#bits-help`: "16 is the codec's own bitrate; 8 is half of it. vaudio_speex and vaudio_miles each have one
+  bitrate and ignore this." The console's `snd_bits` help says the same; the browser suite's W4-01d table check quotes
+  the new sentence. Looked again for sentences the profile makes false: README's `pnpm test:vendor` sentence named
+  three engine modules and not VR12 (fixed, with the VR12 build command); README's "keep `vendor/` (all four codec
+  folders)" (S3). Nothing else found on the page or in README: the gate's help ("off for the vaudio_ ones") holds for
+  miles, and the paragraphs that list the profiles' codecs are lists, not claims of completeness.
+- **S3.** README: "`vendor/` (all seven folders: the five codec folders, the MP3 encoder and Steam's resampler)".
+- **N1.** `tests/LEGACY_CODECS.md` beside the delay: the median moves with the grid by up to 15 samples (1.4 ms), with
+  the reviewer's figures, and the sawtooth's period is 180 samples, one VR12 frame inside the wrapper's 360. The
+  report's measurement 1 corrected likewise.
+- **N2.** Nothing to change. Renewing the framers at a spurt is not observable: the frame path hands the stream whole
+  360-sample frames (the last one padded with zeros), so the sender's framer never holds samples between calls (its
+  `kept` is 0 at every spurt boundary), and the receiver's `decompress` keeps nothing; a new framer and the old one
+  give the same bytes and samples.
+- **N3.** `tests/miles.verify.mjs` section 10: the live reference no longer crashes when the stream's log runs out; a
+  named check, "the chain keeps its one stream (its two codec objects) through the press", fails (with the keyed
+  checks) when the live chain makes new codecs at a key press (break run: 3 checks fail, no TypeError).
+- **N4.** The download name keeps `_tf2_<profile>`. The status line is a label change only (`app/render.js`'s codec
+  name for `vr12`): "Ready · Voxware VR12 (not in TF2) · 2.94 kbps · …"; the page and live-take checks quote it.
+- CACHE stays v32 until the merge with `main`, which is still owed.
+
+Checks of the round, on 13f8150, under `flock /tmp/tf2ve-heavy.lock`: `npm run test:all` exit 0 (`test:vendor`: the
+four builds and the 1.6.1 runtime match; verify 218/0, gain 103/0, Opus 147, Speex 86, vr12 31/0, **miles 73**,
+reference 43, formats 68, file-rate 53, meter 50, video 46, demo 36, render-stream 553/0, output-stage 102, voice
+channel 129, steam sender 109, swresample 43, room 215; **293 browser checks**). Breaks: the note named in
+aria-describedby on every profile fails the new accessible-description check; a live chain making a new stream at a
+key press fails the new named check and the two keyed checks.
