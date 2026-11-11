@@ -65,10 +65,10 @@ FLAC and MP3 are made from the WAV when a file is saved. MP3 is lossy on top of 
    - Each 128-sample block sets a target `min(voice_maxgain, 32767 / (mean + voice_avggain × (peak − mean)))`. The defaults are 0.5 and 10. The blocks are counted from the first sample the decoder gives: on the engine codecs (CELT, Speex) the codec's delay is removed after the gain, not before.
    - The next block steps toward it in truncated 1/128 fixed-point increments, scaled by `voice_scale`, and every sample is clamped to int16.
    - A steady tone ends up 1.22× over full scale (42% of samples flattened), and speech and music about 5–6 dB under it: the dominant "TF2 voice" character.
-4. **Mixer and output:** as the game's engine does it, in whole numbers. The voice enters the 44.1 kHz mix at 255/256 of its level, truncated; a 22.05 kHz voice (the CELT profiles) is upsampled by two once and an 11.025 kHz voice (`speex`) twice, by the engine's own rule (each new sample the mean of its neighbours, rounded down). With a room (`dsp_room`), or under water, the voice is entered twice, its room's share through the engine's room preset, as the game does it; the reverb's tail runs on after the voice. The page still offers its older room choices, now rendered this way; its new room panel and the live monitor's room come in a later order. Then the mix is clipped to ±32767, multiplied by `volume` and rounded to 16 bits. There is no filter and no limiter.
+4. **Mixer and output:** as the game's engine does it, in whole numbers. The voice enters the 44.1 kHz mix at 255/256 of its level, truncated; a 22.05 kHz voice (the CELT profiles) is upsampled by two once and an 11.025 kHz voice (`speex`) twice, by the engine's own rule (each new sample the mean of its neighbours, rounded down). With a room, or under water, the voice is entered twice, at the direct share and the room's share of 256 that the room's preset gives, each part upsampled on its own; the room's part passes the room's preset, the two are added, and under water the sum passes the game's water preset (14), all in the engine's 32-bit integers, before the clip. The reverb's tail runs on after the voice, so a render with a room is longer than its source, and the download carries the tail. Then the mix is clipped to ±32767, multiplied by `volume` and rounded to 16 bits. There is no filter and no limiter. "Rooms" below says what the page offers.
 5. **The listener's sound device:** the listener's PC converts the game's 44.1 kHz sound to its device's rate by linear interpolation, which softens the top octave a little (about −1 dB at 8 kHz and −5 dB at 18 kHz) and leaves faint images, about 65 dB under a 1 kHz tone. That is modelled from the recordings, which were made at 48 kHz. **Listener's sound device** (`snd_device_rate`) picks 48000 Hz (usual) or 44100 Hz, where nothing is converted. The download is at that rate, with every sample written exactly as rendered.
 
-The quick presets reset every control. The live chain strip under the controls shows what the next render will do.
+The quick presets reset every control. The live chain strip under the controls shows what the next render will do, naming `voice_scale` and the gain target when they are not the game's defaults.
 
 ## Profiles
 
@@ -106,7 +106,9 @@ On the Steam profile the live chain is a render's own, fed as the microphone's b
 - **Low latency:** on the Steam profile, holds back Steam's longest chunk and a frame instead of the chunk and the pre-roll. That saves about 80 ms (the panel gives the figure), but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. TF2 plays all of it. On the other profiles it skips the gate's 120 ms pre-roll, so the gate opens on the loud frame itself: that saves 120 ms but cuts the start of each word.
 - **Record:** captures the session and loads it into the app as a dry/wet pair: your microphone as the source and the voice as the render, lined up to the sample. A/B, the views, the meter and every download work on it, and **Process Audio** re-renders the microphone with other settings. The voice ends short of the microphone by what the chain holds back when it stops (about 0.2 s on the Steam profile), which is never played.
 
-Rooms (`dsp_room`) are not applied live. Use headphones: speakers feed the output back into the microphone.
+**Rooms live.** The live monitor runs the same room as a render, on a room path its worker keeps for the session. A change of room cross-fades over the game's 200 ms and going under water switches at once, as in the game; neither restarts the voice chain, from no room either, so Steam's sender and the gain run on. With a room or under water the chain holds back up to 11.6 ms more (the mixer's 512-sample block), which the latency figure includes; once a room has faded to none and the water is off, it holds nothing back again. There is no voice channel in the live chain yet, so each talk spurt's first delivered packet stands in for a channel's start, where the room's share is fixed.
+
+Use headphones: speakers feed the output back into the microphone.
 
 ## Accuracy
 
@@ -135,24 +137,42 @@ What that does **not** establish:
 - Real internet loss. The network rules come from simulated loss and jitter in TF2 (`net_fakeloss`, `net_fakejitter` on a listen server) and from the game's network code as read; one packet carries one voice message on a listen server, and how many it carries at a real server's rates was not read.
 - When Steam reads its microphone. The sender's gate, pre-roll and hold are Steam's own, but the read times that cut the capture into chunks, and so the packets' clock, are a seeded model fitted to Steam's packets.
 
-Room presets use parameters from [Valve's preset data mirrored by Facepunch](https://github.com/Facepunch/garrysmod/blob/master/garrysmod/scripts/dsp_presets.txt). The processors are this app's implementations, and the reference recording was dry, so rooms remain an effect. The same decoded PCM, settings and pinned runtime always produce the same output.
+## Rooms
+
+A TF2 listener hears a voice through the room the map sets where they stand. The room is the engine's own arithmetic as read from the game (`room-dsp.js`, with the game's preset file as numbers in `room-presets.js`); the numbers of presets 0 to 29 were first taken from [Valve's preset data mirrored by Facepunch](https://github.com/Facepunch/garrysmod/blob/master/garrysmod/scripts/dsp_presets.txt). **Listener position** offers, in order:
+- **No room effect (the game's Sound quality: Low)**, the default: `dsp_slow_cpu 1` turns rooms off. It is what Set B shows, and a render with no room runs nothing of the room code.
+- **Automatic room, as recorded:** the two automatic rooms fitted to the owner's Sets C and D. Most TF2 maps ask for the automatic room (`dsp_room 1`), which the engine builds by the shape and size it measures around the listener.
+- **Automatic room: examples by shape:** fourteen example spaces, from a very small room to open ground, each with its measures; the app has no map to measure.
+- **Automatic room: places measured on 2Fort:** five spots whose measures the game printed (`adsp_debug 2`).
+- **A room the map sets by number:** the ten numbered presets the game's soundscape scripts ask for, labelled by script and area.
+- **Manual:** any `dsp_room` number (0 to 29 in the menu; the console takes any whole number), with 1 taking the automatic room's six measures (under the sky, width, length, height, open sides, reflectivity) and saying what the engine would build, and 99 the app's own custom room (not the game's).
+
+**Listener under water** is a checkbox of its own: a state of the player, not a variable. The whole sound then passes the game's water preset.
+
+What is checked: the two rooms marked "as recorded" match their recordings in echo times and level, room 6 matches a recording echo by echo, and the 2Fort places build to the shape and mix values the game printed. No room has been checked sample for sample yet, because every take has the map's sound under it. The game draws some delay taps at random; the app draws them from a seeded stream, so a render repeats exactly, as two runs of the game do not. `tests/REFERENCE_2026.md`, finding 32, has the evidence.
+
+The same decoded PCM, settings and pinned runtime always produce the same output.
 
 ## Controls and console
 
-Advanced controls are grouped in signal order. Every control has a console name.
+Advanced controls are grouped in signal order. Every control has one sentence under it saying what it does to the sound and, where it is not plain, whose default it is; the console's `help <command>` says the same. Most controls also have a console name (how long the sender's Steam has run and the live monitor's low latency do not).
 
 | Group | Controls |
 | --- | --- |
-| **Sender** | `voice_capture_channel`, mic gain, filters, `voice_vad` and `voice_vad_threshold` (on `steam` the mean level of a capture chunk, −40 dBFS by default; on the other profiles a 20 ms frame's RMS, −39.5), and on `steam` how long the sender's Steam has been running |
-| **Codec & network** | codec on/off, `snd_bits` bitrate scale, `net_split`, `net_fakeloss`, `net_fakejitter` |
-| **Receiver** | `voice_agc`, `voice_retime`, `voice_avggain`, `voice_maxgain`, `voice_scale` |
-| **Listener room & output** | `dsp_room`, custom room, `volume` (1, the game's default), and the listener's sound device (`snd_device_rate`: 48000 or 44100 Hz; the app's own setting, not a TF2 variable) |
+| **Sender** | the stereo capture channel (`voice_capture_channel` in the console) and, on `steam`, how long the sender's Steam has been running: settings of the sender's PC |
+| **Network** | `net_fakeloss`, `net_fakejitter` |
+| **Receiver** | `voice_avggain`, `voice_maxgain`, `voice_scale` |
+| **Listener room & output** | the manual `dsp_room` and the automatic room's six measures, `volume` (1, the game's default), and the listener's sound device (`snd_device_rate` in the console: 48000 or 44100 Hz), a setting of the listener's PC |
+| **Extras: not in the game** | mic gain (`voice_micgain`), the high- and low-pass (`dsp_hpf`, `dsp_lpf`), the voice gate's switch and threshold (`voice_vad`, `voice_vad_threshold`: on `steam` the mean level of a capture chunk, −40 dBFS by default; on the other profiles a 20 ms frame's RMS, −39.5), skipping the codec (`snd_codec`), the bitrate scale (`snd_bits`), the packet length (`net_split`), the auto-gain's switch (`voice_agc`), talk-spurt timing (`voice_retime`), the custom room (`dsp_custom_*`, `dsp_room 99`) and the live monitor's low latency |
+
+The codec (**Voice codec**, `sv_voicecodec`), the listener position (`dsp_room`) and **Listener under water** (`underwater` in the console) sit above the groups. A label shows a variable's name only where the game has that variable; the app's own names are console commands. The Fullband Opus codec is not in the game, and its menu entry says so.
 
 Some controls behave differently from their names:
 - `voice_scale` acts inside the fixed-point auto-gain, as in the game. Values below 1 do not simply scale the result: 0.5 lowers voice by 8–11 dB and adds a 344 Hz sawtooth.
 - `net_fakeloss` (**Packets lost %**) is the share of voice packets that never reach the listener, not TF2's own setting: on the Steam profile a packet is one of the sender's messages, on the other profiles `net_split` frames. By the game's rule (read, not measured), TF2's `net_fakeloss 5`, `10` and `15` on a listen server with sockets for loopback lose about 22%, 37% and 50% of voice packets, since each packet meets four draws of (N+1)/101 on the way there and back. Recordings agree at 5 and 15; 10 was recorded only with lag and jitter, where the rule gives too little silence.
 - `voice_retime` is not a TF2 setting. It switches on the receiver's measured talk-spurt re-timing (random, seeded), which moves some spurts earlier than in the source.
 - `snd_device_rate` is not a TF2 setting either: it is a property of the listener's PC, the rate its sound device runs at. A share link made before it existed gets 48000; the quick presets leave it alone.
+- A share link or saved setting made before the room controls changed keeps its room: an old listener position becomes the manual `dsp_room` number it stood for (Tunnel 6, Hallway 22 and so on), and the old "Underwater" becomes no room with **Listener under water** on. The quick preset that was "2fort Sewers" is now **Under water** (`exec preset_sewers` still runs it).
 
 The developer console supports Source-style `;` chaining, `alias`, `toggle`, `find`, history, and Tab completion. Tab completes to the longest common prefix, then lists matching commands with their current values. `writeconfig` copies a share URL; `preset_save/load/list/delete` manage local presets. `net_graph 1–4` overlays a Source-style HUD whose packet rate, payload rate and loss come from the last render. The background game-event feed (kills, chat, joins and drops) can be stopped with `sv_simulate_events 0`.
 
@@ -343,8 +363,9 @@ These tests establish implementation behavior; the accuracy claims rest on the p
 | `vendor/swresample/` | libswresample's 24000 to 44100 Hz step, ported to JavaScript: the resampler of Steam's voice decoder (not loaded yet) |
 | `audio-worker.js` | cancellable background rendering, format conversion and metering |
 | `mic-capture.js` | PCM recording |
-| `constants.js` | presets, codec profiles, receiver model, room data |
-| `app/` | the interface, in load order: `core.js` (elements, state, event feed), `console.js`, `source.js` (file, video and microphone), `render.js` (rendering, downloads, A/B), `meter.js`, `realtake.js`, `visualizer.js`, `netgraph.js`, `boot.js` |
+| `constants.js` | presets, codec profiles, receiver model, the listener's places |
+| `room-dsp.js`, `room-presets.js` | the room effect as the engine does it, and the game's room presets as numbers |
+| `app/` | the interface, in load order: `core.js` (elements, state, event feed), `rooms.js` (the listener's room), `console.js`, `source.js` (file, video and microphone), `render.js` (rendering, downloads, A/B), `meter.js`, `realtake.js`, `visualizer.js`, `netgraph.js`, `boot.js` |
 | `batch.js` | batch queue, drag and drop, ZIP downloads |
 | `formats.js`, `flac.js`, `zip.js` | download formats: WAV reader, FLAC encoder, stored ZIP |
 | `meter.js` | loudness and level measurement |

@@ -6,14 +6,17 @@
  *   PRESETS            — quick processing presets (modern / legacy / spam ...)
  *   CODEC_PROFILES     — real libopus configurations for each voice codec
  *   VOICE_ENGINE       — receiver-side voice path (auto-gain, mixer, output)
- *   DSP_PRESETS        — Source engine dsp_room presets 0-29, transcribed from
- *                        Valve's scripts/dsp_presets.txt (see comments)
- *   LISTENER_POSITIONS — map-location → dsp_room mappings
+ *   DSP_PRESETS        — the names of dsp_room 0-29 (and the app's 99); their
+ *                        numbers are in room-presets.js (order W3-17)
+ *   DEFAULT_LISTENER   — the listener's first place: no room
+ *   LISTENER_POSITIONS — the page's listener places, each a room for audio.js
+ *   ROOM_NUMBERS       — the numbered rooms the soundscape scripts ask for
  *   FCVAR              — Source cvar flag bits
  *
  * References:
- *   - Valve dsp_presets.txt (via the Facepunch garrysmod mirror) — the RVA/
- *     DFR/DLY/AMP/MDY processor parameters below are copied verbatim.
+ *   - Valve dsp_presets.txt (via the Facepunch garrysmod mirror): where the
+ *     numbers of presets 0 to 29 were first taken from; room-presets.js now
+ *     holds the game's own file's numbers.
  *   - zhenyangli.me "Reversing Steam Voice Codec" — Steam voice is Opus at
  *     24 kHz mono.
  *   - tests/REFERENCE_2026.md — paired loopback and test-signal measurements
@@ -199,7 +202,8 @@ const TF2_DATA = {
 
 /* -------------------------------------------------------------------------
  * Quick processing presets (keyed into `exec preset_<name>`)
- * `codec` matches a key in CODEC_PROFILES, `position` matches LISTENER_POSITIONS.
+ * `codec` matches a key in CODEC_PROFILES, `position` matches LISTENER_POSITIONS;
+ * `underwater` puts the listener under water (omitted = not).
  * hp 0 / lp 20000 leave the optional sender filters off: the measured TF2
  * path has no capture EQ beyond Opus's own voice high-pass and band edge.
  * gain > 1 overdrives the sender's int16 capture before encoding.
@@ -207,18 +211,29 @@ const TF2_DATA = {
  * `steam` each sender message is a packet, lost whole; on the other profiles
  * single frames in bursts), jitter is net_fakejitter in ms; omitted = 0.
  * ------------------------------------------------------------------------- */
+
+// The listener's first place on the page, what the built-in presets use and
+// what the accuracy table renders a take with when its row names no room
+// (order W3-17, Decision 1): no room, the game at Sound quality: Low
+// (dsp_slow_cpu 1), which is Set B's state. The owner's choice.
+const DEFAULT_LISTENER = 'open';
+
 const PRESETS = {
   // Measured baseline: Steam voice as recorded with voice_loopback in 2026.
-  modern:  { codec: 'steam',   position: 'open',   hp: 0, lp: 20000, voice_scale: 1.0, gain: 1.0, loss: 0  },
+  modern:  { codec: 'steam',   position: DEFAULT_LISTENER, hp: 0, lp: 20000, voice_scale: 1.0, gain: 1.0, loss: 0  },
   // vaudio_celt: the real CELT 0.11, with the same receiver path.
-  legacy:  { codec: 'celt_22', position: 'open',   hp: 0, lp: 20000, voice_scale: 1.0, gain: 1.0, loss: 0  },
-  // Loud mic spam: overdriven capture, in a tunnel for extra reverb drama.
-  spam:    { codec: 'steam',   position: 'tunnel', hp: 0, lp: 20000, voice_scale: 1.0, gain: 3.0, loss: 0  },
-  // 2fort sewers micspam classic
-  sewers:  { codec: 'steam',   position: 'water',  hp: 0, lp: 20000, voice_scale: 1.0, gain: 2.0, loss: 0  },
+  legacy:  { codec: 'celt_22', position: DEFAULT_LISTENER, hp: 0, lp: 20000, voice_scale: 1.0, gain: 1.0, loss: 0  },
+  // Loud mic spam: overdriven capture, in the automatic room's tunnel.
+  spam:    { codec: 'steam',   position: 'auto_tunnel', hp: 0, lp: 20000, voice_scale: 1.0, gain: 3.0, loss: 0  },
+  // The listener under water: the whole sound through the game's water
+  // preset (14). It was called "2fort sewers" until W3-17d; a sewer's
+  // soundscape asks for the automatic room, not water.
+  underwater: { codec: 'steam', position: DEFAULT_LISTENER, underwater: true, hp: 0, lp: 20000, voice_scale: 1.0, gain: 2.0, loss: 0 },
   // Bad connection: 18% of voice packets lost, plus 50 ms jitter.
-  laggy:   { codec: 'steam',   position: 'open',   hp: 0, lp: 20000, voice_scale: 1.0, gain: 1.0, loss: 18, jitter: 50 }
+  laggy:   { codec: 'steam',   position: DEFAULT_LISTENER, hp: 0, lp: 20000, voice_scale: 1.0, gain: 1.0, loss: 18, jitter: 50 }
 };
+// Built-in presets known by an older name: `exec preset_sewers` runs `underwater`.
+const PRESET_ALIASES = { sewers: 'underwater' };
 
 /* -------------------------------------------------------------------------
  * Codec profiles. Each runs a real codec: the Steam profiles the bundled
@@ -398,142 +413,107 @@ const VOICE_ENGINE = {
 };
 
 /* -------------------------------------------------------------------------
- * DSP presets — Source engine dsp_room ids 0-29.
- *
- * These are transcribed from Valve's scripts/dsp_presets.txt. Each preset
- * is a serial (LINEAR) chain of processors, exactly as in the engine:
- *
- *   dfr — diffusor: n series allpass delays
- *         { size (scales 13-41 ms base delays), ndly (1-4), fb }
- *   rva — parallel reverb: n feedback comb delays
- *         { sizeMax/sizeMin (delay spread, ms), ndly, fb, gain,
- *           cutoff (Hz low-pass), fpar (1 = filter inside feedback loop),
- *           fmod (delay modulation depth, ms), rate (mod rate, Hz) }
- *   dly — feedback echo { delay (ms), fb, gain, cutoff (Hz in loop) }
- *   amp — amplitude modulator / distortion
- *         { gain, vthresh, distmix, modrate (Hz), moddepth, modglide (ms) }
- *   mdy — modulated delay { delay (ms), fb, gain, modrate, moddepth, modglide }
- *
- * `mix` is the wet/dry crossfade; the engine ranges it 0.2-0.7 with
- * listener distance, we use the midpoint. Preset 99 is the emulator's
- * custom slot (duration/decay/mix mapped onto an RVA).
+ * The names of dsp_room 0-29, as the page has long called them (from the
+ * public mirror of the game's preset file), and the app's own custom room
+ * (99). Their numbers live in room-presets.js, the game's own file as
+ * numbers (order W3-17); room-dsp.js runs them.
  * ------------------------------------------------------------------------- */
 const DSP_PRESETS = {
-  0:  { name: 'Off (NULL)',        mix: 0.00, chain: [] },
-  1:  { name: 'Generic (AUTO)',    mix: 0.00, chain: [] },
-  2:  { name: 'Metal Small',       mix: 0.45, chain: [
-        { type: 'rva', sizeMax: 80, sizeMin: 30, ndly: 4, fb: 0.85, gain: 1.1, cutoff: 4000, fpar: 1, fmod: 0, rate: 0 } ] },
-  3:  { name: 'Metal Medium',      mix: 0.45, chain: [
-        { type: 'rva', sizeMax: 80, sizeMin: 30, ndly: 4, fb: 0.90, gain: 1.4, cutoff: 4000, fpar: 1, fmod: 0, rate: 0 } ] },
-  4:  { name: 'Metal Large',       mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 3, fb: 0.1483 },
-        { type: 'rva', sizeMax: 100, sizeMin: 30, ndly: 4, fb: 0.95, gain: 1.8, cutoff: 4000, fpar: 1, fmod: 0, rate: 0 } ] },
-  5:  { name: 'Tunnel Small',      mix: 0.45, chain: [
-        { type: 'rva', sizeMax: 50, sizeMin: 8, ndly: 2, fb: 0.92, gain: 1.1, cutoff: 6000, fpar: 1, fmod: 0, rate: 0 } ] },
-  6:  { name: 'Tunnel Medium',     mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'rva', sizeMax: 100, sizeMin: 15, ndly: 2, fb: 0.92, gain: 1.1, cutoff: 5000, fpar: 1, fmod: 0, rate: 0 } ] },
-  7:  { name: 'Tunnel Large',      mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 3, fb: 0.15 },
-        { type: 'rva', sizeMax: 120, sizeMin: 25, ndly: 2, fb: 0.95, gain: 1.1, cutoff: 4000, fpar: 1, fmod: 0, rate: 0 } ] },
-  8:  { name: 'Chamber Small',     mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 6, fb: 0.90, gain: 1.4, cutoff: 5000, fpar: 1, fmod: 4, rate: 3.48 } ] },
-  9:  { name: 'Chamber Medium',    mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 6, fb: 0.90, gain: 1.4, cutoff: 6000, fpar: 1, fmod: 4, rate: 3.48 } ] },
-  10: { name: 'Chamber Large',     mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 9, fb: 0.90, gain: 1.4, cutoff: 6000, fpar: 1, fmod: 4, rate: 3.48 } ] },
-  11: { name: 'Brite Small',       mix: 0.45, chain: [
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 3, fb: 0.90, gain: 1.0, cutoff: 5000, fpar: 1, fmod: 0, rate: 0 } ] },
-  12: { name: 'Brite Medium',      mix: 0.45, chain: [
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 5, fb: 0.90, gain: 1.0, cutoff: 5000, fpar: 1, fmod: 0, rate: 0 } ] },
-  13: { name: 'Brite Large',       mix: 0.45, chain: [
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 6, fb: 0.90, gain: 1.0, cutoff: 6000, fpar: 0, fmod: 0, rate: 0 } ] },
-  14: { name: 'Water 1',           mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 3, fb: 0.15 },
-        { type: 'amp', gain: 1.0, vthresh: 0, distmix: 0, modrate: 10.0, moddepth: 0.6, modglide: 80 },
-        { type: 'rva', sizeMax: 82, sizeMin: 59, ndly: 2, fb: 0.40, gain: 2.0, cutoff: 1800, fpar: 0, fmod: 10, rate: 3.0 } ] },
-  15: { name: 'Water 2',           mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 5, fb: 0.90, gain: 1.4, cutoff: 1000, fpar: 0, fmod: 4, rate: 3.48 } ] },
-  16: { name: 'Water 3',           mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 7, fb: 0.90, gain: 1.0, cutoff: 1000, fpar: 0, fmod: 4, rate: 3.48 },
-        { type: 'mdy', delay: 500, fb: 0.4, gain: 1.0, modrate: 2.0, moddepth: 0.01, modglide: 15 } ] },
-  17: { name: 'Concrete Small',    mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 6, fb: 0.90, gain: 1.4, cutoff: 4000, fpar: 1, fmod: 4, rate: 3.48 } ] },
-  18: { name: 'Concrete Medium',   mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 7, fb: 0.90, gain: 1.4, cutoff: 3500, fpar: 1, fmod: 4, rate: 3.48 } ] },
-  19: { name: 'Concrete Large',    mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 8, fb: 0.90, gain: 1.4, cutoff: 3000, fpar: 1, fmod: 4, rate: 3.48 } ] },
-  20: { name: 'Outside Small',     mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'dly', delay: 300, fb: 0.5, gain: 0.84, cutoff: 2000 } ] },
-  21: { name: 'Outside Medium',    mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'dly', delay: 400, fb: 0.5, gain: 0.84, cutoff: 1500 } ] },
-  22: { name: 'Outside Large',     mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'dly', delay: 750, fb: 0.5, gain: 0.84, cutoff: 1000 } ] },
-  23: { name: 'Cavern Small',      mix: 0.45, chain: [
-        { type: 'dly', delay: 150, fb: 0.5, gain: 0.84, cutoff: 3000 },
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 1, fb: 0.90, gain: 1.0, cutoff: 1500, fpar: 1, fmod: 4, rate: 3.48 } ] },
-  24: { name: 'Cavern Medium',     mix: 0.45, chain: [
-        { type: 'dly', delay: 200, fb: 0.7, gain: 0.6, cutoff: 3000 },
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 7, fb: 0.90, gain: 1.0, cutoff: 1500, fpar: 1, fmod: 4, rate: 3.48 } ] },
-  25: { name: 'Cavern Large',      mix: 0.45, chain: [
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 },
-        { type: 'dly', delay: 300, fb: 0.7, gain: 0.6, cutoff: 3000 },
-        { type: 'rva', sizeMax: 50, sizeMin: 20, ndly: 9, fb: 0.90, gain: 1.0, cutoff: 1500, fpar: 1, fmod: 4, rate: 3.48 } ] },
-  26: { name: 'Weirdo 1',          mix: 0.45, chain: [
-        { type: 'dly', delay: 400, fb: 0.5, gain: 0.6, cutoff: 1500 },
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 } ] },
-  27: { name: 'Weirdo 2',          mix: 0.45, chain: [
-        { type: 'dly', delay: 400, fb: 0.5, gain: 0.6, cutoff: 1500 },
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 } ] },
-  28: { name: 'Weirdo 3',          mix: 0.45, chain: [
-        { type: 'dly', delay: 400, fb: 0.5, gain: 0.6, cutoff: 1500 },
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 } ] },
-  29: { name: 'Weirdo 4',          mix: 0.45, chain: [
-        { type: 'dly', delay: 400, fb: 0.5, gain: 0.6, cutoff: 1500 },
-        { type: 'dfr', size: 1.0, ndly: 2, fb: 0.15 } ] },
-  // Emulator-only custom slot: audio.js maps duration/decay/mix onto an RVA.
-  99: { name: 'Custom',            mix: 0.25, custom: true, duration: 1.5, decay: 3.0 }
+  0:  { name: 'Off (no room)' },
+  1:  { name: 'automatic (the map measures the room; give the measures)' },
+  2:  { name: 'Metal Small' },
+  3:  { name: 'Metal Medium' },
+  4:  { name: 'Metal Large' },
+  5:  { name: 'Tunnel Small' },
+  6:  { name: 'Tunnel Medium' },
+  7:  { name: 'Tunnel Large' },
+  8:  { name: 'Chamber Small' },
+  9:  { name: 'Chamber Medium' },
+  10: { name: 'Chamber Large' },
+  11: { name: 'Brite Small' },
+  12: { name: 'Brite Medium' },
+  13: { name: 'Brite Large' },
+  14: { name: 'Water 1' },
+  15: { name: 'Water 2' },
+  16: { name: 'Water 3' },
+  17: { name: 'Concrete Small' },
+  18: { name: 'Concrete Medium' },
+  19: { name: 'Concrete Large' },
+  20: { name: 'Outside Small' },
+  21: { name: 'Outside Medium' },
+  22: { name: 'Outside Large' },
+  23: { name: 'Cavern Small' },
+  24: { name: 'Cavern Medium' },
+  25: { name: 'Cavern Large' },
+  26: { name: 'Weirdo 1' },
+  27: { name: 'Weirdo 2' },
+  28: { name: 'Weirdo 3' },
+  29: { name: 'Weirdo 4' },
+  // The app's own room, not the game's: audio.js maps its three knobs onto
+  // the engine's processors.
+  99: { name: 'Custom: the app\'s own, not the game\'s', custom: true }
 };
 
-// Legacy map for the <select id="env"> UI — keeps old "room/locker/hall" values working.
-// Each alias points at an authentic DSP preset id.
+// Words the console's dsp_room takes for a number.
 const ENV_ALIAS = {
   none:   0,
   dry:    0,
-  room:   17,  // Concrete Small — small echo-y spawn room
-  locker: 8,   // Chamber Small — tighter, narrow
-  hall:   22,  // Outside Large — open slap echo
+  room:   17,  // Concrete Small
+  locker: 8,   // Chamber Small
+  hall:   22,  // Outside Large
   custom: 99
 };
 
 /* -------------------------------------------------------------------------
- * Listener position presets — an optional effect layer. Each key maps a
- * location to a dsp_room preset plus any extra low-pass (underwater). The
- * reference loopback recording was dry, so whether and how TF2 routes voice
- * through room DSP is not established by it; "open" (0) is the measured path.
+ * The numbered rooms a map sets (order W3-17, part d, item 1; R1 4): the
+ * numbers the game's soundscape scripts ask for other than 0 and 1, each
+ * named by the script and its areas. Which map loads which script was not
+ * read, so no map file is named.
  * ------------------------------------------------------------------------- */
-const LISTENER_POSITIONS = {
-  open:       { label: 'Open / Outdoor',        dsp: 0,  extraLpf: null, notes: 'Hightower mid, 2fort battlements' },
-  hallway:    { label: 'Hallway / Corridor',    dsp: 22, extraLpf: null, notes: 'Badwater connectors, Upward last' },
-  small_room: { label: 'Small Room / Spawn',    dsp: 17, extraLpf: null, notes: 'Spawn rooms, cap-point huts' },
-  tunnel:     { label: 'Tunnel',                dsp: 6,  extraLpf: null, notes: '2fort sewers, Upward 1st tunnel' },
-  tunnel_big: { label: 'Big Tunnel',            dsp: 7,  extraLpf: null, notes: 'Thundermountain mine shafts' },
-  cavern:     { label: 'Cavern',                dsp: 24, extraLpf: null, notes: 'Snakewater connectors' },
-  hangar:     { label: 'Hangar / Warehouse',    dsp: 10, extraLpf: null, notes: 'Process main, Gullywash mid' },
-  chamber:    { label: 'Concrete Chamber',      dsp: 19, extraLpf: null, notes: 'Dustbowl stage 3, Gorge last' },
-  water:      { label: 'Underwater',            dsp: 14, extraLpf: 900,  notes: '2fort water room, Turbine vents' },
-  metal:      { label: 'Metal Room',            dsp: 4,  extraLpf: null, notes: 'Harvest silo, Process 2nd' }
-};
+const ROOM_NUMBERS = [
+  [2, 'harbor: spawn rooms and exits'],
+  [3, 'harbor: fuel rooms'],
+  [4, 'harbor: headquarters'],
+  [5, 'soho: underground'],
+  [11, 'soho: indoors'],
+  [17, 'warehouse: spawn and boilers; rottenburg: spawn'],
+  [18, 'warehouse: foyer; moonbase: underground'],
+  [21, 'soho: streets; rottenburg: town; medieval: outside'],
+  [25, 'warehouse: main hall'],
+  [26, 'halloween: underworld']
+];
+
+/* -------------------------------------------------------------------------
+ * The listener's places (order W3-17, part d). Each key is a value of the
+ * page's "Listener position" and `room` is what it asks of audio.js's
+ * opts.room: null (no room), { auto: key } (the automatic room built by
+ * room-dsp.js from a case's or a place's measures) or { preset: n }.
+ * `group`: none (the dry case), recorded (the two automatic rooms fitted to
+ * a recording), example (the named shapes, room-dsp.js ROOM_CASES), place
+ * (the rows of room-dsp.js ROOM_PLACES, measured by the game on a map) or
+ * number (ROOM_NUMBERS). The page takes the cases' and places' labels from
+ * room-dsp.js; "manual" (the number or the measures in the manual panel)
+ * is the page's own and not here.
+ *   The older positions (`legacy`) are not offered. They stay so that an old
+ * share link or saved setting lands on the preset each stood for (the page
+ * makes it manual with that number; `water` becomes no room under water),
+ * and so that audio.js maps an old caller's listenerPos as before.
+ * ------------------------------------------------------------------------- */
+const LISTENER_POSITIONS = (function () {
+  const out = {
+    open: { group: 'none', room: null, label: 'No room effect (the game\'s Sound quality: Low)', variable: 'dsp_slow_cpu 1' }
+  };
+  for (const key of ['set_c_room', 'set_d_street']) out[`auto_${key}`] = { group: 'recorded', room: { auto: key } };
+  for (const key of ['closet', 'small_room', 'room', 'large_room', 'great_hall', 'vent', 'corridor', 'long_corridor',
+    'tunnel', 'big_tunnel', 'alley', 'street', 'courtyard', 'open']) out[`auto_${key}`] = { group: 'example', room: { auto: key } };
+  for (const key of ['2fort_spawn_room', '2fort_spawn_long', '2fort_indoor', '2fort_tunnel', '2fort_pond']) {
+    out[`place_${key}`] = { group: 'place', room: { auto: key } };
+  }
+  for (const [n, where] of ROOM_NUMBERS) out[`room_${n}`] = { group: 'number', room: { preset: n }, label: `${n}: ${where}` };
+  // The page's positions before W3-17d, by the preset number each stood for.
+  const legacy = { hallway: 22, small_room: 17, tunnel: 6, tunnel_big: 7, cavern: 24, hangar: 10, chamber: 19, water: 14, metal: 4 };
+  for (const [key, dsp] of Object.entries(legacy)) out[key] = { legacy: true, dsp };
+  return out;
+})();
 
 const FCVAR = { NONE: 0, CHEAT: 1 << 0, READONLY: 1 << 1, SERVER: 1 << 2 };

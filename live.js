@@ -45,13 +45,13 @@
     steam: {
       latency: 'Microphone to speaker: what the voice chain holds back (Steam\'s longest capture chunk and its 100 ms pre-roll, the codec\'s lookahead, the filters\' waits), the playback queue and the audio device\'s buffers',
       lowLatency: (ms) => `Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. ${ms != null ? `Saves ${ms.toFixed(0)} ms.` : 'Saves the figure shown once the monitor runs.'} Not how TF2 sounds.`,
-      lowLabel: (ms) => `Low latency (shorter pre-roll${ms != null ? `, saves ${ms.toFixed(0)} ms` : ''})`,
+      lowLabel: (ms) => `Live monitor: low latency (shorter pre-roll${ms != null ? `, saves ${ms.toFixed(0)} ms` : ''})`,
       ptt: 'Send only while V (TF2\'s +voicerecord key) or the Talk button is held. This is the app\'s stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by its own hold. Steam\'s own key rules (it goes on sending for half a second after a release) are not built yet.'
     },
     frame: {
       latency: 'Microphone to speaker, including the voice gate\'s 120 ms pre-roll and the audio device\'s buffers',
       lowLatency: () => 'Skip the voice gate\'s 120 ms pre-roll, so the gate opens on the loud frame itself. Not how TF2 sounds: onsets lose their first 120 ms.',
-      lowLabel: () => 'Low latency (no pre-roll)',
+      lowLabel: () => 'Live monitor: low latency (no pre-roll)',
       ptt: 'Send only while V (TF2\'s +voicerecord key) or the Talk button is held, as with push-to-talk in the game. The voice gate still applies while you hold it.'
     }
   };
@@ -224,7 +224,7 @@
       }, 300);
       ui.toggle.textContent = '⏹ Stop live';
       ui.toggle.setAttribute('aria-pressed', 'true');
-      ui.note.textContent = 'Live. Settings changes apply as you make them. Rooms (dsp_room) are not applied live.';
+      ui.note.textContent = 'Live. Settings changes apply as you make them; a change of room cross-fades as the game does.';
       logLine(`voice_loopback 1: live monitor at ${ctx.sampleRate} Hz.`, 'sys');
       listDevices().catch(() => {});
     } catch (error) {
@@ -268,7 +268,7 @@
       // the others the gate's pre-roll, capture EQ and lookahead), the jitter
       // buffer and the audio device's buffers.
       const device = ((live.ctx.baseLatency || 0) + (live.ctx.outputLatency || 0)) * 1000;
-      const ms = 10 + (live.chainLatencyMs || s.latencyMs || 0) + w.queued / live.ctx.sampleRate * 1000 + device;
+      const ms = 10 + (s.latencyMs || live.chainLatencyMs || 0) + w.queued / live.ctx.sampleRate * 1000 + device;
       ui.latency.textContent = `${Math.max(0, ms).toFixed(0)} ms${w.underruns ? ` · ${w.underruns} dropout${w.underruns === 1 ? '' : 's'}` : ''}`;
     }
     setMeter(ui.inMeter, s.inputPeak);
