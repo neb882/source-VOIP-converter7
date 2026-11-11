@@ -466,6 +466,26 @@ The review's verdict was "merge as is", with three test gaps and two points for 
 
 No golden hash moved: the two commits change tests only, and render-stream passes unchanged.
 
+## The orchestrator's private run (2026-11-11)
+
+Written by the orchestrator, not the builder. The accuracy table on the owner's eighteen takes, before (main at
+`3559672`) and after (this branch at `bba9ed1`), under the heavy-job lock; numbers only, the recordings stay private.
+
+- **Below 11 kHz: as the order.** The anchor level moves by −0.026 to −0.033 dB; 5 to 8 kHz by +0.07 to +0.10;
+  8 to 10 kHz by +0.13 to +0.15; 10 to 11 kHz by +0.12 to +0.17. 11 to 12 kHz moves by +0.13 to +0.30 against the
+  order's +0.10 (the images, and where in the band a take's sound sits).
+- **Above 12 kHz: the images, as the builder found.** Model minus recording at 12 to 16 kHz, before to after: the
+  two music takes −0.76 to −0.03 and −1.00 to +0.04 dB; the owner's speech −1.84 to −0.06; the network set's
+  baseline −4.48 to −0.20; Set B's four test-signal takes −0.80 to −3.28 before, +0.51 to +1.10 after. The mean
+  size of the error over the twelve takes without random loss that have sound there: 1.71 to 0.86 dB at 12 to 16 kHz,
+  6.34 to 1.89 dB at 16 to 19 kHz.
+- **Level tracking and clipping:** unchanged within 0.02 dB and 0.3 points on every take.
+- **The ceiling:** the render's flat tops are 4896 of 32768 exactly at `volume 0.15` (−16.5122 dB). The takes' sit a
+  few units higher: the game's ambience rides on the voice's plateau before the device's own clip (W3-07, W3-18).
+
+The order's rows from 11 kHz up are restated in its amendment of 2026-11-11, with the ruling that the merge is not
+held.
+
 ## Not done, or left for the orchestrator
 
 - **Item 10** (`tests/accuracy.mjs` may print the share of samples at the exact ceiling): not done. It is optional, and it

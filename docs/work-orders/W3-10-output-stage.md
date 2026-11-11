@@ -273,6 +273,37 @@ follows this section where it differs from the text above.
    hashes do not move. One side effect for the report: the dry WAV of a 16-bit source now round-trips exactly,
    so the A/B dry file changes by one unit on positive samples.
 
+## Amendment after the private run (2026-11-11): the expected change from 11 kHz up, restated
+
+The figures under "The orchestrator runs privately" for 12 to 16 kHz (−0.12 dB) and 16 to 19 kHz (−0.90 dB) are
+wrong, and the one for 11 to 12 kHz (+0.10) is right only for a flat input. They compare the stage's response
+(sinc²) with the old filter's and leave out the **images** that linear interpolation from 44100 to 48000 Hz makes:
+each component `f` of the mix also comes out at `3900 + f`, at sinc²((44100 − f) / 44100) of its level (−22.8 dB for
+10 kHz), and further down at `7800 ± f`. The voice's 8 to 12 kHz therefore lands in 12 to 16 kHz, where the voice
+itself has little. W3-07 measured these images in the takes; the plan's review did not carry them into the table. The
+builder found it on synthetic signals and predicted the render's bands from the images within 0.35 dB (the report,
+"The change by band"); the reviewer's own stage has the images within 0.04 dB of theory.
+
+**What the private run gave** (twelve takes without random loss and with sound in these bands; model minus
+recording, before and after on the same main):
+
+| Band, Hz | Change | Mean size of the error, before to after, dB |
+| --- | --- | --- |
+| anchor level | −0.026 to −0.033 dB (expected −0.025) | |
+| 5000–8000 | +0.07 to +0.10 (expected +0.10) | 0.18 to 0.15 |
+| 8000–10000 | +0.13 to +0.15 (expected +0.13) | 0.32 to 0.30 |
+| 10000–11000 | +0.12 to +0.17 (expected +0.13) | 0.53 to 0.56 |
+| 11000–12000 | +0.13 to +0.30 | 0.83 to 0.90 |
+| 12000–16000 | +0.09 to +4.27, by how much of a take's sound sits at 8 to 12 kHz against 12 to 16 | 1.71 to 0.86 |
+| 16000–19000 | −0.37 to +39.7 (a take with nothing there before) | 6.34 to 1.89 |
+
+**The ruling.** The hold rule (a band more than 0.05 dB from its figure) stands from the anchor to 11 kHz, where
+every take is within it. From 11 kHz up it is withdrawn: no single figure exists there, because the change depends on
+the take's own spectrum, and the stage is pinned by other means (every stage exact in integers against the engine's
+read; the images of a tone within 0.02 dB of W3-07's measured ones; the reviewer's own model equal on every case).
+The merge is not held. Above 12 kHz the model is now closer to the recordings than the fitted filter was, on every
+kind of take but the Set B test signal's, where 12 to 16 kHz goes from 0.8 to 3.3 dB low to 0.5 to 1.1 dB high.
+
 ## Checks
 
 A render here has no room and no voice channel: every check below is written for that.
