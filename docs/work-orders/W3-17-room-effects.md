@@ -736,6 +736,69 @@ else, **2R and the module as built win**. Parts c and d build on the module's AP
    tunnel, big tunnel and great hall cases, in the engine and in the module alike (part a's report, reading 19).
    The custom room at a high mix (part d) inherits this. Say so in the custom room's help line; do not guard it.
 
+## Amendment after Sets K and L (2026-11-11): what the owner's room recordings showed
+
+The owner ran "The owner's recording" on 2026-11-10 (Set K: the readings, an `adsp_debug 2` walk on 2Fort, six
+screen captures with lossy sound, and R1 and R3 again as lossless captures). Measured privately against the
+module at main; numbers only here. Parts c and d take the following from it.
+
+**Confirmed, nothing to change.**
+
+- **Room 6, all of the voice through it (R3, lossless):** every tap of the module out to 102 ms stands in the
+  recording at the module's delay, the strong ones to the sample, with strengths within 0.001 to 0.035 of the
+  module's: -0.102 and -0.082 at 573 and 837 samples (module -0.1065 each), +0.658 at 1410 (+0.693), +0.363 at
+  3924 (+0.372). No tap is missing and none is extra. The direct voice reads 0.016, as the module gives.
+  Level by band within 0.16 dB from 80 Hz to 12 kHz. The rest value is -6 to -7 (the module: -1 to -8 by what
+  it held).
+- **Room 6 at the game's shares (R2, lossy):** the room's part 21.6 dB under (module 21.0), the same taps.
+- **`dsp_slow_cpu 1` is a dry case** (Q1), and the room is back at once with 0 (Q2). Q2's room is the
+  automatic room of size class 2 at 41/214, Set C's: 0.230 at 57.96 ms against a forecast of 0.246.
+- **Under water (R5, lossy):** dull, no 10 Hz swing; the level 0.773 of the dry take's, the module 0.763.
+- **Every `adsp_debug 2` line through `placeFromDebug` and `buildAutomatic`:** the shape and the four mix
+  values the game printed are what the module builds, at all five nodes.
+
+**Corrected.**
+
+- "What we expect" says of R5 "the voice steady at 0.40 of its level". Wrong as a sentence: 0.40 is the
+  amplifier alone; the reverb after it builds the low end back up, and a voice comes out at about 0.77. No line
+  of the module changes. Part d's page text must not say 0.40.
+- "How the takes are scored" asked for equality sample for sample on the lossless takes. They cannot give it:
+  the system's mixer limits the tops at 32276 (-0.13 dB), the capture's gain rides 1.0 to 1.6% under unity,
+  and the map's ambience stands 17 to 18 dB under the voice. Equal samples: 0.02%. So the reference may say
+  "echo times to the sample and strengths to a few percent on a fully wet take", not "sample for sample".
+  The owner is retaking R1 and R3 at `volume 0.5` with `voice_overdrive 1000`, which silences other sound
+  under a voice.
+- **R1's flat tops, 32639 or 32510, are not decided** (the limiter; the two differ by 0.39%). Part c keeps
+  what it has: `dsp_room 0` enters the voice at 255/256. The retake decides it.
+- **The tail's decay cannot be read** from any take so far (under the ambience from its first 20 ms).
+
+**New for part c: five rows of `ROOM_PLACES`** (map `ctf_2fort`; measures in units, width x length x height, as
+`placeFromDebug` gives them from the printed line; part c adds them to `room-dsp.js` and changes the check that
+says the list starts empty):
+
+| key | spot | sky | width | length | height | reflectivity | shape | the game's four values |
+| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| `2fort_spawn_room` | the spawn room, the node measured on the spot | no | 372 | 516 | 240 | 0.66 | room | 0.32, 0.8, 80, 0.5 |
+| `2fort_spawn_long` | the same spawn room, the remembered node the engine went back to | no | 252 | 1140 | 192 | 0.66 | tunnel | 0.4, 0.9, 80, 0.7 |
+| `2fort_indoor` | indoors (soundscape `2fort.Indoor`) | no | 708 | 1440 | 180 | 0.55 | room | 0.32, 0.8, 80, 0.5 |
+| `2fort_tunnel` | the tunnel | no | 168 | 2160 | 192 | 0.555 | tunnel | not read |
+| `2fort_pond` | the pond (soundscape `2fort.OutdoorPond`) | yes | 912 | 1344 | 4800 | 0.34 | courtyard | 0.21, 0.8, 95, 0.1 |
+
+**Two things to know, neither a change.**
+
+- **One spawn room, two presets.** The engine sat on the room node at one moment (41/214; Q2 confirms it by
+  sound) and on a remembered tunnel-shaped node at another (72/183): among remembered nodes in reach the largest
+  width times length wins. The page's "spawn-sized room" is one of the two; the other is `2fort_spawn_long`.
+- **`set_c_room` has reflectivity 0.9** (class 3, the reverb's cutoff 4950); this spawn room prints 0.66
+  (class 2, cutoff 3900). All else of the preset is the same and Q2 cannot tell them apart. If Set C was made
+  in this room (the owner: "probably"), the row is off by that one value. It stays as it is; `2fort_spawn_room`
+  is the measured row.
+
+**Set B's dryness is not explained.** The readings rule out a standing setting and the owner's config files
+(all older than Set B). Left: that one session's state (`dsp_slow_cpu 1` or the lowest Sound quality, undone by
+the next launch), no preset built in it, or another spot. The default stays "no room" by the owner's decision;
+its name on the page stays "Sound quality: Low", as one way the game gives it.
+
 ## W3-17c: the render
 
 **Depends on:** W3-10 merged (its mix stage and device stage are what this part builds on; read its report
