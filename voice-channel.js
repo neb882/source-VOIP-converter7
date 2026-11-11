@@ -69,6 +69,15 @@
   // first log and 16 of its 17 restarts (W3-03, "Checked against the owner's console log").
   const OPENING_SECONDS = 0.16;
 
+  // The mean time from the last sample of a spurt's opening packet to the packet's arrival,
+  // with Steam's sender (steam-sender.js): the model's figure, not the game's. Measured
+  // (W3-02c-1, docs/reports/W3-02c1-channel-as-read.md): offsetStartMs of every opened spurt of
+  // the suite's layouts P and Q (tests/voice-channel.verify.mjs: 2 s spurts after 300, 500 and
+  // 1200 ms, and after 900, 600 and 1200 ms), seeds 1 to 50, at 300 and 66.67 fps, with only
+  // latency() taken out: 455 spurts, mean 50.5 ms (50.9 at 300 fps, 50.2 at 66.67; 8.5 to 88.7,
+  // sd 14.1; means of ten seeds at a time 45.7 to 58.0).
+  const ARRIVAL_SECONDS = 0.0505;
+
   const finiteOr = (x, d) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
   const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
@@ -217,10 +226,14 @@
   // Time is counted in half samples at 44.1 kHz, so nothing rounds: client tick k is at 1323 k
   // and mixer block b at 1024 b. Events run in time order; a block that starts before a tick
   // runs before it, one that starts on it runs after it. A message with arrival tick k is added
-  // on tick k, before the tick's pass. Block b is output samples 512 b - D to 512 b - D + 511,
-  // D = round(44100 x latency): the delay at which a restarted spurt plays, taken out so that a
-  // restarted spurt sits where the source has it. Output before sample 0 or past length is
-  // dropped. The mixer runs one sample ahead of what it plays (W3-10's upsampler read, section
+  // on tick k, before the tick's pass. Block b is output samples 512 b - D to 512 b - D + 511.
+  // D, the zero, is taken out so that a restarted spurt sits where the source has it, in the
+  // mean: the delay at which a restarted spurt plays (latency) plus the mean time its opening
+  // packet takes to arrive after its last sample (ARRIVAL_SECONDS), on whole blocks so that
+  // the channel's blocks are the mixer's: D = 512 x round(44100 x (latency + arrival) / 512),
+  // 13312 samples at 66.67 fps, 15360 at 100, 24064 at 300. The game has no such figure: it is
+  // the model's, for lining a render up with its source. Output before sample 0 or past length
+  // is dropped. The mixer runs one sample ahead of what it plays (W3-10's upsampler read, section
   // 3): the first block after each start asks the channel for 513 samples, plays the first 512
   // and keeps the last; every later block plays the kept sample and then the first 511 of the
   // 512 it asks for, and keeps the last. So every sample pulled is heard, in order.
@@ -240,10 +253,11 @@
   // info: { timeline: 'game', fps, bufferMs, waitTicks, latency, packets, opens, appended,
   // gainResets, droppedSamples, drops: [{ time, ms }], spurts: [{ start, end, opened,
   // offsetStartMs, offsetEndMs, droppedMs }], source: Int32Array }.
+  //   - latency: the channel's own figure, latency(bufferMs, fps), not D.
   //   - A spurt is a run of messages up to a silence record (the record is its last). start and
   //     end are source seconds (the first sound message's first sample; the last one's end).
   //     opened: its first message opened a channel (else it was appended). An offset is how
-  //     much later than the source a sample came out, latency taken out (negative: early):
+  //     much later than the source a sample came out, D taken out (negative: early):
   //     offsetStartMs at the first played sample at least 0.2 s into the spurt (its first played
   //     sample if none is), offsetEndMs at its last played sample; null if none played.
   //     droppedMs: its samples lost to overflow (its silence record's included).
@@ -268,7 +282,8 @@
       reset() { gainResets++; if (user) user.reset(); },
     };
     const ch = createChannel({ fps, bufferMs, fadeTime: o.fadeTime, gain });
-    const lat = latency(bufferMs, fps), D = Math.round(VOICE_CHANNEL.rate * lat);
+    const lat = latency(bufferMs, fps);
+    const D = VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (lat + ARRIVAL_SECONDS) / VOICE_CHANNEL.mixBlock);
     const TICK = Math.round(2 * VOICE_CHANNEL.rate * VOICE_CHANNEL.tick);      // 1323 half samples
     const N = VOICE_CHANNEL.mixBlock, BLOCK = 2 * N;                          // 512 samples; 1024
     const PER_MS = VOICE_CHANNEL.rate / 1000;
