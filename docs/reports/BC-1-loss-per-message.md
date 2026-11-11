@@ -237,4 +237,12 @@ the order's words with the amendment's ending; `net_split`'s gains the order's s
 `audio.js` (the live room's spurt start, from the opening message whether it arrived, as the timeline opens it, beside
 the message draw and counts), REFERENCE's model intro and PREDICTIONS' notes (both kept). `sw.js` `CACHE` v32.
 
-REVIEW_CHECKS
+**The second merge of main** (W3-20b, the `miles` profile, 6924a23): settled by hand in `app/console.js` (W3-20b's
+`snd_bits` help, BC-1's `net_fakeloss` help), PREDICTIONS' notes and `tests/render-stream.verify.mjs`'s hash history
+(both kept, W3-20b's first). `sw.js` `CACHE` v33. A lost `miles` frame stays per frame (zeros), outside BC-1's rule.
+
+**Checks after both merges** (`flock /tmp/tf2ve-heavy.lock npm run test:all`, exit 0, 16 min 27 s): the five vendored
+builds match their hashes; `tests/verify.js` 285 passed, 0 failed; gain 103; Opus 149; Speex 86; VR12 31; miles 73;
+reference 43; formats 68; file rate 53; meter 50; video 46; demo 36; render-stream 553, 0 failed (W3-20b's eight
+`miles` cases among them; no hash moved beyond BC-1's five); output stage 103; voice channel 129; steam sender 109;
+swresample 43; room 215; browser 299. (After the first merge alone: 281, 520 and 285 browser, all passing.)
