@@ -770,6 +770,8 @@ module at main; numbers only here. Parts c and d take the following from it.
   under a voice.
 - **R1's flat tops, 32639 or 32510, are not decided** (the limiter; the two differ by 0.39%). Part c keeps
   what it has: `dsp_room 0` enters the voice at 255/256. The retake decides it.
+  **Decided the same night (the retake at `volume 0.5`): 37,644 samples at exactly 16320 and -16320, none
+  above. 32639: `dsp_room 0` enters the voice at 255/256, as part c has it.**
 - **The tail's decay cannot be read** from any take so far (under the ambience from its first 20 ms).
 
 **New for part c: five rows of `ROOM_PLACES`** (map `ctf_2fort`; measures in units, width x length x height, as
