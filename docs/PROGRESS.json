@@ -44,7 +44,8 @@
   ],
   "waiting_on_the_owner": [
     "Unanswered: whether to pull the footer's version line (W4-01a) forward into the rooms build.",
-    "A Miles run in HL2DM's 32-bit game (steps given 2026-11-11): whether bin holds vaudio_miles.dll and the mss files; if so two recordings as for Set M with sv_voicecodec vaudio_miles, the console log, and the module files."
+    "A Miles run in HL2DM's 32-bit game (steps given 2026-11-11): whether bin holds vaudio_miles.dll and the mss files; if so two recordings as for Set M with sv_voicecodec vaudio_miles, the console log, and the module files.",
+    "Older engine files (offered by the owner 2026-11-11; asked for the same day): the list of beta branches Steam shows for TF2 and HL2DM, and from Steam's Tools the free Source SDK Base 2006, 2007 and 2013 Multiplayer, each one's bin folder files engine.dll, vaudio_*.dll, mss32.dll and any .asi or .flt beside them, zipped per build with the build's name. Read as data only; nothing of them enters this repository."
   ],
   "open_questions": [
     "Which Speex quality and release did Source's vaudio_speex use? The profile assumes quality 4 of Speex 1.2.1; a packet from a demo of that era would settle the quality by its size (20 bytes a frame at quality 3 or 4).",
