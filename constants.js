@@ -207,8 +207,9 @@ const TF2_DATA = {
  * hp 0 / lp 20000 leave the optional sender filters off: the measured TF2
  * path has no capture EQ beyond Opus's own voice high-pass and band edge.
  * gain > 1 overdrives the sender's int16 capture before encoding.
- * loss is the % of voice frames lost (net_fakeloss), jitter is net_fakejitter in ms;
- * omitted = 0.
+ * loss is the % of voice packets lost (the control labelled net_fakeloss: on
+ * `steam` each sender message is a packet, lost whole; on the other profiles
+ * single frames in bursts), jitter is net_fakejitter in ms; omitted = 0.
  * ------------------------------------------------------------------------- */
 
 // The listener's first place on the page, what the built-in presets use and
@@ -228,7 +229,7 @@ const PRESETS = {
   // preset (14). It was called "2fort sewers" until W3-17d; a sewer's
   // soundscape asks for the automatic room, not water.
   underwater: { codec: 'steam', position: DEFAULT_LISTENER, underwater: true, hp: 0, lp: 20000, voice_scale: 1.0, gain: 2.0, loss: 0 },
-  // Bad connection: 18% of voice frames lost in bursts, plus 50 ms jitter.
+  // Bad connection: 18% of voice packets lost, plus 50 ms jitter.
   laggy:   { codec: 'steam',   position: DEFAULT_LISTENER, hp: 0, lp: 20000, voice_scale: 1.0, gain: 1.0, loss: 18, jitter: 50 }
 };
 // Built-in presets known by an older name: `exec preset_sewers` runs `underwater`.
@@ -424,12 +425,16 @@ const CODEC_PROFILES = {
  *               own default (W3-10; the app used 0.5 before). The
  *               recordings' ceiling (-16.5 dBFS) is the owner's `volume
  *               0.15`, so this is a setting, not a fit.
- *   network   : packet loss and jitter, measured with net_fakeloss /
- *               net_fakelag / net_fakejitter takes of the network test signal.
- *               Lost 20 ms voice frames come in bursts of 2.2 on average and
- *               are concealed by Opus. Jitter adds late frames (3.2% of frames
- *               at net_fakejitter 50, scaled linearly), one in ten of which
- *               plays as silence instead of concealment.
+ *   network   : the loss and jitter fits to the net_fakeloss / net_fakelag /
+ *               net_fakejitter takes of the network test signal, made with a
+ *               per-frame model. Loss: lost 20 ms voice frames in bursts of
+ *               2.2 on average, concealed by the codec; since BC-1 only the
+ *               engine codecs and steam_48 draw loss this way: `steam` loses
+ *               each sender message whole by a draw of its own (audio.js,
+ *               steamMessageLoss), as the game loses a packet. Jitter, on every
+ *               profile: late frames (3.2% of frames at net_fakejitter 50,
+ *               scaled linearly), one in ten of which plays as silence instead
+ *               of concealment (a fit with no mechanism read in the game).
  * ------------------------------------------------------------------------- */
 const VOICE_ENGINE = {
   mixRate: 44100,

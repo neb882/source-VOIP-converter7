@@ -4,8 +4,10 @@
  *           clip -> resample to the codec rate -> optional capture filters
  *           -> Steam capture roll-off -> Steam voice gate (pre-roll, hold, one
  *           encoder per talk spurt) -> libopus 1.1.5 encode, as in Steam
- * Network:  20 ms packets grouped by net_split; measured burst loss and
- *           late (jittered) frames, seeded
+ * Network:  `steam`: each sender message is one packet, lost whole by its
+ *           own draw (BC-1); the other profiles: 20 ms packets grouped by
+ *           net_split, lost in bursts (the earlier fit); late (jittered)
+ *           frames on every profile; all seeded
  * Receiver: libopus 1.1.5 decode + native concealment and comfort noise ->
  *           engine voice rate -> Source-style auto-gain with int16 clamp ->
  *           the 44.1 kHz mixer as integers (the voice entered at 255/256,
@@ -908,16 +910,20 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* Network: packet loss and jitter, measured in TF2                   */
+  /* Network: packet loss and jitter                                    */
   /*                                                                    */
-  /* Loss is a two-state (Gilbert-Elliott) process over packets whose   */
-  /* stationary rate is lossPct of voice frames and whose bursts last    */
-  /* 2.2 frames on average, which reproduces the event rate, burst       */
-  /* sizes and lost share of the 2026 net_fakeloss takes. The decoder    */
-  /* conceals lost frames (mask 1). Jitter makes frames arrive too late: */
-  /* 3.2% of frames at net_fakejitter 50, scaled linearly; one in ten    */
-  /* plays as silence (mask 2) instead of being concealed. Packets group */
-  /* net_split frames. See tests/REFERENCE_2026.md.                      */
+  /* `steam` (BC-1): lossPct is the share of the sender's messages that */
+  /* never reach the listener, each message one packet with a draw of   */
+  /* its own (steamMessageLoss), as the game loses a packet (read; see   */
+  /* finding 8 in tests/REFERENCE_2026.md). The other profiles keep the  */
+  /* earlier fit: a two-state (Gilbert-Elliott) process over packets of  */
+  /* net_split frames whose stationary rate is lossPct of voice frames   */
+  /* and whose bursts last 2.2 frames on average, fitted to the 2026     */
+  /* net_fakeloss takes by a per-frame model; the decoder conceals lost  */
+  /* frames (mask 1). Jitter, on every profile, makes frames arrive too  */
+  /* late: 3.2% of frames at net_fakejitter 50, scaled linearly; one in  */
+  /* ten plays as silence (mask 2) instead of being concealed (a fit,    */
+  /* finding 9). See tests/REFERENCE_2026.md.                            */
   /* ------------------------------------------------------------------ */
 
   // TF2's receiver re-timing of talk spurts (tests/REFERENCE_2026.md,
@@ -928,7 +934,9 @@
   // A spurt's samples are its frames' on the frame path. On the steam path
   // (info.spans: the laid packets' sample ranges, which run up to half a slot
   // past the slots they mark) they are every laid span its slots meet, moved
-  // whole, and never onto the spurt before.
+  // whole, and never onto the spurt before; slots whose spans meet are one
+  // spurt, so the empty time a gap of more than ten lost frames leaves inside
+  // a sender's spurt (BC-1) does not split it.
   const RETIME = { maxGap: 0.45, chance: 0.41, leftMax: 0.13, maxShift: 0.35 };
   function retimeSpurts(samples, info, rate, rand) {
     const log = info.frameLog, size = info.frameSamples, lookahead = info.lookahead || 0;
@@ -949,6 +957,11 @@
       }
       return { from, to };
     };
+    if (info.spans) {
+      for (let k = spurts.length - 1; k > 0; k--) {
+        if (range(spurts[k - 1]).to > range(spurts[k]).from) { spurts[k - 1].last = spurts[k].last; spurts.splice(k, 1); }
+      }
+    }
     const moves = [];
     let early = false;
     for (let k = 1; k < spurts.length; k++) {
@@ -1224,6 +1237,38 @@
   // The decoder conceals at most this many lost frames before a frame that
   // arrives (createSteamDecoder in opus-codec.mjs; W3-11a, point 6).
   const STEAM_CONCEAL_MAX = 10;
+  // One frame at the voice rate: 480 samples at 24 kHz are 882 at 44.1 kHz,
+  // and the resampler gives exactly 882 F samples for a packet of F frames.
+  const STEAM_SLOT = STEAM_FRAME * STEAM_VOICE_RATE / STEAM_RATE;
+  // The engine's room for one message's sound: 22,528 bytes, 11,264 16-bit
+  // samples (W3-03, read). Steam copies nothing when a message's resampled
+  // sound is longer, and the engine queues nothing of it (the W3-16 read;
+  // seen in Set J and by its effect in Set C, finding 29): 12 frames are
+  // 10,584 samples and fit, 13 are 11,466 and do not.
+  const STEAM_ROOM = 22528 / 2;
+  // Whether the game takes a packet of n voice-rate samples (BC-1, rule D).
+  const steamFits = (n) => n <= STEAM_ROOM;
+
+  // The `steam` message draw (BC-1, decision 1): a function that says, once
+  // per call, whether the next sender message is lost on its way to the
+  // listener. Each message has a draw of its own, u < p, from a random stream
+  // of its own, so the late-frame draw (jitter) and net_split do not change
+  // which messages are lost, and raising lossPct only adds lost messages.
+  // seed is the render's (finiteOr(opts.seed, 0xC0FFEE) >>> 0).
+  function steamMessageLoss(lossPct, seed) {
+    const p = clamp(finiteOr(lossPct, 0), 0, 100) / 100;
+    const u = mulberry32(((finiteOr(seed, 0xC0FFEE) >>> 0) ^ 0x4C4F5353) >>> 0);
+    return () => u() < p;
+  }
+  // What process(), createRender and the live chain call once per message, in
+  // the sender's order: opts.loseMessage(index, message) when given (tests,
+  // and replaying a log's dropped packets), else the draw. Whether loss is set
+  // decides whether codecInfo.network is reported.
+  function steamLoser(opts, lossPct, seed) {
+    if (typeof opts.loseMessage === 'function') return { set: true, lose: (k, m) => !!opts.loseMessage(k, m) };
+    const draw = steamMessageLoss(lossPct, seed);
+    return { set: lossPct > 0, lose: () => draw() };
+  }
 
   // What a `steam` stage can give out (W3-11b), shared by createRender and
   // the live chain: the voice-rate samples before the returned index. pushed
@@ -1298,10 +1343,17 @@
   }
 
   // The receiver on the source's timeline, fed each sender message with
-  // what createSteamStream made of it (W3-11a, points 6 to 9).
+  // what createSteamStream made of it (W3-11a, points 6 to 9; BC-1). Every
+  // message is given to add(), lost or not: the timeline follows the sender,
+  // a spurt anchored at its opening message's start and closed at its last.
   //   - One resampler for the whole render, given each message's samples
   //     whole (a silence record's as zeros): never reset, not by an Opus
-  //     decoder reset either; a message with no samples makes no call.
+  //     decoder reset either; a message with no samples makes no call (a lost
+  //     message, a lost silence record among them).
+  //   - The refusal (BC-1, rule D): a packet whose resampled sound is longer
+  //     than STEAM_ROOM is taken by nothing after the resampler: not the
+  //     gain, not laid, no slot marked; the decoder and the resampler keep the
+  //     state it left them in, and the cursor moves past its place.
   //   - One gain, reset once (at the render's start: no channel is assigned
   //     on this timeline), fed the resampled packets in the sender's order,
   //     each as its 16-bit values / 32768, the silence records' zeros among
@@ -1313,10 +1365,18 @@
   //     late after its first packet and spreads a frame over 16 inputs each
   //     side). The zeros between spurts never reach the gain: its blocks of
   //     128 run over the decoded samples end to end, across packets and spurts.
-  //   - Laying: a spurt's first packet at round((start - lookahead) x 147 / 80),
-  //     each later one directly after the one before; a silence record is not
-  //     laid; where packets overlap the later one wins; samples before 0 or
-  //     past voiceLength are dropped (they have still been through the gain).
+  //   - Laying: a spurt's anchor is round((start - lookahead) x 147 / 80) of
+  //     its opening message, arrived or lost. A packet is laid whole at the
+  //     cursor (where the spurt's last packet laid or refused ended; the
+  //     anchor at first) plus 882 samples for each frame in front of it that
+  //     no block stands for (made.skipped: past the ten concealed frames of a
+  //     gap, or lost before a reset), so a frame that is played is played at
+  //     its own time and later sound does not move (BC-1, decision 2); that
+  //     time stays empty. With no gap of more than ten this is each packet
+  //     directly after the one before, as W3-11a laid them. A silence record
+  //     is not laid; where packets overlap the later one wins; samples before
+  //     0 or past voiceLength are dropped (they have still been through the
+  //     gain).
   //   - The frame log: 20 ms slots on the source's time, slot i covering the
   //     codec samples i x 480 - lookahead onwards, as the frame path's frames
   //     do; each takes the code and size of the frame whose laid samples cover
@@ -1329,11 +1389,13 @@
   // at an end. It passes add() a third argument, given: the samples already
   // given out (indexes 0 to given - 1), before which nothing may be laid. A
   // packet that would land there is not refused:
-  //   - the packet of a spurt's opening message (the one that carries the
-  //     pre-roll) is cut: its samples before given are dropped, and those at
-  //     or after index 0 are counted in dropped(); the rest is laid where it
-  //     belongs. Where the cut overlaps the spurt before, that spurt's tail
-  //     stays (it has been given out), where a render has the new pre-roll;
+  //   - the first packet laid in a spurt (the opening message's, which
+  //     carries the pre-roll, or whichever message brings the spurt's first
+  //     packet when that one was lost) is cut: its samples before given are
+  //     dropped, and those at or after index 0 are counted in dropped(); the
+  //     rest is laid where it belongs. Where the cut overlaps the spurt
+  //     before, that spurt's tail stays (it has been given out), where a
+  //     render has the new pre-roll;
   //   - a packet before index 0 while nothing at or after 0 has been given
   //     out (a spurt anchored before 0, at the chain's start) is not late:
   //     it is laid as the render lays it, what lies before 0 dropped;
@@ -1349,7 +1411,8 @@
     let slots = growing ? 256 : Math.ceil((cfg.codecLength + lookahead) / STEAM_FRAME);
     let frameLog = new Uint8Array(slots), frameBytes = new Uint16Array(slots), frameMode = new Array(slots).fill(null);
     let buf = new Float32Array(cfg.capacity || 1 << 16), base = 0, high = 0;
-    let spurt = null, cursor = 0, open = false, calls = 0, dropped = 0, moved = 0;
+    let spurt = null, cursor = 0, open = false, laid = false, calls = 0, dropped = 0, moved = 0;
+    let messages = 0, lostMessages = 0, refusedMessages = 0;
     const spans = [];   // each spurt's laid spans, [from, to) on the voice timeline
     const centre = (i) => (i * STEAM_FRAME + STEAM_FRAME / 2 - lookahead) * STEAM_VOICE_RATE / STEAM_RATE;
 
@@ -1390,9 +1453,10 @@
     }
     return {
       add(msg, made, given) {
-        let opening = false;
+        messages++;
+        if (made.lost) lostMessages++;
         if (!made.silence && msg.spurt !== spurt) {
-          spurt = msg.spurt; open = true; opening = true;
+          spurt = msg.spurt; open = true; laid = false;
           cursor = Math.round((msg.start - lookahead) * STEAM_VOICE_RATE / STEAM_RATE);
           spans.push([cursor, cursor]);
         }
@@ -1402,6 +1466,14 @@
           const y16 = resampler.packet(pcm);
           calls++;
           cfg.onResampled?.(y16, msg);
+          // Where the packet belongs: past the frames nobody fills.
+          const place = cursor + STEAM_SLOT * (made.skipped || 0);
+          if (!steamFits(y16.length)) {
+            refusedMessages++;
+            if (!made.silence) cursor = place + y16.length;
+            if (msg.end) open = false;
+            return;
+          }
           let y = Float32Array.from(y16, v => v / 32768);
           if (gain) {
             const blocks = made.blocks, F = blocks.length, n = y.length;
@@ -1419,9 +1491,9 @@
             }
           }
           if (!made.silence) {
-            let at = cursor;
+            let at = place;
             if (given !== undefined && Math.max(at, 0) < given) {
-              if (opening) dropped += Math.max(0, Math.min(at + y.length, given) - Math.max(at, 0));
+              if (!laid) dropped += Math.max(0, Math.min(at + y.length, given) - Math.max(at, 0));
               else {
                 cfg.onMove?.(at, given);
                 moved++;
@@ -1433,6 +1505,7 @@
             mark(made.blocks, y.length, at);
             cursor = at + y.length;
             spans[spans.length - 1][1] = cursor;
+            laid = true;
           }
         }
         if (msg.end) open = false;
@@ -1466,7 +1539,9 @@
       spans: () => spans.map(([a, b]) => [Math.max(a, 0), Math.min(b, voiceLength)]).filter(([a, b]) => b > a),
       calls: () => calls,
       dropped: () => dropped,
-      moved: () => moved
+      moved: () => moved,
+      // The messages given to add(), those lost on the way and those refused.
+      network: () => ({ messages, lostMessages, refusedMessages })
     };
   }
 
@@ -1477,23 +1552,28 @@
   // not gated (a lost or late slot's frame was coded too). So, as on the frame
   // path, the modes add up to frames - gatedFrames and frameBytes to
   // encodedBytes. Then the sender's spurts, and what the sender and the
-  // resampler did.
-  function steamCodecInfo(codec, voice, timeline, sender, settings, resampler, bitrate) {
+  // resampler did. network (BC-1): { messages, lostMessages, refusedMessages },
+  // when loss is set (lossSet: lossPct above 0, or opts.loseMessage given) or
+  // a message was refused; absent otherwise.
+  function steamCodecInfo(codec, voice, timeline, sender, settings, resampler, bitrate, lossSet) {
     const { frames, frameLog, frameBytes, frameMode } = timeline.slots();
     const count = (code) => { let n = 0; for (let i = 0; i < frameLog.length; i++) if (frameLog[i] === code) n++; return n; };
     const modes = { silk: 0, hybrid: 0, celt: 0 };
     let encodedBytes = 0;
     for (let i = 0; i < frames; i++) if (frameLog[i] !== FRAME_CODES.gated) { modes[frameMode[i]]++; encodedBytes += frameBytes[i]; }
-    const info = sender.info();
-    return { backend: 'libopus', version: voice.version, runtime: codec.encoder?.runtime ?? '1.1.5', sampleRate: STEAM_RATE, bitrate,
+    const sent = sender.info();
+    const info = { backend: 'libopus', version: voice.version, runtime: codec.encoder?.runtime ?? '1.1.5', sampleRate: STEAM_RATE, bitrate,
       application: codec.application ?? 'voip', signal: codec.signal ?? 'auto', complexity: codec.encoder?.complexity ?? 10,
       vbr: !!codec.encoder?.vbr, dtx: !!codec.encoder?.dtx, frameSamples: STEAM_FRAME, frameMs: 20,
       lookahead: voice.lookahead, frames, lostFrames: count(FRAME_CODES.lost), underrunFrames: count(FRAME_CODES.late),
-      gatedFrames: count(FRAME_CODES.gated), dtxFrames: count(FRAME_CODES.dtx), spurts: info.spurts.length,
+      gatedFrames: count(FRAME_CODES.gated), dtxFrames: count(FRAME_CODES.dtx), spurts: sent.spurts.length,
       gate: settings.gate ? settings.thresholdDb : null, prerollFrames: 0, holdFrames: 0,
       encodedBytes, modes, plc: 'opus', frameLog, frameBytes,
-      sender: { rule: 'steam', gate: settings.gate, meanMin: settings.meanMin, uptime: info.uptime, chunks: info.chunks, messages: info.messages, spurts: info.spurts },
+      sender: { rule: 'steam', gate: settings.gate, meanMin: settings.meanMin, uptime: sent.uptime, chunks: sent.chunks, messages: sent.messages, spurts: sent.spurts },
       resampler: { kernel: resampler.kernel, calls: timeline.calls() } };
+    const network = timeline.network();
+    if (lossSet || network.refusedMessages > 0) info.network = network;
+    return info;
   }
 
   /**
@@ -1519,8 +1599,15 @@
    *   hp / lp:      optional sender filters in Hz (off: hp <= 10,
    *                 lp >= 0.45 x codec rate)                           [off]
    *   bits:         bitrate scale; 16 = profile bitrate                 [16]
-   *   lossPct:      % of voice frames lost, in bursts of ~2.2 frames     [0]
-   *   frameMs:      net_split packet duration (whole 20 ms frames)      [20]
+   *   lossPct:      % of voice packets lost: on `steam` the share of the
+   *                 sender's messages, each lost whole by its own draw
+   *                 (steamMessageLoss); on the other profiles the share of
+   *                 voice frames, in bursts of ~2.2 frames                [0]
+   *   loseMessage:  `steam` only, tests and replays (the page never sends
+   *                 it): (index, message) => boolean, in place of the draw,
+   *                 called once per sender message in order          [none]
+   *   frameMs:      net_split packet duration (whole 20 ms frames); on
+   *                 `steam` it no longer sets what a lost packet holds  [20]
    *   jitterMs:     net_fakejitter in ms: late frames, measured          [0]
    *   enableWarble: false bypasses the codec (filters/engine remain)    [true]
    *   gate:         Steam sender voice gate; null = profile default     [null]
@@ -1652,10 +1739,14 @@
       const sender = SteamSender.createSender(settings.sender);
       const messages = sender.push(steamCapture(samples));
       for (const m of sender.finish()) messages.push(m);
+      // Loss takes whole messages (BC-1), one draw each; the per-frame mask
+      // keeps only the late frames (jitter), drawn as before with a loss of 0.
+      const loser = steamLoser(opts, lossPct, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
       const trip = await opus.steamRoundTrip(messages, bitrate, {
         application: codec.application, signal: codec.signal, runtime: codec.encoder?.runtime,
         complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx,
-        makeLossMask: count => buildLossMask(count, framesPerPacket, lossPct, rand, jitterMs),
+        makeLossMask: count => buildLossMask(count, framesPerPacket, 0, rand, jitterMs),
+        lose: loser.lose,
         yieldControl: microYield,
         onProgress: f => report(0.2 + 0.4 * f)
       });
@@ -1669,7 +1760,7 @@
         if ((k & 63) === 63) await microYield();
       }
       steamVoice = timeline.take(voiceLength);
-      codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate), framesPerPacket };
+      codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate, loser.set), framesPerPacket };
       // The receiver's re-timing (finding 19), on the voice-rate timeline: the
       // laid spurts, moved earlier as the frame path moves its decoded sound;
       // the slots of 480 codec samples are 882 here.
@@ -1939,13 +2030,16 @@
   // render's own stages (createRender's steam stage), fed as the
   // microphone's blocks arrive, with the key held from the chain's start to
   // its stop. What it hands its mix point is, sample for sample, what
-  // createRender hands its own for the same sound, seed and settings, but for
-  // a packet moved after a gap of more than ten lost frames (below).
+  // createRender hands its own for the same sound, seed and settings. Since
+  // BC-1 a gap of more than ten lost frames leaves its time empty and later
+  // sound does not move, so no packet lands on what was given out (a packet
+  // that would is still moved, and counted in movedLate).
   //   - Capture: the mic gain and the clip, the context's rate to 24 kHz, the
   //     optional filters, the capture roll-off with its delay dropped from
   //     the front (firStage, as createRender runs it), the 16 bits.
   //   - Steam's sender with the render's seed, settings and steamUptime; the
-  //     loss mask a frame at a time by the sender's frame number;
+  //     message draw once per message (BC-1) and the late-frame mask a frame
+  //     at a time by the sender's frame number;
   //     createSteamStream; steamTimeline with one resampler and one gain for
   //     the chain. No wall clock is read: the sender's seeded clock runs on
   //     the samples pushed to it, as in a render.
@@ -1993,8 +2087,9 @@
     let stream = await opus.createSteamStream(bitrate, { application: codec.application, signal: codec.signal,
       runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
     const lookahead = stream.lookahead;
-    const nextMiss = streamLossMask(framesPerPacket, lossPct, rand, jitterMs);
-    let frame = 0;
+    const nextMiss = streamLossMask(framesPerPacket, 0, rand, jitterMs);
+    const loser = steamLoser(opts, lossPct, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
+    let frame = 0, index = 0;
     const miss = (f) => {
       if (f !== frame++) throw new Error(`TF2Audio live chain: frame ${f} reached the network out of order`);
       return nextMiss();
@@ -2033,7 +2128,7 @@
     const one = new Int16Array(1), codes = [];
     const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0, vr12: 0 }, dtx: 0, lost: 0, late: 0,
       bytes: 0, gateOpen: false, lastMode: null, inputPeak: 0, outputPeak: 0, spurts: 0, talking,
-      droppedLate: 0, movedLate: 0, latencyMs: 0 };
+      droppedLate: 0, movedLate: 0, lostMessages: 0, refusedMessages: 0, latencyMs: 0 };
     // What the chain holds back now (the room's block only while it holds one).
     Object.defineProperty(stats, 'latencyMs', { enumerable: true, get: () => latencyMs(reach) });
     // The sender's own count, read when asked.
@@ -2061,9 +2156,10 @@
         const messages = sender.push(one);
         pushed++;
         for (const msg of messages) {
-          const made = await stream.message(msg, miss);
+          const made = await stream.message(msg, miss, loser.lose(index++, msg));
           // The room's stand-in for a voice channel's start: the spurt's
-          // first delivered message, where the timeline opens the spurt.
+          // opening message, delivered or lost (BC-1), where the timeline
+          // opens the spurt.
           if (!made.silence && msg.spurt !== roomSpurt) { roomSpurt = msg.spurt; spurtStarts(); }
           for (const b of made.blocks) {
             const dtx = b.bytes <= 2;
@@ -2091,6 +2187,9 @@
       stats.gateOpen = timeline.cursor !== Infinity;
       stats.droppedLate = timeline.dropped();
       stats.movedLate = timeline.moved();
+      const network = timeline.network();
+      stats.lostMessages = network.lostMessages;
+      stats.refusedMessages = network.refusedMessages;
       let out = timeline.take(given);
       for (const f of after) out = f(out);
       let outPeak = 0;
@@ -2654,7 +2753,8 @@
     if (steamPath) {
       // Steam's sender and decoder through to the voice rate, the gain
       // included, as process() runs them: the same sender, stream, resampler,
-      // gain and timeline, given the sound as it comes. The loss mask is drawn
+      // gain and timeline, given the sound as it comes. The message draw is
+      // made once per message in the sender's order, and the late-frame mask
       // a frame at a time in the sender's frame order (streamLossMask gives
       // buildLossMask's values). A sample is given out once no later packet
       // can reach it: past the open spurt's next packet, and a spurt not yet
@@ -2671,8 +2771,9 @@
       voice = await opus.createSteamStream(bitrate, { application: codec.application, signal: codec.signal,
         runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
       const stream = voice;
-      const nextMiss = streamLossMask(framesPerPacket, lossPct, rand, jitterMs);
-      let frame = 0, given = 0, fed = 0;
+      const nextMiss = streamLossMask(framesPerPacket, 0, rand, jitterMs);
+      const loser = steamLoser(opts, lossPct, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
+      let frame = 0, given = 0, fed = 0, index = 0;
       const miss = (f) => {
         if (f !== frame++) throw new Error(`createRender: frame ${f} reached the network out of order`);
         return nextMiss();
@@ -2683,11 +2784,11 @@
         onDecoded: opts.onDecoded, onResampled: opts.onResampled });
       const feed = async (messages) => {
         for (const msg of messages) {
-          timeline.add(msg, await stream.message(msg, miss));
+          timeline.add(msg, await stream.message(msg, miss, loser.lose(index++, msg)));
           if ((++fed & 63) === 63) await microYield();
         }
       };
-      steam = { sender, settings, resampler, timeline };
+      steam = { sender, settings, resampler, timeline, lossSet: loser.set };
       stages.push({
         async push(x) {
           given += x.length;
@@ -2844,7 +2945,7 @@
         let codecInfo = { backend: 'bypass', sampleRate: codecRate, frameMs };
         if (received) codecInfo = receivedCodecInfo(received, codecRate);
         else if (steam) {
-          codecInfo = { ...steamCodecInfo(codec, voice, steam.timeline, steam.sender, steam.settings, steam.resampler, bitrate),
+          codecInfo = { ...steamCodecInfo(codec, voice, steam.timeline, steam.sender, steam.settings, steam.resampler, bitrate, steam.lossSet),
             framesPerPacket };
         } else if (coder) codecInfo = { ...codecResultInfo(kind, voice, codec, coder.counts(), gate, gateOpts, bitrate, packetBytes, codecRate), framesPerPacket };
         release();
@@ -2931,6 +3032,8 @@
     streamAutoGain,
     streamLossMask,
     steamGiveOut,
+    steamMessageLoss,
+    steamFits,
     // the mixer and the output stage (W3-10); a room's mix (W3-17c) calls
     // the first two, its entries checked against TF2Room.entry
     mixEntry,

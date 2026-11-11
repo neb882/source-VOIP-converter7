@@ -247,8 +247,9 @@ add('steam, empty source', 48000, () => new Float32Array(0), {}, ['whole']);
 // Added in W3-11a's fix round. Heavy loss inside one long spurt (the gate
 // off): a run of lost frames lays nothing, so the open spurt's cursor stays
 // where it is while the sender reads on, and the next frame to arrive (with
-// its concealment) lands at that cursor. createRender may give out samples
-// only up to it; without that bound these cases throw at chunks of 960 and 7.
+// its concealment) lands at that cursor (since BC-1, at the cursor plus the
+// frames past the ten concealed). createRender may give out samples only up
+// to it; without that bound these cases throw at chunks of 960 and 7.
 const noise = (seconds, seed) => () => {
   let s = seed >>> 0;
   return Float32Array.from({ length: Math.round(seconds * 48000) }, () => 0.3 * ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2147483648 - 1));
@@ -450,6 +451,18 @@ addRoom('steam, dsp_room 137 (no room)', { listenerPos: null, dspRoom: 137 }, nu
 // 2007, not a TF2 codec) added eight cases of it, recorded once from the
 // branch's code after every check of tests/miles.verify.mjs passed, in a
 // commit of their own, beside the W3-19 cases. No other hash moved.
+// BC-1 (on `steam` loss takes whole messages: one draw a message, a lost end
+// marker carrying the decoder, the refusal over 12 frames, each played frame
+// at its own time) re-recorded the WAV, codecInfo and GAIN_GOLDEN hashes of
+// the five `steam` cases with loss, in a commit of its own: 'steam, loss 15%,
+// jitter 50 ms, net_split 40 ms', 'steam, gate off, loss 80%, seed 1 (long
+// runs lost inside a spurt)', 'steam, gate off, loss 40%, seed 3 (long runs
+// lost inside a spurt)', 'steam, listenerPos tunnel (preset 6), loss 15%,
+// jitter 50 ms' and 'odd options' (its unknown codec renders as `steam`, with
+// lossPct 12). No other hash moved: not 'steam, jitter 500 ms (late frames
+// play as silence)', whose late frames bring no packet past 12 frames and
+// make no gap of more than ten, nor any render at loss 0 or of another
+// profile, loss cases included.
 const GOLDEN = {
   "steam": ["bb7ef37d9d65f1c03672fe6bb14933036cc8d8174847fd4e4c3e9671a98f4a61", "4992fbdbd3efbe23ae9c2640825202a57429755fdc7d331ea4f37e210a9d91b9"],
   "steam_48": ["cb106e3f224599e2a7d6bb5d8b3cea9092d99c91a8d9b736f5248d80a819e483", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
@@ -464,7 +477,7 @@ const GOLDEN = {
   "steam, auto-gain off": ["164d52e0c9804bbf6a2ff99c5226cfb955aaea70929347370f3f53fa7c5017fa", "d4f9815a5782eb2d4dce9b46233b6bf7a44fc6059a56ecc64056b424a5151719"],
   "steam, voice_scale 0.5": ["6402ef67462b8fd2d710b4c407323b0e784d7a24e50c22555cceca2d738d80a8", "e102db2318a5a8fcc9d9bdbf1094f9dce52bc3c55e117c89ef770964677427ce"],
   "steam, voice_avggain 0.25": ["aa415b8c63422251d31c26d6966447fcf43652e740ceb0daff335a2442c285a8", "e102db2318a5a8fcc9d9bdbf1094f9dce52bc3c55e117c89ef770964677427ce"],
-  "steam, loss 15%, jitter 50 ms, net_split 40 ms": ["a98e709311e4e87f8ba47d036350c6ce98a9558c6e2bc71571acb4cd55fbbf7a", "6dcf80dab8b503152027a43cef01ad12bf18720c3c9c01acdb0d8469144de8bb"],
+  "steam, loss 15%, jitter 50 ms, net_split 40 ms": ["8c2989c0a634b9a979d7a32b60714171d0fecf4e421bbe6d9b49fb2059861ff7", "631209b3abc6e73dda801ed0c5eb55fa8e0a315fbdfa55547b0db5c053343589"],
   "steam, source at 44100 Hz": ["57399adf16efce4e3ca9c6d9521be213877ee4b1b108e18515cc72f52031b348", "d911f7b597eb206c614481ec79933d6cbcb299eac022f62c7aacab0cef469f43"],
   "steam, source at 96000 Hz": ["e135aa8e27b5a8df9a8b8b2ad35cd327d2f0f9afb095e7e1a31a5d33079bc782", "e6f329418ead922efb6cf8ce1df5e550667cf6f0b764f26d4fc9c21e5aadc4c0"],
   "steam, source at 22050 Hz": ["f89979184968a9849e8a62770cf41bcaaea87ec4d0c085532be059b4f8815434", "37e827b164cedd747fcfbf373f6d58435d95651f5c6b48809936086d8058bce8"],
@@ -487,11 +500,11 @@ const GOLDEN = {
   "steam, auto-gain off, voice_scale 3": ["f4bcb71b9b5b758ed9186d178e079b04834f7237d8e95571d94744e603e41792", "e6a5f35e19d62bd888597259c5feaca5f7ab2c04b9f7117ed5fa341e142f9870"],
   "steam, dsp_room 1 (no effect)": ["b673515cfa58978fc847ad8a45bc3405ceed9c2ad5f04afbee83ba47d070f81d", "ad208ca860fd98a0fdd18c6ae1cbb854bc4f73bdc65a113d61d00a01f08047bf"],
   "steam, custom room at mix 0 (no effect)": ["b673515cfa58978fc847ad8a45bc3405ceed9c2ad5f04afbee83ba47d070f81d", "ad208ca860fd98a0fdd18c6ae1cbb854bc4f73bdc65a113d61d00a01f08047bf"],
-  "odd options": ["163b94e6bd13d78a4e119d0eee2a9f36314fc0133d0144df92dc3afdcecebbfe", "e63fe11e6c1e7c6c2adef7f941495f411a3648575876db4e732890d5c338f4d6"],
+  "odd options": ["711b9f02e3726b138977b837758ada1ef008f02bb2712d57e4617e8274aa6115", "a61dc90c3f4c117da5d2b38cf43e9f9992d83c9d77ff38cfbae15c740ccb43eb"],
   "test profile with a decoder EQ": ["ad0ba0879966a6dfe862458009c8b4abd942bebe143b85fec5aa7e2ce169eb5f", "a0a4fdedffca8a05994dabcd30e4c15c05977bd0f2ba7e5a6188192616030df8"],
   "steam, empty source": ["531cd597b25052b4845ef2f3887dec2183240802a93b6e044960de8ba017caa0", "09ce131d4df4147794412a84312b8b781287be1bec8525a2d9ed1a825df72613"],
-  "steam, gate off, loss 80%, seed 1 (long runs lost inside a spurt)": ["d5ed5c6566444bd8d34d21b05447af71cd238398efd7a14f1eecc136e570325e", "1a9df010f9c8945d262a582ede3f0d73abfbb328f928fd005f9eb4b3f1868c3c"],
-  "steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)": ["7285017eb9d4dca883bedfd0d4de8a1742e9a9e777ca61295f7ffcf8acabbfea", "6b8a3789a23f3a9878275888868146062fab39c7c8b8f159811b2d23b61d9328"],
+  "steam, gate off, loss 80%, seed 1 (long runs lost inside a spurt)": ["a9d6a68e994220c1feb1d0662860b5f0c553c5947dbf93fa8901b52d919de63e", "e08891a43e753a437c48286da7bc476966cc0ec84179fd75ecb7d27ad534d289"],
+  "steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)": ["beb16e00e214c8281e11ed8e2fcf16b640654c4b49a0906eb8b3677c7004b798", "46a8eb84bb986279e772edc537171db7836abae9bffaed97fee559ef6e458eec"],
   "celt_22, one sample at 22.05 kHz": ["d16bcaf5ffe07bcf982a161469d1dc9aff4f5d3c606ec408c0071893e6c34ad9", "eb96641cf9ac28d1e20117dcbb88da71d51d3cc4d94394ed8db507c1ad29ce32"],
   "speex, 100 samples at 96 kHz": ["5eae3af6f9b58664dfbd497083689b6ee2555d4b8db3087da2ccd95d660ebc98", "e66f178a6e1b38a504c0806750fd7df1cd70281e04f3656c26a4ecf98f8974da"],
   "celt_22, voice_maxgain 1": ["2c669b8273e98667d984c2664c1e0b9a8c62b68d11a2bda46d57da0e11402839", "9b67647157556b164aa32ad69d116915e881ce1d41cd76a6c832559d126710a2"],
@@ -523,7 +536,7 @@ const GOLDEN = {
   "steam, under water, preset 6": ["ed5ab9d7fb1cab14665c1da3384e4b33c228903c4773eae8b4c85aa3445baddf", "fa6bf944d100644d6d0f3face2873790be396722280a6c769668cc4fc90a0942"],
   "steam, custom room at mix 0.3": ["8ccb91c1b00552e1e54a1589352ad3f32bfd4816434d541bc7350e4021ce40e6", "52f7534ca0384adb740332bebc6fd32075d105edf70ae2594338a5b2be3c03f9"],
   "celt_22, room: preset 6": ["6a6382078f2f52bf57befe64b921ef36caa8f30e07317b18773422e096d98ccb", "ba4e531902cc0467c08d674a260cbcb33e010d08dc767681527122be8ce2beda"],
-  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": ["89e7f2aa412e3f76d75a72a66ff925ebdabedeaaaf5204f3d0fa3a103960e6a4", "e8548e537b8e8ecfa9961e2f74641ad0e183c490e6625131102814dfeadb226e"],
+  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": ["96c72a5678d1b517e42a40db2ba158df395ca4b215275f005cd3c3ea42c5c945", "3a464c80004cc02dac78c1a1ad67d5a96b95b2dce9b3cfe6b30c6bed8c0a44f9"],
   "steam, dsp_room 137 (no room)": ["61a61407a1d1b2032c85e5785b89f2daa0c22ee27b8af86085a0d4c986e0e1a2", "88cd058f344eb3262b96729a0ecd4ff2d348b0ae695d8379e2aec6fd27f510d4"],
   "steam, room: preset 17 (random taps), seed 7": ["ce6aed2c10bfc0c18e3ac626174353f785ca600ede9aac6d9f0f68077c136380", "d01e1ea35b43811bcea1b61353455f274447cfda4a8a847d086fa6128031787f"],
   "steam, room: preset 6, device at 96000 Hz": ["a66810f6d38fb4d76e5a0d29bab11d724f69de2ecc400b55098fff83503f49ff", "63114f6dded29e20fb038b1487f01e44380e2ea54d25df0416a4ed044866e5f0"]
@@ -552,7 +565,7 @@ const GAIN_GOLDEN = {
   "steam, auto-gain off": "7793f0856b6cadd6db810bdafeebf9d817a41c277a80e0c6222f432e37f1bffe",
   "steam, voice_scale 0.5": "e701a59e4d62539721316848e29a9a99222cb19dbcfb98948ca65e2c52fac913",
   "steam, voice_avggain 0.25": "789ddec205abc69e971be4ad56bc34dbcf40e80f78032e1a54bbf034f7b39cb1",
-  "steam, loss 15%, jitter 50 ms, net_split 40 ms": "d4c36c58acc3ecdee69a41985419aa5c15c5bc02163d5f155fd227bdf6c2dbec",
+  "steam, loss 15%, jitter 50 ms, net_split 40 ms": "1ffca9327d611ef5ed3c5f6d7f65c3f89102c64a5603f795a30dc1c4d9607db2",
   "steam, source at 44100 Hz": "b484bf7e8e0e35f146190dbea87a085c9597cc73ec3842526e937c0c4761d3ef",
   "steam, source at 96000 Hz": "ff5a5f15c5fbcb5b2212ca8223be0c6b955010cfc981184bb2d36b82bf38d580",
   "steam, source at 22050 Hz": "98732c1bcae5c82d89367982ce6bcda4f47c503053cfdf72a761965b94c6d9d1",
@@ -575,11 +588,11 @@ const GAIN_GOLDEN = {
   "steam, auto-gain off, voice_scale 3": "2f2373fd6de358832a5ad6178ebce324de299262c3f4b1c2fdd303cca02ac1b2",
   "steam, dsp_room 1 (no effect)": "92643715eabd05accfc09b983921e388c64f5ae6127c53747a69d059292f0c32",
   "steam, custom room at mix 0 (no effect)": "92643715eabd05accfc09b983921e388c64f5ae6127c53747a69d059292f0c32",
-  "odd options": "52c76c0135b7667233f516c2f1c2991e44b812b4c4c86f5b4a933120634ba33f",
+  "odd options": "d82ae8d81584b276de166aa475e47bbb16bf4f824b641b448073f733309760d6",
   "test profile with a decoder EQ": "9356252def077c6f884a029f57b71d7a09095ad8cf9cafbeced8b8cf6b54a033",
   "steam, empty source": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "steam, gate off, loss 80%, seed 1 (long runs lost inside a spurt)": "d172def5fdf4f1901269da8cf46391e3aa0a9d7167af16d7d632fd2ff0c6e8c5",
-  "steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)": "2d23678c8e2f9ddcbb2f40622353a822784ee86b70d82cf251c37a85f8eab237",
+  "steam, gate off, loss 80%, seed 1 (long runs lost inside a spurt)": "79627dd24ca2648c4d27b50b7234a849b09660e8c38ca75d0c2ba355282b5555",
+  "steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)": "5f786410f15e33d491332b768aab7807e6649551506f129bd892eeae0fe463da",
   "celt_22, one sample at 22.05 kHz": "7ec2225478271c68195bba12ee36ff65c7e706f0886d0b05a86e8b2d18d7bebb",
   "speex, 100 samples at 96 kHz": "eae3fbcabcc943196634b7c1dfd48940c62e91f2c42abe4725845d49739891b7",
   "celt_22, voice_maxgain 1": "244966c198753c4fe6b309120edd95d5deb36fde2378a9cece96cec73b25f80a",
@@ -611,7 +624,7 @@ const GAIN_GOLDEN = {
   "steam, under water, preset 6": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
   "steam, custom room at mix 0.3": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
   "celt_22, room: preset 6": "9e9ff38ca1d70685f73688c24adb0c80b14b16ef97b801f57d93657b4244a878",
-  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": "6047d5510bcbbd3a88aa34724f1b4e5f8b0a9d04b39ed45a41b1295f79a01964",
+  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": "dd4e9f10b3d6564ce1c1df55099d36e3bd995389457010d82ef316b7a7c36a00",
   "steam, dsp_room 137 (no room)": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
   "steam, room: preset 17 (random taps), seed 7": "d2c879b48361cc52063316945ef899b35a69f6bcee4d146ae782eacdc73e83a8",
   "steam, room: preset 6, device at 96000 Hz": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e"

@@ -70,7 +70,7 @@
         <button class="preset-btn" type="button" data-cmd="exec preset_underwater" data-preset="underwater" aria-label="Under water">
           <span class="preset-name">Under water</span><span class="preset-desc">The game's water preset</span></button>
         <button class="preset-btn" type="button" data-cmd="exec preset_laggy" data-preset="laggy" aria-label="Laggy 18% Loss">
-          <span class="preset-name">Laggy</span><span class="preset-desc">18% lost frames + 50 ms jitter</span></button>
+          <span class="preset-name">Laggy</span><span class="preset-desc">18% of voice packets lost + 50 ms jitter</span></button>
       </div>
 
       <div class="controls" id="controls-wrapper">
@@ -135,9 +135,9 @@
         <fieldset class="chain-group advanced-control">
           <legend><span class="chain-index">B</span> Network</legend>
           <div class="control">
-            <label for="loss">Frames lost % <code class="cvar">net_fakeloss</code></label>
+            <label for="loss">Packets lost % <code class="cvar">net_fakeloss</code></label>
             <input id="loss" type="number" value="0" min="0" max="60" aria-describedby="loss-help">
-            <p id="loss-help" class="control-help">The share of voice frames that never arrive. Not the game's own number: its net_fakeloss 5 lost about 22% of them.</p>
+            <p id="loss-help" class="control-help">The share of voice packets that never arrive. Not the game's own number: its net_fakeloss 5 loses about 22% of them.</p>
           </div>
           <div class="control">
             <label for="jitter">Jitter ms <code class="cvar">net_fakejitter</code></label>
