@@ -76,14 +76,20 @@
       <div class="controls" id="controls-wrapper">
         <div class="control control-wide">
           <label for="codec">Voice codec <code class="cvar">sv_voicecodec</code></label>
-          <select id="codec" aria-describedby="codec-help">
-            <option value="steam" selected>Steam voice (Opus, 32 kbps)</option>
-            <option value="steam_48">Fullband Opus: not in the game</option>
-            <option value="celt_22">vaudio_celt (CELT, 22 kHz)</option>
-            <option value="celt_44">vaudio_celt_high (44 kHz mode)</option>
-            <option value="speex">vaudio_speex (Speex, 11 kHz)</option>
+          <select id="codec" aria-describedby="codec-help codec-note">
+            <optgroup label="Team Fortress 2">
+              <option value="steam" selected>Steam voice (Opus, 32 kbps)</option>
+              <option value="celt_22">vaudio_celt (CELT, 22 kHz)</option>
+              <option value="celt_44">vaudio_celt_high (44 kHz mode)</option>
+              <option value="speex">vaudio_speex (Speex, 11 kHz)</option>
+            </optgroup>
+            <optgroup label="Not in Team Fortress 2">
+              <option value="steam_48">Fullband Opus: not in the game</option>
+              <option value="miles">vaudio_miles: not in TF2 (VR12)</option>
+            </optgroup>
           </select>
-          <p id="codec-help" class="control-help">What the game sends voice with. Steam voice is today's; the vaudio_ ones are the game's older codecs.</p>
+          <p id="codec-help" class="control-help">What the game sends voice with. Steam voice is today's; the rest of the first group are its older codecs.</p>
+          <p id="codec-note" class="control-help" hidden>vaudio_miles is not a TF2 codec. The Source engines of 2006 and 2007 could run it; current TF2 ships its files and refuses the name. It has not been checked against any recording of a running engine. Everything after the receiver's gain is TF2's of today.</p>
         </div>
 
         <div class="control control-wide">

@@ -164,7 +164,7 @@ function finishRecording() {
   const c = rec.chain || chain;
   const frameSeconds = c ? c.frameSeconds : .02;
   const frameLog = new Uint8Array(Math.ceil(length / rate / frameSeconds));
-  const counts = { frames: frameLog.length, gated: 0, dtx: 0, lost: 0, late: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0 } };
+  const counts = { frames: frameLog.length, gated: 0, dtx: 0, lost: 0, late: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0, vr12: 0 } };
   for (const { at, code } of rec.frames) {
     const f = Math.round(at / frameSeconds);
     if (f >= 0 && f < frameLog.length) frameLog[f] = code;
@@ -180,6 +180,7 @@ function finishRecording() {
     if (code === 5) counts.lost++;
     if (code === 6) counts.late++;
     if (code === 7) counts.modes.speex++;
+    if (code === 8) counts.modes.vr12++;
   });
   const info = c ? { frameSamples: c.frameSize, version: c.version, bitrate: c.bitrate, vbr: c.vbr, dtx: c.dtx, gate: c.gateDb, autoGain: c.autoGain,
     voiceRate: c.voiceRate, codec: c.stats.codec, realOpus: c.realOpus } : {};

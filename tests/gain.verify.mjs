@@ -643,6 +643,22 @@ console.log('\n[4b] The engine codecs: the gain runs on the decoder\'s stream fr
       return { gained: join(g), samples: join(ps) };
     })();
     check('speex, gate on: ... createRender in pieces gives the same gain output and samples', same(st.gained, gained) && same(st.samples, r.samples));
+    // W3-20b: the same signal on `miles`, whose frames are 360 samples and
+    // whose delay is 305: the hold's last frame is 17 (samples 6120 to 6479 of
+    // the decoder's stream), and its blocks from 6144 on are of a frame sent;
+    // read 305 samples on they would be of frame 18, gated, and the gain
+    // held there. The next spurt's first blocks show which.
+    const pm = CODEC_PROFILES.miles, optsM = { codec: 'miles', gate: true, gateThresholdDb: -12, volume: 1 };
+    let gainedM = null;
+    const rm = await A.process({ sampleRate: r8, length: len, numberOfChannels: 1, getChannelData: () => y }, { ...optsM, onGain: (g) => { gainedM = Float32Array.from(g); } });
+    const logM = rm.codecInfo.frameLog;
+    const dm = await decoderStream(pm, A.hardClip(y, 32767 / 32768), logM);
+    const atM = (shift) => (m) => { const f = Math.floor((m + shift) / dm.size); return f < logM.length && logM[f] !== 0; };
+    const wantM = A.receiverAutoGain(dm.stream, { ...settings, decoded: atM(0) }).slice(dm.lookahead, dm.lookahead + len);
+    const otherM = A.receiverAutoGain(dm.stream, { ...settings, decoded: atM(dm.lookahead) }).slice(dm.lookahead, dm.lookahead + len);
+    check('miles, gate on: the gain\'s output is the decoder\'s stream through receiverAutoGain with a block\'s frame floor(m / 360), not floor((m + 305) / 360)',
+      logM[17] !== 0 && logM[18] === 0 && rm.codecInfo.spurts === 2 && same(gainedM, wantM) && !same(otherM, wantM),
+      `${differing(toInts(otherM), toInts(wantM))} samples differ between the two readings`);
   }
 
   // The gain off: the delay is dropped as before and the gain does not run.

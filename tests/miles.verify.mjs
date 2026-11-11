@@ -252,6 +252,23 @@ console.log('[miles] 1. The profile, and what a render says it ran');
     FRAME.vr12 === 8 && info.frames === frames && info.frameBytes.every(b => b === BYTES) && info.encodedBytes === BYTES * frames
     && info.frameLog.every(c => c === FRAME.vr12)
     && JSON.stringify(info.modes) === JSON.stringify({ silk: 0, hybrid: 0, celt: 0, vr12: frames }), `${info.frames} frames, ${info.encodedBytes} bytes`);
+  // createRender in pieces of odd sizes gives process()'s samples and its
+  // codecInfo, key for key (with the gate, loss and jitter, so every count moves).
+  const lossy = { codec: 'miles', gate: true, lossPct: 15, jitterMs: 300, seed: 2 }, x = voice(6, 48000, 3);
+  const whole = await A.process(buffer(x, 48000), lossy);
+  const render = await A.createRender({ sampleRate: 48000, length: x.length, numberOfChannels: 1 }, lossy), parts = [];
+  for (let o = 0, k = 0; o < x.length; k++) {
+    const m = Math.min(x.length - o, [1, 7, 333, 4097, 129, 1021, 12345][k % 7]);
+    parts.push(await render.push(x.subarray(o, o + m)));
+    o += m;
+  }
+  const end = await render.finish();
+  parts.push(end.samples);
+  const keys = [...new Set([...Object.keys(whole.codecInfo), ...Object.keys(end.codecInfo)])];
+  const unlike = keys.filter(k => JSON.stringify(whole.codecInfo[k]) !== JSON.stringify(end.codecInfo[k]));
+  check('createRender in pieces of odd sizes gives process()\'s samples and codecInfo, key for key (gate, loss and jitter on)',
+    same(join(parts), whole.samples) && unlike.length === 0 && whole.codecInfo.lostFrames > 0 && whole.codecInfo.gatedFrames > 0,
+    `${keys.length} keys${unlike.length ? `; differ: ${unlike.join(', ')}` : ''}; ${whole.codecInfo.spurts} spurts, ${whole.codecInfo.lostFrames} lost`);
   let refused = 0;
   for (const make of [() => opus.vr12RoundTrip(new Float32Array(360), 8000), () => opus.createVr12Stream(8000), () => opus.createVr12Stream(22050)]) {
     try { await make(); } catch (e) { if (/runs on 11025 Hz sound/.test(e.message)) refused++; }
@@ -694,6 +711,26 @@ console.log('\n[miles] 12. Where the 8-bit cut shows (measurements for the docum
   measure(`only the signs are left for this sound below ${db(255.5 / 32768 / peak).toFixed(1)} dBFS RMS (its peak under 256 of 32768; crest ${db(peak).toFixed(1)} dB)`);
   check('digital silence stays digital silence; only the signs are left at -60 dBFS and not at -48 (the edge near -50 for this sound)',
     signsOnlyAt === -60 && (await referenceRun(new Float32Array(20 * SIZE))).decoded.every(v => v === 0), `first at ${signsOnlyAt}`);
+}
+
+console.log('\n[miles] 13. The words');
+{
+  const html = read('index.html');
+  const note = /<p id="codec-note"[^>]*>([\s\S]*?)<\/p>/.exec(html)?.[1].replace(/\s+/g, ' ').trim() || '';
+  const NOTE = 'vaudio_miles is not a TF2 codec. The Source engines of 2006 and 2007 could run it; current TF2 ships its files and refuses the name. '
+    + 'It has not been checked against any recording of a running engine. Everything after the receiver\'s gain is TF2\'s of today.';
+  check('index.html holds the note\'s four sentences word for word', note === NOTE, note);
+  const group = /<optgroup label="Not in Team Fortress 2">([\s\S]*?)<\/optgroup>/.exec(html)?.[1] || '';
+  check('the Miles option is inside the group labelled "Not in Team Fortress 2"', /<option value="miles">vaudio_miles: not in TF2/.test(group),
+    /<option value="miles">([^<]*)/.exec(html)?.[1] || 'no option');
+  const SENTENCE = 'It has not been checked against any recording of a running engine.';
+  const files = ['README.md', 'tests/LEGACY_CODECS.md', 'tests/REFERENCE_2026.md', 'vendor/voxware-vr12/README.md'];
+  const missing = files.filter(f => !read(f).replace(/\s+/g, ' ').includes(SENTENCE));
+  check('README.md, tests/LEGACY_CODECS.md, tests/REFERENCE_2026.md and vendor/voxware-vr12/README.md each say it has not been checked against any recording',
+    missing.length === 0, missing.length ? `missing in ${missing.join(', ')}` : '');
+  const readme = read('README.md'), accuracy = /\n## Accuracy\n([\s\S]*?)(\n## |$)/.exec(readme)?.[1] || '';
+  check('README\'s "Accuracy" section names neither the profile nor the codec', accuracy.length > 100 && !/miles|vr12|voxware/i.test(accuracy),
+    `${accuracy.length} characters`);
 }
 
 console.log(`\n${passed} miles checks passed${failed.length ? `, ${failed.length} failed:\n  ${failed.join('\n  ')}` : ''}`);

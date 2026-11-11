@@ -235,9 +235,13 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
   logLine(realOpus
     ? `S_Voice: ${codecInfo.version}, ${codecInfo.bitrate / 1000} kbps ${codecInfo.vbr ? 'VBR' : 'CBR'}${codecInfo.dtx ? ' + DTX' : ''}, `
       + `${codecInfo.packetBytes ? `${codecInfo.packetBytes}-byte packets of ` : ''}${+(codecInfo.frameMs || 20).toFixed(1)} ms, `
-      // vaudio_speex has no concealment: a lost frame plays as zeros.
+      // vaudio_speex and vaudio_miles have no concealment: a lost frame plays as zeros.
       + `${codecInfo.plc === 'zeros' ? 'a lost frame plays as zeros' : 'native PLC'} (${describeModes(codecInfo.modes)})`
     : 'S_Voice: codec bypassed', 'sys');
+  // vaudio_miles (W3-20b) is not the game's: the render says so.
+  if (realOpus && codecInfo.backend === 'vr12') {
+    logLine('S_Voice: vaudio_miles is not a TF2 codec (Source engines of 2006 and 2007); not checked against any recording', 'sys');
+  }
   if (realOpus && codecInfo.gate != null) {
     const held = codecInfo.frames ? Math.round(100 * codecInfo.gatedFrames / codecInfo.frames) : 0;
     logLine(`S_Voice: voice gate at ${codecInfo.gate} dBFS sent ${codecInfo.spurts} talk spurt${codecInfo.spurts === 1 ? '' : 's'} and held back ${codecInfo.gatedFrames} of ${codecInfo.frames} frames (${held}%)`, 'sys');
@@ -290,7 +294,7 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
   if (referenceDecoded && renderGuide()) alignReferenceTake();
   else updateReferenceReport();
   // The codec that ran: libopus for the Steam profiles, or an engine codec.
-  const codecName = { celt: 'CELT 0.11', speex: 'Speex 1.0.2' }[codecInfo.backend] || 'Real Opus';
+  const codecName = { celt: 'CELT 0.11', speex: 'Speex 1.0.2', vr12: 'Voxware VR12' }[codecInfo.backend] || 'Real Opus';
   const method = realOpus ? `${codecName} · ${codecInfo.bitrate / 1000} kbps` : 'Codec bypassed';
   setStatus(`Ready · ${method} · ${(took / 1000).toFixed(1)}s render · ${sampleRate.toLocaleString()} Hz`, 'success');
   logLine(`ChangeLevel: rendered ${samples.length} samples @ ${sampleRate}Hz in ${took}ms`, 'sys');
@@ -306,11 +310,11 @@ function mountLiveTake({ dry, wet, rate, frameLog, counts, info }) {
   mountSource(dry, rate, `live-${stamp}`);
   const codecRate = (CODEC_PROFILES[info.codec] || CODEC_PROFILES.steam).codecRate, frameSamples = info.frameSamples || codecRate / 50;
   const engine = (CODEC_PROFILES[info.codec] || CODEC_PROFILES.steam).engine;
-  const backend = !info.realOpus ? 'bypass' : engine === 'celt011' ? 'celt' : engine === 'speex' ? 'speex' : 'libopus';
+  const backend = !info.realOpus ? 'bypass' : engine === 'celt011' ? 'celt' : engine === 'speex' ? 'speex' : engine === 'vr12' ? 'vr12' : 'libopus';
   const codecInfo = { backend, version: info.version || 'bypass', bitrate: info.bitrate,
     vbr: info.vbr, dtx: info.dtx, modes: counts.modes, gate: info.gate, spurts: counts.spurts, gatedFrames: counts.gated,
     frames: counts.frames, dtxFrames: counts.dtx, lostFrames: counts.lost, underrunFrames: counts.late,
-    autoGain: info.autoGain, voiceRate: info.voiceRate, codec: info.codec, live: true, ...(backend === 'speex' ? { plc: 'zeros' } : {}),
+    autoGain: info.autoGain, voiceRate: info.voiceRate, codec: info.codec, live: true, ...(backend === 'speex' || backend === 'vr12' ? { plc: 'zeros' } : {}),
     // One code per codec frame of the recording, from its start.
     frameLog, frameSamples, sampleRate: codecRate, lookahead: 0, frameMs: 1000 * frameSamples / codecRate, framesPerPacket: 1 };
   logLine(`voice_record: live take of ${(dry.length / rate).toFixed(1)} s loaded (${counts.spurts} talk spurt${counts.spurts === 1 ? '' : 's'}).`, 'sys');

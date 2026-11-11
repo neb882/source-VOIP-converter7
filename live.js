@@ -255,7 +255,7 @@
     const sending = s.gateOpen;
     ui.tx.textContent = sending ? '● TX' : s.talking === false ? '○ push-to-talk' : '○ gate closed';
     ui.tx.className = `live-tx${sending ? ' live-on' : ''}`;
-    ui.mode.textContent = !sending ? '—' : { silk: 'SILK', hybrid: 'Hybrid', celt: 'CELT', speex: 'Speex', dtx: 'DTX (comfort noise)' }[s.lastMode] || '—';
+    ui.mode.textContent = !sending ? '—' : { silk: 'SILK', hybrid: 'Hybrid', celt: 'CELT', speex: 'Speex', vr12: 'VR12', dtx: 'DTX (comfort noise)' }[s.lastMode] || '—';
     ui.rate.textContent = `${kbps.toFixed(1)} kbps`;
     // Steam's decoder conceals a gap when the next frame arrives: `steam`
     // counts the frames it concealed (frames lost at a spurt's end are never

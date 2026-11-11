@@ -13,7 +13,7 @@
  */
 
 const CACHE_PREFIX = 'tf2ve-';
-const CACHE = `${CACHE_PREFIX}v31`;
+const CACHE = `${CACHE_PREFIX}v32`;
 const ASSETS = [
   './',
   './index.html',
@@ -34,6 +34,8 @@ const ASSETS = [
   './vendor/celt-0.11/celt-0.11.wasm.mjs',
   './vendor/speex-1.0.2/index.mjs',
   './vendor/speex-1.0.2/speex-1.0.2.wasm.mjs',
+  './vendor/voxware-vr12/index.mjs',
+  './vendor/voxware-vr12/voxware-vr12.wasm.mjs',
   './vendor/lame/index.mjs',
   './vendor/lame/lame-3.100.wasm.mjs',
   './flac.js',
