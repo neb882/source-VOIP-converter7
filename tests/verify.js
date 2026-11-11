@@ -1113,6 +1113,23 @@ async function liveSteamSection() {
     check('latencyMs less contentDelay is the hold-back: the output is shorter than the input by it, less Steam\'s resampler\'s 16 inputs',
       Math.abs(holdMs - swrMs - shortMs) < 0.15 && holdMs > 1000 * (fullReach + ren.info.lookahead) / S.rate,
       `hold-back ${holdMs.toFixed(3)} ms; the output ${shortMs.toFixed(3)} ms short`);
+    // latencyMs pinned from its terms (the check above allows 0.15 ms): the
+    // context's sinc resampler to 24 kHz (16 zero crossings a side, so
+    // 16 x max(up, down) / up inputs at the context's rate: 16 at 24 kHz
+    // from 48 and from 44.1 kHz), the capture roll-off's dropped delay, the
+    // reach, the encoder's lookahead, Steam's resampler's 16 inputs, and the
+    // device stage's wait for the next mix sample: one 44100 Hz sample above
+    // 44.1 kHz, none at 44.1 kHz (W3-10). Dropping that wait (0.023 ms) or
+    // keeping the old sinc resampler's to 48 kHz fails it.
+    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+    const sincWait = (from, to) => { const g = gcd(from, to), up = to / g, down = from / g; return 16 * Math.max(up, down) / up / from; };
+    const wantMs = (rate) => 1000 * (sincWait(rate, S.rate) + (eqDelay + fullReach + ren.info.lookahead + 16) / S.rate + (rate > VR ? 1 / VR : 0));
+    const c44 = await TF2Audio.createLiveChain({ codec: 'steam', volume: 1 }, 44100), lat44 = c44.stats.latencyMs;
+    c44.free();
+    const lat48 = live.stats.latencyMs;
+    check('latencyMs is its terms\' sum exactly, with the device stage\'s one 44100 Hz sample at 48 kHz and none at 44.1 kHz: 206.898 and 206.875 ms',
+      Math.abs(lat48 - wantMs(48000)) < 1e-6 && Math.abs(lat44 - wantMs(44100)) < 1e-6 && lat48.toFixed(3) === '206.898' && lat44.toFixed(3) === '206.875',
+      `48 kHz ${lat48.toFixed(6)} (terms ${wantMs(48000).toFixed(6)}); 44.1 kHz ${lat44.toFixed(6)} (terms ${wantMs(44100).toFixed(6)})`);
   }
   // Push-to-talk, the app's stand-in: the key up twice inside speech is the
   // render of the same source with those blocks zeroed.
