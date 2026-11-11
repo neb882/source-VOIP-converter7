@@ -144,6 +144,8 @@ const state = {
   renderingKey: null,
   renderedSource: null,
   stale: false,          // the render on screen was made with other settings, and none is coming
+  cancelledKey: null,    // the settings of a render the user cancelled, which does not start again by itself
+  cancelledSource: null,
   lastLitPreset: 'modern', // the built-in preset the controls last matched (app/console.js)
   settingsRestored: false, // boot has applied the remembered settings; changes are now remembered
   batchRunning: false,   // batch.js is rendering its queue

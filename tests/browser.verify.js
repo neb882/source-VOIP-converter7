@@ -2764,15 +2764,27 @@ async function main() {
     // Cancel the render a chosen file starts by itself.
     await page.locator('#file').setInputFiles({ name: 'long-tone.wav', mimeType: 'audio/wav', buffer: wavTone(20) });
     await page.locator('#cancel-process').waitFor({ state: 'visible' });
+    await page.evaluate(() => logLine('test: cancelled here', 'sys'));
     await page.locator('#cancel-process').click();
     await page.waitForFunction(() => document.getElementById('render-status').textContent.includes('cancelled'));
     check(!(await page.locator('#process').isDisabled()) && await page.locator('#process').textContent() === 'Render',
       'cancel restores the render controls', await renderStatus(page));
+    // A cancelled render does not start again by itself (W4-01a).
+    await page.waitForTimeout(1000);
+    check(!(await page.evaluate(() => state.processing)) && await rendersStartedSince(page, 'test: cancelled here') === 0,
+      'and the cancelled render does not start again by itself', `${await rendersStartedSince(page, 'test: cancelled here')} started`);
 
     await page.locator('#mic').click();
     await page.waitForFunction(() => document.getElementById('source-status').textContent.includes('Recording uncompressed'));
-    await page.waitForTimeout(1100); // Accumulate a meaningful fake-microphone recording.
-    await page.locator('#mic').click();
+    // A render a changed setting starts during the recording (the source on
+    // the page is 20 s long) leaves the recording's stop usable (W4-01a).
+    await page.evaluate(() => execCommand('voice_scale 0.9'));
+    await page.waitForFunction(() => state.processing, null, { timeout: 5000 });
+    const stopUsable = await page.evaluate(() => !!state.recorder && !els.mic.disabled);
+    await page.waitForTimeout(700); // Accumulate a meaningful fake-microphone recording.
+    await page.locator('#mic').click({ timeout: 2000 });
+    await page.evaluate(() => execCommand('voice_scale 1'));
+    check(stopUsable, 'a render that a changed setting starts during a microphone recording leaves its stop usable');
     // The recording becomes the source, and renders by itself (W4-01a).
     await page.waitForFunction(() => state.sourceName === 'microphone');
     await waitRendered(page);

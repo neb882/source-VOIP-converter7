@@ -288,6 +288,8 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
   state.lastExports = {};
   state.renderedSource = source;
   state.renderedKey = made.key !== undefined ? made.key : settingsKey(state.sourceDemo);
+  state.cancelledKey = null;
+  state.cancelledSource = null;
 
   els.audio.src = state.lastBlob;
   // Arm the muted twin of the original, so Hear is an instant unmute rather
@@ -498,7 +500,10 @@ function reconcileRender() {
   if (!state.decodedSource || renderAfter) { updateStale(); return; }
   const key = currentRenderKey();
   const onScreen = state.renderedSource === state.decodedSource ? state.renderedKey : null;
-  const short = state.decodedSource.duration <= AUTO_RENDER_SECONDS;
+  // A render the user cancelled is not started again by itself: only a
+  // change to other settings, or the button, starts one.
+  const cancelled = state.cancelledSource === state.decodedSource && key === state.cancelledKey;
+  const short = state.decodedSource.duration <= AUTO_RENDER_SECONDS && !cancelled;
   if (state.processing) {
     if (key === state.renderingKey) { /* it is coming */ }
     else if (key === onScreen) { dropRunning = true; if (state.cancelProcessing) state.cancelProcessing(); }
@@ -540,7 +545,10 @@ async function runRender({ button }) {
   els.process.disabled = true;
   els.dl.disabled = true;
   els.file.disabled = true;
-  if (els.mic) els.mic.disabled = true;
+  // A render started by a change of the settings must not hold a microphone
+  // recording that is running: its stop stays usable.
+  const micHeld = !!els.mic && !state.recorder;
+  if (micHeld) els.mic.disabled = true;
   if (els.cancel) els.cancel.hidden = false;
   if (els.progress) { els.progress.hidden = false; els.progress.value = 0; }
   els.process.textContent = 'Rendering…';
@@ -584,7 +592,11 @@ async function runRender({ button }) {
     } else if (e.name === 'AbortError') {
       logLine(renderAfter ? 'S_StopSound: render stopped for newer settings.' : dropRunning ? 'S_StopSound: render stopped; the settings are back to the render on screen.'
         : 'S_StopSound: render cancelled.', 'warn');
-      if (!superseded) setRenderStatus('Render cancelled. The source is still loaded.');
+      if (!superseded) {
+        setRenderStatus('Render cancelled. The source is still loaded.');
+        state.cancelledKey = key;
+        state.cancelledSource = source;
+      }
       else if (dropRunning) setRenderStatus(state.lastRenderStatus || '');
     } else {
       console.error(e);
@@ -598,7 +610,7 @@ async function runRender({ button }) {
     els.process.disabled = !state.decodedSource;
     els.dl.disabled = !state.lastWav;
     els.file.disabled = false;
-    if (els.mic) els.mic.disabled = false;
+    if (micHeld) els.mic.disabled = false;
     if (els.cancel) els.cancel.hidden = true;
     if (els.progress) els.progress.hidden = true;
     const next = renderAfter;
