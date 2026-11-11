@@ -33,7 +33,7 @@ Sync beeps mark the start and end.
 
 The levels are chosen so that Steam's voice gate stays open, the receiver auto-gain sits at its fixed +20 dB cap and nothing clips. Every lost or concealed 20 ms frame then shows against the known waveform.
 
-The `net_fake*` commands are cheat-protected, so use your own server with `sv_cheats 1`. On a server you host from the game (a listen server), your own traffic normally bypasses the network layer. `net_fakelag` is documented to include that loopback path, but `net_fakeloss` is not.
+The `net_fake*` commands are cheat-protected, so use your own server with `sv_cheats 1`. On a server you host from the game (a listen server), your own voice still crosses the network layer twice, client to server and server to client, and `net_fakeloss`, `net_fakelag` and `net_fakejitter` apply to both crossings (read from the game's network code, 2026-11-11). With `net_usesocketsforloopback 1`, as below, each crossing meets the loss draw twice, once on sending and once on receiving, so `net_fakeloss N` loses about 1 − (1 − (N+1)/101)⁴ of voice packets: 22% at 5, 37% at 10, 50% at 15. Lag and jitter delay and bunch packets in order; they lose and reorder nothing.
 
 **Setup on a listen server:**
 1. Run `find usesockets`. If `net_usesocketsforloopback` exists, set it to 1 before loading the map, then load the map (`map ctf_2fort`, or `retry` if one is already running).
