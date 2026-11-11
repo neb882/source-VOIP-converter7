@@ -781,12 +781,40 @@
   // codec sample c = floor(m * codecRate / voiceRate), in frame
   // floor((c + lookahead) / frameSamples), and was decoded when that
   // frame's code is not 0 (gated: nothing sent). The log is read when the
-  // gain asks, so a stream may fill it as it goes.
+  // gain asks, so a stream may fill it as it goes. lookahead is what lies
+  // between the gain's sample 0 and the decoder's: the codec's delay when
+  // the gain runs on the signal with that delay dropped (the Opus profiles
+  // of the frame path), 0 when it runs on the decoder's stream from its first
+  // sample (the engine codecs since W3-19: gainLead) or on a demo's voice.
   function decodedFromFrames(frameLog, frameSamples, lookahead, codecRate, voiceRate) {
     return (m) => {
       const f = Math.floor((Math.floor(m * codecRate / voiceRate) + lookahead) / frameSamples);
       return f >= 0 && f < frameLog.length && frameLog[f] !== 0;
     };
+  }
+
+  // The engine codecs on the frame path (codec.engine: CELT, Speex) with the
+  // gain on (W3-19): the game's gain works in blocks of 128 samples counted
+  // from the first sample the decoder gives, so it runs on the decoder's
+  // stream from that sample, the codec's delay (lookahead: 64 samples for
+  // celt_22, 128 for celt_44, 80 for speex) included, and the delay is
+  // dropped after it. The output keeps its length and alignment; only the
+  // gain's block grid and its first block move. Returns how many samples the
+  // gain runs on before the render's first: the lookahead, or 0 for every
+  // other profile. The Opus profiles of the frame path drop the delay first,
+  // as before: steam_48's 312 samples at 48 kHz are no whole number of
+  // samples at its 44.1 kHz voice rate, so dropping them after the gain
+  // would move the output (a decision of its own). `steam` lays decoded
+  // packets and has its own path. The engine profiles' voice rate is their
+  // codec's, so the resampler between decoder and gain passes the samples as
+  // they are and the grid is counted on the decoder's own samples; one that
+  // differed is refused here rather than given a grid nobody chose.
+  function gainLead(codec, lookahead) {
+    if (!codec.engine) return 0;
+    if (Math.round(codec.voiceRate) !== Math.round(codec.codecRate) || codec.decoderEq) {
+      throw new Error('An engine codec\'s gain runs on its decoder\'s samples: a voice rate equal to the codec\'s, no decoder EQ.');
+    }
+    return lookahead || 0;
   }
 
   /* ------------------------------------------------------------------ */
@@ -1506,7 +1534,7 @@
     // The `steam` profile: Steam's sender and decoder, through to the voice
     // rate (stage 4's gain included), on the source's timeline.
     const steamPath = enableCodec && !received && codec.senderGate?.rule === 'steam';
-    let steamVoice = null;
+    let steamVoice = null, lead = null;
     if (received) codecInfo = receivedCodecInfo(received, codecRate);
     else if (steamPath) {
       const { sender: SteamSender, swr } = steamModules();
@@ -1568,9 +1596,14 @@
           runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
       samples = result.samples;
       codecInfo = { ...result.info, framesPerPacket };
+      // The engine codecs: the decoded samples the delay's trim dropped, for
+      // the gain to run on first (gainLead).
+      if (autoGain && gainLead(codec, codecInfo.lookahead)) lead = result.head;
       const eq = profileEq(codec);
       if (eq) samples = applyFirZeroPhase(samples, eq);
       // The receiver's re-timing, from its own seed so loss patterns stay put.
+      // It never moves the first spurt, so the samples in `lead` stay where
+      // they are.
       if (opts.retime) codecInfo.retimed = retimeSpurts(samples, codecInfo, codecRate, mulberry32((finiteOr(opts.seed, 0xC0FFEE) ^ 0x9E3779B9) >>> 0));
     }
     report(0.72);
@@ -1585,12 +1618,18 @@
         samples = hardClip(samples, INT16_FULL_SCALE);
       }
     } else if (autoGain) {
-      samples = resampleSinc(samples, codecRate, codec.voiceRate);
+      // The engine codecs: the gain runs on the decoder's stream from its
+      // first sample, and the delay is dropped after it (gainLead).
+      const ahead = lead ? lead.length : 0;
+      samples = resampleSinc(ahead ? joinSamples([lead, samples]) : samples, codecRate, codec.voiceRate);
       // With the gate on, the gain knows which blocks were decoded; with
-      // no gate (or the codec bypassed) every block was.
+      // no gate (or the codec bypassed) every block was. On the decoder's
+      // stream a block's first sample is in frame floor(m / frameSamples):
+      // no shift.
       const decoded = received || (enableCodec && gateOn)
-        ? decodedFromFrames(codecInfo.frameLog, codecInfo.frameSamples, codecInfo.lookahead || 0, codecRate, codec.voiceRate) : undefined;
+        ? decodedFromFrames(codecInfo.frameLog, codecInfo.frameSamples, ahead ? 0 : codecInfo.lookahead || 0, codecRate, codec.voiceRate) : undefined;
       samples = receiverAutoGain(samples, { avgGain, maxGain, scale: voiceScale, decoded });
+      if (ahead) samples = samples.slice(ahead);
     } else {
       samples = resampleSinc(samples, codecRate, codec.voiceRate);
       for (let i = 0; i < samples.length; i++) samples[i] *= voiceScale;
@@ -2266,6 +2305,14 @@
   }
 
   const biquadStage = (c) => ({ push: streamBiquad(c), flush: () => NO_SAMPLES });
+  // Drops the first n samples it is given.
+  function dropStage(n) {
+    let left = n;
+    return {
+      push(x) { const d = Math.min(left, x.length); left -= d; return d ? x.subarray(d) : x; },
+      flush: () => NO_SAMPLES
+    };
+  }
   const sampleStage = (f) => ({ push: f, flush: () => NO_SAMPLES });
 
   // The voice gate and the codec a frame at a time, as roundTrip,
@@ -2273,9 +2320,12 @@
   // the codec rate. Frame f is final once frame f + preroll is measured (no
   // later frame's pre-roll reaches it), so the input held is a few frames.
   // Decoded frame f lands at f * size - lookahead; gated and late frames
-  // leave zeros. kind: 'opus' | 'celt' | 'speex'.
-  function codecStage(voice, kind, length, gate, makeLossMask) {
-    const size = voice.frameSize, lookahead = voice.lookahead;
+  // leave zeros. kind: 'opus' | 'celt' | 'speex'. lead (gainLead): how many
+  // of the delay's samples are kept in front, for the gain to run on before
+  // they are dropped; the stage then gives length + lead samples, frame f at
+  // f * size - lookahead + lead.
+  function codecStage(voice, kind, length, gate, makeLossMask, lead = 0) {
+    const size = voice.frameSize, lookahead = voice.lookahead, shift = lookahead - lead, total = length + lead;
     const frames = Math.ceil((length + lookahead) / size);
     const lossMask = makeLossMask(frames);
     const frameLog = new Uint8Array(frames), frameBytes = new Uint16Array(frames);
@@ -2286,7 +2336,7 @@
     let measured = 0, loudest = -Infinity, next = 0;
 
     async function code(f) {
-      const dest = f * size - lookahead, begin = Math.max(0, -dest), span = Math.max(0, Math.min(size, length - dest) - begin);
+      const dest = f * size - shift, begin = Math.max(0, -dest), span = Math.max(0, Math.min(size, total - dest) - begin);
       // Sent: some frame from f - hold to f + preroll is loud.
       if (gate && loudest < f - hold) { gatedFrames++; open = false; return new Float32Array(span); }
       if (!open) {
@@ -2451,7 +2501,7 @@
     if (captureEq) stages.push(firStage(captureEq, codecLength));
 
     /* ---- 3) Gate, encode, lose packets, decode ---- */
-    let voice = null, kind = null, coder = null, gate = null, gateOpts = null, bitrate = 0, packetBytes = 0;
+    let voice = null, kind = null, coder = null, gate = null, gateOpts = null, bitrate = 0, packetBytes = 0, lead = 0;
     const steamPath = enableCodec && !received && codec.senderGate?.rule === 'steam';
     let steam = null;
     if (steamPath) {
@@ -2524,8 +2574,9 @@
         voice = await opus.createVoiceStream(codecRate, bitrate, { application: codec.application, signal: codec.signal,
           runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
       }
+      if (autoGain) lead = gainLead(codec, voice.lookahead);
       coder = codecStage(voice, kind, codecLength, gate,
-        count => buildLossMask(count, framesPerPacket, lossPct, rand, jitterMs));
+        count => buildLossMask(count, framesPerPacket, lossPct, rand, jitterMs), lead);
       stages.push(coder);
       const eq = profileEq(codec);
       if (eq) stages.push(firStage(eq, codecLength));
@@ -2542,7 +2593,10 @@
         }));
       }
     } else if (autoGain) {
-      stages.push(sincStage(codecRate, codec.voiceRate, codecLength));
+      // With a lead (the engine codecs) the codec stage gave the decoder's
+      // stream from its first sample; the gain runs on it and the lead is
+      // dropped after, as process() does.
+      stages.push(sincStage(codecRate, codec.voiceRate, codecLength + lead));
       // decoded() as process() builds it. The codec stage fills its frame
       // log as it goes, and a frame is logged before any voice-rate sample
       // it makes reaches the gain (the stages between only wait).
@@ -2551,10 +2605,11 @@
         const info = receivedCodecInfo(received, codecRate);
         decoded = decodedFromFrames(info.frameLog, info.frameSamples, info.lookahead, codecRate, codec.voiceRate);
       } else if (coder && gate) {
-        decoded = decodedFromFrames(coder.counts().frameLog, voice.frameSize, voice.lookahead, codecRate, codec.voiceRate);
+        decoded = decodedFromFrames(coder.counts().frameLog, voice.frameSize, lead ? 0 : voice.lookahead, codecRate, codec.voiceRate);
       }
       const run = streamAutoGain({ avgGain, maxGain, scale: voiceScale, decoded });
       stages.push({ push: run, flush: run.flush });
+      if (lead) stages.push(dropStage(lead));
     } else {
       stages.push(sincStage(codecRate, codec.voiceRate, codecLength));
       stages.push(sampleStage((x) => {

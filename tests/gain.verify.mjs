@@ -420,6 +420,191 @@ CODEC_PROFILES.test_frame_gate = { ...CODEC_PROFILES.steam, displayName: 'test o
     same && r.codecInfo.spurts === 2 && log.every((v, i) => v === r.codecInfo.frameLog[i]), `${r.codecInfo.spurts} spurts`);
 }
 
+/* ---------------- 4b. the engine codecs: the gain on the decoder's samples ---------------- */
+
+console.log('\n[4b] The engine codecs: the gain runs on the decoder\'s stream from its first sample (W3-19)');
+{
+  // The game's gain counts its 128-sample blocks from the first sample the
+  // decoder gives; the codec's delay (lookahead) is dropped after the gain.
+  // The reference here drives the bundled codec frame by frame as the
+  // profile drives it (createCeltStream, createSpeexStream: the frame
+  // interfaces the live chain and createRender use), with no gate and no
+  // loss, keeps the decoder's whole stream, runs receiverAutoGain on it and
+  // only then drops the first `lookahead` samples. A signal loud and quiet
+  // by turns from its first sample, so the gain's targets go under the cap
+  // and back to it.
+  const rate = 48000, n = 3 * rate;
+  let s = 4242;
+  const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const talk = (gaps) => {
+    const x = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate, seg = Math.floor(t / 0.3), loud = seg % 2 === 0;
+      if (gaps && !loud) continue;
+      const amp = loud ? 0.55 * (0.6 + 0.4 * Math.sin(2 * Math.PI * 1.7 * t)) : 0.012;
+      x[i] = amp * (0.7 * Math.sin(2 * Math.PI * 180 * t) + 0.2 * Math.sin(2 * Math.PI * 730 * t) + 0.1 * (rnd() * 2 - 1));
+    }
+    return x;
+  };
+  const same = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.byteLength), Buffer.from(b.buffer, b.byteOffset, b.byteLength)) === 0;
+  const settings = { avgGain: 0.5, maxGain: 10, scale: 1 };
+  const openCodec = (p) => (p.engine === 'celt011'
+    ? TF2Opus.createCeltStream(p.codecRate, { frameSize: p.frameSize, complexity: p.complexity, packetBytes: p.packetBytes,
+      ...(p.modeRate != null ? { modeRate: p.modeRate } : {}) })
+    : TF2Opus.createSpeexStream(p.codecRate));
+  // The decoder's whole stream for capture signal c at the codec rate: every
+  // frame of c (zero-padded to cover c and the delay) encoded and decoded;
+  // with `log`, a frame logged 0 is not sent (zeros, the codec restarted at
+  // the next frame sent), as the frame gate does.
+  async function decoderStream(p, c, log = null) {
+    const v = await openCodec(p), size = v.frameSize, lookahead = v.lookahead;
+    const frames = Math.ceil((c.length + lookahead) / size), out = new Float32Array(frames * size), frame = new Float32Array(size);
+    let open = false, spurts = 0;
+    for (let f = 0; f < frames; f++) {
+      if (log && log[f] === 0) { open = false; continue; }
+      if (!open) { if (spurts++ > 0) await v.restart(); open = true; }
+      frame.fill(0);
+      frame.set(c.subarray(Math.min(c.length, f * size), Math.min(c.length, (f + 1) * size)));
+      out.set(v.decode(v.encode(frame).packet), f * size);
+    }
+    v.free();
+    return { stream: out, lookahead, size, frames };
+  }
+  // createRender in pieces of odd sizes: its output and what its onGain saw.
+  async function streamed(x, opts) {
+    const gained = [], parts = [], sizes = [1, 7, 333, 4097, 129, 1021, 12345];
+    const r = await A.createRender({ sampleRate: rate, length: x.length, numberOfChannels: 1 }, { ...opts, onGain: (g) => gained.push(Float32Array.from(g)) });
+    for (let o = 0, k = 0; o < x.length; k++) {
+      const m = Math.min(x.length - o, sizes[k % sizes.length]);
+      parts.push(await r.push(x.subarray(o, o + m)));
+      o += m;
+    }
+    parts.push((await r.finish()).samples);
+    const join = (ps) => { const y = new Float32Array(ps.reduce((t, q) => t + q.length, 0)); ps.reduce((o, q) => { y.set(q, o); return o + q.length; }, 0); return y; };
+    return { samples: join(parts), gained: join(gained) };
+  }
+
+  const x = talk(false);
+  for (const key of ['celt_22', 'celt_44', 'speex']) {
+    const p = CODEC_PROFILES[key], opts = { codec: key, volume: 1 };
+    let gained = null;
+    const r = await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => x }, { ...opts, onGain: (g) => { gained = Float32Array.from(g); } });
+    const c = A.resampleSinc(A.hardClip(x, 32767 / 32768), rate, p.codecRate);
+    const { stream, lookahead, size } = await decoderStream(p, c);
+    const whole = A.receiverAutoGain(stream, settings);
+    const want = whole.slice(lookahead, lookahead + c.length);
+    // The gain moved: some samples are under the cap, some at it.
+    let under = 0, capped = 0;
+    for (let i = lookahead; i < lookahead + c.length; i++) {
+      const v = Math.round(stream[i] * 32768);
+      if (Math.abs(v) < 200) continue;
+      const g = Math.round(whole[i] * 32768) / v;
+      if (Math.abs(g - 10) < 0.05) capped++; else if (g < 9) under++;
+    }
+    // The order before W3-19: the delay dropped first, the gain on what is left.
+    const old = A.receiverAutoGain(stream.slice(lookahead, lookahead + c.length), settings);
+    check(`${key}: process()'s gain output (onGain) is the decoder's whole stream through receiverAutoGain, the ${lookahead}-sample delay dropped after (bit for bit)`,
+      same(gained, want) && r.codecInfo.lookahead === lookahead && r.codecInfo.frameSamples === size,
+      `${gained.length} samples; ${under} under the cap and ${capped} at it`);
+    check(`${key}: ... the gain moves on this signal, and running it after the delay is dropped gives other samples`,
+      under > 1000 && capped > 1000 && !same(old, want), `${differing(toInts(old), toInts(want))} samples differ`);
+    const st = await streamed(x, opts);
+    check(`${key}: createRender in pieces of odd sizes gives process()'s gain output and samples`,
+      same(st.gained, gained) && same(st.samples, r.samples), `${st.gained.length} and ${st.samples.length} samples`);
+  }
+
+  // The gate on (the frame gate the engine profiles take with gate: true):
+  // the gain's decoded() is found on the decoder's stream with no shift, a
+  // block's first sample m being in frame floor(m / frameSamples). Bursts
+  // over a noise floor under the gate's threshold, with gaps long enough for
+  // the gate to close; as in [4], the threshold is raised to -12 dBFS and the
+  // floor is at -18 dBFS rms, so the floor's target is under the cap and a
+  // held gain can be told from one run on zeros.
+  const xg = new Float32Array(n);
+  {
+    const floor = 10 ** (-18 / 20) * Math.sqrt(3);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      xg[i] = t % 1.5 < 0.4 ? 0.9 * (rnd() * 2 - 1) : t % 1.5 < 0.5 ? floor * (rnd() * 2 - 1) : 0;
+    }
+  }
+  for (const key of ['celt_22', 'speex']) {
+    const p = CODEC_PROFILES[key], opts = { codec: key, gate: true, gateThresholdDb: -12, volume: 1 };
+    let gained = null;
+    const r = await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => xg }, { ...opts, onGain: (g) => { gained = Float32Array.from(g); } });
+    const log = r.codecInfo.frameLog;
+    const c = A.resampleSinc(A.hardClip(xg, 32767 / 32768), rate, p.codecRate);
+    const { stream, lookahead, size, frames } = await decoderStream(p, c, log);
+    const decoded = (m) => { const f = Math.floor(m / size); return f < log.length && log[f] !== 0; };
+    const want = A.receiverAutoGain(stream, { ...settings, decoded }).slice(lookahead, lookahead + c.length);
+    // Before W3-19: the delay dropped first, and decoded() shifted by it on
+    // what is left (sample m of it is the decoder's m + lookahead, so both
+    // mappings name the same frame for the same sample; only the blocks
+    // moved).
+    const trimmed = stream.slice(lookahead, lookahead + c.length);
+    const other = A.receiverAutoGain(trimmed, { ...settings, decoded: A.decodedFromFrames(log, size, lookahead, p.codecRate, p.voiceRate) });
+    check(`${key}, gate on: process()'s gain output is the decoder's stream (gated frames as zeros, a restart per spurt) through receiverAutoGain with decoded() at frame floor(m / ${size}), the delay dropped after`,
+      same(gained, want) && frames === log.length && r.codecInfo.spurts >= 2 && r.codecInfo.gatedFrames > 0,
+      `${r.codecInfo.spurts} spurts, ${r.codecInfo.gatedFrames} of ${log.length} frames gated`);
+    check(`${key}, gate on: ... and not the gain run after the delay is dropped`, !same(other, want), `${differing(toInts(other), toInts(want))} samples differ`);
+    const st = await streamed(xg, opts);
+    check(`${key}, gate on: createRender in pieces of odd sizes gives process()'s gain output and samples`, same(st.gained, gained) && same(st.samples, r.samples));
+  }
+
+  // Where the frame a block's first sample belongs to decides the output. On
+  // the decoder's stream frame f is samples 160 f to 160 f + 159; a block
+  // starting 96 or 128 samples into a frame ends in the next one. Here the
+  // gate's hold ends with frame 40, whose decoded samples are zeros from
+  // before the block starting at 6528 (128 into frame 40): that block is of
+  // a frame sent, so the rule runs it (its target is the cap) and the gain
+  // is held near the cap through the gap; read 80 samples on (the frame
+  // after, gated) it would be held where the floor left it. The next spurt
+  // opens on the floor (its pre-roll), so its first blocks show which. At
+  // 11025 Hz, so nothing resamples into the codec.
+  {
+    const r8 = 11025, len = 2 * r8, y = new Float32Array(len), floor = 10 ** (-18 / 20) * Math.sqrt(3);
+    let s9 = 99;
+    const rn = () => ((s9 = (Math.imul(s9, 1664525) + 1013904223) >>> 0) / 4294967296);
+    for (let i = 0; i < len; i++) {
+      if (i < 1760) y[i] = 0.9 * (rn() * 2 - 1);
+      else if (i < 6310) y[i] = floor * (rn() * 2 - 1);
+      else if (i >= 12000 && i < 15000) y[i] = floor * (rn() * 2 - 1);
+      else if (i >= 15000 && i < 17000) y[i] = 0.9 * (rn() * 2 - 1);
+    }
+    const p = CODEC_PROFILES.speex, opts = { codec: 'speex', gate: true, gateThresholdDb: -12, volume: 1 };
+    let gained = null;
+    const r = await A.process({ sampleRate: r8, length: len, numberOfChannels: 1, getChannelData: () => y }, { ...opts, onGain: (g) => { gained = Float32Array.from(g); } });
+    const log = r.codecInfo.frameLog;
+    const { stream, lookahead, size } = await decoderStream(p, A.hardClip(y, 32767 / 32768), log);
+    const at = (shift) => (m) => { const f = Math.floor((m + shift) / size); return f < log.length && log[f] !== 0; };
+    const want = A.receiverAutoGain(stream, { ...settings, decoded: at(0) }).slice(lookahead, lookahead + len);
+    const other = A.receiverAutoGain(stream, { ...settings, decoded: at(lookahead) }).slice(lookahead, lookahead + len);
+    const blockZero = stream.subarray(6528, 6656).every(v => v === 0) && stream.subarray(6400, 6528).some(v => v !== 0);
+    check('speex, gate on: the case is as described (frame 40 the hold\'s last, the block at 6528 zeros, the one before not)',
+      log[40] !== 0 && log[41] === 0 && blockZero && r.codecInfo.spurts === 2, `${r.codecInfo.spurts} spurts`);
+    check('speex, gate on: the gain\'s output is the decoder\'s stream through receiverAutoGain with a block\'s frame floor(m / 160), not floor((m + 80) / 160)',
+      same(gained, want) && !same(other, want), `${differing(toInts(other), toInts(want))} samples differ between the two readings`);
+    const st = await (async () => {
+      const g = [], ps = [], rr = await A.createRender({ sampleRate: r8, length: len, numberOfChannels: 1 }, { ...opts, onGain: (q) => g.push(Float32Array.from(q)) });
+      for (let o = 0, k = 0; o < len; k++) { const m = Math.min(len - o, [13, 501, 2049][k % 3]); ps.push(await rr.push(y.subarray(o, o + m))); o += m; }
+      ps.push((await rr.finish()).samples);
+      const join = (q) => { const z = new Float32Array(q.reduce((t, v) => t + v.length, 0)); q.reduce((o, v) => { z.set(v, o); return o + v.length; }, 0); return z; };
+      return { gained: join(g), samples: join(ps) };
+    })();
+    check('speex, gate on: ... createRender in pieces gives the same gain output and samples', same(st.gained, gained) && same(st.samples, r.samples));
+  }
+
+  // The gain off: the delay is dropped as before and the gain does not run.
+  {
+    let gained = null;
+    await A.process({ sampleRate: rate, length: n, numberOfChannels: 1, getChannelData: () => x }, { codec: 'celt_22', agc: false, onGain: (g) => { gained = Float32Array.from(g); } });
+    const p = CODEC_PROFILES.celt_22, c = A.resampleSinc(A.hardClip(x, 32767 / 32768), rate, p.codecRate);
+    const { stream, lookahead } = await decoderStream(p, c);
+    const want = A.hardClip(stream.slice(lookahead, lookahead + c.length), 32767 / 32768);
+    check('celt_22, auto-gain off: the gain\'s place holds the decoder\'s stream with the delay dropped, clipped', same(gained, want));
+  }
+}
+
 /* ---------------- 5. the live chain ---------------- */
 
 console.log('\n[5] The live chain: frames not sent hold the gain');
