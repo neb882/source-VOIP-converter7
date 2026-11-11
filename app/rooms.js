@@ -168,7 +168,7 @@ function envDetail() {
     try { return `The engine would build: ${describeBuild(TF2Room.buildAutomatic(manualMeasures(), { table: TF2_ROOM_PRESETS }))}.`; }
     catch (e) { return `These measures do not build a room: ${e.message}`; }
   }
-  if (n === 0) return 'No room.';
+  if (n === 0) return 'dsp_room 0: no room, as when no soundscape has set one.';
   if (n === 99) return 'The app\'s own room, not the game\'s: its three knobs are under Extras.';
   if (!TF2Room.presetOf(n, TF2_ROOM_PRESETS)) return `dsp_room ${n}: the app does not have this room. A render has none; the live monitor keeps the room it had.`;
   return `Preset ${n}: ${roomShare(n)}/256 of the voice to the room.`;

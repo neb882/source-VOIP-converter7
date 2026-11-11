@@ -709,7 +709,9 @@ async function verifySpeexPage(page) {
     'the console line names Speex 1.0.2, its frames, and zeros for a lost frame', sVoice);
   check(/Ready · Speex 1\.0\.2 · 11\.025 kbps/.test(seen.status), 'the status line names Speex 1.0.2', seen.status);
   const words = 'Speex 1.0.2 on 11.025 kHz sound · 20-byte frames of 14.51 ms · 11.025 kbit/s';
-  check(seen.chain === `Codec${words}` && seen.option === `vaudio_speex (${words})`, 'the chain strip and the codec menu describe the game\'s Speex module',
+  // W4-01d: the menu's entry is the plain name with its figures shortened
+  // (it fits a 390 px screen); the chain strip keeps the module's figures.
+  check(seen.chain === `Codec${words}` && seen.option === 'vaudio_speex (Speex, 11 kHz)', 'the chain strip describes the game\'s Speex module, and the codec menu names it',
     `${seen.chain} / ${seen.option}`);
   const texts = [...seen.legend, ...seen.legendTitles, sVoice, seen.status, seen.chain, seen.option];
   check(texts.every(t => !/CELT|Opus|SILK/.test(t)), 'nothing on the page calls a speex render CELT, Opus or SILK', texts.filter(t => /CELT|Opus|SILK/.test(t)).join(' / '));
@@ -767,7 +769,7 @@ async function verifyCeltPage(page) {
     await page.waitForFunction((id) => state.renderId > id, before, { timeout: 60000 });
   };
   const labels = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#codec option')].map(o => [o.value, o.textContent])));
-  check(labels.celt_22 === 'vaudio_celt (CELT 0.11, 22 kHz, 22 kbps)' && labels.celt_44 === 'vaudio_celt_high (CELT 0.11, 44 kHz mode, 22 kbps)',
+  check(labels.celt_22 === 'vaudio_celt (CELT, 22 kHz)' && labels.celt_44 === 'vaudio_celt_high (44 kHz mode)',
     'the codec menu names vaudio_celt and vaudio_celt_high at their real rates', `${labels.celt_22} / ${labels.celt_44}`);
   const seen = {};
   for (const codec of ['celt_22', 'celt_44']) {
@@ -1263,6 +1265,92 @@ async function verifyLiveRoom(page) {
     `${celt.same} of ${celt.blocks} blocks, ${celt.spurts} spurt starts, room ${celt.state.room.preset}`);
 }
 
+// W4-01d: the settings' words. The test walks the settings panel and
+// carries no list of ids, so a control added later without help fails it.
+async function verifySettingsWords(page) {
+  console.log('\n[Browser 3c5] The settings\' words (W4-01d)');
+  const words = await page.evaluate(() => {
+    const panel = document.getElementById('controls-wrapper');
+    const controls = [...panel.querySelectorAll('select, input')];
+    const helpOf = (el) => (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).map((id) => document.getElementById(id));
+    const labelText = (el) => (el.labels && el.labels[0] ? el.labels[0].textContent.replace(/\s+/g, ' ').trim() : '');
+    const firstSentence = (t) => t.split(/(?<=[a-z0-9)%])\. /)[0].replace(/\.$/, '');
+    const dynamic = ['listener_position', 'env', 'vad_threshold'];
+    return {
+      count: controls.length,
+      noHelp: controls.filter((el) => { const h = helpOf(el); return !h.length || h.some((x) => !x) || h[0].textContent.trim().length < 20; }).map((el) => el.id),
+      long: controls.map((el) => helpOf(el)[0]).filter((h) => h && !h.id.match(/^(room-detail|env-detail)$/)
+        && h.textContent.split(/(?<=\.) /).some((x) => x.length > 115)).map((h) => h.id),
+      measured: [...document.querySelectorAll('option')].filter((o) => /\(measured\)/.test(o.textContent)).map((o) => o.textContent),
+      labels: controls.map(labelText),
+      // The console's help says what the page says: each linked command's
+      // help holds the first sentence of its control's help.
+      console: controls.filter((el) => idToCvarMap[el.id] && !dynamic.includes(el.id))
+        .filter((el) => !cvars[idToCvarMap[el.id]].help.includes(firstSentence(helpOf(el)[0].textContent.trim())))
+        .map((el) => `${idToCvarMap[el.id]}: "${firstSentence(helpOf(el)[0].textContent.trim())}"`),
+      table: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'gain', 'bits', 'frameMs', 'loss', 'jitter', 'retime', 'maxgain', 'voice_scale', 'volume', 'hp', 'lp']
+        .map((id) => [id, [labelText(document.getElementById(id)), helpOf(document.getElementById(id))[0].textContent.trim()]])),
+      options: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'retime'].map((id) => [id, [...document.getElementById(id).options].map((o) => o.textContent)]))
+    };
+  });
+  check(words.count >= 30 && words.noHelp.length === 0,
+    'every select and input of the settings panel has aria-describedby naming a sentence of at least 20 characters', `${words.count} controls${words.noHelp.length ? `; without: ${words.noHelp.join(', ')}` : ''}`);
+  check(words.long.length === 0, 'each sentence of help is at most about 110 characters (115)', words.long.join(', '));
+  check(words.measured.length === 0, 'no option text says "(measured)"', words.measured.join(', '));
+  const dup = words.labels.filter((l, i) => words.labels.indexOf(l) !== i);
+  check(dup.length === 0 && words.labels.every(Boolean), 'no two controls in the panel have the same label text', dup.join(', '));
+  const t = words.table;
+  check(t.codec[0] === 'Voice codec sv_voicecodec' && t.codec[1] === 'What the game sends voice with. Steam voice is today\'s; the vaudio_ ones are the game\'s older codecs.'
+    && JSON.stringify(words.options.codec) === JSON.stringify(['Steam voice (Opus, 32 kbps)', 'Fullband Opus: not in the game', 'vaudio_celt (CELT, 22 kHz)', 'vaudio_celt_high (44 kHz mode)', 'vaudio_speex (Speex, 11 kHz)'])
+    && t.warble_on[0] === 'Skip the codec' && JSON.stringify(words.options.warble_on) === '["Off","On"]'
+    && t.warble_on[1] === 'For comparison only: the sound goes to the receiver without being coded.'
+    && t.capture_channel[0] === 'Channel of a stereo file' && words.options.capture_channel[0] === 'Left'
+    && t.capture_channel[1] === 'Which channel the game\'s microphone gets. Left is what one stereo cable gave it; a mono file is not affected.'
+    && t.gain[1] === 'Loudness into the game. Above 1 the sender clips, as an overdriven microphone does.'
+    && t.bits[0] === 'Bitrate, in sixteenths' && t.bits[1] === '16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex has one bitrate and ignores this.'
+    && t.frameMs[0] === 'Frames per packet, as ms' && t.frameMs[1] === 'How much voice one network packet carries. A lost packet loses all of it.'
+    && t.loss[1] === 'The share of voice frames that never arrive. Not the game\'s own number: its net_fakeloss 5 lost about 22% of them.'
+    && t.jitter[1] === 'Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that.'
+    && JSON.stringify(words.options.retime) === '["The file\'s own timing","Some phrases start early (random)"]'
+    && t.retime[1] === 'The game plays some phrases early after a short silence. Which ones is random.'
+    && t.maxgain[1] === 'The most the receiver\'s auto-gain may amplify. The game\'s default is 10.'
+    && t.voice_scale[1] === 'The game\'s voice_scale. Not a plain volume: below 1 it lowers the voice by more than its number.'
+    && t.volume[1] === 'The game\'s volume setting; it sets the loudest the file can get. 1.0 is the game\'s default. The recordings behind the model were made at 0.15.'
+    && t.hp[1] === 'Not in the game: a filter before the codec. 0 is off.' && t.lp[1] === 'Not in the game: a filter before the codec. 20000 is off.',
+    'the labels, options and sentences the audit settled are on the page', JSON.stringify(t.codec));
+  check(words.console.length === 0, 'each command\'s console help says what the page says under its control', words.console.join('; '));
+  // The chain strip names what it left out.
+  const strip = await page.evaluate(() => {
+    const receiver = () => [...document.querySelectorAll('#signal-chain li')].find((li) => li.querySelector('b').textContent === 'Receiver').textContent;
+    execCommand('exec preset_modern');
+    const plain = receiver();
+    execCommand('voice_scale 0.5');
+    const scaled = receiver();
+    execCommand('voice_avggain 0.25');
+    const both = receiver();
+    execCommand('exec preset_modern');
+    return { plain, scaled, both };
+  });
+  check(!/voice_scale|gain target/.test(strip.plain) && strip.scaled.includes('voice_scale 0.5') && strip.both.includes('voice_scale 0.5') && strip.both.includes('gain target 0.25'),
+    'the chain strip\'s Receiver cell holds "voice_scale 0.5" after that setting, and the gain target when voice_avggain is not 0.5', `${strip.plain} | ${strip.both}`);
+  // At 390 px the codec's chosen text fits its box, for every option (with
+  // 20 px left for the menu's arrow).
+  const viewport = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const fit = await page.evaluate(() => {
+    const select = document.getElementById('codec'), was = select.value, style = getComputedStyle(select);
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const room = select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 20;
+    const out = [...select.options].map((o) => { select.value = o.value; return [o.textContent, Math.ceil(ctx.measureText(select.selectedOptions[0].textContent).width)]; });
+    select.value = was;
+    return { room, out };
+  });
+  await page.setViewportSize(viewport);
+  check(fit.out.every(([, w]) => w <= fit.room), 'at 390 px the codec\'s chosen text fits its box for every option',
+    `${fit.out.map(([t, w]) => `${w}`).join(', ')} px of ${fit.room}`);
+}
+
 // A minimal reader for the stored ZIPs the batch writes.
 function readZip(buffer) {
   const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -1623,6 +1711,7 @@ async function main() {
     await verifySpeexPage(page);
     await verifyCeltPage(page);
     await verifyRoomsPage(page);
+    await verifySettingsWords(page);
 
     const parity = await page.evaluate(async () => {
       const data = Float32Array.from({ length: 24000 }, (_, i) => .2 * Math.sin(2 * Math.PI * 431 * i / 24000));
@@ -1727,7 +1816,8 @@ async function main() {
       const vol = await page.evaluate(() => ({ engine: VOICE_ENGINE.volume, note: document.getElementById('volume-note').textContent,
         label: document.querySelector('label[for="volume"]').textContent, inHtml: document.getElementById('volume').getAttribute('value') }));
       check(vol.engine === 1 && vol.inHtml === '1' && /the game's default/.test(vol.label)
-        && vol.note === 'At 1, the game\'s default, a loud voice fills the whole range, as it does in the game.',
+        // The owner's sentence (W4-01, "The owner's answers"), in place of W3-10's.
+        && vol.note === 'The game\'s volume setting; it sets the loudest the file can get. 1.0 is the game\'s default. The recordings behind the model were made at 0.15.',
         'volume defaults to 1, the game\'s default, with the sentence beside it', vol.note);
       // A render's download is at the chosen rate.
       await page.locator('#device_rate').selectOption('44100');
@@ -1847,7 +1937,7 @@ async function main() {
         'a blank threshold sends none (the profile\'s own); a saved or shared blank restores as blank; a share link with celt_22 and -40 keeps -40; one with celt_22 alone takes -39.5',
         JSON.stringify(blank));
       const labels = await page.evaluate(() => ({ option: document.querySelector('#codec option[value="steam_48"]').textContent, name: CODEC_PROFILES.steam_48.displayName }));
-      check(/not the game's path/.test(labels.option) && labels.option === labels.name, 'steam_48 is named as not the game\'s path', labels.option);
+      check(labels.option === 'Fullband Opus: not in the game' && /not the game's path/.test(labels.name), 'steam_48 is named as not in the game, on the page and in its profile', labels.option);
       const liveTexts = async (codec) => {
         await page.locator('#codec').selectOption(codec);
         return page.evaluate(() => ({ latency: document.getElementById('live-latency').closest('.live-stat').title,

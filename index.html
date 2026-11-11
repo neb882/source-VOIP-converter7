@@ -75,14 +75,15 @@
 
       <div class="controls" id="controls-wrapper">
         <div class="control control-wide">
-          <label for="codec">Codec <code class="cvar">sv_voicecodec</code></label>
-          <select id="codec">
-            <option value="steam" selected>Steam voice (Opus 24 kHz VBR, 32 kbps)</option>
-            <option value="steam_48">Fullband Opus (48 kHz / 64 kbps, experimental, not the game's path)</option>
-            <option value="celt_22">vaudio_celt (CELT 0.11, 22 kHz, 22 kbps)</option>
-            <option value="celt_44">vaudio_celt_high (CELT 0.11, 44 kHz mode, 22 kbps)</option>
-            <option value="speex">vaudio_speex (Speex 1.0.2 on 11.025 kHz sound · 20-byte frames of 14.51 ms · 11.025 kbit/s)</option>
+          <label for="codec">Voice codec <code class="cvar">sv_voicecodec</code></label>
+          <select id="codec" aria-describedby="codec-help">
+            <option value="steam" selected>Steam voice (Opus, 32 kbps)</option>
+            <option value="steam_48">Fullband Opus: not in the game</option>
+            <option value="celt_22">vaudio_celt (CELT, 22 kHz)</option>
+            <option value="celt_44">vaudio_celt_high (44 kHz mode)</option>
+            <option value="speex">vaudio_speex (Speex, 11 kHz)</option>
           </select>
+          <p id="codec-help" class="control-help">What the game sends voice with. Steam voice is today's; the vaudio_ ones are the game's older codecs.</p>
         </div>
 
         <div class="control control-wide">
@@ -92,7 +93,7 @@
           <p id="room-evidence" class="control-help room-evidence" hidden></p>
         </div>
         <div class="control">
-          <label class="check-label" for="underwater"><input id="underwater" type="checkbox"> Listener under water</label>
+          <label class="check-label" for="underwater"><input id="underwater" type="checkbox" aria-describedby="underwater-help"> Listener under water</label>
           <p id="underwater-help" class="control-help">A state of the player, with no variable: the whole sound passes the game's water preset (14).</p>
         </div>
 
@@ -104,22 +105,24 @@
         <fieldset class="chain-group advanced-control">
           <legend><span class="chain-index">A</span> Sender</legend>
           <div class="control">
-            <label for="capture_channel">Stereo capture</label>
-            <select id="capture_channel">
-              <option value="left" selected>Left (measured)</option>
+            <label for="capture_channel">Channel of a stereo file</label>
+            <select id="capture_channel" aria-describedby="capture_channel-help">
+              <option value="left" selected>Left</option>
               <option value="mix">Mix L+R</option>
               <option value="right">Right</option>
             </select>
+            <p id="capture_channel-help" class="control-help">Which channel the game's microphone gets. Left is what one stereo cable gave it; a mono file is not affected.</p>
           </div>
           <div class="control">
             <label for="steam_uptime" title="Steam stops sending 0.4 s after the last chunk loud enough to pass, timed on a clock that gets coarser the longer Steam has run: 0.40 s on a fresh start, anywhere from 0.38 to 0.50 s after two weeks.">Sender's Steam has been running</label>
-            <select id="steam_uptime">
+            <select id="steam_uptime" aria-describedby="steam_uptime-help">
               <option value="14400">since today</option>
               <option value="388800">a few days</option>
               <option value="777600" selected>about a week</option>
               <option value="1555200">about two weeks</option>
               <option value="3110400">about a month</option>
             </select>
+            <p id="steam_uptime-help" class="control-help">How long the sender's Steam had run: its 0.4 s hold after speech is timed on a clock that coarsens with it.</p>
           </div>
         </fieldset>
 
@@ -127,11 +130,13 @@
           <legend><span class="chain-index">B</span> Network</legend>
           <div class="control">
             <label for="loss">Frames lost % <code class="cvar">net_fakeloss</code></label>
-            <input id="loss" type="number" value="0" min="0" max="60">
+            <input id="loss" type="number" value="0" min="0" max="60" aria-describedby="loss-help">
+            <p id="loss-help" class="control-help">The share of voice frames that never arrive. Not the game's own number: its net_fakeloss 5 lost about 22% of them.</p>
           </div>
           <div class="control">
             <label for="jitter">Jitter ms <code class="cvar">net_fakejitter</code></label>
-            <input id="jitter" type="number" value="0" min="0" max="100" step="10">
+            <input id="jitter" type="number" value="0" min="0" max="100" step="10" aria-describedby="jitter-help">
+            <p id="jitter-help" class="control-help">Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that.</p>
           </div>
         </fieldset>
 
@@ -139,15 +144,18 @@
           <legend><span class="chain-index">C</span> Receiver</legend>
           <div class="control">
             <label for="avggain">Gain target: mean (0) to peak (1) <code class="cvar">voice_avggain</code></label>
-            <input id="avggain" type="number" value="0.5" min="0" max="1" step="0.05">
+            <input id="avggain" type="number" value="0.5" min="0" max="1" step="0.05" aria-describedby="avggain-help">
+            <p id="avggain-help" class="control-help">Where the auto-gain aims each block, from its mean (0) to its peak (1). The game's default is 0.5.</p>
           </div>
           <div class="control">
             <label for="maxgain">Max gain <code class="cvar">voice_maxgain</code></label>
-            <input id="maxgain" type="number" value="10" min="1" max="100" step="1">
+            <input id="maxgain" type="number" value="10" min="1" max="100" step="1" aria-describedby="maxgain-help">
+            <p id="maxgain-help" class="control-help">The most the receiver's auto-gain may amplify. The game's default is 10.</p>
           </div>
           <div class="control">
             <label for="voice_scale">Voice scale <code class="cvar">voice_scale</code></label>
-            <input id="voice_scale" type="number" value="1.0" min="0.0" max="2.0" step="0.05">
+            <input id="voice_scale" type="number" value="1.0" min="0.0" max="2.0" step="0.05" aria-describedby="voice_scale-help">
+            <p id="voice_scale-help" class="control-help">The game's voice_scale. Not a plain volume: below 1 it lowers the voice by more than its number.</p>
           </div>
         </fieldset>
 
@@ -160,41 +168,43 @@
           </div>
           <div class="control">
             <label for="volume">Output volume, 1 = the game's default <code class="cvar">volume</code></label>
-            <input id="volume" type="number" value="1" min="0" max="1" step="0.05">
-            <p id="volume-note" class="reference-help">At 1, the game's default, a loud voice fills the whole range, as it does in the game.</p>
+            <input id="volume" type="number" value="1" min="0" max="1" step="0.05" aria-describedby="volume-note">
+            <p id="volume-note" class="control-help">The game's volume setting; it sets the loudest the file can get. 1.0 is the game's default. The recordings behind the model were made at 0.15.</p>
           </div>
           <div class="control">
             <label for="device_rate" title="The listener's PC hands the game's 44.1 kHz sound to a device that usually runs at 48 kHz, converting it on the way by linear interpolation, which softens the top octave a little; at 44.1 kHz nothing is converted.">Listener's sound device</label>
-            <select id="device_rate">
+            <select id="device_rate" aria-describedby="device_rate-help">
               <option value="48000" selected>48000 Hz (usual)</option>
               <option value="44100">44100 Hz</option>
             </select>
+            <p id="device_rate-help" class="control-help">The rate of the listener's sound device; the PC converts the game's 44.1 kHz sound to it. 48000 Hz is usual.</p>
           </div>
           <div id="auto-env" class="control control-full">
-            <div class="section-label">The automatic room's measures (what the map would measure; units)</div>
+            <div class="section-label">The automatic room's measures (dsp_room 1)</div>
+            <p id="auto-help" class="control-help">What the map would measure around the listener, in units (inches); open sides count only under the sky.</p>
             <div class="custom-row">
               <div class="custom-col">
-                <label class="check-label" for="a_sky"><input id="a_sky" type="checkbox"> Under the sky</label>
+                <label class="check-label" for="a_sky"><input id="a_sky" aria-describedby="auto-help" type="checkbox"> Under the sky</label>
               </div>
               <div class="custom-col">
                 <label for="a_w">Width</label>
-                <input id="a_w" type="number" value="300" min="0" max="100000" step="1">
+                <input id="a_w" aria-describedby="auto-help" type="number" value="300" min="0" max="100000" step="1">
               </div>
               <div class="custom-col">
                 <label for="a_l">Length</label>
-                <input id="a_l" type="number" value="400" min="0" max="100000" step="1">
+                <input id="a_l" aria-describedby="auto-help" type="number" value="400" min="0" max="100000" step="1">
               </div>
               <div class="custom-col">
                 <label for="a_h">Height</label>
-                <input id="a_h" type="number" value="160" min="0" max="4800" step="1">
+                <input id="a_h" aria-describedby="auto-help" type="number" value="160" min="0" max="4800" step="1">
               </div>
               <div class="custom-col">
                 <label for="a_open">Open sides</label>
-                <input id="a_open" type="number" value="0" min="0" max="4" step="1">
+                <input id="a_open" aria-describedby="auto-help" type="number" value="0" min="0" max="4" step="1">
               </div>
               <div class="custom-col">
                 <label for="a_refl">Reflectivity</label>
-                <input id="a_refl" type="number" value="0.4" min="0" max="1" step="0.01">
+                <input id="a_refl" aria-describedby="auto-help" type="number" value="0.4" min="0" max="1" step="0.01">
               </div>
             </div>
           </div>
@@ -204,59 +214,70 @@
           <legend><span class="chain-index">+</span> Extras: not in the game</legend>
           <div class="control">
             <label for="gain">Mic gain</label>
-            <input id="gain" type="number" value="1.0" min="0.5" max="5.0" step="0.1">
+            <input id="gain" type="number" value="1.0" min="0.5" max="5.0" step="0.1" aria-describedby="gain-help">
+            <p id="gain-help" class="control-help">Loudness into the game. Above 1 the sender clips, as an overdriven microphone does.</p>
           </div>
           <div class="control">
             <label for="hp">Hi-pass Hz, 0 = off</label>
-            <input id="hp" type="number" value="0" min="0" max="1000">
+            <input id="hp" type="number" value="0" min="0" max="1000" aria-describedby="hp-help">
+            <p id="hp-help" class="control-help">Not in the game: a filter before the codec. 0 is off.</p>
           </div>
           <div class="control">
             <label for="lp">Lo-pass Hz, 20000 = off</label>
-            <input id="lp" type="number" value="20000" min="1000" max="20000">
+            <input id="lp" type="number" value="20000" min="1000" max="20000" aria-describedby="lp-help">
+            <p id="lp-help" class="control-help">Not in the game: a filter before the codec. 20000 is off.</p>
           </div>
           <div class="control">
             <label for="vad">Voice gate</label>
-            <select id="vad">
+            <select id="vad" aria-describedby="vad-help">
               <option value="auto" selected>Auto (Steam: on)</option>
               <option value="1">On</option>
               <option value="0">Off (always send)</option>
             </select>
+            <p id="vad-help" class="control-help">Whether the sender sends only while you speak. Auto is the codec's own: on for Opus, off for the vaudio_ ones.</p>
           </div>
           <div class="control">
             <label for="vad_threshold" title="Gate opening level: the mean of |x| over a capture chunk, in dBFS; Steam's own is -40 (1% of full scale); a sine opens at -39.1 dBFS RMS. Chunks · 100 ms kept · 0.4 s hold. A typed level reaches the real-take check as a 20 ms RMS level, about 1 dB from this gate">Gate opens above dBFS</label>
-            <input id="vad_threshold" type="number" value="-40" min="-70" max="-10" step="0.5">
+            <input id="vad_threshold" type="number" value="-40" min="-70" max="-10" step="0.5" aria-describedby="vad_threshold-help">
+            <p id="vad_threshold-help" class="control-help">The level that opens the voice gate, in dBFS. Steam's own is -40; blank is the codec's own.</p>
           </div>
           <div class="control">
-            <label for="warble_on">Codec</label>
-            <select id="warble_on">
-              <option value="1" selected>On</option>
-              <option value="0">Bypass (receiver remains)</option>
+            <label for="warble_on">Skip the codec</label>
+            <select id="warble_on" aria-describedby="warble_on-help">
+              <option value="1" selected>Off</option>
+              <option value="0">On</option>
             </select>
+            <p id="warble_on-help" class="control-help">For comparison only: the sound goes to the receiver without being coded.</p>
           </div>
           <div class="control">
-            <label for="bits">Bitrate, 16 = stock</label>
-            <input id="bits" type="number" value="16" min="4" max="16">
+            <label for="bits">Bitrate, in sixteenths</label>
+            <input id="bits" type="number" value="16" min="4" max="16" aria-describedby="bits-help">
+            <p id="bits-help" class="control-help">16 is the codec's own bitrate; 8 is half of it. vaudio_speex has one bitrate and ignores this.</p>
           </div>
           <div class="control">
-            <label for="frameMs">Packet ms</label>
-            <input id="frameMs" type="number" value="20" min="20" max="100" step="20">
+            <label for="frameMs">Frames per packet, as ms</label>
+            <input id="frameMs" type="number" value="20" min="20" max="100" step="20" aria-describedby="frameMs-help">
+            <p id="frameMs-help" class="control-help">How much voice one network packet carries. A lost packet loses all of it.</p>
           </div>
           <div class="control">
             <label for="agc">Auto-gain</label>
-            <select id="agc">
+            <select id="agc" aria-describedby="agc-help">
               <option value="1" selected>On (the game's rule)</option>
               <option value="0">Off (unity gain)</option>
             </select>
+            <p id="agc-help" class="control-help">The receiver's auto-gain as the game runs it. Off is for comparison only: the voice at unity gain.</p>
           </div>
           <div class="control">
             <label for="retime" title="TF2's receiver starts some talk spurts early after a short silence (measured; which ones is random). Off keeps the source's timing for A/B.">Talk-spurt timing</label>
-            <select id="retime">
-              <option value="0" selected>Source timing</option>
-              <option value="1">TF2 re-timing (random)</option>
+            <select id="retime" aria-describedby="retime-help">
+              <option value="0" selected>The file's own timing</option>
+              <option value="1">Some phrases start early (random)</option>
             </select>
+            <p id="retime-help" class="control-help">The game plays some phrases early after a short silence. Which ones is random.</p>
           </div>
           <div class="control">
-            <label title="Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. Saves the figure shown once the monitor runs. Not how TF2 sounds." class="check-label"><input id="live-lowlat" type="checkbox"> Live monitor: low latency (shorter pre-roll)</label>
+            <label title="Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. Saves the figure shown once the monitor runs. Not how TF2 sounds." class="check-label"><input id="live-lowlat" type="checkbox" aria-describedby="live-lowlat-help"> Live monitor: low latency (shorter pre-roll)</label>
+            <p id="live-lowlat-help" class="control-help">Plays the live monitor sooner by cutting part of each phrase's start. Not how TF2 sounds.</p>
           </div>
           <div id="custom-env" class="control control-full">
             <div class="section-label">The custom room (dsp_room 99)</div>
@@ -264,15 +285,15 @@
             <div class="custom-row">
               <div class="custom-col">
                 <label for="c_dur">Time</label>
-                <input id="c_dur" type="number" value="1.5" step="0.1" min="0" max="6">
+                <input id="c_dur" aria-describedby="custom-help" type="number" value="1.5" step="0.1" min="0" max="6">
               </div>
               <div class="custom-col">
                 <label for="c_dec">Decay</label>
-                <input id="c_dec" type="number" value="3.0" step="0.1" min="0.5" max="8">
+                <input id="c_dec" aria-describedby="custom-help" type="number" value="3.0" step="0.1" min="0.5" max="8">
               </div>
               <div class="custom-col">
                 <label for="c_mix">Mix %</label>
-                <input id="c_mix" type="number" value="25" min="0" max="100">
+                <input id="c_mix" aria-describedby="custom-help" type="number" value="25" min="0" max="100">
               </div>
             </div>
           </div>

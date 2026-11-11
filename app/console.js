@@ -300,31 +300,33 @@ const cvars = {
   'restart': { help: 'Restart playback', action: () => { els.audio.currentTime = 0; els.audio.play().catch(() => {}); } },
 
   /* === Linked cvars (mirror a DOM input) === */
-  'voice_micgain':   { help: 'Sender capture gain; above 1 clips the int16 capture', link: 'gain' },
-  'voice_scale':     { help: 'Receiver voice scale, applied inside the auto-gain (more = more clipping)', link: 'voice_scale' },
-  'voice_agc':       { help: 'Receiver auto-gain with int16 clamp (0 = unity gain)', link: 'agc' },
-  'voice_retime':    { help: "TF2's early talk-spurt starts after short silences (1), or the source's timing (0)", link: 'retime' },
-  'voice_maxgain':   { help: 'Auto-gain cap (TF2 default 10)', link: 'maxgain' },
-  'voice_avggain':   { help: 'Auto-gain normalizes each block between its mean (0) and peak (1) to full scale; 0.5 = TF2 default', link: 'avggain' },
-  'voice_capture_channel': { help: 'Stereo input to the mono mic: left (measured through a virtual cable) / mix / right', link: 'capture_channel' },
-  'voice_vad':       { help: 'Steam sender voice gate: auto (profile default) / 1 / 0', link: 'vad' },
+  // The help of each command says what the page's sentence under its
+  // control says (W4-01d); the app's own names say they are the app's.
+  'voice_micgain':   { help: 'Loudness into the game. Above 1 the sender clips, as an overdriven microphone does. The app\'s name, not a game variable', link: 'gain' },
+  'voice_scale':     { help: 'The game\'s voice_scale. Not a plain volume: below 1 it lowers the voice by more than its number', link: 'voice_scale' },
+  'voice_agc':       { help: 'The receiver\'s auto-gain as the game runs it (1). 0 is for comparison only: the voice at unity gain. The app\'s name', link: 'agc' },
+  'voice_retime':    { help: 'The game plays some phrases early after a short silence; which ones is random (1). 0: the file\'s own timing. The app\'s name', link: 'retime' },
+  'voice_maxgain':   { help: 'The most the receiver\'s auto-gain may amplify. The game\'s default is 10', link: 'maxgain' },
+  'voice_avggain':   { help: 'Where the auto-gain aims each block, from its mean (0) to its peak (1). The game\'s default is 0.5', link: 'avggain' },
+  'voice_capture_channel': { help: 'Which channel the game\'s microphone gets: left / mix / right. Left is what one stereo cable gave it; a mono file is not affected. A setting of the sender\'s PC', link: 'capture_channel' },
+  'voice_vad':       { help: 'Whether the sender sends only while you speak: auto (the codec\'s own: on for Opus, off for the vaudio_ ones) / 1 / 0. The app\'s name', link: 'vad' },
   // The help follows the profile (gateThresholdHelp, set by updateSignalChain).
   'voice_vad_threshold': { help: 'Gate opening level: 20 ms frame RMS in dBFS (measured -39.5); 120 ms pre-roll, 440 ms hold', link: 'vad_threshold' },
-  'volume':          { help: "Output volume after the mixer's clip (0.0 - 1.0); 1 is the game's default, at which a loud voice fills the whole range", link: 'volume' },
+  'volume':          { help: "The game's volume setting; it sets the loudest the file can get. 1.0 is the game's default. The recordings behind the model were made at 0.15. From 0.0 to 1.0", link: 'volume' },
   // The app's own setting, not a TF2 variable: a property of the listener's PC.
   'snd_device_rate': {
-    help: "The listener's sound device: 48000 (usual) or 44100 Hz. The app's own setting, not a TF2 variable: the listener's PC converts the game's 44.1 kHz sound to its device's rate, and the download is at that rate",
+    help: "The rate of the listener's sound device; the PC converts the game's 44.1 kHz sound to it. 48000 Hz is usual; at 44100 Hz nothing is converted. The download is at that rate. The app's own setting, not a TF2 variable",
     link: 'device_rate'
   },
-  'dsp_hpf':         { help: 'Optional sender high-pass cutoff (0 = off)', link: 'hp' },
-  'dsp_lpf':         { help: 'Optional sender low-pass cutoff (20000 = off)', link: 'lp' },
-  'snd_bits':        { help: 'Codec bitrate scale (16 = profile bitrate; vaudio_speex has one bitrate and ignores it)', link: 'bits' },
-  'net_fakeloss':    { help: 'Voice frames lost %, in bursts of ~2.2 frames, concealed by the codec (vaudio_speex: played as zeros) (TF2 net_fakeloss 5/10/15 on a listen server lost ~22/45/64%)', link: 'loss' },
-  'net_fakejitter':  { help: 'Network jitter in ms: late voice frames, 3.2% at 50 ms, one in ten played as silence', link: 'jitter' },
-  'net_split':       { help: 'Codec frames per packet, in steps of 20 ms: 20 is one frame, 40 two (a frame is 20 ms for Opus, 23.2 or 46.4 ms for CELT, 14.5 ms for Speex)', link: 'frameMs' },
-  'snd_codec':       { help: 'Run the codec (0 = bypass; filters and receiver remain)', link: 'warble_on' },
+  'dsp_hpf':         { help: 'Not in the game: a filter before the codec. 0 is off. A high-pass, its cutoff in Hz; the app\'s name', link: 'hp' },
+  'dsp_lpf':         { help: 'Not in the game: a filter before the codec. 20000 is off. A low-pass, its cutoff in Hz; the app\'s name', link: 'lp' },
+  'snd_bits':        { help: 'The bitrate, in sixteenths: 16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex has one bitrate and ignores this. The app\'s name', link: 'bits' },
+  'net_fakeloss':    { help: 'The share of voice frames that never arrive. Not the game\'s own number: its net_fakeloss 5 lost about 22% of them (10: 45%, 15: 64%). In %, lost in bursts of about 2.2 frames', link: 'loss' },
+  'net_fakejitter':  { help: 'Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that. In ms; one late frame in ten plays as silence', link: 'jitter' },
+  'net_split':       { help: 'How much voice one network packet carries. A lost packet loses all of it. Frames per packet, as ms: 20 is one frame, 40 two. The app\'s name', link: 'frameMs' },
+  'snd_codec':       { help: 'For comparison only: the sound goes to the receiver without being coded (0). 1 runs the codec. The app\'s name', link: 'warble_on' },
   'sv_voicecodec':   {
-    help: 'Voice codec (celt_22 / celt_44 / steam / steam_48 / speex)',
+    help: 'What the game sends voice with: steam (Steam voice, today\'s), celt_22 (vaudio_celt), celt_44 (vaudio_celt_high), speex (vaudio_speex), steam_48 (Fullband Opus: not in the game)',
     link: 'codec',
     normalize: (v) => CODEC_PROFILES[v] ? v : null
   },
@@ -353,7 +355,7 @@ const cvars = {
     }
   },
   'underwater': {
-    help: 'The listener under water (1) or not (0): the whole sound passes the game\'s water preset, 14. A state of the player, not a variable',
+    help: 'A state of the player, with no variable: the whole sound passes the game\'s water preset (14). 1 under water, 0 not',
     link: 'underwater'
   },
   'dsp_slow_cpu': {
@@ -366,15 +368,15 @@ const cvars = {
   },
   // The automatic room's measures for dsp_room 1: what the map would
   // measure. The app's own names; the game has no variable for them.
-  'dsp_auto_sky':          { link: 'a_sky', help: 'The automatic room (dsp_room 1): under the sky (1) or indoors (0). The app\'s name' },
-  'dsp_auto_width':        { link: 'a_w', help: 'The automatic room: width in units. The app\'s name' },
-  'dsp_auto_length':       { link: 'a_l', help: 'The automatic room: length in units. The app\'s name' },
-  'dsp_auto_height':       { link: 'a_h', help: 'The automatic room: height in units. The app\'s name' },
-  'dsp_auto_opensides':    { link: 'a_open', help: 'The automatic room: open sides, 0 to 4, counted only under the sky. The app\'s name' },
-  'dsp_auto_reflectivity': { link: 'a_refl', help: 'The automatic room: the walls\' reflectivity, 0 to 1. The app\'s name' },
-  'dsp_custom_time':  { link: 'c_dur', help: 'The custom room (dsp_room 99, the app\'s own): its duration in seconds' },
-  'dsp_custom_decay': { link: 'c_dec', help: 'The custom room (dsp_room 99, the app\'s own): its decay' },
-  'dsp_custom_mix':   { link: 'c_mix', help: 'The custom room (dsp_room 99, the app\'s own): its share of the voice, %' },
+  'dsp_auto_sky':          { link: 'a_sky', help: 'What the map would measure around the listener, in units (inches); open sides count only under the sky. dsp_room 1: under the sky (1) or indoors (0); the app\'s name' },
+  'dsp_auto_width':        { link: 'a_w', help: 'What the map would measure around the listener, in units (inches); open sides count only under the sky. dsp_room 1: the width; the app\'s name' },
+  'dsp_auto_length':       { link: 'a_l', help: 'What the map would measure around the listener, in units (inches); open sides count only under the sky. dsp_room 1: the length; the app\'s name' },
+  'dsp_auto_height':       { link: 'a_h', help: 'What the map would measure around the listener, in units (inches); open sides count only under the sky. dsp_room 1: the height; the app\'s name' },
+  'dsp_auto_opensides':    { link: 'a_open', help: 'What the map would measure around the listener, in units (inches); open sides count only under the sky. dsp_room 1: open sides, 0 to 4; the app\'s name' },
+  'dsp_auto_reflectivity': { link: 'a_refl', help: 'What the map would measure around the listener, in units (inches); open sides count only under the sky. dsp_room 1: the reflectivity, 0 to 1; the app\'s name' },
+  'dsp_custom_time':  { link: 'c_dur', help: 'The app\'s own room, not the game\'s. dsp_room 99: its duration in seconds' },
+  'dsp_custom_decay': { link: 'c_dec', help: 'The app\'s own room, not the game\'s. dsp_room 99: its decay' },
+  'dsp_custom_mix':   { link: 'c_mix', help: 'The app\'s own room, not the game\'s. dsp_room 99: its share of the voice, %; at a high mix its 32-bit sums can wrap' },
   'dsp_room': {
     help: 'The room by number: 0 none, 1 the automatic room (its measures: dsp_auto_*), 2-29 the game\'s presets, 99 the app\'s custom room; any whole number',
     link: 'env',
@@ -547,6 +549,7 @@ function updateSignalChain() {
   const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
   const gain = num(els.gain, 1), bits = num(els.bits, 16), loss = num(els.loss, 0), jitter = num(els.jitter, 0);
   const maxGain = num(els.maxGain, VOICE_ENGINE.autoGain.maxGain), volume = num(els.volume, VOICE_ENGINE.volume);
+  const voiceScale = num(els.voiceScale, 1), avgGain = num(els.avgGain, VOICE_ENGINE.autoGain.avgGain);
   const deviceRate = els.deviceRate ? num(els.deviceRate, VOICE_ENGINE.deviceRate) : VOICE_ENGINE.deviceRate;
   const codecOn = els.warble.value === '1', agcOn = els.agc.value === '1';
   const gateOn = codecOn && (els.vad.value === 'auto' ? !!codec.senderGate : els.vad.value === '1');
@@ -573,7 +576,12 @@ function updateSignalChain() {
       : codec.engine === 'speex' ? `Speex 1.0.2 on ${codec.codecRate / 1000} kHz sound · ${codec.packetBytes}-byte frames of ${(1000 * codec.frameSize / codec.codecRate).toFixed(2)} ms · ${codec.bitrate / 1000} kbit/s${bits !== 16 ? ' · snd_bits not used' : ''}`
       : `Opus ${codec.codecRate / 1000} kHz · ${codec.encoder?.vbr ? 'VBR ' : ''}${kbps} kbps${codec.encoder?.dtx ? ' · DTX' : ''} · ${mode}`, codecOn ? '' : 'off'],
     ['Network', `${packetMs} ms packets · ${loss}% lost${jitter > 0 ? ` · ${jitter} ms jitter` : ''}`, loss > 0 || jitter > 0 ? 'hot' : ''],
-    ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · int16 clip` : 'unity gain · int16 clip'}${els.retime && els.retime.value === '1' ? ' · spurts re-timed' : ''}`, ''],
+    // What differs from the game's defaults is named, so the strip is a full
+    // account (W4-01d): voice_scale when it is not 1, the gain target when
+    // voice_avggain is not 0.5.
+    ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · int16 clip` : 'unity gain · int16 clip'}`
+      + `${voiceScale !== 1 ? ` · voice_scale ${voiceScale}` : ''}${agcOn && avgGain !== VOICE_ENGINE.autoGain.avgGain ? ` · gain target ${avgGain}` : ''}`
+      + `${els.retime && els.retime.value === '1' ? ' · spurts re-timed' : ''}`, ''],
     ['Mixer', `44.1 kHz · ${room}`, ''],
     // The mixer's 44.1 kHz output, at the listener's device's rate (W3-10).
     ['Output', `volume ${Math.round(volume * 100)}% · ${+(deviceRate / 1000).toFixed(1)} kHz device`, '']

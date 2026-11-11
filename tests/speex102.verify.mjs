@@ -839,8 +839,10 @@ console.log('\n[speex profile] Wording');
 {
   const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const option = /<option value="speex">([^<]*)<\/option>/.exec(html)?.[1] || '';
-  check('the page\'s option names Speex 1.0.2 on 11.025 kHz sound in 20-byte frames of 14.51 ms at 11.025 kbit/s',
-    option === 'vaudio_speex (Speex 1.0.2 on 11.025 kHz sound · 20-byte frames of 14.51 ms · 11.025 kbit/s)', option);
+  // W4-01d shortened the codec menu's entries to fit a 390 px screen; the
+  // chain strip keeps the module's figures (the browser suite checks it).
+  check('the page\'s option names vaudio_speex: Speex on 11 kHz sound',
+    option === 'vaudio_speex (Speex, 11 kHz)', option);
 }
 
 console.log(`\n${passed} Speex 1.0.2 and speex profile checks passed`);
