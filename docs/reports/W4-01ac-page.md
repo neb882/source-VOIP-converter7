@@ -379,3 +379,31 @@ fails at that check's step.
    reader).
 5. Firefox and Safari were not run (the order's "Open"): the refusal sentences go by the error's name.
 
+
+## Review round
+
+The review (2026-11-11) found one blocking defect, two test gaps and smaller points, and the owner decided the
+render's name the same day. Main (`23568c6`, docs only) is merged in; the cache stays v34. One commit, `90050f0`,
+holds the fixes and their checks; no sample changes. The browser suite: **374 checks** (363 before the round).
+
+| Item | What changed | Check(s) | Break that fails it |
+| --- | --- | --- | --- |
+| B1: a failed render restarted itself every half second | a render that throws (not a cancel) records its key as `cancelledKey`, as a cancel does: only other settings or the button start another; the error stays on the status line | "a render that fails is not started again by itself; its error stays on screen" (the Opus module routed to fail, a 3 s file: 1 render started in 2.5 s); "the button tries it again, once" | R1: the failure's key not recorded |
+| S1: no check changed a setting during a render | (checks only) | "a 61 s source: a change made while it renders leaves that render marked as made with the earlier settings"; "a short source: after a change made while a render runs, the render shown is the controls' settings' (a fresh render of them is the same WAV)" | R2: the result labelled with the controls' key at the end (the reviewer's break) fails the 61 s check; the short source's check catches it only when the old render ends before the 400 ms wait, so it is not claimed for R2 |
+| S2: "not on the first visit" untested | (check only) | "the first visit's worker taking over shows the version and no notice", before the reload | R3: `let controlled = true` |
+| N5: two Tab-related breaks passed | (checks only) | "console: with a word no command starts with, Tab leaves it"; "a first render does not take the focus from a field being typed in" (the console input focused and typed in while a 10 s file renders) | R4: the "some command matches" condition dropped; R5: the typing guard dropped |
+| The owner's words | "Hear (B): Rendered \| Original \| Real take", the render's button titled "The render: the source as it comes out of the chain with these settings. B switches"; RENDER and ORIGINAL in the views, the legend and the table; "the render", "the original", "the real take" in `VERSION_WORDS`, the Δ titles, `AB_LABELS` ("Hearing the render"), "matched to the render", "Matched: the render −3.0 dB"; README. The live panel's output meter is named "Output peak" (my call: "TF2 voice peak" read as a claim about the codec), and `#live-record`'s title says "what the chain made of it". The tool's own phrases (the TF2 voice chain, the output device's title, the title and tagline) and the codec names in the status and preset lines stay | "with steam: the switch reads "Hear (B): Rendered \| Original", the table RENDER and ORIGINAL, and no version is labelled TF2", and the same with miles (the visible buttons' text and titles, the table's rows and titles, the legend, the hidden "Hearing …" line); the older meter, Matched and B-key checks follow the words | R8: the table's name TF2 again; R8b: the button "TF2 voice" again |
+| N1: a demo's unsent time | for a demo: "N s with no voice packets"; a file keeps "(too quiet for the gate)" | "for a demo, the line gives the time with no voice packets, not the gate's reason" | R6: the gate's reason for a demo too |
+| N2: a demo re-rendered by the codec control | a demo's key leaves out the sender's settings its render does not read (`DEMO_IGNORES`: capture channel, mic gain, the filters, bits, the gate and its threshold, Steam's uptime, loss, jitter, net_split; read from `audio.js`'s `received` path, where each is skipped); the codec is the demo's already | "with a demo as the source, the sender's settings (mic gain, a filter, loss) start no render and mark nothing; voice_scale renders it again" | R7: the sender's settings kept in the key |
+| N3 | README: a share link's settings, once applied, are what is remembered | — | — |
+| N4 | `app/realtake.js`: "(B cycles render, original, real take)"; `app/rooms.js`: "0.77 of the direct voice"; the W3-17d check that quotes it, and `tests/REFERENCE_2026.md`'s quote of the page's sentence, follow | the W3-17d check, word for word | — |
+| Point 6 | `NotSupportedError` stays outside the refusal sentence, as built | — | — |
+
+Each break is one edit to a `git archive` copy of `90050f0`, run as before; every one fails its check (R1 to R8b).
+
+Runs on `90050f0`: the browser suite alone, exit 0, **374 browser checks passed**; `pnpm test:all` under the
+heavy-job lock, exit 0 (the vendor check: the Opus runtime and the libopus 1.1.5, CELT 0.11, Speex 1.0.2 and VR12
+builds match; `verify.js` 285, gain 103, Opus 149, Speex 86, VR12 31, miles 73, paired reference 43, formats 68,
+file rate 53, meter 50, video 46, demo 36, render-stream 553, output stage 103, voice channel 129, Steam sender
+109, swresample 43, room 215; 374 browser checks). CI on `90050f0` (run 43113569747): the verification step
+passed. The commit after it adds this section only; its own run is in the hand-back.
