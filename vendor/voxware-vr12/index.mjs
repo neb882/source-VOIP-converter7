@@ -4,7 +4,9 @@
 // folder (vr12.c, unchanged) and the wrapper as read from the game's module
 // (tests/vr12/api.c). A codec of the engine family (selectable in the Source
 // engines of 2006 and 2007, where the default was already vaudio_speex);
-// current TF2 ships it and refuses it. Nothing in the app loads this yet.
+// current TF2 ships it and refuses it. The app's miles profile loads it
+// (opus-codec.mjs, W3-20b); it has not been checked against any recording of
+// a running engine.
 //
 // createCodec() is the wrapper's frame codec: 360 samples to 12 bytes and
 // back (two VR12 frames of 180 samples and 6 bytes). The codec's nominal rate

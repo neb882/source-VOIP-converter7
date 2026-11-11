@@ -1,6 +1,6 @@
 # Legacy voice codecs: what is known
 
-Source's older engine codecs are `sv_voicecodec vaudio_celt`, `vaudio_celt_high` and `vaudio_speex`. The `celt_22` and `celt_44` profiles run the real codec, CELT 0.11 ([`vendor/celt-0.11`](../vendor/celt-0.11/README.md)), built as the game's module is and at the settings it uses, both read from the owner's copy of the module (W3-03, W3-08) and checked against the game's own recording of its decoded voice (Set H, `tests/REFERENCE_2026.md` finding 31). The `speex` profile runs Speex 1.0.2 ([`vendor/speex-1.0.2`](../vendor/speex-1.0.2/README.md)) as the game's `vaudio_speex` module does, read from the owner's copy of a module from another Source game (W3-09, section 5), with the module's arithmetic since W3-18; a current TF2 cannot record it, HL2DM's 32-bit game can (Set M). The receiver side of all three (gate, auto-gain rate) is assumed. This file collects what is known about the real codecs. `vaudio_miles`, a codec the Source engines of 2006 and 2007 accepted and current TF2 ships and refuses, has a section of its own below; the app has no profile for it.
+Source's older engine codecs are `sv_voicecodec vaudio_celt`, `vaudio_celt_high` and `vaudio_speex`. The `celt_22` and `celt_44` profiles run the real codec, CELT 0.11 ([`vendor/celt-0.11`](../vendor/celt-0.11/README.md)), built as the game's module is and at the settings it uses, both read from the owner's copy of the module (W3-03, W3-08) and checked against the game's own recording of its decoded voice (Set H, `tests/REFERENCE_2026.md` finding 31). The `speex` profile runs Speex 1.0.2 ([`vendor/speex-1.0.2`](../vendor/speex-1.0.2/README.md)) as the game's `vaudio_speex` module does, read from the owner's copy of a module from another Source game (W3-09, section 5), with the module's arithmetic since W3-18; a current TF2 cannot record it, HL2DM's 32-bit game can (Set M). The receiver side of all three (gate, auto-gain rate) is assumed. This file collects what is known about the real codecs. `vaudio_miles`, a codec the Source engines of 2006 and 2007 accepted and current TF2 ships and refuses, has a section of its own below; the app's `miles` profile runs it as those engines did, unverified (W3-20b).
 
 Leaked engine source was deliberately not used. Valve's public Source SDK 2013 has no voice-codec code: the codecs live in the engine's `vaudio_*` libraries.
 
@@ -67,7 +67,7 @@ Leaked engine source was deliberately not used. Valve's public Source SDK 2013 h
 `vaudio_speex`); current TF2 ships it and refuses it.** As `voice_miles` it was also the codec of the engine before
 Source. Current TF2 ships the module, Miles and the plug-in in its 32-bit folder and refuses the name ("Voice_Init
 Failed: invalid voice codec vaudio_miles.", measured; its engine passes four codec names only, read), and so does the
-32-bit engine of Source SDK Base 2013 (read). There is no app profile yet (W3-20b). The module wraps a Miles Sound
+32-bit engine of Source SDK Base 2013 (read). The app's `miles` profile runs it (W3-20b, "In the app" below). The module wraps a Miles Sound
 System plug-in holding Voxware's MetaVoice VR12, a harmonic vocoder. Read from the owner's copy of the module and run,
 with the owner's copy of the plug-in, in a CPU emulator on signals of our own (2026-11-11, W3-20a's inputs); the
 engines of Source SDK Base 2006 and 2007 and their own wrappers and plug-in were read and run the same day (the
@@ -87,7 +87,15 @@ orchestrator's private investigation of the owner's older engine files; the fact
 | Reset | twice over, 360 zero samples encoded and their 12 bytes decoded; nothing cleared | read; equal to doing it by hand, measured |
 | Loss | no path in the wrapper: given no data it copies 12 bytes from address 0 (the emulated run stops there); the plug-in's comfort-noise property is never asked for. The 2006 and 2007 engines never call Decompress without data, so a lost packet gets no decoder call at all | read, measured |
 | Settings | the codec is always VR12 (the plug-in's other two are never asked for); the `quality` argument is never read; no rate or width is read or set | read |
-| Selection | in the 2006 and 2007 engines `sv_voicecodec` defaults to `vaudio_speex`, and its value is loaded as a library by name, any name, with no list and no fall-back, so `vaudio_miles` was accepted | read |
+| Selection | in the 2006 and 2007 engines `sv_voicecodec` defaults to `vaudio_speex`, and its value is loaded as a library by name, any name, with no list and no fall-back, so `vaudio_miles` was accepted; if loading fails, voice is disabled with a message | read |
+| Call | a packet is the codec's output for one call: whole 12-byte frames end to end; samples that do not fill a frame stay in the codec object; one call takes at most 1024 samples | read, both engines |
+| Frames per packet | how many a packet held in a running engine: two from a full call, three with left-overs, is a guess from the sizes | not known |
+| Codec objects | the sender's encoder and each receive channel are separate codec objects, each with both halves; the receiver's reset decodes silence coded by its own object's encoder | read, both engines |
+| Sender | every `+voicerecord` press resets the encoder's codec object (the wrapper's reset); a release sends one more packet with the final flag: a part frame padded with zeros, nothing kept | read, both engines |
+| Receiver | a packet from a speaker with no channel gets one: its codec object reset, its buffer emptied, the gain reset to unity, playback after 0.2 s; a packet from a speaker with a channel is decoded at once, with no reset. A channel is freed when its buffer has run dry; there is no timer. So after a pause longer than what the receiver had buffered the next spurt starts from reset on both sides, the gain at unity; after a shorter one only the sender has been reset | read, both engines; that the buffer holds about the 0.2 s wait in practice is a guess |
+| Receiver, in order | decode; the auto-gain on the decoder's samples (128-sample blocks); an interpolator at a step of exactly 1.0 that writes n − 1 samples for n decoded (TF2's rule of today, finding 24); the mixer, whose voice source is 11025 Hz | read, both engines; the interpolator also run: ten packets of 360 put 3,590 samples in its buffer |
+| Gain | the old engines' gain routine gives the app's `receiverAutoGain` on every sample: 73,418,240 of 73,418,240 (20,485 blocks of 128 samples, seven settings, both engines, two settings of the processor's precision) | run |
+| Mixer and output | the old engines' mixer after the voice source, and their output stage | not read |
 
 - **The build** ([`vendor/voxware-vr12`](../vendor/voxware-vr12/README.md), W3-20a). The codec is a public C
   implementation ([coffeegrind123/voxware-vr12](https://github.com/coffeegrind123/voxware-vr12), MIT, commit
@@ -115,9 +123,50 @@ orchestrator's private investigation of the owner's older engine files; the fact
   double arithmetic suffices. On the four signals traced (1,892 codec frames), every one-step difference in decoding
   entered at the plug-in's inverse transform, with a smaller difference before it (measured); an exact decoder would
   reproduce the plug-in's two transforms operation for operation.
-- **Not known:** nothing of a running engine with this codec has been recorded; the encoder's real start-up block
-  (uninitialised memory in all three wrappers); how many frames a packet held in a running engine; what the listener
-  heard at a lost packet, beyond that the decoder is not called.
+- **In the app** (W3-20b: the `miles` profile, `constants.js`; `opus-codec.mjs`, `vr12RoundTrip` and
+  `createVr12Stream`). `vaudio_miles` is not a Team Fortress 2 codec: it is a codec of the Source engine family that
+  could be selected in the Source engines of 2006 and 2007, and current TF2 ships its files and refuses the name. It
+  has not been checked against any recording of a running engine. The profile is the codec stage of those engines set
+  into the app's chain: the sender resamples to 11025 Hz as for `speex`; two codec objects, the sender's and the
+  receiver's, each reset at the render's start (the key press and the channel's assignment), with a framer on each;
+  each sample made 16 bits as for `speex` (to nearest, ties to even, clamped) and cut to 8 by the module; the receiver's
+  auto-gain on the decoder's samples from the first one; the codec's delay dropped after the gain. Everything after the
+  receiver's gain (the mixer, rooms, output) is TF2's of today. `snd_bits` does not change it. Its frames have their
+  own code (8) in the frame log. No preset uses it, and it has no row in the accuracy tables. What is not the engines'
+  own rule:
+  - **the start-up block** is zeros (the owner's ruling, delegated, W3-20a); it changes a few packets near the start
+    of some signals (frames 12 to 14 of the noise vector, five frames of the tones vector, three of a quiet voice
+    near -40 dBFS, none of the tests' speech-like signal or of white noise);
+  - **a new spurt resets both sides** (a stand-in). With no voice gate a render is one key press, as in the engines,
+    and nothing is reset after its start. A new spurt exists only with the app's gate on or when the live key goes down
+    again; there the sender's reset is the engines' rule, and the receiver's is right for a pause longer than what the
+    receiver had buffered and wrong for a shorter one. What that is worth, measured on a second spurt (two voiced
+    bursts, the gate on): decoded by a receiver that was not reset, the second spurt differs from the profile's by a
+    difference 3.6 dB above the spurt's own level (the vocoder's waveform is not kept, so the two do not line up); by
+    one shared codec object, by -52.1 dB;
+  - **the gain is held** through time nothing was sent, as on every profile of the frame path; the engines reset it to
+    unity when a channel is assigned (a stand-in);
+  - **a lost or late frame** plays as 360 zeros in its own place and the receiver's codec is not called (a stand-in:
+    the engines queue nothing for a lost packet, so the sound after it would close up while the buffer lasts, and a
+    buffer run dry would free the channel). The loss and jitter models are TF2's fits, on 32.65 ms frames; `net_split`
+    counts whole frames (20 one frame, 40 two);
+  - **the interpolator's dropped sample** is not modelled, as for every profile; **the decoder** is within one step of
+    the plug-in, not exact (W3-20a).
+
+  Measured by `tests/miles.verify.mjs` (the module run on signals of our own; not measurements of any engine):
+  - **The delay**, from the envelope (the codec is a vocoder): a steady voiced sound (harmonics 1/h below 5 kHz, -12
+    dBFS RMS) switched on at 24 places in a frame, at pitches of 100, 140 and 190 Hz; the lag that best lines up the
+    55-sample RMS envelopes of input and decoded sound has a median of 304.5 samples (quartiles 274.75 and 348, range
+    200 to 411, less than a frame apart). The profile drops 305 samples (27.66 ms).
+  - **The 8-bit cut.** Any input whose 16-bit samples all lie from -256 to 255 codes as its signs alone (0 and -256);
+    digital silence stays digital silence. In the pauses of the tests' speech-like signal (-78.7 dBFS at 11025 Hz) the
+    cut gives -45.6 dBFS, the decoder -57.1 and the gain -37.1; under `speex` the same pauses decode at -82.7 and reach
+    -62.7. In its spurts (-20.0 dBFS) the decoder gives -22.6 (`speex`: -19.3). A steady voiced sound at 140 Hz
+    decodes at -16.9 dBFS for 0 in (clipped at the capture), -13.3 for -12, -25.5 for -24, -41.2 for -36, -56.5 for
+    -42, -61.4 for -48 and -63.9 for -60; below about -50 dBFS RMS (its peak under 256) only its signs are left.
+- **What remains unknown:** how many frames a packet held in a running engine; the encoder's real start-up block
+  (uninitialised memory in all three wrappers); what a listener heard at a lost packet, beyond that the decoder is not
+  called; the old engines' mixer and output stage. Nothing of a running engine with this codec has been recorded.
 
 ## The receiver gain's blocks (W3-19)
 

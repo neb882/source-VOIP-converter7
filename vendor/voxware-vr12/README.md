@@ -4,8 +4,8 @@ This folder holds the codec of the engine's `vaudio_miles` module: Voxware's Met
 nominal 8000 Hz, which the module reaches through a Miles Sound System plug-in. **It is a codec of the engine family
 (selectable in the Source engines of 2006 and 2007, where the default was already `vaudio_speex`); current TF2 ships it
 and refuses it**: its 32-bit folder has the module, Miles and the plug-in, and asked for the name it prints
-"Voice_Init Failed: invalid voice codec vaudio_miles." (`tests/REFERENCE_2026.md` finding 31). Nothing in the app
-loads it yet; a profile is a later order (W3-20b).
+"Voice_Init Failed: invalid voice codec vaudio_miles." (`tests/REFERENCE_2026.md` finding 31). The app's `miles`
+profile loads it when that profile is first used (W3-20b). It has not been checked against any recording of a running engine.
 
 ## Where it comes from
 

@@ -609,7 +609,7 @@ At 300 frames a second, TF2's default cap, a spurt opens with 160 ms at once (fi
 
 ### 24. One sample is dropped from every packet
 
-The engine copies a decoded packet into the ring through an interpolator that writes one sample fewer than it was given: the packet's first sample is in effect left out (read, W3-03). In the logs every packet of N samples that neither overflows nor meets a pull raises the queue by exactly 2 × (N − 1) bytes (measured, Set G; a replay that keeps the sample fails).
+The engine copies a decoded packet into the ring through an interpolator that writes one sample fewer than it was given: the packet's first sample is in effect left out (read, W3-03). The engines of Source SDK Base 2006 and 2007 have the same rule, at a step of exactly 1.0: read, and run, where ten packets of 360 samples put 3,590 samples in the buffer (added 2026-11-11, W3-20b). In the logs every packet of N samples that neither overflows nor meets a pull raises the queue by exactly 2 × (N − 1) bytes (measured, Set G; a replay that keeps the sample fails).
 
 Steam hands voice out in about 17.8 packets a second (finding 25), so playback gains about 0.04% on the sender: 17.8 / 44100 is 403 ppm. This is the "clock" of the accuracy suite, 404 to 406 ppm on most takes. It is not a recorder's clock, and it follows the packet rate: the one take at 505 ppm had 22.3 packets a second. The playback does not get shorter: the mixer plays in real time and the queue gets shallower.
 
@@ -801,6 +801,29 @@ Since W3-10 (2026-11-10) the app runs these stages as read: the voice entered at
   with the wrapper as read, gives those packets on 2,505 of 2,505 frames and the decoded samples within one step
   (581,899 of 582,120 equal), started with a block of zeros (`tests/LEGACY_CODECS.md`, `vaudio_miles`). Nothing of a
   running engine with this codec has been recorded.
+- **Added 2026-11-11 (W3-20b): the `miles` profile, and what the engines of 2006 and 2007 did around the codec.**
+  `vaudio_miles` is not a Team Fortress 2 codec: it is a codec of the Source engine family that could be selected in
+  the Source engines of 2006 and 2007, and current TF2 ships its files and refuses the name. It has not been checked
+  against any recording of a running engine. Read in both engines (the orchestrator's private investigation of the
+  owner's older engine files): a voice packet is the codec's output for one call, whole 12-byte frames with no header
+  or count of frames, samples that do not fill a frame kept in the codec object, at most 1024 samples a call; how many
+  frames a packet held in a running engine is not known. The sender's encoder and each receive channel are separate
+  codec objects with both halves. Every `+voicerecord` press resets the encoder's object (the wrapper's reset); a
+  release sends one more packet with the final flag. A packet from a speaker with no channel gets one: its object
+  reset, its buffer emptied, the gain at unity, playback after 0.2 s; a speaker with a channel is decoded at once,
+  with no reset; a channel is freed when its buffer runs dry, with no timer. The receiver decodes, runs the auto-gain
+  on the decoder's samples, and passes them through the interpolator of finding 24 into the mixer at 11025 Hz. These
+  engines' mixer after the voice source, and their output stage, were not read. The `miles` profile is that codec
+  stage set into the app's chain, everything after the receiver's gain TF2's of today: two codec objects, each reset
+  at the start; the gain on the decoder's samples from the first, the codec's delay (305 samples, from the envelope:
+  the codec is a vocoder) dropped after it. Its stand-ins: the start-up block is zeros; a new spurt (the app's gate
+  or the live key) resets both sides, where the engines reset the receiver only after a pause longer than its buffer;
+  the gain is held through time nothing was sent; a lost frame plays as zeros in its own place. No row of the
+  results tables is about it ([LEGACY_CODECS.md](LEGACY_CODECS.md#vaudio_miles) has its measured levels).
+- **Added 2026-11-11 (W3-20b): the old engines' gain is the app's.** The gain routine of the engines of Source SDK Base
+  2006 and 2007, run in a CPU emulator on signals of our own, gives the app's `receiverAutoGain` on every sample:
+  73,418,240 of 73,418,240 (20,485 blocks of 128 samples, seven settings, both engines, at two settings of the
+  processor's precision).
 - **Corrected 2026-11-11 (Set M): Speex can be recorded, in HL2DM's 32-bit game, and the app's build gives that recording's decoded stream sample for sample since W3-18 (the orchestrator's private run; Set M's paragraph).** The bullet read: **Speex cannot be recorded.** A current game asked for it runs `vaudio_celt`: read for a listen server's host, which is the owner's set-up (W3-09), and shown by Set I, which is in 512-sample packets at 22050 Hz and which the rebuilt CELT reproduces at 145,919 of 145,920 samples. A client of somebody else's server would fall back to the Steam codec instead (inferred, not tested). This bullet still ended "The app's `speex` profile runs Speex 1.2.1 at 8000 Hz with a resampler on each side; orders W3-12a and W3-12b rebuild it as read." Both are merged, and the profile is the module's (the bullet above; corrected 2026-11-10).
 
 ### 32. The room effect on a voice: read, and seen in two sets
@@ -1024,6 +1047,7 @@ Six settings no recording of the game's output covers yet are predicted in advan
 - **Comfort-noise details.** The model reproduces when comfort noise starts and how often it refreshes, but not the random excitation's exact values. For a steady tone below 60 Hz, the sign and height of each near-DC plateau differ from TF2's (finding 18).
 - **Output stage.** The interpolation to the device's rate is XAudio2's: measured in five recordings from two PCs, not read. A 44100 Hz device would have none (inferred; no take). Since W3-10 the app runs that interpolation as a model, exact in integers with ties to even, in place of the fitted 3-tap filter; the rounding rule is a choice, not read (the XAudio2 module was not read). The voice's 255/256 with headphones is settled: read, and measured on Set B to four digits (finding 30). The two-speaker level, 182.6/256, is read, with the voice's mixer group inferred from a name match; no take was made with two speakers.
 - **Engine codecs.** The CELT codecs' build and settings are read and reproduced on Set H, and the app runs them since W3-06; its Speex is the module's since W3-12b (finding 31). Set H is the game's decoded voice, not its output: no take of the game's output under either CELT codec exists. Whether the receiving side's CELT decoder is reset between spurts was not read (W3-08). Speex is read from a module of another Source game; TF2's 64-bit game falls back to CELT when asked for it, its 32-bit game runs it and records it (Set O: the app's whole render equals both recordings sample for sample); HL2DM's 32-bit game records it too (Set M), and since W3-18 the app's build gives its decoded voice sample for sample (the orchestrator's private run on that build; the whole render at `voice_maxgain 10` runs the gain on the game's blocks since W3-19, finding 31) ([LEGACY_CODECS.md](LEGACY_CODECS.md)).
+- **The `miles` profile** (W3-20b). `vaudio_miles` is not a Team Fortress 2 codec: it is a codec of the Source engine family that could be selected in the Source engines of 2006 and 2007, and current TF2 ships its files and refuses the name. It has not been checked against any recording of a running engine. Its codec stage is read from those engines and its codec within one step of their plug-in (finding 31); not known: how many frames a packet held, the encoder's real start-up block (zeros here), what a listener heard at a lost packet (zeros here), and the old engines' mixer and output (TF2's of today here). Its new spurt resets both sides, where the engines reset the receiver only after a pause longer than what it had buffered, and the gain is held, where they reset it with the channel. A recording that could settle these is described at the end of `docs/work-orders/W3-20b-miles-profile.md`; none is planned, and no prediction is registered.
 - **Rooms.** The room effect is read twice and seen in Sets C and D by its echo times, one autocorrelation value, a level and a pattern, and in Set K's room recordings tap by tap (finding 32). Since W3-17c the app's render runs the engine's arithmetic as read, and since W3-17d the page and the live monitor offer it. Still open:
   - **The fully wet room take.** No take has all of the voice through a room, and every take has the game's ambience under it. So nothing of the room is checked sample for sample. A take with `dsp_room 6` and the three mix variables set to 1 would be the preset's own response to a known voice, and preset 6 draws nothing at random. The steps are in W3-17's order.
   - **Why Set B is dry.** `dsp_slow_cpu 1` or `dsp_volume 0` is the likeliest reason (inferred). Reading those two, `dsp_room` and the Sound quality option off the owner's console would settle it.
