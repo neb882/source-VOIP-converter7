@@ -138,7 +138,7 @@
         <fieldset class="chain-group advanced-control">
           <legend><span class="chain-index">C</span> Receiver</legend>
           <div class="control">
-            <label for="avggain">Mean → peak normalize <code class="cvar">voice_avggain</code></label>
+            <label for="avggain">Gain target: mean (0) to peak (1) <code class="cvar">voice_avggain</code></label>
             <input id="avggain" type="number" value="0.5" min="0" max="1" step="0.05">
           </div>
           <div class="control">
@@ -244,7 +244,7 @@
           <div class="control">
             <label for="agc">Auto-gain</label>
             <select id="agc">
-              <option value="1" selected>On (measured)</option>
+              <option value="1" selected>On (the game's rule)</option>
               <option value="0">Off (unity gain)</option>
             </select>
           </div>

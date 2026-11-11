@@ -1138,6 +1138,11 @@ async function verifyRoomsPage(page) {
     'the fieldset "Extras: not in the game" holds exactly the order\'s extras, and none of the game\'s or the PCs\' controls', classified.inBox.join(', '));
   check(classified.wrongCvar.length === 0 && /not (in )?the game/.test(classified.fullband),
     'a control shows a variable\'s name only if the game has that variable; the Fullband Opus option says it is not in the game', classified.wrongCvar.join('; ') || classified.fullband);
+  // The labels of item 5.
+  const labels5 = await page.evaluate(() => ({ avg: document.querySelector('label[for="avggain"]').textContent.replace(/\s+/g, ' ').trim(),
+    agc: document.querySelector('#agc option[value="1"]').textContent }));
+  check(labels5.avg === 'Gain target: mean (0) to peak (1) voice_avggain' && labels5.agc === 'On (the game\'s rule)',
+    'the labels: "Gain target: mean (0) to peak (1)" with voice_avggain; the auto-gain "On (the game\'s rule)"', `${labels5.avg}; ${labels5.agc}`);
   // A render with each group's first entry plays and downloads with its tail.
   await page.locator('#file').setInputFiles({ name: 'room-tone.wav', mimeType: 'audio/wav', buffer: wavTone(0.5) });
   await page.waitForFunction(() => state.sourceName === 'room-tone.wav' && !els.process.disabled);
