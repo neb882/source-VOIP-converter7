@@ -1554,7 +1554,7 @@ async function verifySettingsWords(page) {
     && t.capture_channel[1] === 'Which channel the game\'s microphone gets. Left is what one stereo cable gave it; a mono file is not affected.'
     && t.gain[1] === 'Loudness into the game. Above 1 the sender clips, as an overdriven microphone does.'
     && t.bits[0] === 'Bitrate, in sixteenths' && t.bits[1] === '16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex and vaudio_miles each have one bitrate and ignore this.'
-    && t.frameMs[0] === 'Frames per packet, as ms' && t.frameMs[1] === 'How much voice one network packet carries. A lost packet loses all of it.'
+    && t.frameMs[0] === 'Frames per packet, as ms' && t.frameMs[1] === 'How much voice one network packet carries. A lost packet loses all of it. Steam voice sends each of its messages as one packet and ignores this.'
     && t.loss[0] === 'Packets lost % net_fakeloss' && t.loss[1] === 'The share of voice packets that never arrive. Not the game\'s own number: its net_fakeloss 5 loses about 22% of them.'
     && t.jitter[1] === 'Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that.'
     && JSON.stringify(words.options.retime) === '["The file\'s own timing","Some phrases start early (random)"]'
