@@ -1244,6 +1244,23 @@ Each with the recommendation and what it rests on.
 10. **No `spurtStart()` at a channel's open in a render** (recommended; c-3 adds it live). Rests on: read from
     `room-dsp.js`; no sample depends on it.
 
+**Rulings of 2026-11-11 (the orchestrator; each is the owner's to reverse).**
+
+1. The live monitor: c-3 is built after c-2, with the channel as a setting of the monitor. Whether it is on by
+   default there is asked of the owner; it holds nothing before c-3.
+2. The zero: as recommended. c-1 adds the mean arrival time to the delay taken out, as one named constant. c-2's
+   report says how much of a source's head and tail a `'game'` render loses over its seeds; whether such a render
+   may be longer than its source, as a render with a room is, is decided with W3-02d.
+3. The interpolator: as recommended. TF2's own routine is run privately first (both of the owner's builds of the
+   engine); c-1 starts on items 1 to 3 and takes item 4 when that run has handed back. The measurements quoted in
+   decision 3 come from running a module on signals of our own and may stand here.
+4. The fade's rounding: the same private run looks at it; if it stays unread it is listed as unverified.
+5. A refused message is an empty packet on its tick. 6. `D` on whole blocks. 7. `createRender()` streams `'game'`
+   in c-2. 8. The late-frame stand-in stays until BC-4. 9. Section 10d's ranges as tabled. 10. No `spurtStart()`
+   per channel in a render.
+
+BC-3's build is folded into c-2 and BC-4 stays an order of its own after it, as section 10 says.
+
 #### 12. Not settled here
 
 - The monitor's delay (decision 1): the owner's.
