@@ -28,8 +28,8 @@
   "in_flight": [
     {
       "order": "W3-20a-miles-codec",
-      "state": "building",
-      "note": "docs/work-orders/W3-20a-miles-codec.md. The VR12 codec vendored and built to WebAssembly with the game's wrapper, tested against vectors measured from the owner's plug-in and wrapper. No profile, nothing loaded by the page, no cache change."
+      "state": "built; in review",
+      "note": "docs/work-orders/W3-20a-miles-codec.md. The VR12 codec vendored and built to WebAssembly with the game's wrapper, tested against vectors measured from the owner's plug-in and wrapper. No profile, nothing loaded by the page, no cache change. Built 2026-11-11 (branch claude/w3-20a-miles-codec at 27e7841). The orchestrator's private run on all the vectors with stored input: game-level packets equal on every frame of seven signals before and after the reset; decoded samples 581,899 of 582,120 equal, never more than one step off; plug-in level unequal only in the five known frames."
     },
     {
       "order": "miles-sdk-files (investigation)",
@@ -42,9 +42,9 @@
       "note": "Rooms on the page and in the live chain (docs/work-orders/W3-17-room-effects.md, part d), then the settings' words (docs/work-orders/W4-01-page.md, part d) in the same branch claude/w3-17d-rooms-page. W4-01a and c are not built yet: the page as it stands. Cache v31 expected."
     },
     {
-      "order": "BC-1 (order being written)",
-      "state": "planning",
-      "note": "The work order for loss per whole message on the steam render and live chain, from docs/reports/bad-connections-plan.md; branch claude/bc-1-order, one file docs/work-orders/BC-1-loss-per-message.md. Built after it is read, on the main of that moment (it meets W3-17d in the live chain)."
+      "order": "BC-1-loss-per-message",
+      "state": "ordered; build held for a premise check",
+      "note": "docs/work-orders/BC-1-loss-per-message.md (written 2026-11-11). The order builds the rule as read: a lost packet loses a whole voice message (1 to 5 frames, about 18 messages a second), the decoder fills at most 10 frames, a packet over 12 frames is refused, a played frame keeps its own time. Its writer found that Set C's measured damage (finding 8: 4.3 and 14.1 events a second at net_fakeloss 5 and 15, half of them one frame long) is not what that rule gives by arithmetic (3.1 and 4.5 runs a second, 3.6 and 5.6 frames long). So before any builder starts: a private check with a prototype of the rule (the vendored codec driven directly) measured by finding 8's own method beside the takes, and beside other loss processes. If the read rule's renders give the takes' figures the build starts; if not, the build waits for the owner's logged take (run sheet block 1) or the order is rewritten to what fits."
     }
   ],
   "next": [
