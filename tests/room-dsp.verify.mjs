@@ -1045,10 +1045,34 @@ export async function main() {
     check('ROOM_CASES: the 14 examples and the two measured cases, in the order\'s order, with its labels and measures',
       same(rows.map((r) => [r.key, r.label, r.measures.sky, r.measures.width, r.measures.length, r.measures.height,
         r.measures.reflectivity, r.measures.openSides]), [...ORDER_CASES, ...ORDER_MEASURED].map((c) => c.slice(0, 8))));
-    check('the two measured cases are marked measured, with their sets; no example is; ROOM_PLACES starts empty',
+    check('the two measured cases are marked measured, with their sets; no example is',
       same(rows.filter((r) => r.measured).map((r) => [r.key, r.set]), [['set_c_room', 'Set C'], ['set_d_street', 'Set D']]) &&
-      Array.isArray(R.ROOM_PLACES) && R.ROOM_PLACES.length === 0 && Object.isFrozen(R.ROOM_CASES) &&
-      typeof (rows.find((r) => r.key === 'open') || {}).note === 'string');
+      Object.isFrozen(R.ROOM_CASES) && typeof (rows.find((r) => r.key === 'open') || {}).note === 'string');
+    // ROOM_PLACES: the five nodes of the owner's adsp_debug 2 walk on ctf_2fort, typed here from the order's
+    // amendment after Sets K and L (W3-17c): key, sky, width, length, height (units), reflectivity, the shape, the
+    // four mix values the game printed (null: not read), and the printed line (feet, the length first).
+    const PLACES = [
+      ['2fort_spawn_room', false, 372, 516, 240, 0.66, 'room', [0.32, 0.8, 80, 0.5], [[43, 31], 20, 0.66, 0]],
+      ['2fort_spawn_long', false, 252, 1140, 192, 0.66, 'tunnel', [0.4, 0.9, 80, 0.7], [[95, 21], 16, 0.66, 0]],
+      ['2fort_indoor', false, 708, 1440, 180, 0.55, 'room', [0.32, 0.8, 80, 0.5], [[120, 59], 15, 0.55, 0]],
+      ['2fort_tunnel', false, 168, 2160, 192, 0.555, 'tunnel', null, [[180, 14], 16, 0.555, 0]],
+      ['2fort_pond', true, 912, 1344, 4800, 0.34, 'courtyard', [0.21, 0.8, 95, 0.1], [[112, 76], 400, 0.34, 1]],
+    ];
+    const places = R.ROOM_PLACES || [];
+    check('ROOM_PLACES: the amendment\'s five rows on ctf_2fort, in its order: key, measures in units, shape, the printed line',
+      Object.isFrozen(places) && same(places.map((r) => [r.key, r.measures.sky, r.measures.width, r.measures.length, r.measures.height,
+        r.measures.reflectivity, r.shape, r.log.mix || null, [r.log.size, r.log.height, r.log.refl, r.log.sky]]), PLACES) &&
+      places.every((r) => r.map === 'ctf_2fort' && typeof r.spot === 'string' && typeof r.label === 'string' && r.measures.openSides === 0) &&
+      places.every((r) => R.roomCase(r.key) === r));
+    for (const [key, , , , , , shape, mix, [size, height, refl, sky]] of PLACES) {
+      checkTry(`${key}: the printed line through placeFromDebug gives the row's measures and the shape ${shape}; ` +
+        `buildAutomatic builds a ${shape}${mix ? ` whose four mix values are the game's ${mix.join(', ')}` : ' (the mix values were not read)'}`, () => {
+        const row = places.find((r) => r.key === key), p = R.placeFromDebug({ size, height, refl, sky, shape });
+        const b = R.buildAutomatic(key), h = [b.preset.h[0], b.preset.h[1], b.preset.h[4], b.preset.h[5]];
+        return p.shape === shape && same(p.measures, row.measures) && b.shape === shape &&
+          same(R.buildAutomatic(p.measures).preset, b.preset) && (!mix || same(h, mix.map(Math.fround)));
+      });
+    }
     // The two notes the page shows, typed here from the W3-17b second read, section 3 (what each take fixes and
     // which measures build the same preset) and the order's item 5 (the reflectivity classes).
     const NOTES = {

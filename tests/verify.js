@@ -25,7 +25,11 @@ const code =
   fs.readFileSync(path.join(root, 'constants.js'), 'utf8') + '\n' +
   fs.readFileSync(path.join(root, 'audio.js'), 'utf8');
 
-const sandbox = { window: {}, Blob: globalThis.Blob, console };
+// The room module and its table (W3-17c), loaded by Node outside the
+// sandbox, where its Math runs at full speed, and put in it as the globals
+// the page gives audio.js.
+const TF2Room = require(path.join(root, 'room-dsp.js'));
+const sandbox = { window: {}, Blob: globalThis.Blob, console, TF2Room, TF2_ROOM_PRESETS: require(path.join(root, 'room-presets.js')) };
 vm.createContext(sandbox);
 // Steam's sender and the decoder's resampler load beside audio.js, as on the page.
 for (const file of ['steam-sender.js', 'vendor/swresample/swresample.js']) {
@@ -1514,41 +1518,63 @@ async function main() {
         `44100: 48000/${lengthAt(48000)}`, `44100.5: 48000/${lengthAt(48000)}`, `32000: 48000/${lengthAt(48000)}`, `192001: 48000/${lengthAt(48000)}`, `null: 48000/${lengthAt(48000)}`].join(), rates.join(', '));
   }
 
-  console.log('\n[7] Valve DSP room presets (real dsp_presets.txt parameters)');
+  console.log('\n[7] Room presets and the automatic room (the engine\'s arithmetic, W3-17c)');
   {
-    const src = tone(440, 1.5, SR, 0.25);
+    // Every preset 2 to 29 of the table, every named case of the automatic
+    // room and every place of ROOM_PLACES renders; its tail ends under the
+    // cap (Decision 8: 882,000 mixer samples), the output is the source's
+    // length plus the tail at the device's rate, and no sample is past the
+    // clip. (No level check: tests/room-dsp.verify.mjs pins the module's
+    // outputs, and tests/render-stream.verify.mjs the render's.)
+    const src = tone(440, 1.5, SR, 0.5);
     const inLen = Math.round(1.5 * SR);
-    for (let id = 0; id <= 29; id++) {
-      const { samples } = await TF2Audio.process(mkBuffer(src, SR), { ...clean, listenerPos: null, dspRoom: id });
-      const ratio = rms(samples, 0, Math.min(inLen, samples.length)) / rms(src);
-      check(`dsp ${id}: level sane`, ratio > 0.2 && ratio < 2.5, `${db(ratio).toFixed(2)} dB`);
-      check(`dsp ${id}: not crushed`, clipFraction(samples, 0.95) < 0.02, `clip ${(clipFraction(samples, 0.95) * 100).toFixed(2)}%`);
-      check(`dsp ${id}: no NaN/Inf`, !hasBadValues(samples));
+    const settings = [];
+    for (let id = 2; id <= 29; id++) settings.push([`preset ${id}`, { room: { preset: id } }]);
+    for (const row of [...TF2Room.ROOM_CASES, ...TF2Room.ROOM_PLACES]) settings.push([`automatic: ${row.key}`, { room: { auto: row.key } }]);
+    const bad = [];
+    let longest = 0;
+    for (const [name, opts] of settings) {
+      const { samples, codecInfo } = await TF2Audio.process(mkBuffer(src, SR), { ...clean, ...opts });
+      const tail = codecInfo.room && codecInfo.room.tail;
+      const whole = samples.every(v => Number.isInteger(v * 32768) && Math.abs(v * 32768) <= 32767);
+      if (!(Number.isInteger(tail) && tail > 0 && tail < TF2Room.TAIL_CAP && samples.length === inLen + Math.round(tail * SR / 44100) && whole)) {
+        bad.push(`${name}: tail ${tail}, ${samples.length} samples${whole ? '' : ', a sample past the clip or not whole'}`);
+      }
+      longest = Math.max(longest, tail || 0);
     }
-    for (const id of [7, 22]) {
-      const { samples } = await TF2Audio.process(mkBuffer(src, SR), { ...clean, listenerPos: null, dspRoom: id });
-      check(`dsp ${id}: has a tail`, samples.length > inLen + 0.3 * SR, `${((samples.length - inLen) / SR).toFixed(2)}s`);
+    check(`${settings.length} rooms (presets 2 to 29, ${TF2Room.ROOM_CASES.length} named cases, ${TF2Room.ROOM_PLACES.length} places) render, each tail under the cap, no sample past the clip`,
+      bad.length === 0 && settings.length === 28 + TF2Room.ROOM_CASES.length + TF2Room.ROOM_PLACES.length, bad.join('; ') || `the longest tail ${longest} mixer samples`);
+    for (const id of [0, 1]) {
+      const r = await TF2Audio.process(mkBuffer(src, SR), { ...clean, room: { preset: id } });
+      check(`dsp ${id}: no room, the source's length exactly, no codecInfo.room`, r.samples.length === inLen && !('room' in r.codecInfo));
     }
-    const dry = await TF2Audio.process(mkBuffer(src, SR), { ...clean, listenerPos: null, dspRoom: 0 });
-    check('dsp 0: exact passthrough length', dry.samples.length === inLen);
   }
 
-  console.log('\n[8] Custom env (dsp_room 99) and processor robustness');
+  console.log('\n[8] The custom room (dsp_room 99) and under water');
   {
     const src = tone(440, 1.5, SR, 0.25);
     const opts = { ...clean, listenerPos: null, dspRoom: 99 };
     const wet = await TF2Audio.process(mkBuffer(src, SR), { ...opts, customEnv: { duration: 1.2, decay: 2.0, mix: 0.6 } });
     const dry = await TF2Audio.process(mkBuffer(src, SR), { ...opts, customEnv: { duration: 1.2, decay: 2.0, mix: 0.0 } });
-    check('custom mix adds a tail', wet.samples.length > dry.samples.length, `${wet.samples.length} vs ${dry.samples.length}`);
+    check('custom mix adds a tail', wet.samples.length > dry.samples.length && wet.codecInfo.room.tail > 0, `${wet.samples.length} vs ${dry.samples.length}`);
     check('custom mix changes output', diffRms(wet.samples, dry.samples) > 0.02 * rms(dry.samples));
-    const ratio = rms(wet.samples, 0, dry.samples.length) / rms(src);
-    check('custom level sane', ratio > 0.25 && ratio < 2.5, `${db(ratio).toFixed(2)} dB`);
-    const x = whiteNoise(0.5, SR, 0.2, 3);
-    const out = await TF2Audio.runDspChain(x, SR, [
-      { type: 'rva', sizeMax: 60, sizeMin: 0, ndly: 3, fb: 0.9, gain: 1.0, cutoff: 4000, fpar: 1, fmod: 0, rate: 0 }
-    ], 0.45);
-    const r2 = rms(out, 0, x.length) / rms(x);
-    check('rva with sizeMin=0 stays finite and sane', !hasBadValues(out) && r2 > 0.2 && r2 < 3, `${db(r2).toFixed(2)} dB`);
+    check('custom shares: trunc(mix x 256) to the room, trunc(256 - mix x 256) direct (0.6: 153 and 102)',
+      wet.codecInfo.room.shares.room === 153 && wet.codecInfo.room.shares.direct === 102, JSON.stringify(wet.codecInfo.room.shares));
+    check('custom mix 0 is no room', dry.samples.length === Math.round(1.5 * SR) && !('room' in dry.codecInfo));
+    // The custom room's knobs at their limits, and fully wet: finite, whole
+    // and within the clip.
+    for (const custom of [{ duration: 0.05, decay: 0.5, mix: 1 }, { duration: 6, decay: 8, mix: 1 }]) {
+      const r = await TF2Audio.process(mkBuffer(whiteNoise(0.5, SR, 0.2, 3), SR), { ...clean, room: { custom } });
+      check(`custom room ${JSON.stringify(custom)} renders, finite and within the clip`, !hasBadValues(r.samples)
+        && r.samples.every(v => Math.abs(v * 32768) <= 32767) && r.codecInfo.room.shares.room === 256, `tail ${r.codecInfo.room.tail}`);
+    }
+    // Under water: the whole sum through the water preset, no room of its
+    // own; quieter (its amplifier settles at 1640/4096 and the reverb after
+    // it builds the low end back up) and with a tail.
+    const under = await TF2Audio.process(mkBuffer(src, SR), { ...clean, underwater: true });
+    const level = rms(under.samples, Math.round(0.5 * SR), Math.round(1.4 * SR)) / rms(src, Math.round(0.5 * SR), Math.round(1.4 * SR));
+    check('under water: a tail, codecInfo.room at 0/256 under water, and the voice lower than dry', under.codecInfo.room.underwater === true
+      && under.codecInfo.room.shares.room === 0 && under.codecInfo.room.tail > 0 && level < 0.9 && level > 0.1, `${db(level).toFixed(2)} dB`);
   }
 
   console.log('\n[9] Packet loss and jitter (measured) + native PLC');

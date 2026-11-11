@@ -13,7 +13,7 @@
  */
 
 const CACHE_PREFIX = 'tf2ve-';
-const CACHE = `${CACHE_PREFIX}v27`;
+const CACHE = `${CACHE_PREFIX}v28`;
 const ASSETS = [
   './',
   './index.html',
@@ -21,6 +21,8 @@ const ASSETS = [
   './constants.js',
   './steam-sender.js',
   './vendor/swresample/swresample.js',
+  './room-presets.js',
+  './room-dsp.js',
   './audio.js',
   './audio-worker.js',
   './opus-codec.mjs',

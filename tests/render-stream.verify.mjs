@@ -25,26 +25,56 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
-import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 const root = process.env.TF2_DIR ? pathToFileURL(path.resolve(process.env.TF2_DIR) + '/') : new URL('..', import.meta.url);
 const engineCode = ['constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'audio.js'].map(f => fs.readFileSync(new URL(f, root), 'utf8')).join('\n');
 const TF2Opus = await import(new URL('opus-codec.mjs', root).href);
 const printHashes = process.argv.includes('--hashes');
+// The room module and its table (W3-17c), loaded as Node loads them, outside
+// the engine: the engine reads them as the globals TF2Room and
+// TF2_ROOM_PRESETS, as on the page. `room` is what the engine is handed: the
+// module with createRoomPath wrapped, so the checks see every path a render
+// makes and every process() call it makes on one (paths, below).
+const requireHere = createRequire(import.meta.url);
+const roomModule = requireHere(fileURLToPath(new URL('room-dsp.js', root)));
+const roomTable = requireHere(fileURLToPath(new URL('room-presets.js', root)));
+const paths = [];
+// neverEnds.on: the next paths' tailLeft() never says the output ended (the
+// tail loop's own bound, section 3).
+const neverEnds = { on: false };
+const room = { ...roomModule, createRoomPath(o) {
+  const p = roomModule.createRoomPath(o), log = { opts: o, calls: [] };
+  if (neverEnds.on) p.tailLeft = () => ({ ended: false, at: -1, length: 0 });
+  let count = 0;
+  const run = p.process.bind(p);
+  p.process = (direct, wet, out) => {
+    let peak = -Infinity;
+    for (let i = 0; i < direct.length; i++) if (direct[i] > peak) peak = direct[i];
+    log.calls.push({ start: count, length: direct.length, peak });
+    count += direct.length;
+    return run(direct, wet, out);
+  };
+  paths.push(log);
+  return p;
+} };
 
 // constants.js and audio.js as the page's classic scripts see them, inside
 // one function: no timers (as in the vm suites, the codec loop's yields
-// resolve at once), the codec module injected, the tables returned.
-function engineInThisRealm() {
+// resolve at once), the codec module injected, the tables returned. With
+// rooms false the room module is absent, as for a page that did not load it.
+function engineInThisRealm(rooms = true) {
   const window = {};
-  const tables = new Function('window', 'TF2Opus', 'setTimeout', 'self', 'module',
-    `${engineCode}\nreturn { CODEC_PROFILES, VOICE_ENGINE, LISTENER_POSITIONS, DSP_PRESETS };`)(window, TF2Opus, undefined, undefined, undefined);
+  const tables = new Function('window', 'TF2Opus', 'setTimeout', 'self', 'module', 'TF2Room', 'TF2_ROOM_PRESETS',
+    `${engineCode}\nreturn { CODEC_PROFILES, VOICE_ENGINE, LISTENER_POSITIONS, DSP_PRESETS };`)(window, TF2Opus, undefined, undefined, undefined,
+    rooms ? room : undefined, rooms ? roomTable : undefined);
   return { audio: window.TF2Audio, ...tables };
 }
 // The way tests/verify.js and tests/reference.compare.mjs load it.
 function engineInVm() {
-  const sandbox = { window: {}, Blob, console };
+  const sandbox = { window: {}, Blob, console, TF2Room: roomModule, TF2_ROOM_PRESETS: roomTable };
   vm.createContext(sandbox);
   vm.runInContext(engineCode, sandbox);
   sandbox.TF2Opus = TF2Opus;
@@ -52,16 +82,15 @@ function engineInVm() {
 }
 
 const engine = engineInThisRealm(), A = engine.audio;
-// Two code paths no shipped profile or position reaches, given test-only
-// entries: a decoder EQ (a zero-phase FIR after the codec) and a listener
-// low-pass without a room (the one shipped position with a low-pass, water,
-// also has a room).
-// The decoder EQ is a stage of the frame path, so the test profile keeps the
-// 20 ms frame gate (no rule 'steam', which since W3-11a has no such stage).
+// A code path no shipped profile reaches, given a test-only entry: a decoder
+// EQ (a zero-phase FIR after the codec). It is a stage of the frame path, so
+// the test profile keeps the 20 ms frame gate (no rule 'steam', which since
+// W3-11a has no such stage). (Until W3-17c a test-only listener position
+// with a low-pass and no room stood beside it; the low-pass went with the
+// old room code, and its case with it.)
 engine.CODEC_PROFILES.test_decoder_eq = { ...engine.CODEC_PROFILES.steam, displayName: 'test only: Steam with a decoder EQ',
   senderGate: { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 },
   decoderEq: { taps: 63, freqs: [0, 3000, 7000, 12000], gainsDb: [0, -1, -6, -12] } };
-engine.LISTENER_POSITIONS.test_lowpass = { label: 'test only: a low-pass, no room', dsp: 0, extraLpf: 1500 };
 
 // A failed check is reported and the suite goes on, so a broken stage
 // shows every case it breaks; the run fails at the end.
@@ -212,8 +241,7 @@ for (const [name, rate, opts, plan] of [
   ['steam, dsp_room 1 (no effect)', 48000, { listenerPos: null, dspRoom: 1 }, 'uneven'],
   ['steam, custom room at mix 0 (no effect)', 48000, { listenerPos: null, dspRoom: 99, customEnv: { duration: 1, decay: 2, mix: 0 } }, 'uneven'],
   ['odd options', 48000, { codec: 'nope', micGain: '2', gateThresholdDb: 'x', frameMs: 70, seed: -5, volume: 3, bits: 40, lossPct: '12', hp: -4, lp: 1e9 }, 'uneven'],
-  ['test profile with a decoder EQ', 48000, { codec: 'test_decoder_eq' }, 'uneven'],
-  ['test position with a low-pass', 48000, { listenerPos: 'test_lowpass' }, 'uneven']
+  ['test profile with a decoder EQ', 48000, { codec: 'test_decoder_eq' }, 'uneven']
 ]) add(name, rate, () => voice(8, rate, 4), opts, [plan]);
 add('steam, empty source', 48000, () => new Float32Array(0), {}, ['whole']);
 // Added in W3-11a's fix round. Heavy loss inside one long spurt (the gate
@@ -261,6 +289,51 @@ add('demo voice as received, past full scale', 24000, () => {
   return x;
 }, { received: { frameLog: Array.from({ length: 100 }, (_, f) => (f < 50 ? 2 : 0)), frameBytes: Array(100).fill(60), frameMs: 20, spurts: 1 } },
   ['uneven']);
+
+// W3-17c: renders with a room or under water, on 3 s of the same talk at
+// 48 kHz. Each names its room; `room` is the room as the checks rebuild it
+// by hand from the module (section 1b): the preset, under water or not, and
+// the shares of 256. Each also runs at two chunk plans (section 2), not at
+// every Steam plan: what is new here comes after the gain, which the cases
+// above stream at every plan.
+const ROOM_CASES = [];
+const roomVoice = () => voice(3, 48000, 11);
+// The render's seed as audio.js takes it (finiteOr(opts.seed, 0xC0FFEE) >>> 0).
+const seedOf = (c) => (Number.isFinite(Number(c.opts.seed)) && c.opts.seed !== null && c.opts.seed !== '' ? Number(c.opts.seed) : 0xC0FFEE) >>> 0;
+const customByHand = ({ duration, decay, mix }) => {
+  const clampTo = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+  return { h: [mix, mix, 0, 0, 0, 0], p: [[10, [1, 2, 0.15]], [2, [clampTo(duration * 60, 25, 220), 12, 5,
+    clampTo(Math.pow(0.001, 0.045 / duration), 0.3, 0.97), 1.2, clampTo(9000 / decay, 800, 12000), 1]]] };
+};
+const presetRoom = (n, water = false) => ({ room: n, water, shares: roomModule.shares(roomTable[n]) });
+const autoRoom = (key) => { const b = roomModule.buildAutomatic(key, { table: roomTable }); return { room: b.preset, water: false, shares: roomModule.shares(b.preset), built: b }; };
+const addRoom = (name, opts, byHand, plans, rate = 48000, make = roomVoice) => {
+  add(name, rate, make, opts, plans);
+  const c = CASES[CASES.length - 1];
+  c.plans = plans;
+  c.room = byHand;
+  ROOM_CASES.push(c);
+};
+addRoom('steam, room: preset 6', { room: { preset: 6 } }, presetRoom(6), ['uneven', '960']);
+addRoom('steam, room: preset 17 (random taps)', { room: { preset: 17 } }, presetRoom(17), ['12345', '7']);
+addRoom('steam, room: automatic, tunnel', { room: { auto: 'tunnel' } }, autoRoom('tunnel'), ['uneven', 'one second']);
+addRoom('steam, room: automatic, great_hall', { room: { auto: 'great_hall' } }, autoRoom('great_hall'), ['960', 'whole']);
+addRoom('steam, room: automatic, set_c_room', { room: { auto: 'set_c_room' } }, autoRoom('set_c_room'), ['uneven', '12345']);
+addRoom('steam, under water', { underwater: true }, { room: null, water: true, shares: { room: 0, direct: 256 } }, ['uneven', '7']);
+addRoom('steam, under water, preset 6', { underwater: true, room: { preset: 6 } }, presetRoom(6, true), ['960', 'one second']);
+addRoom('steam, custom room at mix 0.3', { listenerPos: null, dspRoom: 99, customEnv: { duration: 1, decay: 2, mix: 0.3 } },
+  { room: customByHand({ duration: 1, decay: 2, mix: 0.3 }), water: false, shares: { room: 76, direct: 179 } }, ['uneven', '12345']);
+addRoom('celt_22, room: preset 6', { codec: 'celt_22', room: { preset: 6 } }, presetRoom(6), ['uneven', '960']);
+addRoom('steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms', { listenerPos: 'tunnel', lossPct: 15, jitterMs: 50 }, presetRoom(6),
+  ['uneven', '12345']);
+// Added in the review's fix round: a seed of its own, on a room that draws
+// (the room's taps come from the render's seed, Decision 7); a device at
+// 96000 Hz (maxTail and the tail's length at the device's rate).
+addRoom('steam, room: preset 17 (random taps), seed 7', { room: { preset: 17 }, seed: 7 }, presetRoom(17), ['whole', 'uneven']);
+addRoom('steam, room: preset 6, device at 96000 Hz', { room: { preset: 6 }, deviceRate: 96000 }, presetRoom(6), ['uneven', 'whole']);
+// A number the table does not hold (Decision 11): no room. Its hashes are
+// those of the same render with none (section 1).
+addRoom('steam, dsp_room 137 (no room)', { listenerPos: null, dspRoom: 137 }, null, ['uneven', '960']);
 
 // SHA-256 of process()'s WAV, then of its codecInfo (canonical JSON, below).
 // The first 40 were recorded in commit 7e1862c, before createRender existed.
@@ -312,6 +385,15 @@ add('demo voice as received, past full scale', 24000, () => {
 // two sources the gate holds back whole, which render as zeros at 48000 Hz
 // before and after. No codecInfo hash moved, and the gain's output
 // (GAIN_GOLDEN, recorded before the change) is the same in all 51 cases.
+// W3-17c (the room module in the render after W3-10's entry) moved none of
+// them; it removed 'test position with a low-pass' with the low-pass, and
+// recorded its eleven room cases once, from the run in which every check of
+// them passed (the room by hand, section 1b; the stream at their plans;
+// dsp_room 137 equal to the same render with no room), in a commit of
+// their own.
+// Its review's fix round added two room cases (a seed of 7 on preset 17, and
+// preset 6 on a 96000 Hz device), recorded once the same way in a commit of
+// their own; no hash moved.
 const GOLDEN = {
   "steam": ["bb7ef37d9d65f1c03672fe6bb14933036cc8d8174847fd4e4c3e9671a98f4a61", "4992fbdbd3efbe23ae9c2640825202a57429755fdc7d331ea4f37e210a9d91b9"],
   "steam_48": ["cb106e3f224599e2a7d6bb5d8b3cea9092d99c91a8d9b736f5248d80a819e483", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
@@ -351,7 +433,6 @@ const GOLDEN = {
   "steam, custom room at mix 0 (no effect)": ["b673515cfa58978fc847ad8a45bc3405ceed9c2ad5f04afbee83ba47d070f81d", "ad208ca860fd98a0fdd18c6ae1cbb854bc4f73bdc65a113d61d00a01f08047bf"],
   "odd options": ["163b94e6bd13d78a4e119d0eee2a9f36314fc0133d0144df92dc3afdcecebbfe", "e63fe11e6c1e7c6c2adef7f941495f411a3648575876db4e732890d5c338f4d6"],
   "test profile with a decoder EQ": ["ad0ba0879966a6dfe862458009c8b4abd942bebe143b85fec5aa7e2ce169eb5f", "a0a4fdedffca8a05994dabcd30e4c15c05977bd0f2ba7e5a6188192616030df8"],
-  "test position with a low-pass": ["b7511d2f8e1aad4c0b45809518420c35854c7641879dfd1c4952471a2ca8fae1", "ad208ca860fd98a0fdd18c6ae1cbb854bc4f73bdc65a113d61d00a01f08047bf"],
   "steam, empty source": ["531cd597b25052b4845ef2f3887dec2183240802a93b6e044960de8ba017caa0", "09ce131d4df4147794412a84312b8b781287be1bec8525a2d9ed1a825df72613"],
   "steam, gate off, loss 80%, seed 1 (long runs lost inside a spurt)": ["d5ed5c6566444bd8d34d21b05447af71cd238398efd7a14f1eecc136e570325e", "1a9df010f9c8945d262a582ede3f0d73abfbb328f928fd005f9eb4b3f1868c3c"],
   "steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)": ["7285017eb9d4dca883bedfd0d4de8a1742e9a9e777ca61295f7ffcf8acabbfea", "6b8a3789a23f3a9878275888868146062fab39c7c8b8f159811b2d23b61d9328"],
@@ -363,7 +444,20 @@ const GOLDEN = {
   "steam, 88203 samples at 11025 Hz (an output length of 352812.00)": ["ce5956fa77247c22e7015bdb9c462c865105e0a8432edd0cf4488c6747e4d34e", "63be92b7f61d5541f90ea7e2261119f3568075a607da1423cc30a72555ff72e0"],
   "steam, silent but for a quarter frame of sine at the end": ["0e7551d1a6a29d2465b83e4719334870fb0135c31f2d4e921511bfdde1841712", "a2735f316ac6640c3218fc07b539a03ce00498a00bc401678dbea87c1bae5769"],
   "steam_48, silent but for a quarter frame of sine at the end": ["0e7551d1a6a29d2465b83e4719334870fb0135c31f2d4e921511bfdde1841712", "a2ab787d46a1cdf2a53b25fdb56752994849a33fc9af2ebe979bfcd5fa32ecb1"],
-  "demo voice as received, past full scale": ["29fa4ca146921e4bff09bc0d8f621bbaf91983be531276c72272a800f56622fd", "e6a7ce0f09e5683c1726bbea1d2500d2aaebf930359a22246c73eeb4a1325eb6"]
+  "demo voice as received, past full scale": ["29fa4ca146921e4bff09bc0d8f621bbaf91983be531276c72272a800f56622fd", "e6a7ce0f09e5683c1726bbea1d2500d2aaebf930359a22246c73eeb4a1325eb6"],
+  "steam, room: preset 6": ["15aeef0b9e350c071a7bf0fcfedeceaa5197a3cc9d90d1314685c971d4f897ea", "63114f6dded29e20fb038b1487f01e44380e2ea54d25df0416a4ed044866e5f0"],
+  "steam, room: preset 17 (random taps)": ["d669ba894abaad55a861ebf61ab8ebe915c97baf0584121a127e7174d47b11a9", "e9d20c28085b40a182c15bdc88f059098e6aaed7bfc9e45df19bcc24db089f1f"],
+  "steam, room: automatic, tunnel": ["248168cbb57fe02646f957d0b6cf6343d418fcffbac0f8eeea6f56f0ee920277", "3e5ab9576fa776d9ad2d8b979a687fee4a4d9a807ad817ca1c65f290561a5b72"],
+  "steam, room: automatic, great_hall": ["decaaea48dba451f3f42503c56caffcee636727d149ac968ac7bf7dc0b4baffb", "4348cfae1a41ad042b24fe6e69f661a720a3490227f87478ef0155f9d8738ac3"],
+  "steam, room: automatic, set_c_room": ["14124e8f7ee023e2e906ce9801e0e0632dea4a890be9108b2581d7cf1d740e28", "587a68a886970456683d32c71ded968559b4f058b0b1a63faf25dff60aac6bd5"],
+  "steam, under water": ["3651d212e7834c17697620d10203ec4853d85549b29fb3c6d76ffa6e5f1b979c", "b9e2c3d92c4836a94d865472347a918eade8ba4e239374843f0124bd71f7e9e6"],
+  "steam, under water, preset 6": ["ed5ab9d7fb1cab14665c1da3384e4b33c228903c4773eae8b4c85aa3445baddf", "fa6bf944d100644d6d0f3face2873790be396722280a6c769668cc4fc90a0942"],
+  "steam, custom room at mix 0.3": ["8ccb91c1b00552e1e54a1589352ad3f32bfd4816434d541bc7350e4021ce40e6", "52f7534ca0384adb740332bebc6fd32075d105edf70ae2594338a5b2be3c03f9"],
+  "celt_22, room: preset 6": ["98c7c5c19aa090bfc3e8ba6a1d46b66c760e0c0d013fb4c18e6e08f7d3c45e81", "ba4e531902cc0467c08d674a260cbcb33e010d08dc767681527122be8ce2beda"],
+  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": ["89e7f2aa412e3f76d75a72a66ff925ebdabedeaaaf5204f3d0fa3a103960e6a4", "e8548e537b8e8ecfa9961e2f74641ad0e183c490e6625131102814dfeadb226e"],
+  "steam, dsp_room 137 (no room)": ["61a61407a1d1b2032c85e5785b89f2daa0c22ee27b8af86085a0d4c986e0e1a2", "88cd058f344eb3262b96729a0ecd4ff2d348b0ae695d8379e2aec6fd27f510d4"],
+  "steam, room: preset 17 (random taps), seed 7": ["ce6aed2c10bfc0c18e3ac626174353f785ca600ede9aac6d9f0f68077c136380", "d01e1ea35b43811bcea1b61353455f274447cfda4a8a847d086fa6128031787f"],
+  "steam, room: preset 6, device at 96000 Hz": ["a66810f6d38fb4d76e5a0d29bab11d724f69de2ecc400b55098fff83503f49ff", "63114f6dded29e20fb038b1487f01e44380e2ea54d25df0416a4ed044866e5f0"]
 };
 
 // The control of W3-10 (docs/work-orders/W3-10-output-stage.md, "Golden
@@ -414,7 +508,6 @@ const GAIN_GOLDEN = {
   "steam, custom room at mix 0 (no effect)": "92643715eabd05accfc09b983921e388c64f5ae6127c53747a69d059292f0c32",
   "odd options": "52c76c0135b7667233f516c2f1c2991e44b812b4c4c86f5b4a933120634ba33f",
   "test profile with a decoder EQ": "9356252def077c6f884a029f57b71d7a09095ad8cf9cafbeced8b8cf6b54a033",
-  "test position with a low-pass": "92643715eabd05accfc09b983921e388c64f5ae6127c53747a69d059292f0c32",
   "steam, empty source": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "steam, gate off, loss 80%, seed 1 (long runs lost inside a spurt)": "d172def5fdf4f1901269da8cf46391e3aa0a9d7167af16d7d632fd2ff0c6e8c5",
   "steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt)": "2d23678c8e2f9ddcbb2f40622353a822784ee86b70d82cf251c37a85f8eab237",
@@ -426,7 +519,20 @@ const GAIN_GOLDEN = {
   "steam, 88203 samples at 11025 Hz (an output length of 352812.00)": "bd2d74515725195f67c70487fdb5a488f79ca5db15e9a84299386a34be102db8",
   "steam, silent but for a quarter frame of sine at the end": "7c083cfbf0884b8b9232667bf60221dc226ae42757cd61b4e1fb7afc770f1ef1",
   "steam_48, silent but for a quarter frame of sine at the end": "7c083cfbf0884b8b9232667bf60221dc226ae42757cd61b4e1fb7afc770f1ef1",
-  "demo voice as received, past full scale": "05a8491b26e4add98f106914427ab6f23bef798c32cb5ba8293c4fa37ba1f1a5"
+  "demo voice as received, past full scale": "05a8491b26e4add98f106914427ab6f23bef798c32cb5ba8293c4fa37ba1f1a5",
+  "steam, room: preset 6": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, room: preset 17 (random taps)": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, room: automatic, tunnel": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, room: automatic, great_hall": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, room: automatic, set_c_room": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, under water": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, under water, preset 6": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, custom room at mix 0.3": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "celt_22, room: preset 6": "86e017ee4606ac029bcc72961234c3c3049b8014c31c4302ffcffaac8c9da824",
+  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": "6047d5510bcbbd3a88aa34724f1b4e5f8b0a9d04b39ed45a41b1295f79a01964",
+  "steam, dsp_room 137 (no room)": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, room: preset 17 (random taps), seed 7": "d2c879b48361cc52063316945ef899b35a69f6bcee4d146ae782eacdc73e83a8",
+  "steam, room: preset 6, device at 96000 Hz": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e"
 };
 
 /* ---------------- helpers ---------------- */
@@ -439,6 +545,12 @@ const joined = (parts) => {
   parts.reduce((o, p) => { out.set(p, o); return o + p.length; }, 0);
   return out;
 };
+const joinedInts = (parts) => {
+  const out = new Int32Array(parts.reduce((n, p) => n + p.length, 0));
+  parts.reduce((o, p) => { out.set(p, o); return o + p.length; }, 0);
+  return out;
+};
+const sameBitsF = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.byteLength), Buffer.from(b.buffer, b.byteOffset, b.byteLength)) === 0;
 // codecInfo as JSON with sorted keys and typed arrays as { Type: [values] }.
 function canonical(value) {
   if (ArrayBuffer.isView(value)) return { [value.constructor.name]: Array.from(value) };
@@ -457,7 +569,8 @@ if (process.argv.includes('--memory')) {
   const src = voice(minutes * 60, rate, 6);
   const t0 = performance.now();
   const render = await A.createRender({ sampleRate: rate, length: src.length, numberOfChannels: 1 }, pageFor({}));
-  const out = new Float32Array(render.outputLength);
+  // A render with a room would add up to maxTail (0 here: the page's options, no room).
+  const out = new Float32Array(render.outputLength + render.maxTail);
   let filled = 0;
   for (let o = 0; o < src.length; o += rate) {
     const y = await render.push(src.subarray(o, Math.min(src.length, o + rate)));
@@ -479,16 +592,23 @@ if (process.argv.includes('--memory')) {
 /* ---------------- 1. golden renders ---------------- */
 
 console.log('\n[1] process() gives the recorded renders');
-const sources = new Map(), renders = new Map(), gains = new Map();
+const sources = new Map(), renders = new Map(), gains = new Map(), mixes = new Map(), madePaths = new Map();
 const hashLines = [], gainLines = [];
+const t1 = performance.now();
+let roomSeconds = 0;
 for (const c of CASES) {
   const samples = c.make();
   sources.set(c.name, samples);
-  const t0 = performance.now(), gained = [];
-  const whole = await A.process(buffer(samples, c.rate), { ...c.opts, onGain: (g) => gained.push(Float32Array.from(g)) });
+  const t0 = performance.now(), gained = [], blocks = [];
+  paths.length = 0;
+  const whole = await A.process(buffer(samples, c.rate), { ...c.opts, onGain: (g) => gained.push(Float32Array.from(g)),
+    ...(ROOM_CASES.includes(c) ? { onMixBlock: (start, length, mix) => blocks.push(mix) } : {}) });
   const seconds = (performance.now() - t0) / 1000;
+  if (ROOM_CASES.includes(c)) roomSeconds += seconds;
+  madePaths.set(c.name, paths.splice(0));
   renders.set(c.name, whole);
   gains.set(c.name, joined(gained));
+  if (blocks.length) mixes.set(c.name, joinedInts(blocks));
   const wav = sha256(await wavBytes(whole.blob)), info = infoHash(whole.codecInfo), gain = sha256(f32Bytes(gains.get(c.name)));
   hashLines.push(`  ${JSON.stringify(c.name)}: [${JSON.stringify(wav)}, ${JSON.stringify(info)}],`);
   gainLines.push(`  ${JSON.stringify(c.name)}: ${JSON.stringify(gain)},`);
@@ -507,6 +627,61 @@ if (printHashes) {
 }
 check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every(name => renders.has(name))
   && Object.keys(GAIN_GOLDEN).length === CASES.length && Object.keys(GAIN_GOLDEN).every(name => renders.has(name)));
+
+// W3-17c. A render with no room and not under water makes no room path and
+// has no `room` in its codecInfo (Decision 4); one with a room makes one
+// path, for the render's first sample, with the render's seed.
+{
+  const noRoom = CASES.filter(c => !c.room);
+  const bad = noRoom.filter(c => madePaths.get(c.name).length !== 0 || 'room' in renders.get(c.name).codecInfo).map(c => c.name);
+  check(`no room, not under water: no room path made and no codecInfo.room, in all ${noRoom.length} such cases`, bad.length === 0, bad.join('; '));
+  const rooms = ROOM_CASES.filter(c => c.room);
+  const one = rooms.filter(c => madePaths.get(c.name).length === 1 && madePaths.get(c.name)[0].opts.seed === seedOf(c)
+    && madePaths.get(c.name)[0].opts.water === c.room.water);
+  check(`with a room or under water: one room path, the render's seed (7 in the seed case, else the default 0xC0FFEE), under water as asked, in all ${rooms.length} such cases`,
+    one.length === rooms.length && madePaths.get('steam, room: preset 17 (random taps), seed 7')[0].opts.seed === 7,
+    rooms.filter(c => !one.includes(c)).map(c => c.name).join('; '));
+  // What codecInfo.room says.
+  const r = (name) => renders.get(name).codecInfo.room || {};
+  const sh = (name) => `${r(name).shares?.room}/${r(name).shares?.direct}`;
+  check('codecInfo.room: preset 6 at 26/229, preset 17 at 26/229, the custom room at 76/179 with its knobs, not under water',
+    r('steam, room: preset 6').preset === 6 && sh('steam, room: preset 6') === '26/229' && r('steam, room: preset 17 (random taps)').preset === 17
+    && sh('steam, room: preset 17 (random taps)') === '26/229' && sh('steam, custom room at mix 0.3') === '76/179'
+    && isDeepStrictEqual(r('steam, custom room at mix 0.3').custom, { duration: 1, decay: 2, mix: 0.3 })
+    && [r('steam, room: preset 6'), r('steam, custom room at mix 0.3')].every(x => x.underwater === false),
+    JSON.stringify({ ...r('steam, room: preset 6'), tail: undefined }));
+  check('codecInfo.room: the automatic rooms by key, shape and classes: tunnel 72/183 (size class 2), great_hall 41/214 (4), set_c_room 41/214 (2, reflectivity 3)',
+    r('steam, room: automatic, tunnel').auto === 'tunnel' && r('steam, room: automatic, tunnel').shape === 'tunnel' && sh('steam, room: automatic, tunnel') === '72/183'
+    && r('steam, room: automatic, tunnel').classes.size === 2 && r('steam, room: automatic, great_hall').classes.size === 4
+    && sh('steam, room: automatic, great_hall') === '41/214' && r('steam, room: automatic, set_c_room').shape === 'room'
+    && r('steam, room: automatic, set_c_room').classes.size === 2 && r('steam, room: automatic, set_c_room').classes.reflectivity === 3
+    && sh('steam, room: automatic, set_c_room') === '41/214' && isDeepStrictEqual(r('steam, room: automatic, set_c_room').pair, [102, 103]),
+    JSON.stringify(r('steam, room: automatic, set_c_room').classes));
+  check('codecInfo.room: under water alone at 0/256, under water with preset 6 at 26/229; listenerPos tunnel is preset 6',
+    r('steam, under water').underwater === true && sh('steam, under water') === '0/256' && !('preset' in r('steam, under water'))
+    && r('steam, under water, preset 6').underwater === true && r('steam, under water, preset 6').preset === 6
+    && sh('steam, under water, preset 6') === '26/229' && r('steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms').preset === 6);
+  // The tail: under the cap, and the output that much longer at 48 kHz.
+  const tails = rooms.map(c => {
+    const t = r(c.name).tail, n = sources.get(c.name).length, R = renders.get(c.name).sampleRate;
+    return { name: c.name, t, ok: Number.isInteger(t) && t > 0 && t < roomModule.TAIL_CAP
+      && renders.get(c.name).samples.length === Math.round(n * R / c.rate) + Math.round(t * R / 44100) };
+  });
+  check('each room render has a tail under the cap, and is as long as the source at the device\'s rate plus the tail at that rate (48 kHz, and 96 kHz in one case)',
+    tails.every(x => x.ok), tails.map(x => `${x.t}`).join(', '));
+  // dsp_room 137 is no room: the same render as dsp_room 0's.
+  const c137 = CASES.find(c => c.name === 'steam, dsp_room 137 (no room)');
+  const none = await A.process(buffer(sources.get(c137.name), 48000), { ...c137.opts, dspRoom: 0 });
+  check('dsp_room 137 (not in the table) renders as no room: the WAV and codecInfo of the same render with dsp_room 0',
+    sha256(await wavBytes(none.blob)) === sha256(await wavBytes(renders.get(c137.name).blob))
+    && infoHash(none.codecInfo) === infoHash(renders.get(c137.name).codecInfo));
+  // The room comes after the mix point: the gain's output is the same with
+  // any room as with none (the steam cases on the same source, no loss).
+  const sameGain = ROOM_CASES.filter(c => c.opts.codec === 'steam' && !c.opts.lossPct && c.opts.seed === undefined)
+    .every(c => sameBitsF(gains.get(c.name), gains.get(c137.name)));
+  check('the gain\'s output of every steam room case without loss is that of the same source with no room', sameGain);
+  console.log(`  (the ${ROOM_CASES.length} room cases' process() renders took ${roomSeconds.toFixed(1)} s of section 1's ${((performance.now() - t1) / 1000).toFixed(1)} s)`);
+}
 
 // The cases exercise what their names say.
 {
@@ -589,38 +764,67 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
 // trunc(fround(s x 255) / 256); the upsampling by two, out[2k] = (prev +
 // x[k]) >> 1 and out[2k + 1] = x[k] from state 0, once at 22050 Hz and
 // twice at 11025 Hz, run on over a voice sample of zeros and cut to 2N + 1
-// (4N + 3); the listener's low-pass at the seam, through the engine's own
-// applyBiquad on the mix over 32768, times 32768, rounded to even (the
-// amendment's point 6; no golden case has a room with an effect); the clip
-// to +-32767, volume as a single, rounded to even; the device stage,
-// y[n] = roundEven((x[k] (D - r) + x[k + 1] r) / D) with n N = D k + r
-// (147 and 160 at 48000 Hz) and zeros past the mix; cut or padded to
-// round(source length x device rate / source rate); over 32768.
+// (4N + 3); the clip to +-32767, volume as a single, rounded to even; the
+// device stage, y[n] = roundEven((x[k] (D - r) + x[k + 1] r) / D) with
+// n N = D k + r (147 and 160 at 48000 Hz) and zeros past the mix; cut or
+// padded to round(source length x device rate / source rate); over 32768.
+// (Until W3-17c the listener's low-pass sat at the seam; it went with the
+// old room code.)
+//   W3-17c's room, by hand from that order's part c (item 4) and the room
+// module (the order's tested statement of the room): the voice entered
+// twice, trunc(fround(s x fround(255 x share / 256)) / 256) at the case's
+// direct and room shares; each buffer upsampled on its own; the module's
+// room path, made with the case's room (or none), under water or not, and
+// the render's seed, run on the two buffers, then on zeros until its tail
+// rule holds; the mix ends there, or at the voice's own end if the rule held
+// before it; the output is longer by round(tail x device rate / 44100).
+// Nothing of audio.js is used. (specModel is used again in section 2b.)
+let specModel;
 {
   const roundEven = (v) => { const fl = Math.floor(v), d = v - fl; return d > 0.5 ? fl + 1 : d < 0.5 ? fl : (fl % 2 === 0 ? fl : fl + 1); };
   const f32 = Math.fround;
-  function specModel(gain, c, sourceLength) {
+  const upsampled = (mix, stages) => {
+    if (!stages || !mix.length) return mix;
+    const n = mix.length;
+    mix = [...mix, 0];
+    for (let s = 0; s < stages; s++) {
+      const up = new Array(2 * mix.length);
+      let prev = 0;
+      for (let k = 0; k < mix.length; k++) { up[2 * k] = (prev + mix[k]) >> 1; up[2 * k + 1] = mix[k]; prev = mix[k]; }
+      mix = up;
+    }
+    mix.length = (1 << stages) * n + (1 << stages) - 1;
+    return mix;
+  };
+  // The sum before the clip, and the tail in mix samples.
+  function roomMix(voice, c, stages) {
+    const { room, water, shares } = c.room;
+    const enter = (share) => upsampled(voice.map((s) => Math.trunc(f32(s * f32(255 * share / 256)) / 256)), stages);
+    const direct = enter(shares.direct), wet = enter(shares.room), end = direct.length;
+    const path = roomModule.createRoomPath({ seed: seedOf(c), room, water, table: roomTable });
+    const parts = [Array.from(path.process(Int32Array.from(direct), Int32Array.from(wet)))];
+    let t = path.tailLeft(), ruleEnd = t.ended ? (t.at >= 0 ? t.at + 1 : 0) : -1, at = end;
+    while (ruleEnd < 0) {
+      parts.push(Array.from(path.process(new Int32Array(512), new Int32Array(512))));
+      t = path.tailLeft();
+      if (t.ended) ruleEnd = at + t.at + 1;
+      at += 512;
+    }
+    const mixEnd = Math.max(end, ruleEnd);
+    return { mix: parts.flat().slice(0, mixEnd), tail: mixEnd - end };
+  }
+  specModel = function (gain, c, sourceLength) {
     const o = c.opts, num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
     const profile = Object.hasOwn(engine.CODEC_PROFILES, o.codec) ? engine.CODEC_PROFILES[o.codec] : engine.CODEC_PROFILES.steam;
     const volume = Math.min(1, Math.max(0, num(o.volume, 1)));
     const device = Number.isInteger(o.deviceRate) && o.deviceRate >= 44100 && o.deviceRate <= 192000 ? o.deviceRate : 48000;
     const stages = { 44100: 0, 22050: 1, 11025: 2 }[profile.voiceRate];
-    let mix = Array.from(gain, (g) => Math.trunc(f32(Math.max(-32768, Math.min(32767, roundEven(g * 32768))) * 255) / 256));
-    if (stages && mix.length) {
-      const n = mix.length;
-      mix.push(0);
-      for (let s = 0; s < stages; s++) {
-        const up = new Array(2 * mix.length);
-        let prev = 0;
-        for (let k = 0; k < mix.length; k++) { up[2 * k] = (prev + mix[k]) >> 1; up[2 * k + 1] = mix[k]; prev = mix[k]; }
-        mix = up;
-      }
-      mix.length = (1 << stages) * n + (1 << stages) - 1;
-    }
-    const lp = o.listenerPos && engine.LISTENER_POSITIONS[o.listenerPos] ? engine.LISTENER_POSITIONS[o.listenerPos].extraLpf : null;
-    if (lp) mix = Array.from(A.applyBiquad(Float32Array.from(mix, (v) => v / 32768), A.biquadCoefs('lowpass', 44100, lp, 0.8)), (y) => roundEven(y * 32768));
+    const voice = Array.from(gain, (g) => Math.max(-32768, Math.min(32767, roundEven(g * 32768))));
+    let mix, tail = 0;
+    if (c.room) ({ mix, tail } = roomMix(voice, c, stages));
+    else mix = upsampled(voice.map((s) => Math.trunc(f32(s * 255) / 256)), stages);
     const out = mix.map((v) => roundEven(f32(f32(Math.max(-32767, Math.min(32767, v))) * f32(volume))));
-    const length = Math.round(sourceLength * device / c.rate), y = new Float32Array(length);
+    const length = Math.round(sourceLength * device / c.rate) + Math.round(tail * device / 44100), y = new Float32Array(length);
     // Whole numbers (| 0: a zero has no sign here).
     if (device === 44100) for (let n = 0; n < Math.min(length, out.length); n++) y[n] = (out[n] | 0) / 32768;
     else {
@@ -630,46 +834,61 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
         y[n] = (roundEven(((out[k] ?? 0) * (D - r) + (out[k + 1] ?? 0) * r) / D) | 0) / 32768;
       }
     }
-    return y;
-  }
-  console.log('\n[1b] W3-10\'s control: a model of the order\'s spec, applied to each case\'s gain output, gives the render');
+    return { y, mix, tail };
+  };
+  console.log('\n[1b] W3-10\'s control: a model of the order\'s spec, applied to each case\'s gain output, gives the render (W3-17c: the room by hand)');
   for (const c of CASES) {
-    const want = specModel(gains.get(c.name), c, sources.get(c.name).length), got = renders.get(c.name).samples;
+    const model = specModel(gains.get(c.name), c, sources.get(c.name).length), want = model.y, got = renders.get(c.name).samples;
     let first = -1;
     for (let i = 0; i < Math.max(want.length, got.length); i++) if (!Object.is(want[i], got[i])) { first = i; break; }
     check(`${c.name}: the spec's model gives process()'s samples, bit for bit`, first === -1 && want.length === got.length,
       first === -1 ? `${got.length} samples` : `${got.length} samples, the model ${want.length}; the first difference at ${first}: render ${got[first] * 32768}, model ${want[first] * 32768}`);
+    // Before the clip: the room path's output (onMixBlock), sample for
+    // sample, and the tail's length.
+    if (c.room) {
+      const sum = mixes.get(c.name);
+      let at = -1;
+      for (let i = 0; i < Math.max(sum.length, model.mix.length); i++) if (sum[i] !== model.mix[i]) { at = i; break; }
+      check(`${c.name}: the render's room path is the module run by hand on the render's own 16-bit voice, before the clip, tail included`,
+        at === -1 && sum.length === model.mix.length && renders.get(c.name).codecInfo.room.tail === model.tail,
+        at === -1 ? `${sum.length} mix samples, a tail of ${model.tail}` : `the first difference at ${at}: ${sum[at]} against ${model.mix[at]}; tail ${renders.get(c.name).codecInfo.room.tail} against ${model.tail}`);
+    }
   }
 }
 
 /* ---------------- 2. the stream equals process() ---------------- */
 
-// Streams `samples` through createRender in the chunks `plan` gives, into
-// one preallocated array, as a caller with a long source would.
+// Streams `samples` through createRender in the chunks `plan` gives (a
+// plan's name, or a chunk size), into one preallocated array of
+// outputLength + maxTail, as a caller with a long source would. Until
+// finish() no more than outputLength samples come out (the length of a
+// room's tail is known only then).
 async function streamed(rate, samples, opts, plan, onPush = null) {
   const render = await A.createRender({ sampleRate: rate, length: samples.length, numberOfChannels: 1 }, opts);
-  const out = new Float32Array(render.outputLength);
+  const all = new Float32Array(render.outputLength + render.maxTail);
   let filled = 0, pushes = 0;
-  const put = (y) => {
-    assert.ok(y instanceof Float32Array && filled + y.length <= out.length, 'the stream gives Float32Arrays and no more than outputLength samples');
-    out.set(y, filled);
+  const put = (y, limit) => {
+    assert.ok(y instanceof Float32Array && filled + y.length <= limit, 'the stream gives Float32Arrays and no more than outputLength samples before finish(), outputLength + maxTail in all');
+    all.set(y, filled);
     filled += y.length;
   };
+  const sizeOf = typeof plan === 'number' ? () => plan : PLANS[plan];
   for (let o = 0, k = 0; o < samples.length; k++) {
-    const size = Math.min(PLANS[plan](k, rate, samples.length), samples.length - o);
-    put(await render.push(samples.subarray(o, o + size)));
+    const size = Math.min(sizeOf(k, rate, samples.length), samples.length - o);
+    put(await render.push(samples.subarray(o, o + size)), render.outputLength);
     o += size;
     pushes++;
     onPush?.(o);
   }
   const end = await render.finish();
-  put(end.samples);
-  return { render, out, filled, pushes, end };
+  put(end.samples, all.length);
+  return { render, out: all.subarray(0, filled), filled, pushes, end };
 }
 
 // How a streamed render differs from process()'s, or null when it does not.
 async function difference(whole, got) {
   if (got.filled !== whole.samples.length || got.out.length !== whole.samples.length) return `${got.filled} samples, not ${whole.samples.length}`;
+  if (got.render.maxTail !== ('room' in whole.codecInfo ? Math.round(882000 * whole.sampleRate / 44100) : 0)) return `maxTail ${got.render.maxTail}`;
   if (got.render.sampleRate !== whole.sampleRate) return `rate ${got.render.sampleRate}, not ${whole.sampleRate}`;
   // Bit for bit, which is stricter than ===: -0 and +0 count as different.
   const a = new Uint32Array(got.out.buffer, got.out.byteOffset, got.out.length);
@@ -744,6 +963,108 @@ for (const [name, extra] of [['demo voice as received', { retime: true }], ['ste
   check('four renders pushed in turn (two Opus, CELT, Speex) each give their own process() render', same.every(Boolean), same.join(' '));
 }
 
+/* ---------------- 2b. W3-17c: the room's blocks, entry and clip ---------------- */
+
+console.log('\n[2b] W3-17c: the room path gets whole mixer blocks; the entry is the module\'s; the sum is clipped');
+{
+  // Every process() call of the room path starts on a block's first sample
+  // (512 x i from the render's first mix sample) and is a whole block;
+  // onMixBlock's blocks start on the same samples (its last may be short,
+  // and the path may have run one block past the end), in process() and in
+  // the stream at chunk sizes 1, 127 and 4096, for a voice at 44100, 22050
+  // and 11025 Hz.
+  const speexOne = { name: 'speex, room: preset 6 (1 s of talk, not a golden case)', rate: 48000, opts: pageFor({ codec: 'speex', room: { preset: 6 } }) };
+  sources.set(speexOne.name, voice(1, 48000, 12));
+  for (const c of [CASES.find(x => x.name === 'steam, room: preset 6'), CASES.find(x => x.name === 'celt_22, room: preset 6'), speexOne]) {
+    const samples = sources.get(c.name);
+    let whole = null;
+    for (const plan of ['process()', 1, 127, 4096]) {
+      const blocks = [];
+      paths.length = 0;
+      const opts = { ...c.opts, onMixBlock: (start, length) => blocks.push([start, length]) };
+      let samplesOut;
+      if (plan === 'process()') { whole = await A.process(buffer(samples, c.rate), opts); samplesOut = whole.samples; }
+      else samplesOut = (await streamed(c.rate, samples, opts, plan)).out;
+      const calls = paths.length === 1 ? paths[0].calls : [];
+      const whole512 = calls.length > 0 && calls.every((k, i) => k.start === 512 * i && k.length === 512);
+      const aligned = blocks.length > 0 && blocks.length <= calls.length && calls.length <= blocks.length + 1
+        && blocks.every(([start, length], i) => start === calls[i].start && (length === 512 || i === blocks.length - 1));
+      const same = plan === 'process()' || sameBitsF(samplesOut, whole.samples);
+      check(`${c.name}, ${typeof plan === 'number' ? `chunks of ${plan}` : plan}: every room path call is a whole block from a block's first sample, onMixBlock's blocks the same${plan === 'process()' ? '' : ', the samples process()\'s'}`,
+        paths.length === 1 && whole512 && aligned && same, `${calls.length} calls, ${blocks.length} blocks, the last ${blocks.length ? blocks[blocks.length - 1][1] : '-'} long`);
+    }
+    if (c === speexOne) {
+      // Not a golden case: the by-hand model of section 1b checks it here.
+      const want = roomModule.shares(roomTable[6]);
+      check(`${c.name}: codecInfo.room is preset 6 at ${want.room}/${want.direct}, with a tail`, whole.codecInfo.room?.preset === 6
+        && whole.codecInfo.room.shares.room === want.room && whole.codecInfo.room.tail > 0);
+    }
+  }
+
+  // W3-10's entry function against the module's statement of the law.
+  for (const share of [256, 229, 26, 23]) {
+    let differ = 0;
+    for (let s = -32768; s <= 32767; s++) if (A.mixEntry(s, 255 * share / 256) !== roomModule.entry(s, share)) differ++;
+    check(`mixEntry(s, 255 x ${share} / 256) is TF2Room.entry(s, ${share}) on all 65,536 16-bit samples`, differ === 0, `${differ} differ`);
+  }
+
+  // Where the tail rule holds inside the voice. A voice that ends in a
+  // silence longer than the room's tail has no tail: the rule held before the
+  // voice's end, and the output is the source's length. A voice with such a
+  // silence in its middle, then sound again, has the tail of its end: the
+  // rule's hold in the pause is started over by the voice. Each against the
+  // room by hand (section 1b), on the gain's own output.
+  for (const [name, gaps, tailed] of [['a tone, then 3 s of silence', [[0, 0.5]], false],
+    ['a tone, 3 s of silence, a tone', [[0, 0.5], [3.5, 4]], true]]) {
+    const rate = 48000, x = new Float32Array(Math.round((tailed ? 4 : 3.5) * rate));
+    for (const [a, b] of gaps) for (let i = Math.round(a * rate); i < Math.round(b * rate); i++) x[i] = 0.5 * Math.sin(i * 0.05);
+    const c = { name, rate, opts: pageFor({ enableWarble: false, agc: false, volume: 1, room: { preset: 6 } }), room: presetRoom(6) };
+    const gained = [], blocks = [];
+    const r = await A.process(buffer(x, rate), { ...c.opts, onGain: (g) => gained.push(Float32Array.from(g)), onMixBlock: (s, l, m) => blocks.push(m) });
+    const model = specModel(joined(gained), c, x.length), sum = joinedInts(blocks);
+    const same = sameBitsF(model.y, r.samples) && sum.length === model.mix.length && sum.every((v, i) => v === model.mix[i]);
+    check(`preset 6 on ${name}: ${tailed ? 'a tail after the last tone' : 'no tail, the source\'s length'}, the room by hand's samples and tail`,
+      same && r.codecInfo.room.tail === model.tail && (tailed ? model.tail >= 22050 : model.tail === 0 && r.samples.length === x.length),
+      `tail ${r.codecInfo.room.tail} (by hand ${model.tail}), ${r.samples.length} samples`);
+  }
+
+  // The custom room at its knobs' ends, where the old mapping's clamps act
+  // (the reverb's longest line 25 and 220 ms, the feedback 0.3 and 0.97, the
+  // cutoff 12000 and 1125 Hz), against the room by hand with the mapping as
+  // the order gives it (customByHand).
+  for (const custom of [{ duration: 0.05, decay: 0.5, mix: 0.5 }, { duration: 6, decay: 8, mix: 0.5 }]) {
+    const rate = 48000, x = Float32Array.from({ length: rate }, (_, i) => (i < 12000 ? 0.4 * Math.sin(i * 0.07) : 0));
+    const c = { name: 'custom', rate, opts: pageFor({ enableWarble: false, agc: false, volume: 1, room: { custom } }),
+      room: { room: customByHand(custom), water: false, shares: { room: 128, direct: 128 } } };
+    const gained = [];
+    const r = await A.process(buffer(x, rate), { ...c.opts, onGain: (g) => gained.push(Float32Array.from(g)) });
+    const model = specModel(joined(gained), c, x.length);
+    check(`the custom room ${JSON.stringify(custom)}: the room by hand's samples and tail, 128/128`, sameBitsF(model.y, r.samples)
+      && r.codecInfo.room.tail === model.tail && r.codecInfo.room.shares.room === 128, `tail ${r.codecInfo.room.tail} (by hand ${model.tail})`);
+  }
+
+  // A full-scale square wave through preset 6 (the codec bypassed, the gain
+  // off, a 44100 Hz device so the output is the clipped mix itself): the
+  // direct part alone tops out at entry(32767, 229) = 29196; with the room's
+  // part the sum passes 32767, and the output is clipped there.
+  const square = Float32Array.from({ length: 44100 }, (_, k) => (k % 441 < 220 ? 1 : -1));
+  const blocks = [];
+  paths.length = 0;
+  const sq = await A.process(buffer(square, 44100), { ...PAGE, enableWarble: false, agc: false, volume: 1, deviceRate: 44100,
+    room: { preset: 6 }, onMixBlock: (start, length, mix) => blocks.push(mix) });
+  const sum = joinedInts(blocks), peakDirect = Math.max(...paths[0].calls.map(k => k.peak));
+  let over = 0, wrong = 0, peakSum = -Infinity;
+  for (let i = 0; i < sum.length; i++) {
+    if (sum[i] > peakSum) peakSum = sum[i];
+    const want = Math.max(-32767, Math.min(32767, sum[i]));
+    if (Math.abs(sum[i]) > 32767) over++;
+    if (sq.samples[i] * 32768 !== want) wrong++;
+  }
+  check('a full-scale square through preset 6: the direct part tops out at 29196, the sum passes 32767 and the output is clipped at +-32767',
+    peakDirect === 29196 && roomModule.entry(32767, 229) === 29196 && peakSum > 32767 && over > 0 && wrong === 0 && sq.samples.length === sum.length,
+    `direct ${peakDirect}, sum up to ${peakSum}, ${over} samples past the clip, ${wrong} outputs not the clipped sum`);
+}
+
 console.log('\n[3] What createRender reports, refuses and leaves alone');
 {
   const c = CASES.find(x => x.name === 'steam, 1,000,003 samples (a prime) at 48 kHz'), samples = sources.get(c.name);
@@ -760,12 +1081,84 @@ const mono = (rate, length) => ({ sampleRate: rate, length, numberOfChannels: 1 
 async function refusal(make) {
   try { await make(); return null; } catch (error) { return error; }
 }
-for (const [opts, named] of [
-  [{ listenerPos: 'tunnel' }, 'listenerPos'], [{ listenerPos: 'water' }, 'listenerPos'], [{ listenerPos: null, dspRoom: 6 }, 'dspRoom'],
-  [{ listenerPos: null, dspRoom: 99, customEnv: { duration: 1, decay: 2, mix: 0.3 } }, 'dspRoom'], [{ retime: true }, 'retime']
-]) {
+// Since W3-17c a room streams; the flat re-timing rule still does not, with
+// a room or without (W3-02f removes it).
+for (const [opts, named] of [[{ retime: true }, 'retime'], [{ retime: true, room: { preset: 6 } }, 'retime']]) {
   const error = await refusal(() => A.createRender(mono(48000, 4800), { ...PAGE, ...opts }));
   check(`createRender refuses ${JSON.stringify(opts)} by name`, error instanceof RangeError && error.message.includes(named), error?.message);
+}
+{
+  const roomed = await A.createRender(mono(48000, 4800), { ...PAGE, room: { preset: 6 } }), dry = await A.createRender(mono(44100, 4410), PAGE);
+  const at96 = await A.createRender(mono(48000, 4800), { ...PAGE, room: { preset: 6 }, deviceRate: 96000 });
+  check('createRender with a room: outputLength without the tail, maxTail the cap of 882,000 mix samples at the device\'s rate (960,000 at 48 kHz, 1,920,000 at 96 kHz); with none, maxTail 0',
+    roomed.outputLength === 4800 && roomed.maxTail === 960000 && at96.outputLength === 9600 && at96.maxTail === 1920000
+    && renders.get('steam, room: preset 6, device at 96000 Hz').sampleRate === 96000 && dry.outputLength === 4800 && dry.maxTail === 0,
+    `${roomed.maxTail}, ${at96.maxTail}, ${dry.maxTail}`);
+  roomed.free(); dry.free(); at96.free();
+}
+// The page's older options map onto the new ones: the same render.
+{
+  const src = voice(1, 48000, 13), hashOf = async (opts) => {
+    const r = await A.process(buffer(src, 48000), { ...PAGE, ...opts });
+    return `${sha256(await wavBytes(r.blob))} ${infoHash(r.codecInfo)}`;
+  };
+  for (const [old, now] of [
+    [{ listenerPos: 'water' }, { underwater: true }], [{ listenerPos: 'tunnel' }, { room: { preset: 6 } }],
+    [{ listenerPos: null, dspRoom: 6 }, { room: { preset: 6 } }], [{ listenerPos: 'not-a-place', dspRoom: '17' }, { room: { preset: 17 } }],
+    [{ listenerPos: null, dspRoom: 99, customEnv: { duration: 1, decay: 2, mix: 0.3 } }, { room: { custom: { duration: 1, decay: 2, mix: 0.3 } } }],
+    [{ listenerPos: null, dspRoom: 99, customEnv: null }, { room: { custom: { duration: 1.5, decay: 3, mix: 0.25 } } }],
+    [{ listenerPos: null, dspRoom: 1 }, { room: null }], [{ room: { preset: 1 } }, { room: null }], [{ room: { preset: 0 } }, { room: null }],
+    [{ room: { custom: { duration: 1, decay: 2, mix: 0.003 } } }, { room: null }], [{ room: { preset: 40 } }, { room: null }],
+    [{ room: { preset: 104 } }, { room: null }], [{ room: { auto: 'room' }, underwater: false }, { room: { auto: { ...roomModule.roomCase('room').measures } } }],
+    // Added in the review's fix round. dspRoom as a string is a room only
+    // when written as a number is (the old code's key lookup); and opts.room,
+    // when given, wins over the old position's water.
+    [{ listenerPos: null, dspRoom: ' 6' }, { room: null }], [{ listenerPos: null, dspRoom: '0x6' }, { room: null }],
+    [{ listenerPos: null, dspRoom: '6e0' }, { room: null }], [{ listenerPos: null, dspRoom: '06' }, { room: null }],
+    [{ listenerPos: null, dspRoom: 6.5 }, { room: null }],
+    [{ listenerPos: 'water', room: { preset: 6 } }, { room: { preset: 6 } }], [{ listenerPos: 'water', room: null }, { room: null }],
+    [{ listenerPos: 'water', room: null, underwater: true }, { underwater: true }]
+  ]) {
+    const a = await hashOf(old), b = await hashOf(now);
+    const label = (o) => JSON.stringify(o).replace(/"([a-zA-Z]+)":/g, '$1:');
+    check(`${label(old)} renders as ${label(now)}`, old.room?.auto ? a.split(' ')[0] === b.split(' ')[0] : a === b,
+      old.room?.auto ? 'the same WAV (codecInfo.room names a key for one and the measures for the other)' : '');
+  }
+}
+// The room module absent from the engine: a render with no room and not
+// under water does not need it and gives its recorded hashes; one with a
+// room says what it needs.
+{
+  const bare = engineInThisRealm(false).audio;
+  for (const name of ['steam, dsp_room 1 (no effect)', 'steam, custom room at mix 0 (no effect)', 'celt_22, gate on, loss 15%, jitter 300 ms',
+    'demo voice as received', 'speex, 100 samples at 96 kHz', 'steam, empty source']) {
+    const c = CASES.find(x => x.name === name), whole = await bare.process(buffer(sources.get(name), c.rate), c.opts);
+    check(`${name}: with the room module absent the render succeeds, with its recorded WAV and codecInfo`,
+      sha256(await wavBytes(whole.blob)) === GOLDEN[name][0] && infoHash(whole.codecInfo) === GOLDEN[name][1]);
+  }
+  for (const opts of [{ room: { preset: 6 } }, { underwater: true }, { listenerPos: null, dspRoom: 137 }]) {
+    const error = await refusal(() => bare.process(buffer(new Float32Array(480), 48000), { ...PAGE, ...opts }));
+    const error2 = await refusal(() => bare.createRender(mono(48000, 480), { ...PAGE, ...opts }));
+    check(`with the module absent, ${JSON.stringify(opts)} stops and names room-dsp.js and room-presets.js (process() and createRender)`,
+      [error, error2].every(e => e instanceof Error && /room-dsp\.js/.test(e.message) && /room-presets\.js/.test(e.message)), error?.message);
+  }
+}
+// The tail loop's own bound: a path whose tail rule never holds stops the
+// render with an error that names the cap, after ceil(882,000 / 512) + 2
+// blocks past the voice, in process() and createRender.
+{
+  neverEnds.on = true;
+  const x = Float32Array.from({ length: 4800 }, (_, i) => 0.3 * Math.sin(i * 0.05)), o = { ...PAGE, enableWarble: false, room: { preset: 6 } };
+  paths.length = 0;
+  const error = await refusal(() => A.process(buffer(x, 48000), o));
+  const blocks = paths.length ? paths[0].calls.length : 0;
+  const r = await A.createRender(mono(48000, x.length), o);
+  await r.push(x);
+  const error2 = await refusal(() => r.finish());
+  neverEnds.on = false;
+  check('a room path whose tail never ends: process() and createRender stop with an error that names the cap of 882000, after 1725 blocks past the voice\'s 8 whole ones',
+    [error, error2].every(e => e instanceof Error && /882000/.test(e.message)) && blocks === Math.floor(4410 / 512) + Math.ceil(882000 / 512) + 2,
+    `${blocks} blocks; ${error?.message}`);
 }
 {
   const error = await refusal(() => A.createRender({ sampleRate: 48000, length: 10, numberOfChannels: 2 }, PAGE));

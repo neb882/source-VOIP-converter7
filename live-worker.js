@@ -9,7 +9,7 @@
  * goes to the page with a frame log for the codec lane. */
 'use strict';
 
-importScripts('constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'audio.js');
+importScripts('constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'room-presets.js', 'room-dsp.js', 'audio.js');
 
 let chain = null, port = null, rate = 48000, queue = Promise.resolve(), generation = 0;
 let talking = true, inputTotal = 0, recording = null;

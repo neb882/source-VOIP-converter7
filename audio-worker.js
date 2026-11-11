@@ -3,7 +3,7 @@
  * lining up and comparing a real take. */
 'use strict';
 
-importScripts('constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'audio.js', 'flac.js', 'formats.js', 'zip.js', 'meter.js', 'reference.js');
+importScripts('constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'room-presets.js', 'room-dsp.js', 'audio.js', 'flac.js', 'formats.js', 'zip.js', 'meter.js', 'reference.js');
 
 async function processMessage(message) {
   const id = message.id;

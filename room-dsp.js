@@ -1215,7 +1215,27 @@
   // which classes the log leaves open. `shape`: the module's name for the shape line the console printed, to check
   // the build against; `log`: the printed numbers; `note`: which class was taken where the log left two open.
   // Nothing else is needed to add one.
-  const ROOM_PLACES = deepFreeze([]);
+  //   The rows: the owner's `adsp_debug 2` walk on ctf_2fort (Set K, 2026-11-10; the order's amendment after Sets K
+  // and L). `log` is the printed line's numbers and, where they were read, the four mix values after the build.
+  const placeRow = (key, label, spot, sky, width, length, height, reflectivity, shape, log, note) =>
+    caseRow(key, label, sky, width, length, height, reflectivity, 0,
+      Object.assign({ map: 'ctf_2fort', spot, shape, log }, note ? { note } : {}));
+  const ROOM_PLACES = deepFreeze([
+    placeRow('2fort_spawn_room', '2Fort: spawn room', 'the spawn room, the node measured on the spot',
+      false, 372, 516, 240, 0.66, 'room', { size: [43, 31], height: 20, refl: 0.66, sky: 0, mix: [0.32, 0.8, 80, 0.5] },
+      'The same spawn room also gave the remembered node 2fort_spawn_long: among remembered nodes in reach the ' +
+      'largest width times length wins.'),
+    placeRow('2fort_spawn_long', '2Fort: spawn room, remembered node', 'the same spawn room, the remembered node the engine went back to',
+      false, 252, 1140, 192, 0.66, 'tunnel', { size: [95, 21], height: 16, refl: 0.66, sky: 0, mix: [0.4, 0.9, 80, 0.7] }),
+    placeRow('2fort_indoor', '2Fort: indoors', 'indoors (soundscape 2fort.Indoor)',
+      false, 708, 1440, 180, 0.55, 'room', { size: [120, 59], height: 15, refl: 0.55, sky: 0, mix: [0.32, 0.8, 80, 0.5] }),
+    placeRow('2fort_tunnel', '2Fort: tunnel', 'the tunnel',
+      false, 168, 2160, 192, 0.555, 'tunnel', { size: [180, 14], height: 16, refl: 0.555, sky: 0 },
+      'The four mix values were not read at this node.'),
+    placeRow('2fort_pond', '2Fort: pond', 'the pond (soundscape 2fort.OutdoorPond)',
+      true, 912, 1344, 4800, 0.34, 'courtyard', { size: [112, 76], height: 400, refl: 0.34, sky: 1, mix: [0.21, 0.8, 95, 0.1] },
+      'The printed numbers leave the open sides open; the shape line, OUTSIDE COURTYARD, and the mix values say none.'),
+  ]);
 
   // The console's shape lines (`adsp_debug 2`; second read, section 4) and the shapes each can be: the open-sided
   // line is the same for all four open-sided shapes.
