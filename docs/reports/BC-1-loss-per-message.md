@@ -6,7 +6,7 @@ Order: `docs/work-orders/BC-1-loss-per-message.md`, with its amendment of 2026-1
 ## Commits
 
 - `e4ad0cf` the change and its tests: `audio.js`, `opus-codec.mjs`, the two strings of `index.html`, the two help
-  strings of `app/console.js`, comments in `constants.js`, `sw.js` `CACHE` v31, `tests/verify.js`,
+  strings of `app/console.js`, comments in `constants.js`, `sw.js` `CACHE` v31 (v32 after the merge of main), `tests/verify.js`,
   `tests/opus.verify.mjs`, `tests/accuracy.takes.json`.
 - `7586e75` the five recorded renders that move, re-recorded in a commit of their own.
 - `7baddcc` test 10 fails cleanly (it threw) on code with no network counts.
@@ -189,7 +189,8 @@ r.codecInfo.network;                      // { messages, lostMessages, refusedMe
 The `net_fakeloss` name on the control and the command; the Laggy preset's number (18, now 18% of messages);
 `net_graph`'s loss and packet rate and the status line's "ms packets" on `steam`; the `S_Voice` line and the live
 panel's titles (`live.js`: "Frames lost (concealed)…", true but silent about refused messages); finding 8's title and
-finding 9; `tests/testsignal/README.md`.
+finding 9; `tests/testsignal/README.md`; the page's sentence under "Frames per packet" (W4-01d's "How much voice one
+network packet carries. A lost packet loses all of it."), which on Steam voice no longer holds: its console help says so.
 
 ## Not done, or for the orchestrator
 
@@ -199,3 +200,41 @@ finding 9; `tests/testsignal/README.md`.
   (departure 1); it is a stand-in until BC-4 and no test pins it beyond createRender = process = the live chain.
 - The diff and the commit messages were scanned for recordings, personal details, real SteamIDs and model names:
   none (the trailers aside).
+
+## Review round (2026-11-11)
+
+The review found no defect in the code; it disabled pieces of it that no test noticed. Added, each shown to fail
+when the piece is disabled (in a copy of the branch):
+
+| Item | The test | Disabled, it fails |
+| --- | --- | --- |
+| S1 | [5d] re-timing at 49.8% with 100 ms jitter, seeds 1 to 6, on the steam section's talk: every slot that holds one of a sender spurt's frames without re-timing holds it (code and size) the same number of slots earlier with it, 0 or a move's frames (66 spurts, 7 moved, 2 of them with a hole) | `retimeSpurts`' merge removed |
+| S2 | [10b] the live chain with `loseMessage` (every fourth message and every 5-frame one) is `process()` with the same function at the mix point, blocks of 480 and uneven, nothing moved, its `lostMessages` the dry run's count | the live chain ignoring `loseMessage` |
+| S3 | [5d] an end marker alone (the gate off, 96,000 samples, seed 0xC0FFEE: the last message) is asked of `loseMessage`, counted in `messages` and `lostMessages`, and at a loss just above its own draw (45.11%) the draw counts it lost (36, the order's draw over all 73 messages); then on the codec module's stream, a second spurt put after it whose first frame to arrive (209) is above the old expected number (205): 4 concealed from the old state with the marker lost, 10 zeros from a fresh decoder with it delivered | a loser that skips the draw for a message with `last < first`; a lost marker delivered |
+| N2 | `tests/opus.verify.mjs`: `carry()` forgets late frames counted before it (late 9 after 0 to 7, carry, 11 arrives: 3 concealed, equal to one decoder's). In the app the case needs jitter and loss together, so it is shown on the decoder alone | `carry() {}` |
+| N1 | [5d] a hand-made mask: 12 frames lost and one late among them in front of a one-frame message: the arriving frame at its own slot and every slot after it as with nothing lost | the order's formula (`anchor + 882 x` the first block's frame), which puts it a slot early |
+
+**N1, the frame log's two known flaws** (no sample is affected; not fixed, since the fix would move the codecInfo
+hashes of the jitter-and-loss renders and would make the log disagree with where the samples lie): (i) a late
+frame's zeros placed before the concealed blocks of the same packet log the concealed frames one slot late; (ii) a
+one-frame message whose only frame is late after a gap of more than ten is laid, and logged, at the cursor, since a
+packet with no arriving frame has no frames-nobody-fills count. Both are within jitter's stand-in (BC-4).
+
+**Words (N3).** Finding 8 now says what the amendment says: the computed and the measured stand beside each other
+(4.5 against 3.9 runs a second at 15; the combined take still open), and the speech paragraph's 38% is named as not
+made again. The orchestrator's private check of 27a0a54 is in finding 8's correction and in the Results' note on Set
+C's accuracy rows: the build equals the prototype sample for sample at Set C's settings (20 renders) and main's
+renders with nothing lost (14 manifest cases); the level column moved from −1.4 to +0.0 dB (loss15), −1.7 to +0.3
+(combined), +0.1 to +0.4 (loss5; seeds within +0.26); `speech_loss10` from +0.2 to +0.4 to +0.5 dB, 0.3 dB further
+from 0, cause unknown (also in "What remains unverified"). The order gains a dated correction under rule E's formula:
+the build's rule replaces it.
+
+**The merge of main** (W3-17d and W4-01d, 2ab88cf): settled by hand in `index.html` (the label "Packets lost %" and a
+sentence under it in W4-01d's form: "The share of voice packets that never arrive. Not the game's own number: its
+net_fakeloss 5 loses about 22% of them."), `app/console.js` (the `net_fakeloss` help begins with that sentence, then
+the order's words with the amendment's ending; `net_split`'s gains the order's sentence), `tests/browser.verify.js`
+(the settled-words table check: the label and that sentence), `constants.js` (main's presets, BC-1's comment),
+`audio.js` (the live room's spurt start, from the opening message whether it arrived, as the timeline opens it, beside
+the message draw and counts), REFERENCE's model intro and PREDICTIONS' notes (both kept). `sw.js` `CACHE` v32.
+
+REVIEW_CHECKS
