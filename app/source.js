@@ -101,6 +101,20 @@ async function loadSourceFromArrayBuffer(ab, name, again = null) {
   }
 }
 
+// What the page says when the browser gives it no microphone (W4-01c), by
+// the error's name, which every browser shares; null for any other error.
+// `button`: the button to press again ("Live" or "Record").
+function microphoneRefusal(error, button) {
+  const name = error && error.name;
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return `The browser did not let this page use the microphone. Allow it for this site (the icon in the address bar), then press ${button} again.`;
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return `No microphone was found. Plug one in, or choose it in the system's sound settings, then press ${button} again.`;
+  }
+  return null;
+}
+
 async function startRecord() {
   if (state.recorder || state.processing) return;
   if (!navigator.mediaDevices?.getUserMedia || typeof AudioWorkletNode === 'undefined') {
@@ -132,7 +146,7 @@ async function startRecord() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-    });
+    }).catch((error) => { error.microphone = true; throw error; });
     context = new (window.AudioContext || window.webkitAudioContext)();
     await context.audioWorklet.addModule('mic-capture.js');
     source = context.createMediaStreamSource(stream);
@@ -173,7 +187,7 @@ async function startRecord() {
     logLine('+voicerecord (PCM capture)', 'cmd');
   } catch (e) {
     await cleanup();
-    setStatus(`Microphone unavailable: ${e.message}`, 'error');
+    setStatus((e && e.microphone && microphoneRefusal(e, 'Record')) || `Microphone unavailable: ${e.message}`, 'error');
     logLine(`VoiceRecord: ${e.message}`, 'err');
   }
 }
@@ -271,7 +285,7 @@ els.conIn.addEventListener('keydown', (e) => {
       if (state.cmdHistory.length > 50) state.cmdHistory.shift();
       state.cmdIndex = state.cmdHistory.length;
       LS.set('tf2ve_history', state.cmdHistory);
-      execCommand(val);
+      consoleAnswer(val);
       els.conIn.value = '';
       updateConsoleHint();
     }
@@ -289,9 +303,15 @@ els.conIn.addEventListener('keydown', (e) => {
     } else {
       state.cmdIndex = state.cmdHistory.length; els.conIn.value = ''; updateConsoleHint();
     }
-  } else if (e.key === 'Tab') {
-    e.preventDefault();
-    completeConsole();
+  } else if (e.key === 'Tab' && !e.shiftKey) {
+    // Tab completes only a word with no space that some command starts
+    // with; otherwise it moves the focus on, as anywhere else (W4-01c).
+    // Shift+Tab always moves the focus back.
+    const val = els.conIn.value;
+    if (val && !/\s/.test(val) && consoleMatches(val).length) {
+      e.preventDefault();
+      completeConsole();
+    }
   }
 });
 

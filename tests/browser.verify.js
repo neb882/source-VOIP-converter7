@@ -1953,6 +1953,203 @@ async function verifyVersionLine(browser) {
   }
 }
 
+// A browser of its own, with these switches (the microphone refused, none).
+async function launchBrowser(args) {
+  const options = { headless: true, args };
+  if (process.env.CHROMIUM_EXECUTABLE) options.executablePath = process.env.CHROMIUM_EXECUTABLE;
+  try { return await chromium.launch(options); }
+  catch (error) {
+    if (!String(error.message).includes('Executable doesn\'t exist')) throw error;
+    return chromium.launch({ ...options, channel: 'chrome' });
+  }
+}
+
+// The contrast of an element's text against what is behind it: its own
+// background and its ancestors', composited until one is opaque (as the
+// audit computed it).
+const contrastOf = (page, selector) => page.evaluate((sel) => {
+  const el = document.querySelector(sel);
+  const rgba = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c); const v = m ? m[1].split(',').map(Number) : [0, 0, 0, 0]; return [v[0], v[1], v[2], v.length > 3 ? v[3] : 1]; };
+  const layers = [];
+  for (let n = el; n; n = n.parentElement) {
+    const c = rgba(getComputedStyle(n).backgroundColor);
+    if (c[3] > 0) layers.push(c);
+    if (c[3] >= 1) break;
+  }
+  let bg = [0, 0, 0];
+  if (!layers.length || layers[layers.length - 1][3] < 1) bg = rgba(getComputedStyle(document.documentElement).backgroundColor).slice(0, 3);
+  for (const c of layers.reverse()) bg = bg.map((v, i) => c[i] * c[3] + v * (1 - c[3]));
+  const fg = rgba(getComputedStyle(el).color);
+  const text = bg.map((v, i) => fg[i] * fg[3] + v * (1 - fg[3]));
+  const lum = (c) => { const [r, g, b] = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const [a, b] = [lum(text), lum(bg)].sort((x, y) => y - x);
+  return (a + 0.05) / (b + 0.05);
+}, selector);
+
+// W4-01c: keyboard, the microphone's refusal, the phone, what a screen reader
+// is given.
+async function verifyAccess(browser, base) {
+  console.log('\n[Browser 9] Keyboard, the microphone refused, the phone, the screen reader (W4-01c)');
+  const errors = [];
+  const context = await browser.newContext({ serviceWorkers: 'block', permissions: ['microphone'], viewport: { width: 1280, height: 720 } });
+  try {
+    const page = await context.newPage();
+    page.setDefaultTimeout(30000);
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto(base, { waitUntil: 'domcontentloaded' });
+
+    // 1. The console's input lets Tab go.
+    await page.locator('#console-details summary').click();
+    const input = page.locator('#console-input');
+    const focused = () => page.evaluate(() => document.activeElement && document.activeElement.id);
+    await input.fill('');
+    await input.focus();
+    await page.keyboard.press('Tab');
+    const emptyTab = await focused();
+    await input.focus();
+    await page.keyboard.press('Shift+Tab');
+    const emptyBack = await focused();
+    await input.fill('voice_sc');
+    await page.keyboard.press('Shift+Tab');
+    const typedBack = { focus: await focused(), value: await input.inputValue() };
+    await input.focus();
+    await page.keyboard.press('Tab');
+    const completed = { focus: await focused(), value: await input.inputValue() };
+    await page.keyboard.press('Shift+Tab');
+    const completedBack = await focused();
+    check(emptyTab !== 'console-input' && emptyBack !== 'console-input', 'console: with the input empty, Tab and Shift+Tab leave it', `${emptyTab} / ${emptyBack}`);
+    check(completed.value === 'voice_scale ' && completed.focus === 'console-input', 'console: with "voice_sc" typed, Tab completes to "voice_scale " and the focus stays', JSON.stringify(completed));
+    check(typedBack.focus !== 'console-input' && typedBack.value === 'voice_sc' && completedBack !== 'console-input',
+      'console: Shift+Tab leaves it, a word typed or completed', `${typedBack.focus} / ${completedBack}`);
+    await input.focus();
+    const ring = await input.evaluate((el) => { const s = getComputedStyle(el); return { style: s.outlineStyle, width: parseFloat(s.outlineWidth) }; });
+    check(ring.style !== 'none' && ring.width >= 2, 'console: its input shows the focus ring the other controls have', JSON.stringify(ring));
+
+    // 3. The console is not read out without end.
+    await input.fill('voice_scale 0.5');
+    await input.press('Enter');
+    await page.waitForFunction(() => document.getElementById('console-status').textContent.length > 0);
+    const told = await page.evaluate(() => ({ live: document.getElementById('console-out').getAttribute('aria-live'), open: document.getElementById('console-details').open,
+      status: document.getElementById('console-status').textContent, role: document.getElementById('console-status').getAttribute('role') }));
+    check(told.open && told.live === 'off' && told.role === 'status' && told.status.includes('"voice_scale" = "0.5"') && !told.status.includes('] voice_scale'),
+      'with the console open its output is aria-live off, and a typed command\'s answer goes to a hidden status', JSON.stringify(told));
+    await input.fill('voice_scale 1');
+    await input.press('Enter');
+
+    // 6. The picture, the live bars, the advanced switch; 2. the note after a stop.
+    await chooseFile(page, { name: 'access.wav', mimeType: 'audio/wav', buffer: wavSpeech(3) });
+    const picture = await page.evaluate(() => {
+      const ids = (document.getElementById('advanced-toggle').getAttribute('aria-controls') || '').split(/\s+/).filter(Boolean);
+      const controlled = ids.map((id) => document.getElementById(id));
+      return { described: document.getElementById('visualizer').getAttribute('aria-describedby'), legend: document.getElementById('viz-legend').textContent.length,
+        controls: ids, holdsSwitch: controlled.some((el) => !el || el.contains(document.getElementById('advanced-toggle'))),
+        holdsGroups: controlled.some((el) => el && el.querySelectorAll('fieldset.chain-group').length === document.querySelectorAll('#controls-wrapper fieldset.chain-group').length) };
+    });
+    check(picture.described === 'viz-legend' && picture.legend > 0, 'the picture of the sound is described by the legend under it', `aria-describedby="${picture.described}"`);
+    check(!picture.holdsSwitch && picture.holdsGroups, 'the advanced switch\'s aria-controls names the element that holds the advanced groups, not the switch', picture.controls.join(' '));
+    await page.locator('#live-toggle').click();
+    await page.waitForFunction(() => window.TF2Live && TF2Live.stats && TF2Live.stats.frames > 40, null, { timeout: 30000 });
+    await page.waitForTimeout(700);
+    const meters = await page.evaluate(() => [...document.querySelectorAll('#live-panel [role="meter"]')].map((m) => ({ name: m.getAttribute('aria-label'),
+      now: m.getAttribute('aria-valuenow'), min: m.getAttribute('aria-valuemin'), max: m.getAttribute('aria-valuemax'), text: m.getAttribute('aria-valuetext') })));
+    const noteRole = await page.locator('#live-note').getAttribute('role');
+    check(meters.length === 2 && meters.every((m) => m.name && m.min === '-60' && m.max === '0' && Number.isFinite(Number(m.now)) && m.now !== null && /dBFS|silence/.test(m.text))
+      && meters.some((m) => Number(m.now) > -60),
+      'the live panel\'s two bars are meters with a name and a numeric value in dBFS while the fake microphone runs', JSON.stringify(meters));
+    const recordName = await page.locator('#live-record').textContent();
+    await page.locator('#live-toggle').click();
+    await page.waitForFunction(() => !TF2Live.running);
+    const stopped = await page.locator('#live-note').textContent();
+    check(noteRole === 'status' && !stopped.startsWith('Live.') && stopped === 'Stopped.' && /Record this session/.test(recordName),
+      'the live note is a status, reads "Stopped." after a stop (not "Live."), and the panel\'s button is "Record this session"', `${stopped}; ${recordName}`);
+
+    // 4. The phone, every panel open, a render on screen.
+    await page.locator('#advanced-toggle').evaluate((b) => { if (b.getAttribute('aria-expanded') !== 'true') b.click(); });
+    await page.locator('#reference summary').click();
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 664 });
+      await page.waitForTimeout(200);
+      const phone = await page.evaluate(() => {
+        const shown = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+        const ctx = document.createElement('canvas').getContext('2d');
+        const selects = [...document.querySelectorAll('select')].filter(shown).map((el) => {
+          const s = getComputedStyle(el);
+          ctx.font = `${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+          const text = el.selectedOptions[0] ? el.selectedOptions[0].textContent : '';
+          const room = el.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight) - 20;
+          return { id: el.id, wide: ctx.measureText(text).width > room, ellipsis: s.textOverflow === 'ellipsis' };
+        });
+        const box = document.querySelector('#meter .meter-scroll');
+        box.focus();
+        const live = ['live-ptt', 'live-lowlat'].map((id) => { const el = document.getElementById(id), r = el.getBoundingClientRect(), l = el.closest('label').getBoundingClientRect();
+          return { id, w: r.width, h: r.height, row: l.height }; });
+        const tall = [...document.querySelectorAll('#controls-wrapper input[type=number], #controls-wrapper select, input[type=file]')].filter(shown)
+          .map((el) => ({ id: el.id, h: el.getBoundingClientRect().height }));
+        return { selects, region: { role: box.getAttribute('role'), label: box.getAttribute('aria-label'), focused: document.activeElement === box,
+          scrolls: box.scrollWidth > box.clientWidth, sticky: getComputedStyle(box.querySelector('tbody th')).position },
+          live, short: tall.filter((t) => t.h < 44 - 0.5), tall: tall.length, fits: document.documentElement.scrollWidth <= window.innerWidth,
+          scrollWidth: document.documentElement.scrollWidth };
+      });
+      check(phone.fits, `${width} px: the page does not scroll sideways`, `${phone.scrollWidth} px`);
+      if (width === 320) continue;
+      const cut = phone.selects.filter((s) => s.wide && !s.ellipsis);
+      check(cut.length === 0 && phone.selects.length > 5, `${width} px: no select's chosen text is wider than its box unless it ends in an ellipsis`,
+        `${phone.selects.length} selects, ${phone.selects.filter((s) => s.wide).length} too long for theirs${cut.length ? `; cut: ${cut.map((s) => s.id).join(', ')}` : ''}`);
+      check(phone.region.role === 'region' && phone.region.label && phone.region.focused && phone.region.scrolls && phone.region.sticky === 'sticky',
+        `${width} px: the loudness table's box is a named region that takes the focus, scrolls, and its first column stays`, JSON.stringify(phone.region));
+      check(phone.live.every((c) => c.w >= 20 && c.h >= 20 && c.row >= 44), `${width} px: both live checkboxes are at least 20 px, in label rows at least 44 px high`, JSON.stringify(phone.live));
+      check(phone.short.length === 0 && phone.tall > 20, `${width} px: every number box, select and file control of the settings is at least 44 px high`,
+        phone.short.map((t) => `${t.id} ${t.h}`).join(', ') || `${phone.tall} controls`);
+    }
+
+    // 5. Sizes and contrast, at every width.
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 720 });
+      const sizes = await page.evaluate(() => {
+        const px = (el) => parseFloat(getComputedStyle(el).fontSize);
+        const small = (sel, min) => [...document.querySelectorAll(sel)].filter((el) => el.textContent.trim() && px(el) < min).map((el) => `${el.id || el.textContent.trim().slice(0, 20)} ${px(el)}`);
+        return [...small('label, legend', 12), ...small('.cvar', 11), ...small('.viz-mode, .viz-select', 11)];
+      });
+      check(sizes.length === 0, `${width} px: labels and legends at least 12 px, the console names beside them and the view buttons at least 11 px`, sizes.join(', '));
+    }
+    await input.fill('net_g');
+    const contrast = { footer: await contrastOf(page, 'footer'), footerLink: await contrastOf(page, 'footer a'), consoleHint: await contrastOf(page, '.summary-hint'),
+      typedHint: await contrastOf(page, '#console-hint'), pushToTalk: await contrastOf(page, '#live-tx') };
+    check(Object.values(contrast).every((c) => c >= 4.5), 'the footer, the console\'s hints and the live panel\'s idle "○ push-to-talk" reach 4.5 to 1',
+      Object.entries(contrast).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(', '));
+    check(errors.length === 0, 'keyboard, phone and screen reader checks have no page errors', errors.join('; '));
+  } finally { await context.close(); }
+
+  // 2. The microphone refused, and none: a browser of its own for each.
+  for (const [label, args, permissions, what] of [
+    ['no microphone permission', ['--use-fake-device-for-media-stream'], [], /^The browser did not let this page use the microphone\. Allow it for this site \(the icon in the address bar\), then press (Live|Record) again\.$/],
+    ['no microphone', ['--use-fake-ui-for-media-stream'], ['microphone'], /^No microphone was found\. Plug one in, or choose it in the system's sound settings, then press (Live|Record) again\.$/]]) {
+    const other = await launchBrowser(args);
+    try {
+      const page = await (await other.newContext({ serviceWorkers: 'block', permissions })).newPage();
+      page.setDefaultTimeout(30000);
+      await page.goto(base, { waitUntil: 'domcontentloaded' });
+      await page.locator('#live-toggle').click();
+      await page.waitForFunction(() => document.getElementById('live-note').classList.contains('error'), null, { timeout: 15000 }).catch(() => {});
+      const note = await page.evaluate(() => {
+        const n = document.getElementById('live-note'), s = getComputedStyle(n);
+        const ref = document.createElement('div'); ref.className = 'source-status error'; ref.textContent = 'x'; document.querySelector('.upload-row').appendChild(ref);
+        const r = getComputedStyle(ref), want = { color: r.color, size: r.fontSize };
+        ref.remove();
+        return { text: n.textContent, role: n.getAttribute('role'), error: n.classList.contains('error'), color: s.color, size: s.fontSize, want };
+      });
+      check(note.role === 'status' && note.error && note.color === note.want.color && note.size === note.want.size && what.test(note.text) && /Live/.test(note.text),
+        `${label}: after a press on Live the note, a status in the error style, says what to do about the microphone`, note.text);
+      await page.locator('#mic').click();
+      await page.waitForFunction(() => document.getElementById('source-status').classList.contains('error'), null, { timeout: 15000 }).catch(() => {});
+      const status = await page.evaluate(() => ({ text: document.getElementById('source-status').textContent, error: document.getElementById('source-status').classList.contains('error'),
+        role: document.getElementById('source-status').getAttribute('role') }));
+      check(status.role === 'status' && status.error && what.test(status.text) && /Record/.test(status.text),
+        `${label}: after a press on Record the status line says the same, with "Record"`, status.text);
+    } finally { await other.close(); }
+  }
+}
+
 // A minimal reader for the stored ZIPs the batch writes.
 function readZip(buffer) {
   const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -2688,6 +2885,7 @@ async function main() {
     await verifyFirstVisitOffline(browser, base);
     await verifyJourney(browser, base);
     await verifyVersionLine(browser);
+    await verifyAccess(browser, base);
     await verifyBatchAndFormats(browser, base);
     await verifySampleRateMatrix(browser, base);
     await verifyNativeRate(browser, base);

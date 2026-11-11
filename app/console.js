@@ -7,16 +7,38 @@
 /* Console utilities                                                  */
 /* ------------------------------------------------------------------ */
 
+// The lines a typed command logs, while it runs (consoleAnswer), for the
+// hidden status a screen reader hears (W4-01c).
+let consoleCapture = null;
+
 function logLine(text, type = 'text') {
   const div = document.createElement('div');
   div.className = `c-${type}`;
   div.textContent = String(text == null ? '' : text);
+  if (consoleCapture) consoleCapture.push(div.textContent);
   const isAtBottom = (els.conOut.scrollHeight - els.conOut.scrollTop - els.conOut.clientHeight) < 50;
   els.conOut.appendChild(div);
   // Finite scrollback: keeps the DOM light during long simulator sessions
   // (matters on mobile).
   while (els.conOut.childElementCount > 600) els.conOut.firstElementChild.remove();
   if (isAtBottom) els.conOut.scrollTop = els.conOut.scrollHeight;
+}
+
+// Run a typed command and put what it answered (the lines it logged, but
+// its own echo) into the console's hidden status: the output itself is not
+// read out (W4-01c), so a screen reader hears the answer and not the
+// simulated game feed.
+let consoleStatusTimer = 0;
+function consoleAnswer(command) {
+  const lines = consoleCapture = [];
+  try { execCommand(command); } finally { consoleCapture = null; }
+  const status = document.getElementById('console-status');
+  if (!status) return;
+  const answer = lines.filter((line) => !line.startsWith('] ')).join(' ');
+  // Emptied first, so the same answer twice is read twice.
+  status.textContent = '';
+  clearTimeout(consoleStatusTimer);
+  consoleStatusTimer = setTimeout(() => { status.textContent = answer; }, 50);
 }
 
 /**

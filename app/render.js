@@ -10,11 +10,9 @@
 if (els.advancedToggle) {
   els.advancedToggle.addEventListener('click', () => showAdvanced(!document.body.classList.contains('advanced')));
 }
-if (els.consoleDetails) {
-  els.consoleDetails.addEventListener('toggle', () => {
-    els.conOut.setAttribute('aria-live', els.consoleDetails.open ? 'polite' : 'off');
-  });
-}
+// The console's output stays aria-live="off", open or not (W4-01c): the
+// simulated game feed would be read out without end. What a typed command
+// answers is put in its hidden status (consoleAnswer, app/console.js).
 
 // Whether jobs can run in audio-worker.js (not from file://).
 function canUseWorker() {

@@ -16,8 +16,8 @@
  * saves comes from the chain. The key and the sound reach the worker by
  * separate channels, so a press or release can land about a block off. On the other profiles push-to-talk sends only while the key is held
  * (the gate still applies inside) and low latency drops the frame gate's
- * 120 ms pre-roll. Record keeps the microphone and the voice and loads them
- * into the app as a dry/wet pair (mountLiveTake).
+ * 120 ms pre-roll. Record this session keeps the microphone and the voice
+ * and loads them into the app as the original and its TF2 voice (mountLiveTake).
  * Needs the app/ page scripts (state, els, renderOptions, logLine, mountLiveTake).
  */
 (function () {
@@ -91,7 +91,7 @@
     ui.record.disabled = !live || (live && live.saving);
     ui.record.classList.toggle('live-recording', !!rec);
     ui.record.textContent = live && live.saving ? 'Saving…' : rec
-      ? `⏹ Stop recording ${formatClock((performance.now() - rec.started) / 1000)}` : '⏺ Record';
+      ? `⏹ Stop recording ${formatClock((performance.now() - rec.started) / 1000)}` : '⏺ Record this session';
   }
   const formatClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -109,27 +109,42 @@
     setRecordButton();
   }
 
+  // The note under the live panel (a status a screen reader hears); an error
+  // in the status line's error style (W4-01c).
+  function setNote(text, error = false) {
+    ui.note.textContent = text;
+    ui.note.classList.toggle('error', !!error);
+  }
+
   function deliverRecording(message) {
     if (live) { live.saving = false; live.recording = null; }
     setRecordButton();
     const dry = new Float32Array(message.dry);
-    if (dry.length < message.rate * 0.2) { ui.note.textContent = 'The recording was too short to keep.'; return; }
+    if (dry.length < message.rate * 0.2) { setNote('The recording was too short to keep.'); return; }
     try {
       mountLiveTake({ dry, wet: new Float32Array(message.wet), rate: message.rate, frameLog: new Uint8Array(message.frameLog),
         counts: message.counts, info: message.info });
-      ui.note.textContent = `Loaded ${(dry.length / message.rate).toFixed(1)} s of the live session: A/B plays the voice against your microphone.`;
+      setNote(`Loaded ${(dry.length / message.rate).toFixed(1)} s of the live session: Hear switches between the voice and your microphone.`);
     } catch (error) {
-      ui.note.textContent = `Could not load the recording: ${error.message}`;
+      setNote(`Could not load the recording: ${error.message}`, true);
     }
   }
 
   const dbfs = (peak) => (peak > 0 ? 20 * Math.log10(peak) : -Infinity);
-  const setMeter = (el, peak) => {
+  // The bar is a meter (role="meter", W4-01c) whose value, the peak in dBFS
+  // from -60 to 0, is told to a screen reader at most twice a second.
+  const setMeter = (el, peak, now = false) => {
     if (!el) return;
-    const db = dbfs(peak);
+    const db = dbfs(peak), bar = el.parentElement;
     el.style.width = `${Math.max(0, Math.min(100, (db + 60) / 60 * 100))}%`;
     el.classList.toggle('live-hot', db > -1);
-    el.parentElement.title = Number.isFinite(db) ? `${db.toFixed(1)} dBFS peak` : 'silence';
+    bar.title = Number.isFinite(db) ? `${db.toFixed(1)} dBFS peak` : 'silence';
+    const t = performance.now();
+    if (!now && t - (bar.ariaAt || -Infinity) < 500) return;
+    bar.ariaAt = t;
+    const shown = Number.isFinite(db) ? Math.round(Math.max(-60, Math.min(0, db)) * 10) / 10 || 0 : -60;
+    bar.setAttribute('aria-valuenow', String(shown));
+    bar.setAttribute('aria-valuetext', Number.isFinite(db) ? `${shown.toFixed(1)} dBFS` : 'silence');
   };
 
   async function listDevices() {
@@ -166,27 +181,29 @@
     ui.toggle.setAttribute('aria-pressed', 'false');
     ui.tx.textContent = '○ off';
     ui.tx.className = 'live-tx';
-    setMeter(ui.inMeter, 0); setMeter(ui.outMeter, 0);
-    if (message) ui.note.textContent = message;
+    setMeter(ui.inMeter, 0, true); setMeter(ui.outMeter, 0, true);
+    // Not "Live." once it has stopped (W4-01c).
+    setNote(message || 'Stopped.', !!message && /failed/.test(message));
     logLine('voice_loopback: live monitor stopped.', 'sys');
   }
 
   async function startLive() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof AudioWorkletNode === 'undefined') {
       ui.panel.hidden = false;
-      ui.note.textContent = 'The live monitor needs microphone access over HTTPS (or localhost) and AudioWorklet support.';
+      setNote('The live monitor needs microphone access over HTTPS (or localhost) and AudioWorklet support.', true);
       return;
     }
     ui.panel.hidden = false;
     ui.toggle.disabled = true;
-    ui.note.textContent = 'Starting… Use headphones: speakers feed the output back into the microphone.';
+    setNote('Starting… Use headphones: speakers feed the output back into the microphone.');
     let stream, ctx;
     try {
       // The raw microphone, as the game's capture gets it: no browser
       // echo cancellation, noise suppression or gain control.
       stream = await navigator.mediaDevices.getUserMedia({ audio: {
         deviceId: ui.input && ui.input.value ? { exact: ui.input.value } : undefined,
-        channelCount: { ideal: 2 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+        channelCount: { ideal: 2 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
+        .catch((error) => { error.microphone = true; throw error; });
       ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
       if (ui.output && ui.output.value && ctx.setSinkId) await ctx.setSinkId(ui.output.value);
       await ctx.audioWorklet.addModule('live-worklet.js');
@@ -224,14 +241,17 @@
       }, 300);
       ui.toggle.textContent = '⏹ Stop live';
       ui.toggle.setAttribute('aria-pressed', 'true');
-      ui.note.textContent = 'Live. Settings changes apply as you make them; a change of room cross-fades as the game does.';
+      setNote('Live. Settings changes apply as you make them; a change of room cross-fades as the game does.');
       logLine(`voice_loopback 1: live monitor at ${ctx.sampleRate} Hz.`, 'sys');
       listDevices().catch(() => {});
     } catch (error) {
       if (stream) stream.getTracks().forEach(t => t.stop());
       if (ctx) ctx.close().catch(() => {});
       live = null;
-      ui.note.textContent = `Could not start the live monitor: ${error.message}`;
+      // A microphone the browser refused or does not have: what to do, by the
+      // error's name; anything else, the browser's own message.
+      setNote((error && error.microphone && typeof microphoneRefusal === 'function' && microphoneRefusal(error, 'Live'))
+        || `Could not start the live monitor: ${error.message}`, true);
     } finally {
       ui.toggle.disabled = false;
     }
@@ -316,7 +336,7 @@
       ui.output.title = 'This browser cannot choose an output device for web audio; it plays on the default output.';
     }
     ui.output.addEventListener('change', () => {
-      if (live && live.ctx.setSinkId) live.ctx.setSinkId(ui.output.value).catch(error => { ui.note.textContent = `Could not switch output: ${error.message}`; });
+      if (live && live.ctx.setSinkId) live.ctx.setSinkId(ui.output.value).catch(error => { setNote(`Could not switch output: ${error.message}`, true); });
     });
   }
   window.addEventListener('pagehide', () => stopLive());

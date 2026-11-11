@@ -49,15 +49,15 @@
           <span class="live-stat" title="Payload bitrate of the frames being sent">rate <b id="live-rate">—</b></span>
           <span class="live-stat" title="Frames concealed (lost frames the decoder filled in when the next one arrived) and late (silence), by the network settings">net <b id="live-loss">—</b></span>
           <span class="live-stat" title="Microphone to speaker: what the voice chain holds back (Steam's longest capture chunk and its 100 ms pre-roll, the codec's lookahead, the filters' waits), the playback queue and the audio device's buffers">latency <b id="live-latency">—</b></span>
-          <span class="live-meter" title="Input peak"><span class="live-meter-label">in</span><span class="live-meter-bar"><span id="live-in"></span></span></span>
-          <span class="live-meter" title="Output peak"><span class="live-meter-label">out</span><span class="live-meter-bar"><span id="live-out"></span></span></span>
+          <span class="live-meter" title="Input peak"><span class="live-meter-label" aria-hidden="true">in</span><span class="live-meter-bar" role="meter" aria-label="Microphone peak" aria-valuemin="-60" aria-valuemax="0" aria-valuenow="-60" aria-valuetext="silence"><span id="live-in"></span></span></span>
+          <span class="live-meter" title="Output peak"><span class="live-meter-label" aria-hidden="true">out</span><span class="live-meter-bar" role="meter" aria-label="TF2 voice peak" aria-valuemin="-60" aria-valuemax="0" aria-valuenow="-60" aria-valuetext="silence"><span id="live-out"></span></span></span>
         </div>
         <div class="live-controls">
-          <button id="live-record" type="button" disabled title="Record the live session: the microphone and its TF2 voice, loaded into the app together (Hear, views, meter, download)">⏺ Record</button>
+          <button id="live-record" type="button" disabled title="Record the live session: the microphone and its TF2 voice, loaded into the app together (Hear, views, meter, download)">⏺ Record this session</button>
           <label title="Send only while V (TF2's +voicerecord key) or the Talk button is held. This is the app's stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by its own hold. Steam's own key rules (it goes on sending for half a second after a release) are not built yet."><input id="live-ptt" type="checkbox"> Push-to-talk (hold <kbd>V</kbd>) <code class="cvar">+voicerecord</code></label>
           <button id="live-talk" type="button" hidden title="Hold to talk">🎙 Hold to talk</button>
         </div>
-        <p id="live-note" class="live-note"></p>
+        <p id="live-note" class="live-note" role="status" aria-live="polite"></p>
       </div>
     </section>
 
@@ -110,10 +110,13 @@
         </div>
 
         <div class="mode-row">
-          <button id="advanced-toggle" class="preset-btn" type="button" aria-expanded="false" aria-controls="controls-wrapper">Show advanced controls</button>
+          <button id="advanced-toggle" class="preset-btn" type="button" aria-expanded="false" aria-controls="advanced-groups">Show advanced controls</button>
           <span>Every stage of the voice path, in signal order; the app's own extras last.</span>
         </div>
 
+        <!-- The advanced groups, which the switch above shows (W4-01c: its
+             aria-controls names this, not the box that holds the switch). -->
+        <div id="advanced-groups" class="advanced-groups advanced-control">
         <fieldset class="chain-group advanced-control">
           <legend><span class="chain-index">A</span> Sender</legend>
           <div class="control">
@@ -310,6 +313,7 @@
             </div>
           </div>
         </fieldset>
+        </div>
       </div>
 
       <ol class="signal-chain" id="signal-chain" aria-label="Current voice path"></ol>
@@ -384,7 +388,7 @@
         </div>
         <div class="viz-stage">
           <div class="scanlines"></div>
-          <canvas id="visualizer" tabindex="0" aria-label="Audio visualizer. In WAVE and SPEC: Ctrl or Command plus wheel, or pinch, zooms in time; drag or Shift plus wheel pans; click seeks. Shift plus drag, or a drag along the time ruler, selects a range: Z zooms to it, Escape clears it, L loops. In SPEC the wheel over the frequency ruler, Alt plus wheel, or the up and down arrows zoom the frequency axis. Keys: plus and minus zoom, arrows pan, 0 shows the whole file."></canvas>
+          <canvas id="visualizer" tabindex="0" aria-describedby="viz-legend" aria-label="Audio visualizer. In WAVE and SPEC: Ctrl or Command plus wheel, or pinch, zooms in time; drag or Shift plus wheel pans; click seeks. Shift plus drag, or a drag along the time ruler, selects a range: Z zooms to it, Escape clears it, L loops. In SPEC the wheel over the frequency ruler, Alt plus wheel, or the up and down arrows zoom the frequency axis. Keys: plus and minus zoom, arrows pan, 0 shows the whole file."></canvas>
           <!-- Source-style net_graph HUD: voice numbers come from the last render -->
           <div id="net-graph" class="ng-level-0" aria-hidden="true">
             <div class="ng-row-basic">fps: <span class="ng-fps" id="ng-fps">0</span> <span class="ng-row-graph"><span class="ng-bar"><span class="ng-bar-fill" id="ng-fill"></span></span></span></div>
@@ -405,6 +409,9 @@
           <button id="meter-sel-zoom" class="preset-btn" type="button" title="Zoom the view to the selection (Z)">Zoom to selection</button>
           <button id="meter-sel-clear" class="preset-btn" type="button" title="Clear the selection (Esc); the meter shows the whole file again">Clear</button>
         </div>
+        <!-- W4-01c: a named region that takes the focus, so a keyboard can
+             scroll it on a narrow screen; its first column stays in place. -->
+        <div class="meter-scroll" role="region" aria-label="Loudness and levels table" tabindex="0">
         <table>
           <caption>Loudness and levels · ITU-R BS.1770-4 / EBU R128, measured as one channel</caption>
           <thead>
@@ -423,6 +430,7 @@
           </thead>
           <tbody id="meter-rows"></tbody>
         </table>
+        </div>
       </div>
 
       <!-- Hidden dry twin: plays muted in sync with the main player so the
@@ -467,7 +475,11 @@
     <details class="console-details" id="console-details">
       <summary>Developer console <span class="summary-hint">— try <code>help</code>, <code>net_graph 2</code> or <code>exec preset_spam</code></span></summary>
       <div class="console-wrapper">
+        <!-- W4-01c: the output is never read out by itself (the simulated
+             game feed would be without end); what a typed command answers
+             goes to the hidden status below. -->
         <div id="console-out" class="console-output" role="log" aria-live="off"></div>
+        <div id="console-status" class="visually-hidden" role="status" aria-live="polite"></div>
         <div class="console-input-row">
           <span aria-hidden="true">]</span>
           <!-- Input hint sits behind the real input -->
