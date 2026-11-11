@@ -29,8 +29,8 @@
   "in_flight": [
     {
       "order": "W3-17d with W4-01d",
-      "state": "building",
-      "note": "Rooms on the page and in the live chain (docs/work-orders/W3-17-room-effects.md, part d), then the settings' words (docs/work-orders/W4-01-page.md, part d) in the same branch claude/w3-17d-rooms-page. W4-01a and c are not built yet: the page as it stands. Cache v31 expected."
+      "state": "built; in review",
+      "note": "Rooms on the page and in the live chain (docs/work-orders/W3-17-room-effects.md, part d), then the settings' words (docs/work-orders/W4-01-page.md, part d) in the same branch claude/w3-17d-rooms-page. W4-01a and c are not built yet: the page as it stands. Cache v31 expected. Built 2026-11-11 (branch claude/w3-17d-rooms-page at 8e0f0c2, cache v31): the builder's pnpm test:all passes (279 browser checks; no recorded hash moved); the live worker's room costs 141 ns a sample during a fade (0.62% of real time). CI on the head stopped three times before any test, at the runner's package install (it could not resolve Ubuntu's mirror): to be run again at the merge. No private run is owed: no render path's hash moved and the page's room names map onto the rooms W3-17c's private run scored."
     },
     {
       "order": "BC-1-loss-per-message",
@@ -39,8 +39,8 @@
     },
     {
       "order": "W3-20b-miles-profile",
-      "state": "ordered; waits for W3-20a and W3-17d on main",
-      "note": "docs/work-orders/W3-20b-miles-profile.md (2026-11-11). Profile `miles`: 11025 Hz, 360-sample frames of 32.65 ms and 12 bytes, 2940 bit/s; the wrapper and codec of W3-20a; the gain on the decoder's samples; one codec control with two groups, 'Team Fortress 2' and 'Not in Team Fortress 2' (Fullband Opus and vaudio_miles), and a note shown for Miles. The orchestrator took the planner's eight recommendations (two codec objects, each reset at the start; a new spurt resets both sides, a stand-in; the gain held across spurts; a lost frame is 360 zeros in place with no decoder call, a stand-in; the delay as one measured whole number; the two groups; a README section of its own; no registered prediction until a take is planned)."
+      "state": "building",
+      "note": "docs/work-orders/W3-20b-miles-profile.md (2026-11-11). Profile `miles`: 11025 Hz, 360-sample frames of 32.65 ms and 12 bytes, 2940 bit/s; the wrapper and codec of W3-20a; the gain on the decoder's samples; one codec control with two groups, 'Team Fortress 2' and 'Not in Team Fortress 2' (Fullband Opus and vaudio_miles), and a note shown for Miles. The orchestrator took the planner's eight recommendations (two codec objects, each reset at the start; a new spurt resets both sides, a stand-in; the gain held across spurts; a lost frame is 360 zeros in place with no decoder call, a stand-in; the delay as one measured whole number; the two groups; a README section of its own; no registered prediction until a take is planned). Builder started 2026-11-11 on claude/w3-20b-miles-profile, cut from W3-17d's branch head to save time; it merges main once W3-17d is there."
     }
   ],
   "next": [
