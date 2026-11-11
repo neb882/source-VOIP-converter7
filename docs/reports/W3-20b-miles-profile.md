@@ -176,7 +176,9 @@ All on the branch's final code (23cef7a), heavy jobs under `flock /tmp/tf2ve-hea
 - `CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium-1243/chrome-linux64/chrome node tests/browser.verify.js`: "292 browser
   checks passed", exit 0.
 - CI (`tests` workflow): the run on 23cef7a (43055303694) failed in "Install browser" (the runner's apt index download,
-  exit code 100) before any test ran; the run on this report's commit is the one to read.
+  exit code 100) before any test ran, as did the run on 52ae6b5. After `origin/main`'s workflow fix (5a8ca56) was
+  merged in (05da594), run 43058709879 passed: every Node suite with the counts above, and "292 browser checks
+  passed".
 
 ## Scan
 
