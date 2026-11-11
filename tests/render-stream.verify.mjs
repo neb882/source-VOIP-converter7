@@ -758,7 +758,8 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
 // the render's seed, run on the two buffers, then on zeros until its tail
 // rule holds; the mix ends there, or at the voice's own end if the rule held
 // before it; the output is longer by round(tail x device rate / 44100).
-// Nothing of audio.js is used.
+// Nothing of audio.js is used. (specModel is used again in section 2b.)
+let specModel;
 {
   const roundEven = (v) => { const fl = Math.floor(v), d = v - fl; return d > 0.5 ? fl + 1 : d < 0.5 ? fl : (fl % 2 === 0 ? fl : fl + 1); };
   const f32 = Math.fround;
@@ -792,7 +793,7 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
     const mixEnd = Math.max(end, ruleEnd);
     return { mix: parts.flat().slice(0, mixEnd), tail: mixEnd - end };
   }
-  function specModel(gain, c, sourceLength) {
+  specModel = function (gain, c, sourceLength) {
     const o = c.opts, num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
     const profile = Object.hasOwn(engine.CODEC_PROFILES, o.codec) ? engine.CODEC_PROFILES[o.codec] : engine.CODEC_PROFILES.steam;
     const volume = Math.min(1, Math.max(0, num(o.volume, 1)));
@@ -814,7 +815,7 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
       }
     }
     return { y, mix, tail };
-  }
+  };
   console.log('\n[1b] W3-10\'s control: a model of the order\'s spec, applied to each case\'s gain output, gives the render (W3-17c: the room by hand)');
   for (const c of CASES) {
     const model = specModel(gains.get(c.name), c, sources.get(c.name).length), want = model.y, got = renders.get(c.name).samples;
@@ -985,6 +986,26 @@ console.log('\n[2b] W3-17c: the room path gets whole mixer blocks; the entry is 
     let differ = 0;
     for (let s = -32768; s <= 32767; s++) if (A.mixEntry(s, 255 * share / 256) !== roomModule.entry(s, share)) differ++;
     check(`mixEntry(s, 255 x ${share} / 256) is TF2Room.entry(s, ${share}) on all 65,536 16-bit samples`, differ === 0, `${differ} differ`);
+  }
+
+  // Where the tail rule holds inside the voice. A voice that ends in a
+  // silence longer than the room's tail has no tail: the rule held before the
+  // voice's end, and the output is the source's length. A voice with such a
+  // silence in its middle, then sound again, has the tail of its end: the
+  // rule's hold in the pause is started over by the voice. Each against the
+  // room by hand (section 1b), on the gain's own output.
+  for (const [name, gaps, tailed] of [['a tone, then 3 s of silence', [[0, 0.5]], false],
+    ['a tone, 3 s of silence, a tone', [[0, 0.5], [3.5, 4]], true]]) {
+    const rate = 48000, x = new Float32Array(Math.round((tailed ? 4 : 3.5) * rate));
+    for (const [a, b] of gaps) for (let i = Math.round(a * rate); i < Math.round(b * rate); i++) x[i] = 0.5 * Math.sin(i * 0.05);
+    const c = { name, rate, opts: pageFor({ enableWarble: false, agc: false, volume: 1, room: { preset: 6 } }), room: presetRoom(6) };
+    const gained = [], blocks = [];
+    const r = await A.process(buffer(x, rate), { ...c.opts, onGain: (g) => gained.push(Float32Array.from(g)), onMixBlock: (s, l, m) => blocks.push(m) });
+    const model = specModel(joined(gained), c, x.length), sum = joinedInts(blocks);
+    const same = sameBitsF(model.y, r.samples) && sum.length === model.mix.length && sum.every((v, i) => v === model.mix[i]);
+    check(`preset 6 on ${name}: ${tailed ? 'a tail after the last tone' : 'no tail, the source\'s length'}, the room by hand's samples and tail`,
+      same && r.codecInfo.room.tail === model.tail && (tailed ? model.tail >= 22050 : model.tail === 0 && r.samples.length === x.length),
+      `tail ${r.codecInfo.room.tail} (by hand ${model.tail}), ${r.samples.length} samples`);
   }
 
   // A full-scale square wave through preset 6 (the codec bypassed, the gain
