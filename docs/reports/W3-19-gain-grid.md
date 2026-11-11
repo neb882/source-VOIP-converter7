@@ -48,11 +48,11 @@ The comment on the held gain in `gainRule` ("an approximation of that timeline o
 - **The order's "every recorded hash of the three profiles at `maxGain` 1".** No recorded render of these profiles was at `voice_maxgain` 1. Before the change, I added five cases to `tests/render-stream.verify.mjs` and recorded their hashes with the code before the change, in a commit of their own: `voice_maxgain 1` on each profile, and the gain off on `celt_22` and `speex`. Run that way, the suite passed 520 checks with none failing. None of the five moved.
 - **`tests/predictions/PREDICTIONS.md`.** The order does not name this file, but CLAUDE.md's hard rule asks for a note when a hashed model file (`audio.js`, `opus-codec.mjs`) changes after registration. P1 and P2 render the CELT profiles at `voice_maxgain 10`. I added the note in the docs commit. I did not measure what moves in those predictions, since that needs the test signal. If the note should come from the orchestrator instead, the paragraph can be dropped.
 - **README.md:** one sentence added to the receiver's gain bullet.
-- **The private re-run** of Sets H and M against this build is the orchestrator's. The docs say it is pending and claim no figure for it.
+- **The private re-run** of Sets H and M is the orchestrator's; its figures are in "Review and fixes" below and in the docs.
 
 ## Tests (each shown to fail on the code before the change)
 
-`tests/gain.verify.mjs` section [4b], 18 checks.
+`tests/gain.verify.mjs` section [4b], 18 checks (23 after the fix round, below).
 
 For each engine profile, on 3 s of loud and quiet tones from the first sample at 48 kHz, `voice_maxgain 10`, no gate and no loss:
 
@@ -161,3 +161,26 @@ Re-recorded (old, then new):
 - The mutation runs in the table above.
 - CI (the `tests` workflow): run 432 on 513a815 (the report's previous commit) and run 433 on f949215 (main merged in), both completed, conclusion success. The commit that adds this line is docs only; its own run is given in the hand-back.
 - The merge of origin/main (f949215, a PROGRESS-only change) used git's default message, without the two trailer lines; it was already pushed, so it stays as it is.
+
+## Review and fixes
+
+The review found no major finding and two small ones; the orchestrator's private re-run gave the figures for F3.
+
+- **F1, a test that could not fail.** Nothing checked that CELT's `head` starts at the right sample: with `celtRoundTrip`'s `head.set(decoded.subarray(0, …), start)` changed to `subarray(1, 1 + …)` every suite stayed green, because every test signal started quietly and CELT's first decoded samples were tiny. Added to [4b], on seeded noise at 0.9 from its first sample (0.5 s at 48 kHz):
+  - for `celt_22`, `celt_44` and `speex`, the round trip's `head` equals the reference decoder stream's first `lookahead` samples, and its `samples` the rest. A precondition checks that CELT's head is not all zeros there (peaks 0.36 and 0.50); Speex's is zeros, as a reset Speex decoder's first 80 samples are;
+  - for `celt_22` and `celt_44`, `process()`'s gain output equals the decoder's whole stream through `receiverAutoGain` with the delay dropped after.
+
+  With the off-by-one mutation applied to a copy of the sources (`TF2_DIR`), the four CELT checks fail: the two head checks, and the gain output in 112 of 11,025 samples (`celt_22`) and 224 of 11,025 (`celt_44`). Restored, `node tests/gain.verify.mjs` passes 93 of 93.
+- **F2, docs.** Set M's "Exact since W3-18" bullet in `tests/REFERENCE_2026.md` said in the present tense that the render drops the delay before the gain. It now says it did until W3-19.
+- **F3, the private re-run.** These are the orchestrator's private runs of the whole render (`TF2Audio.process`, the gain's output at `onGain`) on the game's own captured input, on the branch at b3fad6f. They replace "pending" in `tests/REFERENCE_2026.md` (Set M, finding 31) and `tests/LEGACY_CODECS.md`:
+  - Set M, `speex`: `voice_maxgain 1` gives 145,840 of 145,840 samples at 80 samples' lag (as before); `voice_maxgain 10` gives 145,966 of 145,966 (before W3-19: 86,171).
+  - Set H, `celt_22`: `voice_maxgain 1` gives 158,384 of 158,385 samples that are not silence, at 64 samples' lag (as before; the one left is the known sample a step off). `voice_maxgain 10` gives 158,384 of 158,548 (before: 45,123). The misses are the same one sample, plus 163 samples in the recording's last packet, which the gain rule applied to the game's own gain-1 recording also misses (Set H's note).
+  - No recording of `vaudio_celt_high` at `voice_maxgain 10` exists, so `celt_44`'s first blocks rest on the same rule, not on a take.
+- **The review's own counts:**
+  - an independent reference equal to `process()` in 648 of 648 cases, plus 54 of 54 with re-timing;
+  - that reference differing from main's code in 50 of 96;
+  - `createRender` equal to `process()` in pieces;
+  - the live chain's gain equal to the render's for all three profiles, where on main every case differed;
+  - `test:all` green in 711 s.
+- **Fix-round checks:** `node tests/gain.verify.mjs` passes 93 of 93, and `node tests/render-stream.verify.mjs` 520 of 520, with no hash moved. `sw.js` stays v30. The full `test:all` is CI's run this round; its result is in the hand-back.
+

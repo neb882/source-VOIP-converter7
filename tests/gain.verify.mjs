@@ -513,6 +513,35 @@ console.log('\n[4b] The engine codecs: the gain runs on the decoder\'s stream fr
       same(st.gained, gained) && same(st.samples, r.samples), `${st.gained.length} and ${st.samples.length} samples`);
   }
 
+  // Added in W3-19's fix round. The round trips' `head` is the decoder's first
+  // `lookahead` samples, from sample 0. The signals above start quietly, so
+  // CELT's first decoded samples are tiny and a head read one sample off
+  // would pass them; this one is noise at 0.9 from its first sample (seeded).
+  {
+    let s3 = 2026;
+    const loud = Float32Array.from({ length: rate / 2 }, () => 0.9 * (((s3 = (Math.imul(s3, 1664525) + 1013904223) >>> 0) / 4294967296) * 2 - 1));
+    for (const key of ['celt_22', 'celt_44', 'speex']) {
+      const p = CODEC_PROFILES[key];
+      const c = A.resampleSinc(A.hardClip(loud, 32767 / 32768), rate, p.codecRate);
+      const { stream, lookahead } = await decoderStream(p, c);
+      const trip = p.engine === 'celt011'
+        ? await TF2Opus.celtRoundTrip(c, p.codecRate, { frameSize: p.frameSize, complexity: p.complexity, packetBytes: p.packetBytes,
+          ...(p.modeRate != null ? { modeRate: p.modeRate } : {}) })
+        : await TF2Opus.speexRoundTrip(c, p.codecRate);
+      const first = stream.subarray(0, lookahead), peak = first.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+      check(`${key}: the round trip's head is the decoder's first ${lookahead} samples, on noise at 0.9 from sample 0`
+        + (p.engine === 'celt011' ? ' (they are not all zeros)' : ' (zeros: a reset Speex decoder starts with 80)'),
+        trip.head.length === lookahead && same(trip.head, first) && same(trip.samples, stream.slice(lookahead, lookahead + c.length))
+        && (p.engine === 'celt011' ? peak > 0.01 : peak === 0), `the first ${lookahead} decoded samples peak at ${peak.toFixed(4)}`);
+      if (p.engine !== 'celt011') continue;
+      let gained = null;
+      await A.process({ sampleRate: rate, length: loud.length, numberOfChannels: 1, getChannelData: () => loud }, { codec: key, volume: 1, onGain: (g) => { gained = Float32Array.from(g); } });
+      const want = A.receiverAutoGain(stream, settings).slice(lookahead, lookahead + c.length);
+      check(`${key}: on that noise, process()'s gain output is the decoder's whole stream through receiverAutoGain, the delay dropped after (bit for bit)`,
+        same(gained, want), `${differing(toInts(gained), toInts(want))} of ${want.length} differ`);
+    }
+  }
+
   // The gate on (the frame gate the engine profiles take with gate: true):
   // the gain's decoded() is found on the decoder's stream with no shift, a
   // block's first sample m being in frame floor(m / frameSamples). Bursts
