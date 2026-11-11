@@ -331,6 +331,9 @@ export async function steamRoundTrip(messages, bitrate, options = {}) {
 // options.modeRate, when given, is the rate the CELT mode is created with
 // in place of sampleRate: vaudio_celt_high is the 44100 Hz mode fed 22050 Hz
 // sound. Frame times, the bitrate and the delay stay at sampleRate.
+// `head` is the decoded stream's first `lookahead` samples, which the trim
+// drops from `samples`: the receiver's gain runs on the decoder's stream from
+// its first sample, and TF2Audio.process puts them back in front for it (W3-19).
 export async function celtRoundTrip(samples, sampleRate, options = {}) {
   const frameSize = options.frameSize ?? 512, packetBytes = options.packetBytes ?? 64;
   const { createCodec, version } = await loadCelt();
@@ -339,7 +342,7 @@ export async function celtRoundTrip(samples, sampleRate, options = {}) {
     const lookahead = codec.lookahead;
     const frames = Math.ceil((samples.length + lookahead) / frameSize);
     const lossMask = options.makeLossMask ? options.makeLossMask(frames) : null;
-    const output = new Float32Array(samples.length);
+    const output = new Float32Array(samples.length), head = new Float32Array(lookahead);
     const input = new Float32Array(frameSize);
     const gate = options.gate ? {
       threshold: 10 ** (Number(options.gate.thresholdDb) / 20),
@@ -365,6 +368,7 @@ export async function celtRoundTrip(samples, sampleRate, options = {}) {
       else if (miss === 2) { underrunFrames++; frameLog[f] = FRAME.late; }
       if (miss !== 2) {
         const decoded = miss === 1 ? codec.conceal() : codec.decode(packet);
+        if (start < lookahead) head.set(decoded.subarray(0, Math.min(frameSize, lookahead - start)), start);
         const destStart = start - lookahead;
         const begin = Math.max(0, -destStart), end = Math.min(frameSize, samples.length - destStart);
         if (end > begin) output.set(decoded.subarray(begin, end), destStart + begin);
@@ -376,7 +380,7 @@ export async function celtRoundTrip(samples, sampleRate, options = {}) {
     }
     options.onProgress?.(1);
     const bitrate = Math.round(packetBytes * 8 * sampleRate / frameSize);
-    return { samples: output, info: { backend: 'celt', version, runtime: 'celt-0.11', sampleRate, bitrate,
+    return { samples: output, head, info: { backend: 'celt', version, runtime: 'celt-0.11', sampleRate, bitrate,
       application: 'celt', signal: 'auto', complexity: options.complexity ?? 10, vbr: false, dtx: false,
       frameSamples: frameSize, frameMs: 1000 * frameSize / sampleRate, packetBytes,
       ...(options.modeRate != null ? { modeRate: options.modeRate } : {}),
@@ -491,14 +495,15 @@ async function openSpeex(sampleRate) {
 }
 
 // The same gate, loss and delay handling as roundTrip, on 11025 Hz sound.
-// Coded frames are logged as FRAME.speex, and counted in modes.speex.
+// Coded frames are logged as FRAME.speex, and counted in modes.speex. `head`
+// as for celtRoundTrip: the decoded stream's first 80 samples.
 export async function speexRoundTrip(samples, sampleRate, options = {}) {
   const codec = await openSpeex(sampleRate);
   try {
     const { frameSize, lookahead } = codec;
     const frames = Math.ceil((samples.length + lookahead) / frameSize);
     const lossMask = options.makeLossMask ? options.makeLossMask(frames) : null;
-    const output = new Float32Array(samples.length);
+    const output = new Float32Array(samples.length), head = new Float32Array(lookahead);
     const input = new Float32Array(frameSize);
     const gate = options.gate ? {
       threshold: 10 ** (Number(options.gate.thresholdDb) / 20),
@@ -525,6 +530,7 @@ export async function speexRoundTrip(samples, sampleRate, options = {}) {
       else if (miss === 2) { underrunFrames++; frameLog[f] = FRAME.late; }
       if (miss !== 2) {
         const decoded = miss === 1 ? codec.lost() : codec.decode(packet);
+        if (start < lookahead) head.set(decoded.subarray(0, Math.min(frameSize, lookahead - start)), start);
         const destStart = start - lookahead;
         const begin = Math.max(0, -destStart), end = Math.min(frameSize, samples.length - destStart);
         if (end > begin) output.set(decoded.subarray(begin, end), destStart + begin);
@@ -535,7 +541,7 @@ export async function speexRoundTrip(samples, sampleRate, options = {}) {
       }
     }
     options.onProgress?.(1);
-    return { samples: output, info: { ...speexInfo(codec, sampleRate),
+    return { samples: output, head, info: { ...speexInfo(codec, sampleRate),
       lookahead, frames, lostFrames, underrunFrames, gatedFrames, dtxFrames: 0, spurts,
       gate: gate ? Number(options.gate.thresholdDb) : null,
       prerollFrames: gate ? gate.preroll : 0, holdFrames: gate ? gate.hold : 0,
