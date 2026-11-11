@@ -253,6 +253,22 @@ is a getter on both chains. The suite's live cases: steam from no room (preset 6
 mid-spurt, none), `celt_22` started under water with 40, then 17, then 40 and the water off, and a rebuild that keeps
 the path. The room's cost (above) is the path's own and did not change.
 
+### Second review (two more)
+
+| # | The finding | The fix | Its check, and what it says on the break |
+| --- | --- | --- | --- |
+| S1 | on the engine codecs, letting the path go and attaching it again could change samples: the block in which the slot drops a faded-out room has its shares from before the drop, so the room part's upsampler states still held its last entry when the stage let go at a push ending on a block boundary (a half-sample of the room cut, and the next attach starting from the stale value); and a room asked for while a block was held was taken for that whole block when attached but from the next block when let go | `createLiveRoomMix`: the path is let go only at a block start after a block whose room share was 0 and once the room part's states have run out to 0 (one block more at most); attached again, the states start from 0; and a block's update and shares are taken at its first sample, as the engine's mixer takes them before the block. The comment says so | a Node test on the stage itself in `tests/output-stage.verify.mjs` [15]: let go when idle and attached again equals the path left attached, sample for sample, at 11025, 22050 and 44100 Hz, pushes of a block (each ending on a block's last sample), 160, 127, 1000 (and 1 at 11025), three timings: 39 runs. On the code before: fails (11025 Hz, pushes of 128: differs at mix sample 31,744). Breaking each half: without the run-out rule, fails at 31,744; with the shares taken at the block's end, fails at 65,536 (pushes of 160) |
+| N1 | the worker's `roomWanted` was recomputed only on certain changes: room 6, none, then `dsp_room 40` during the fade left it true, so the path and its 11.6 ms stayed for the session | `roomWanted` is gone: the path is let go when the path's own state is idle, whatever was asked last; a number the table does not hold is given to the slot (`setRoom(40)`), which keeps what it holds and drops a request not yet taken, as the module's slot does (the engine's comparison) | browser [3f2]: `celt_22`, preset 6, none, then 40 while the fade runs: the room fades to none, the path is let go and the latency falls by 11.6 ms. On the worker before: fails (never let go; 14.49 ms after) |
+
+Runs on `eab1e04`, under the lock: `tests/verify.js` 214 passed (its live-chain checks unchanged);
+`tests/output-stage.verify.mjs` 103 passed (102 and the new [15]); the browser sections Rooms page (3c4), Settings'
+words (3c5) and Live room (3f2): all pass, 3f2 with its new case (7 checks). `pnpm test:all` was not run again for
+these two (the last full run is the fix round's, above); the render's code is untouched, `createLiveRoomMix` is
+live-only.
+
+A consequence of N1's reading, said here: `dsp_room 40` typed while a "none" not yet taken is pending (within one 512-sample
+block) drops it, so the room stays, as the module's slot has it.
+
 ## Breaks
 
 Each made in a scratch copy of the branch's tracked files, one at a time; the named section of the browser suite run on
