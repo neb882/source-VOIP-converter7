@@ -551,7 +551,8 @@ if (process.argv.includes('--memory')) {
   const src = voice(minutes * 60, rate, 6);
   const t0 = performance.now();
   const render = await A.createRender({ sampleRate: rate, length: src.length, numberOfChannels: 1 }, pageFor({}));
-  const out = new Float32Array(render.outputLength);
+  // A render with a room would add up to maxTail (0 here: the page's options, no room).
+  const out = new Float32Array(render.outputLength + render.maxTail);
   let filled = 0;
   for (let o = 0; o < src.length; o += rate) {
     const y = await render.push(src.subarray(o, Math.min(src.length, o + rate)));
@@ -1006,6 +1007,21 @@ console.log('\n[2b] W3-17c: the room path gets whole mixer blocks; the entry is 
     check(`preset 6 on ${name}: ${tailed ? 'a tail after the last tone' : 'no tail, the source\'s length'}, the room by hand's samples and tail`,
       same && r.codecInfo.room.tail === model.tail && (tailed ? model.tail >= 22050 : model.tail === 0 && r.samples.length === x.length),
       `tail ${r.codecInfo.room.tail} (by hand ${model.tail}), ${r.samples.length} samples`);
+  }
+
+  // The custom room at its knobs' ends, where the old mapping's clamps act
+  // (the reverb's longest line 25 and 220 ms, the feedback 0.3 and 0.97, the
+  // cutoff 12000 and 1125 Hz), against the room by hand with the mapping as
+  // the order gives it (customByHand).
+  for (const custom of [{ duration: 0.05, decay: 0.5, mix: 0.5 }, { duration: 6, decay: 8, mix: 0.5 }]) {
+    const rate = 48000, x = Float32Array.from({ length: rate }, (_, i) => (i < 12000 ? 0.4 * Math.sin(i * 0.07) : 0));
+    const c = { name: 'custom', rate, opts: pageFor({ enableWarble: false, agc: false, volume: 1, room: { custom } }),
+      room: { room: customByHand(custom), water: false, shares: { room: 128, direct: 128 } } };
+    const gained = [];
+    const r = await A.process(buffer(x, rate), { ...c.opts, onGain: (g) => gained.push(Float32Array.from(g)) });
+    const model = specModel(joined(gained), c, x.length);
+    check(`the custom room ${JSON.stringify(custom)}: the room by hand's samples and tail, 128/128`, sameBitsF(model.y, r.samples)
+      && r.codecInfo.room.tail === model.tail && r.codecInfo.room.shares.room === 128, `tail ${r.codecInfo.room.tail} (by hand ${model.tail})`);
   }
 
   // A full-scale square wave through preset 6 (the codec bypassed, the gain
