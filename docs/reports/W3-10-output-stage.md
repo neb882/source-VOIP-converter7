@@ -5,12 +5,14 @@ corrections) applied, and the engine's read of the upsampler (`docs/reports/W3-1
 Branch `claude/w3-10-output-stage`, from `3559672` (main with W3-11b merged).
 
 **Status:** built. Every check of the order passes; `pnpm test`, `pnpm test:vendor` and the browser suite pass under the
-heavy-job lock; CI: see "Runs". Not yet reviewed. **One finding for the orchestrator's private run, before it is made:**
+heavy-job lock; CI: see "Runs". Reviewed: merge as is; the review's findings F1 to F4 are closed in "After the review"
+(F5 is the orchestrator's). **One finding for the orchestrator's private run, before it was made:**
 the order's expected change by band holds below 12 kHz (my measurement agrees within 0.04 dB), but not above it. The
 device stage's linear interpolation leaves images of the 8 to 12 kHz band in 12 to 16 kHz, which the order's figures
 (sinc² against the old filter) leave out; on a synthetic talk signal through the `steam` profile the 12 to 16 kHz band
 rises by about 2 dB where the order expects −0.12 dB, and 16 to 19 kHz by 0.6 dB where it expects −0.90. The order says
 a band more than 0.05 dB off its figure holds the merge; the section "The change by band" has the measurement and why.
+The orchestrator's run on the takes agrees, and the orchestrator restates the order's two rows above 12 kHz.
 
 ## Summary
 
@@ -28,7 +30,8 @@ a band more than 0.05 dB off its figure holds the merge; the section "The change
   `process()` and a piece at a time elsewhere. The live chain on `steam` equals `createRender({ deviceRate })` sample for
   sample over what it gives out, at 48 and 44.1 kHz contexts; its `contentDelay` is 0.
 - **The file holds the render's integers:** `toInt16` and the MOV's PCM write round(s × 32768), ties to even. Until this
-  order every positive sample of every download was one unit low.
+  order every positive sample of every download was one unit low. The dry WAV of a 16-bit source still does not
+  round-trip exactly in Chromium, before or after this order ("The dry WAV").
 - **The page:** "Listener's sound device: 48000 Hz (usual) / 44100 Hz" (`snd_device_rate`, the app's own; share-link key
   `dev`); `volume` defaults to 1, the game's own, with the sentence beside it and the notes at the meter and the lossy
   exports.
@@ -48,7 +51,10 @@ a band more than 0.05 dB off its figure holds the merge; the section "The change
 | `e9ceeb7` | the blocks check at chunk size 1 on every profile |
 | `8f3ee35` | two checks strengthened after they missed a mutation: positions at two rates with a large `D`; a loud chirp for the MOV's PCM |
 | `63590f2` | the by-hand mix check at volume 0.5, after it missed a mutation |
-| (this report) | |
+| `bba9ed1` | this report |
+| `495c86a` | after the review (F1): `onMixBlock` is handed a copy |
+| `899cb8e` | after the review (F3): the live chain's `latencyMs` pinned from its terms |
+| (the report's update) | after the review: F1 to F4, and F2 as an open item |
 
 ## What was built
 
@@ -178,7 +184,8 @@ moved. No gain-output hash moved.**
 
 ## The checks
 
-`node tests/output-stage.verify.mjs`, 99 checks, all pass (about 15 s; in `pnpm test`).
+`node tests/output-stage.verify.mjs`, 99 checks, all pass (about 15 s; in `pnpm test`); 102 since the review ("After the
+review").
 
 | Check (the order's) | Result |
 | --- | --- |
@@ -412,15 +419,66 @@ the comment changed; every prediction and every take in the accuracy manifest pa
 10. **A link without `dev`** gets 48000 explicitly in `applyHashConfig` (a saved preset without it keeps the page's
     value, as every other missing field does).
 
+## The dry WAV (the amendment, point 7)
+
+The amendment asked this report to say that the dry WAV of a 16-bit source now round-trips exactly. In Chromium it does
+not, before or after this order. Chromium's decoder gives a positive 16-bit sample `v` as `v / 32767` (a negative one as
+`v / 32768`), and the dry WAV is the decoded source written by `encodeWav` (`toInt16`), so round(s × 32768) writes each
+positive `v` from 16384 up as `v + 1`. The base's writer, `s × 32767` truncated, wrote some positive samples one unit
+low instead.
+
+One run of my own (`w3-10/scripts/drywav.cjs`: the page in the installed Chromium, a mono 16-bit WAV at 48 kHz, 48,000
+samples, the dry WAV read back from the page):
+
+| Source | This branch | The base (`3559672`) |
+| --- | --- | --- |
+| the review's signal, round(30000 sin(0.031 i)) | 15,178 of 48,000 differ, every one a positive sample written as `v + 1` | 12,468 of 48,000 differ, all positive |
+| a 997 Hz sine peaking at 30000 | 15,169 of 48,000, every one `v + 1` | 12,456, all positive |
+
+The review's figures (15,178 and 12,468) are reproduced. Of the decoded positive samples, 23,544 of 24,018 are exactly
+fround(v / 32767) and none is fround(v / 32768); every negative one is exactly v / 32768. So the dry WAV is exact only
+where a browser decodes 16 bits as `v / 32768`. The render's own files are not affected: the WAV holds the render's
+integers exactly (output-stage [13]: every sample equals the render's sample × 32768), and the FLAC is encoded from that
+WAV's 16-bit samples (`formats.js`, `fromWav`), losslessly (`formats.verify.mjs`, with its own decoder). The browser
+suite's own comparison of a decoded file already scales positive samples by 32767. The same 32768 / 32767 on the
+positive samples of a source Chromium decodes predates this order and is not W3-10's (about +0.0003 dB).
+
+## After the review
+
+The review's verdict was "merge as is", with three test gaps and two points for the docs. Closed on this branch:
+
+- **F1, `onMixBlock` is handed a copy** (`495c86a`). Every check copied `mix` inside its callback, so a view of the
+  mixer's one block buffer (the review's break: `slice` to `subarray` in `createMixBlocks`) passed every suite. The
+  output-stage suite now keeps the arrays as given, uncopied, and checks after the render that each still holds what it
+  held when given and has its own buffer: `process()` and `createRender` in chunks of 127 on `steam`, `celt_22` and
+  `speex` (104 blocks on `steam`), and the live chain at 48 and 44.1 kHz (499 blocks each). With the break all three
+  checks fail (83 of 104 blocks changed on `steam`'s `process()`, 499 of 499 in the live chain, one buffer). The suite
+  has 102 checks.
+- **F3, the live chain's `latencyMs` pinned** (`899cb8e`). `verify.js` [10b]'s hold-back check allows 0.15 ms; the
+  device stage's wait is 0.023 ms. A new check sums the figure's terms in the test: the context's sinc resampler to
+  24 kHz (16 inputs at 24 kHz from 48 and from 44.1 kHz), the capture roll-off's dropped delay (127), the reach, the
+  encoder's lookahead, Steam's resampler's 16 inputs, and the device stage's one 44100 Hz sample above 44.1 kHz (none at
+  44.1). `latencyMs` must be that sum within 1e-6 ms, and 206.898 ms at 48 kHz and 206.875 ms at 44.1 kHz (206.897676 and
+  206.875000). With the wait dropped (the review's break), 48 kHz gives 206.875000 and the check fails. `verify.js` has
+  301 checks.
+- **F4, the dry WAV:** above.
+- **F2:** not tested; see the open items.
+
+No golden hash moved: the two commits change tests only, and render-stream passes unchanged.
+
 ## Not done, or left for the orchestrator
 
 - **Item 10** (`tests/accuracy.mjs` may print the share of samples at the exact ceiling): not done. It is optional, and it
   would be code in the orchestrator's private tool that I cannot run without the takes.
-- **A stale line outside the parts of REFERENCE the order lets me edit:** "What remains unverified", the "Output stage"
+- **A stale line outside the parts of REFERENCE the order lets me edit** (the review's F5; the orchestrator's): "What remains unverified", the "Output stage"
   bullet, still says "The app still applies the fitted 3-tap filter in its place (order W3-10)". It should say the app
   runs the interpolation as a model since W3-10.
 - **The change by band above 12 kHz** (above): the order's figures for 12 to 16 and 16 to 19 kHz leave out the images.
 - `node tests/accuracy.mjs --takes tests/realtake`: not run (no takes here).
+- **The old room code's tail at the device's rate is not pinned by any check** (the review's F2): `process()` converts
+  the room's tail to the device's rate (`tail = round((mix.length − dryMixLength) × deviceRate / MIX_RATE)` in
+  `audio.js`), and no golden case has a room that does anything (`dsp_room 1` and the custom room at mix 0 have no
+  effect), so dropping the conversion passes every suite. W3-17c removes that code and tests its own tail.
 
 ## Runs
 
@@ -434,6 +492,14 @@ after another:
 | The browser suite (`node tests/browser.verify.js`, the installed Chromium) | exit 0, 246 checks |
 | Mutations | 42 of 42 caught on the final checks (two runs, 1,292 s for the second) |
 
+After the review, on `899cb8e` (the code as pushed; the report's update adds none), under the same lock:
+
+| Run | Result |
+| --- | --- |
+| `pnpm test` | exit 0, no failure, 635 s: `verify.js` 301, gain 69, `gain-exact --synthetic` ok, Opus 147, Speex 71, paired reference 42, formats 68, file rate 53, meter 50, video 46, demo 36, render-stream 372 (the golden hashes as recorded), output-stage 102, voice channel 129, Steam sender 109, swresample 43, room 210 |
+| The review's two breaks | `slice` to `subarray` in `createMixBlocks`: output-stage fails 3 (the new copy checks); the device stage's wait dropped from `outputWait`: `verify.js` fails 1 (the new pin) |
+| `pnpm test:vendor`, the browser suite | not rerun: the two commits change `tests/output-stage.verify.mjs` and `tests/verify.js` only, which neither runs; CI runs both |
+
 CI (`tests`, which runs `pnpm test:all`) on this branch:
 
 | Run | Commit | Result |
@@ -441,7 +507,8 @@ CI (`tests`, which runs `pnpm test:all`) on this branch:
 | 42907183795 | `9f5b517` (the control's step 1) | success |
 | 42912913520 | `e9ceeb7` (pushed with `de2653f` to `74a714a`) | success |
 | 42915135660 | `8f3ee35` | success |
-| (in the hand-back) | this report's commit, pushed with `63590f2` | a run cannot be written into the commit it runs on |
+| 42921449440 | `bba9ed1` (this report, with `63590f2`) | success |
+| (in the hand-back) | the report's update, pushed with `495c86a` and `899cb8e` | a run cannot be written into the commit it runs on |
 
 ## Scan
 
