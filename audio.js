@@ -560,7 +560,15 @@
       },
       flush() {
         const voiceEnd = fed ? fed * (1 << stages) + (1 << stages) - 1 : 0, from = start, parts = [];
+        // The rule holds at the latest TAIL_CAP samples after the voice's
+        // last sample, which lies in the first of these blocks: a loop that
+        // runs past that has met a path that does not end, and stops.
+        const most = Math.ceil(room.cap / MIX_BLOCK) + 2;
+        let blocks = 0;
         do {
+          if (++blocks > most) {
+            throw new Error(`TF2Audio: the room's tail did not end within its cap of ${room.cap} mixer samples (${most} blocks after the voice).`);
+          }
           held.fill(0, fill);
           fill = 0;
           parts.push(block());
@@ -962,18 +970,28 @@
   // what the page sends): a listenerPos of LISTENER_POSITIONS gives the
   // preset number it stood for, and `water` under water with no room; else
   // dspRoom gives that preset, 99 the custom room with customEnv's knobs.
+  // When opts.room is given (null included) it is the room, and under water
+  // is opts.underwater alone.
   function roomRequest(opts) {
     const pos = typeof opts.listenerPos === 'string' && Object.hasOwn(LISTENER_POSITIONS, opts.listenerPos) ? opts.listenerPos : null;
     let spec = opts.room;
-    const water = !!opts.underwater || pos === 'water';
+    const water = !!opts.underwater || (spec === undefined && pos === 'water');
     if (spec === undefined) {
+      const n = dspRoomNumber(opts.dspRoom);
       if (pos) spec = pos === 'water' ? null : { preset: LISTENER_POSITIONS[pos].dsp };
-      else if (opts.dspRoom != null && opts.dspRoom !== '') {
-        const n = Number(opts.dspRoom);
-        spec = n === 99 ? { custom: opts.customEnv || {} } : { preset: n };
-      } else spec = null;
+      else if (n !== null) spec = n === 99 ? { custom: opts.customEnv || {} } : { preset: n };
+      else spec = null;
     }
     return { spec: spec && typeof spec === 'object' ? spec : null, water };
+  }
+
+  // dspRoom as a number: a whole number, or a string of decimal digits as a
+  // number is written (no sign, space, leading zero, exponent or other
+  // base); anything else is null, no room, as the old code's key lookup in
+  // DSP_PRESETS made it (" 6", "0x6", "6e0" and "06" were no room there).
+  function dspRoomNumber(d) {
+    if (typeof d === 'number') return Number.isInteger(d) ? d : null;
+    return typeof d === 'string' && /^(0|[1-9][0-9]*)$/.test(d) ? Number(d) : null;
   }
 
   // A render's room (W3-17c, the order's part c, items 2 and 3), or null for
@@ -985,13 +1003,14 @@
   // trunc(mix x 256) is 0. A room: { preset: n } for a number the table
   // holds (2 to 29, and the automatic room's templates); { auto } built by
   // buildAutomatic from a case's key or the measures; { custom }.
-  //   Otherwise { path, shares, info }: the room path made for the render's
+  //   Otherwise { path, shares, cap, info }: the room path made for the render's
   // first sample, the room set (no fade at the start) and under water from
   // the start if asked (its water preset already settled), its random taps
   // drawn from the render's seed (Decision 7); spurtStart() called once,
   // now: a render has no voice channel yet, so the one channel starts with
   // it (W3-02c will call it at each channel it opens). shares is the custom
-  // room's own shares, or null for the path's; info is codecInfo.room.
+  // room's own shares, or null for the path's; cap the tail's cap (in mixer
+  // samples, the module's TAIL_CAP); info is codecInfo.room.
   function resolveRoom(opts, seed) {
     const { spec, water } = roomRequest(opts);
     let preset = null, info = null, shares = null;
@@ -1022,7 +1041,7 @@
     const path = R.createRoomPath({ seed, room: preset, water, table });
     path.spurtStart();
     const sh = shares || path.shares();
-    return { path, shares, info: { ...info, shares: { room: sh.room, direct: sh.direct }, underwater: water } };
+    return { path, shares, cap: R.TAIL_CAP, info: { ...info, shares: { room: sh.room, direct: sh.direct }, underwater: water } };
   }
 
   // A tail of `mix` samples at 44100 Hz as samples at the device's rate:

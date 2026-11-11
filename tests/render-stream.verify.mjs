@@ -42,8 +42,12 @@ const requireHere = createRequire(import.meta.url);
 const roomModule = requireHere(fileURLToPath(new URL('room-dsp.js', root)));
 const roomTable = requireHere(fileURLToPath(new URL('room-presets.js', root)));
 const paths = [];
+// neverEnds.on: the next paths' tailLeft() never says the output ended (the
+// tail loop's own bound, section 3).
+const neverEnds = { on: false };
 const room = { ...roomModule, createRoomPath(o) {
   const p = roomModule.createRoomPath(o), log = { opts: o, calls: [] };
+  if (neverEnds.on) p.tailLeft = () => ({ ended: false, at: -1, length: 0 });
   let count = 0;
   const run = p.process.bind(p);
   p.process = (direct, wet, out) => {
@@ -294,6 +298,8 @@ add('demo voice as received, past full scale', 24000, () => {
 // above stream at every plan.
 const ROOM_CASES = [];
 const roomVoice = () => voice(3, 48000, 11);
+// The render's seed as audio.js takes it (finiteOr(opts.seed, 0xC0FFEE) >>> 0).
+const seedOf = (c) => (Number.isFinite(Number(c.opts.seed)) && c.opts.seed !== null && c.opts.seed !== '' ? Number(c.opts.seed) : 0xC0FFEE) >>> 0;
 const customByHand = ({ duration, decay, mix }) => {
   const clampTo = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
   return { h: [mix, mix, 0, 0, 0, 0], p: [[10, [1, 2, 0.15]], [2, [clampTo(duration * 60, 25, 220), 12, 5,
@@ -320,6 +326,11 @@ addRoom('steam, custom room at mix 0.3', { listenerPos: null, dspRoom: 99, custo
 addRoom('celt_22, room: preset 6', { codec: 'celt_22', room: { preset: 6 } }, presetRoom(6), ['uneven', '960']);
 addRoom('steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms', { listenerPos: 'tunnel', lossPct: 15, jitterMs: 50 }, presetRoom(6),
   ['uneven', '12345']);
+// Added in the review's fix round: a seed of its own, on a room that draws
+// (the room's taps come from the render's seed, Decision 7); a device at
+// 96000 Hz (maxTail and the tail's length at the device's rate).
+addRoom('steam, room: preset 17 (random taps), seed 7', { room: { preset: 17 }, seed: 7 }, presetRoom(17), ['whole', 'uneven']);
+addRoom('steam, room: preset 6, device at 96000 Hz', { room: { preset: 6 }, deviceRate: 96000 }, presetRoom(6), ['uneven', 'whole']);
 // A number the table does not hold (Decision 11): no room. Its hashes are
 // those of the same render with none (section 1).
 addRoom('steam, dsp_room 137 (no room)', { listenerPos: null, dspRoom: 137 }, null, ['uneven', '960']);
@@ -618,9 +629,10 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
   const bad = noRoom.filter(c => madePaths.get(c.name).length !== 0 || 'room' in renders.get(c.name).codecInfo).map(c => c.name);
   check(`no room, not under water: no room path made and no codecInfo.room, in all ${noRoom.length} such cases`, bad.length === 0, bad.join('; '));
   const rooms = ROOM_CASES.filter(c => c.room);
-  const one = rooms.filter(c => madePaths.get(c.name).length === 1 && madePaths.get(c.name)[0].opts.seed === 0xC0FFEE
+  const one = rooms.filter(c => madePaths.get(c.name).length === 1 && madePaths.get(c.name)[0].opts.seed === seedOf(c)
     && madePaths.get(c.name)[0].opts.water === c.room.water);
-  check(`with a room or under water: one room path, the render's seed, under water as asked, in all ${rooms.length} such cases`, one.length === rooms.length,
+  check(`with a room or under water: one room path, the render's seed (7 in the seed case, else the default 0xC0FFEE), under water as asked, in all ${rooms.length} such cases`,
+    one.length === rooms.length && madePaths.get('steam, room: preset 17 (random taps), seed 7')[0].opts.seed === 7,
     rooms.filter(c => !one.includes(c)).map(c => c.name).join('; '));
   // What codecInfo.room says.
   const r = (name) => renders.get(name).codecInfo.room || {};
@@ -644,11 +656,11 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
     && sh('steam, under water, preset 6') === '26/229' && r('steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms').preset === 6);
   // The tail: under the cap, and the output that much longer at 48 kHz.
   const tails = rooms.map(c => {
-    const t = r(c.name).tail, n = sources.get(c.name).length;
+    const t = r(c.name).tail, n = sources.get(c.name).length, R = renders.get(c.name).sampleRate;
     return { name: c.name, t, ok: Number.isInteger(t) && t > 0 && t < roomModule.TAIL_CAP
-      && renders.get(c.name).samples.length === Math.round(n * 48000 / c.rate) + Math.round(t * 48000 / 44100) };
+      && renders.get(c.name).samples.length === Math.round(n * R / c.rate) + Math.round(t * R / 44100) };
   });
-  check('each room render has a tail under the cap, and is as long as the source at 48 kHz plus the tail at 48 kHz',
+  check('each room render has a tail under the cap, and is as long as the source at the device\'s rate plus the tail at that rate (48 kHz, and 96 kHz in one case)',
     tails.every(x => x.ok), tails.map(x => `${x.t}`).join(', '));
   // dsp_room 137 is no room: the same render as dsp_room 0's.
   const c137 = CASES.find(c => c.name === 'steam, dsp_room 137 (no room)');
@@ -658,7 +670,7 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
     && infoHash(none.codecInfo) === infoHash(renders.get(c137.name).codecInfo));
   // The room comes after the mix point: the gain's output is the same with
   // any room as with none (the steam cases on the same source, no loss).
-  const sameGain = ROOM_CASES.filter(c => c.opts.codec === 'steam' && !c.opts.lossPct)
+  const sameGain = ROOM_CASES.filter(c => c.opts.codec === 'steam' && !c.opts.lossPct && c.opts.seed === undefined)
     .every(c => sameBitsF(gains.get(c.name), gains.get(c137.name)));
   check('the gain\'s output of every steam room case without loss is that of the same source with no room', sameGain);
   console.log(`  (the ${ROOM_CASES.length} room cases' process() renders took ${roomSeconds.toFixed(1)} s of section 1's ${((performance.now() - t1) / 1000).toFixed(1)} s)`);
@@ -782,7 +794,7 @@ let specModel;
     const { room, water, shares } = c.room;
     const enter = (share) => upsampled(voice.map((s) => Math.trunc(f32(s * f32(255 * share / 256)) / 256)), stages);
     const direct = enter(shares.direct), wet = enter(shares.room), end = direct.length;
-    const path = roomModule.createRoomPath({ seed: 0xC0FFEE, room, water, table: roomTable });
+    const path = roomModule.createRoomPath({ seed: seedOf(c), room, water, table: roomTable });
     const parts = [Array.from(path.process(Int32Array.from(direct), Int32Array.from(wet)))];
     let t = path.tailLeft(), ruleEnd = t.ended ? (t.at >= 0 ? t.at + 1 : 0) : -1, at = end;
     while (ruleEnd < 0) {
@@ -1070,9 +1082,12 @@ for (const [opts, named] of [[{ retime: true }, 'retime'], [{ retime: true, room
 }
 {
   const roomed = await A.createRender(mono(48000, 4800), { ...PAGE, room: { preset: 6 } }), dry = await A.createRender(mono(44100, 4410), PAGE);
-  check('createRender with a room: outputLength without the tail, maxTail the cap of 882,000 mix samples at 48 kHz (960,000); with none, maxTail 0',
-    roomed.outputLength === 4800 && roomed.maxTail === 960000 && dry.outputLength === 4800 && dry.maxTail === 0, `${roomed.maxTail}, ${dry.maxTail}`);
-  roomed.free(); dry.free();
+  const at96 = await A.createRender(mono(48000, 4800), { ...PAGE, room: { preset: 6 }, deviceRate: 96000 });
+  check('createRender with a room: outputLength without the tail, maxTail the cap of 882,000 mix samples at the device\'s rate (960,000 at 48 kHz, 1,920,000 at 96 kHz); with none, maxTail 0',
+    roomed.outputLength === 4800 && roomed.maxTail === 960000 && at96.outputLength === 9600 && at96.maxTail === 1920000
+    && renders.get('steam, room: preset 6, device at 96000 Hz').sampleRate === 96000 && dry.outputLength === 4800 && dry.maxTail === 0,
+    `${roomed.maxTail}, ${at96.maxTail}, ${dry.maxTail}`);
+  roomed.free(); dry.free(); at96.free();
 }
 // The page's older options map onto the new ones: the same render.
 {
@@ -1087,7 +1102,15 @@ for (const [opts, named] of [[{ retime: true }, 'retime'], [{ retime: true, room
     [{ listenerPos: null, dspRoom: 99, customEnv: null }, { room: { custom: { duration: 1.5, decay: 3, mix: 0.25 } } }],
     [{ listenerPos: null, dspRoom: 1 }, { room: null }], [{ room: { preset: 1 } }, { room: null }], [{ room: { preset: 0 } }, { room: null }],
     [{ room: { custom: { duration: 1, decay: 2, mix: 0.003 } } }, { room: null }], [{ room: { preset: 40 } }, { room: null }],
-    [{ room: { preset: 104 } }, { room: null }], [{ room: { auto: 'room' }, underwater: false }, { room: { auto: { ...roomModule.roomCase('room').measures } } }]
+    [{ room: { preset: 104 } }, { room: null }], [{ room: { auto: 'room' }, underwater: false }, { room: { auto: { ...roomModule.roomCase('room').measures } } }],
+    // Added in the review's fix round. dspRoom as a string is a room only
+    // when written as a number is (the old code's key lookup); and opts.room,
+    // when given, wins over the old position's water.
+    [{ listenerPos: null, dspRoom: ' 6' }, { room: null }], [{ listenerPos: null, dspRoom: '0x6' }, { room: null }],
+    [{ listenerPos: null, dspRoom: '6e0' }, { room: null }], [{ listenerPos: null, dspRoom: '06' }, { room: null }],
+    [{ listenerPos: null, dspRoom: 6.5 }, { room: null }],
+    [{ listenerPos: 'water', room: { preset: 6 } }, { room: { preset: 6 } }], [{ listenerPos: 'water', room: null }, { room: null }],
+    [{ listenerPos: 'water', room: null, underwater: true }, { underwater: true }]
   ]) {
     const a = await hashOf(old), b = await hashOf(now);
     const label = (o) => JSON.stringify(o).replace(/"([a-zA-Z]+)":/g, '$1:');
@@ -1112,6 +1135,23 @@ for (const [opts, named] of [[{ retime: true }, 'retime'], [{ retime: true, room
     check(`with the module absent, ${JSON.stringify(opts)} stops and names room-dsp.js and room-presets.js (process() and createRender)`,
       [error, error2].every(e => e instanceof Error && /room-dsp\.js/.test(e.message) && /room-presets\.js/.test(e.message)), error?.message);
   }
+}
+// The tail loop's own bound: a path whose tail rule never holds stops the
+// render with an error that names the cap, after ceil(882,000 / 512) + 2
+// blocks past the voice, in process() and createRender.
+{
+  neverEnds.on = true;
+  const x = Float32Array.from({ length: 4800 }, (_, i) => 0.3 * Math.sin(i * 0.05)), o = { ...PAGE, enableWarble: false, room: { preset: 6 } };
+  paths.length = 0;
+  const error = await refusal(() => A.process(buffer(x, 48000), o));
+  const blocks = paths.length ? paths[0].calls.length : 0;
+  const r = await A.createRender(mono(48000, x.length), o);
+  await r.push(x);
+  const error2 = await refusal(() => r.finish());
+  neverEnds.on = false;
+  check('a room path whose tail never ends: process() and createRender stop with an error that names the cap of 882000, after 1725 blocks past the voice\'s 8 whole ones',
+    [error, error2].every(e => e instanceof Error && /882000/.test(e.message)) && blocks === Math.floor(4410 / 512) + Math.ceil(882000 / 512) + 2,
+    `${blocks} blocks; ${error?.message}`);
 }
 {
   const error = await refusal(() => A.createRender({ sampleRate: 48000, length: 10, numberOfChannels: 2 }, PAGE));
