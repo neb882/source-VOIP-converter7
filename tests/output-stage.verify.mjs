@@ -404,6 +404,34 @@ console.log('\n[11] The mixer\'s blocks: positions from the render\'s first samp
     check(`${codec}: onMixBlock reports starts 0, 512, 1024, ... and one short last block, the same in process() and in createRender at chunk sizes 1, 127, 512, 4096 and seeded random`,
       ok, `${p.blocks.length} blocks, the last of ${p.blocks.at(-1).length}${which.length ? `; differ at ${which.join(', ')}` : ''}`);
   }
+  // mix is a copy (the order): an array kept as it was given, not copied,
+  // still holds after the render what it held when given, and no two share
+  // a buffer. W3-17c reads these blocks; a view of the mixer's one block
+  // buffer would be written over by the blocks after it.
+  const keeper = () => {
+    const kept = [];
+    return { hook: (start, length, mix) => kept.push({ mix, was: Int32Array.from(mix) }),
+      count: () => kept.length,
+      changed: () => kept.filter((k) => !same(k.mix, k.was)).length,
+      buffers: () => new Set(kept.map((k) => k.mix.buffer)).size };
+  };
+  let copies = true;
+  const seen = [];
+  for (const codec of ['steam', 'celt_22', 'speex']) {
+    const x = talk(1.2, 48000, 13), opts = { codec, volume: 0.5 };
+    const kp = keeper();
+    await A.process(buffer(x, 48000), { ...opts, onMixBlock: kp.hook });
+    const kr = keeper();
+    const render = await A.createRender({ sampleRate: 48000, length: x.length, numberOfChannels: 1 }, { ...opts, onMixBlock: kr.hook });
+    for (let o = 0; o < x.length; o += 127) await render.push(x.subarray(o, Math.min(x.length, o + 127)));
+    await render.finish();
+    for (const [where, k] of [['process()', kp], ['createRender', kr]]) {
+      if (k.count() < 50 || k.changed() || k.buffers() !== k.count()) copies = false;
+      seen.push(`${codec} ${where}: ${k.count()} kept, ${k.changed()} changed, ${k.buffers()} buffers`);
+    }
+  }
+  check('onMixBlock is handed a copy: the arrays kept as given, uncopied, hold after the render what they held when given, each in its own buffer (steam, celt_22, speex; process() and createRender in chunks of 127)',
+    copies, copies ? seen[0] : seen.join('; '));
 }
 
 /* ---------------- 12. the length ---------------- */
@@ -468,7 +496,7 @@ console.log('\n[14] The live chain is the render after the mix point');
 {
   async function liveRun(x, rate, opts, block) {
     const blocks = [];
-    const chain = await A.createLiveChain({ ...opts, onMixBlock: (start, length, mix) => blocks.push({ start, length, mix: Int32Array.from(mix) }) }, rate);
+    const chain = await A.createLiveChain({ ...opts, onMixBlock: (start, length, mix) => blocks.push({ start, length, mix: Int32Array.from(mix), given: mix }) }, rate);
     const parts = [];
     for (let o = 0; o < x.length; o += block) parts.push(await chain.process(x.subarray(o, Math.min(x.length, o + block))));
     chain.free();
@@ -490,6 +518,9 @@ console.log('\n[14] The live chain is the render after the mix point');
         let peak = -3;
         for (let lag = -3; lag <= 3; lag++) if (correlate(lag) > correlate(peak)) peak = lag;
         check(`a ${rate} Hz context: contentDelay is 0, where the correlation with the render peaks`, live.contentDelay === 0 && peak === 0, `peak at ${peak}, r ${correlate(peak).toFixed(5)}`);
+        const kept = live.blocks.filter((b) => !same(b.given, b.mix)).length, buffers = new Set(live.blocks.map((b) => b.given.buffer)).size;
+        check(`a ${rate} Hz context: onMixBlock is handed a copy (the arrays kept as given, uncopied, hold at the end what they held when given, each in its own buffer)`,
+          fullBlocks > 50 && kept === 0 && buffers === fullBlocks, `${fullBlocks} blocks, ${kept} changed, ${buffers} buffers`);
       }
     }
   }
