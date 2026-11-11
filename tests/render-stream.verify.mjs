@@ -374,6 +374,12 @@ addRoom('steam, dsp_room 137 (no room)', { listenerPos: null, dspRoom: 137 }, nu
 // two sources the gate holds back whole, which render as zeros at 48000 Hz
 // before and after. No codecInfo hash moved, and the gain's output
 // (GAIN_GOLDEN, recorded before the change) is the same in all 51 cases.
+// W3-17c (the room module in the render after W3-10's entry) moved none of
+// them; it removed 'test position with a low-pass' with the low-pass, and
+// recorded its eleven room cases once, from the run in which every check of
+// them passed (the room by hand, section 1b; the stream at their plans;
+// dsp_room 137 equal to the same render with no room), in a commit of
+// their own.
 const GOLDEN = {
   "steam": ["bb7ef37d9d65f1c03672fe6bb14933036cc8d8174847fd4e4c3e9671a98f4a61", "4992fbdbd3efbe23ae9c2640825202a57429755fdc7d331ea4f37e210a9d91b9"],
   "steam_48": ["cb106e3f224599e2a7d6bb5d8b3cea9092d99c91a8d9b736f5248d80a819e483", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
@@ -424,7 +430,18 @@ const GOLDEN = {
   "steam, 88203 samples at 11025 Hz (an output length of 352812.00)": ["ce5956fa77247c22e7015bdb9c462c865105e0a8432edd0cf4488c6747e4d34e", "63be92b7f61d5541f90ea7e2261119f3568075a607da1423cc30a72555ff72e0"],
   "steam, silent but for a quarter frame of sine at the end": ["0e7551d1a6a29d2465b83e4719334870fb0135c31f2d4e921511bfdde1841712", "a2735f316ac6640c3218fc07b539a03ce00498a00bc401678dbea87c1bae5769"],
   "steam_48, silent but for a quarter frame of sine at the end": ["0e7551d1a6a29d2465b83e4719334870fb0135c31f2d4e921511bfdde1841712", "a2ab787d46a1cdf2a53b25fdb56752994849a33fc9af2ebe979bfcd5fa32ecb1"],
-  "demo voice as received, past full scale": ["29fa4ca146921e4bff09bc0d8f621bbaf91983be531276c72272a800f56622fd", "e6a7ce0f09e5683c1726bbea1d2500d2aaebf930359a22246c73eeb4a1325eb6"]
+  "demo voice as received, past full scale": ["29fa4ca146921e4bff09bc0d8f621bbaf91983be531276c72272a800f56622fd", "e6a7ce0f09e5683c1726bbea1d2500d2aaebf930359a22246c73eeb4a1325eb6"],
+  "steam, room: preset 6": ["15aeef0b9e350c071a7bf0fcfedeceaa5197a3cc9d90d1314685c971d4f897ea", "63114f6dded29e20fb038b1487f01e44380e2ea54d25df0416a4ed044866e5f0"],
+  "steam, room: preset 17 (random taps)": ["d669ba894abaad55a861ebf61ab8ebe915c97baf0584121a127e7174d47b11a9", "e9d20c28085b40a182c15bdc88f059098e6aaed7bfc9e45df19bcc24db089f1f"],
+  "steam, room: automatic, tunnel": ["248168cbb57fe02646f957d0b6cf6343d418fcffbac0f8eeea6f56f0ee920277", "3e5ab9576fa776d9ad2d8b979a687fee4a4d9a807ad817ca1c65f290561a5b72"],
+  "steam, room: automatic, great_hall": ["decaaea48dba451f3f42503c56caffcee636727d149ac968ac7bf7dc0b4baffb", "4348cfae1a41ad042b24fe6e69f661a720a3490227f87478ef0155f9d8738ac3"],
+  "steam, room: automatic, set_c_room": ["14124e8f7ee023e2e906ce9801e0e0632dea4a890be9108b2581d7cf1d740e28", "587a68a886970456683d32c71ded968559b4f058b0b1a63faf25dff60aac6bd5"],
+  "steam, under water": ["3651d212e7834c17697620d10203ec4853d85549b29fb3c6d76ffa6e5f1b979c", "b9e2c3d92c4836a94d865472347a918eade8ba4e239374843f0124bd71f7e9e6"],
+  "steam, under water, preset 6": ["ed5ab9d7fb1cab14665c1da3384e4b33c228903c4773eae8b4c85aa3445baddf", "fa6bf944d100644d6d0f3face2873790be396722280a6c769668cc4fc90a0942"],
+  "steam, custom room at mix 0.3": ["8ccb91c1b00552e1e54a1589352ad3f32bfd4816434d541bc7350e4021ce40e6", "52f7534ca0384adb740332bebc6fd32075d105edf70ae2594338a5b2be3c03f9"],
+  "celt_22, room: preset 6": ["98c7c5c19aa090bfc3e8ba6a1d46b66c760e0c0d013fb4c18e6e08f7d3c45e81", "ba4e531902cc0467c08d674a260cbcb33e010d08dc767681527122be8ce2beda"],
+  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": ["89e7f2aa412e3f76d75a72a66ff925ebdabedeaaaf5204f3d0fa3a103960e6a4", "e8548e537b8e8ecfa9961e2f74641ad0e183c490e6625131102814dfeadb226e"],
+  "steam, dsp_room 137 (no room)": ["61a61407a1d1b2032c85e5785b89f2daa0c22ee27b8af86085a0d4c986e0e1a2", "88cd058f344eb3262b96729a0ecd4ff2d348b0ae695d8379e2aec6fd27f510d4"]
 };
 
 // The control of W3-10 (docs/work-orders/W3-10-output-stage.md, "Golden
@@ -486,7 +503,18 @@ const GAIN_GOLDEN = {
   "steam, 88203 samples at 11025 Hz (an output length of 352812.00)": "bd2d74515725195f67c70487fdb5a488f79ca5db15e9a84299386a34be102db8",
   "steam, silent but for a quarter frame of sine at the end": "7c083cfbf0884b8b9232667bf60221dc226ae42757cd61b4e1fb7afc770f1ef1",
   "steam_48, silent but for a quarter frame of sine at the end": "7c083cfbf0884b8b9232667bf60221dc226ae42757cd61b4e1fb7afc770f1ef1",
-  "demo voice as received, past full scale": "05a8491b26e4add98f106914427ab6f23bef798c32cb5ba8293c4fa37ba1f1a5"
+  "demo voice as received, past full scale": "05a8491b26e4add98f106914427ab6f23bef798c32cb5ba8293c4fa37ba1f1a5",
+  "steam, room: preset 6": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, room: preset 17 (random taps)": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, room: automatic, tunnel": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, room: automatic, great_hall": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, room: automatic, set_c_room": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, under water": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, under water, preset 6": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "steam, custom room at mix 0.3": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e",
+  "celt_22, room: preset 6": "86e017ee4606ac029bcc72961234c3c3049b8014c31c4302ffcffaac8c9da824",
+  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": "6047d5510bcbbd3a88aa34724f1b4e5f8b0a9d04b39ed45a41b1295f79a01964",
+  "steam, dsp_room 137 (no room)": "041a0f6a6c6b5de15d863237579151bfa8ffbfde94e8458e82950769e7c4026e"
 };
 
 /* ---------------- helpers ---------------- */
