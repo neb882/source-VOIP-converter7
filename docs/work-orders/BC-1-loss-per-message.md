@@ -50,6 +50,67 @@ about 3.1 and 4.5 runs of lost messages a second at 21.7% and 49.8%, 3.6 and 5.6
 (inferred). This order builds the rule as read; the private check below measures the build against that
 statistic.
 
+## Amendment after the premise check (2026-11-11): Set C shows whole messages
+
+Before any builder started, the rule of this order was tried privately against Set C: a prototype of rules
+A to E (the vendored codec driven directly, the app's receive path with `set_c_room`; equal to the app
+sample for sample with nothing lost), `main`'s per-frame bursts at 22 / 64 / 45, five seeds each, and the
+takes, all measured the same way. **This section overrules the text below wherever they differ.**
+
+1. **Finding 8's take figures could not be made again and are withdrawn as a yardstick.** Its method,
+   remade from its text, gives the finding's figures for the app's own renders (lost frames known) but
+   not for the takes: 1.7, 3.3 to 3.6 and 3.1 to 3.2 events a second, not 4.3, 14.1 and 12.0. A lost
+   message in the chirp or the voice reads as several short events, and a take's delay moves, so "half the
+   events are one frame long" never showed single frames lost. The original script is not in the
+   repository. What can be measured soundly is the noise parts (12 s of pink noise and eight bursts,
+   20.5 s), where the reading was checked against renders whose lost frames are known.
+2. **On the noise parts the takes are the read rule's** (measured; the renders as mean and range over five
+   seeds):
+
+   | | Lost runs a second | Runs of one frame | Mean run, frames | Level against the take | 12 s of noise: present / silent |
+   | --- | --- | --- | --- | --- | --- |
+   | loss5, the take | 3.12 | 12% | 3.5 | | 99.5 / 0.0% |
+   | loss5, this order's rule at 21.7% | 3.20 (2.88 to 3.41) | 14% | 3.5 | +0.10 dB | 98.0 / 1.0% |
+   | loss5, `main` at 22% | 5.04 (4.58 to 5.41) | 43% | 2.4 | -0.07 dB | 99.7 / 0.0% |
+   | loss15, the take | 3.90 | 4% | 6.1 | | 76.9 / 10.1% |
+   | loss15, this order's rule at 49.8% | 4.31 (3.85 to 4.63) | 8% | 5.7 | +0.19 dB | 81.0 / 10.2% |
+   | loss15, `main` at 64% | 13.95 (13.55 to 14.47) | 45% | 2.2 | -2.72 dB | 98.8 / 0.0% |
+   | combined, the take | 4.34 | 10% | 4.8 | | 79.7 / 10.3% |
+   | combined, this order's rule at 37.0% | 4.66 (4.43 to 4.87) | 18% | 4.1 | +0.06 dB | 91.9 / 4.0% |
+   | combined, `main` at 45% | 9.89 (9.21 to 10.28) | 44% | 2.3 | -1.14 dB | 98.6 / 0.0% |
+
+   The takes' lost runs peak at three frames, as the sender's messages do; their starts and ends sit on a
+   20 ms grid and on no 60 ms grid. Two draws per message (11.5 / 29.2%) and six (30.7 / 64.2%) do not fit
+   at either setting; four do. So the paragraph "Not explained, and not to be written as explained" and
+   corrected item 8 are replaced by this: the computed 3.1 and 4.5 runs a second, 3.6 and 5.6 frames long,
+   stand beside a measured 3.1 and 3.9, 3.5 and 6.1.
+3. **The refusal is seen by its effect.** Of the takes' 16 lost runs longer than ten frames, nine end with
+   the sound earlier by a whole number of frames: 20 ms twice (11 lost, 10 concealed) and 260 to 340 ms
+   seven times (13 to 17 frames), nothing between 40 and 240 ms. So in the table of facts "seen once (Set
+   J)" becomes: once in a log, and seven times by its effect in Set C.
+4. **Decision 2 stays, with other grounds.** The game does close up, by exactly a refused packet's frames,
+   and stays early until the channel restarts (up to 3.4 s in the loss-15 take); only the whole take's
+   average does not drift. Own time is therefore a stand-in in both directions, and it measures the same
+   as a crude copy of the queue on every column above. BC-3 owns the queue. Corrected item 4's "did not"
+   reads "did not on average".
+5. **Where the rule is short: combined.** With lag 100 and jitter 50 the take has more silence and longer
+   runs than 37.0% of messages lost one by one plus the app's single late frames give (silent 10.3%
+   against 4.0%; runs 4.8 frames against 4.1). The cause is not known (overtaken packets being dropped is a
+   guess). It is recorded as open in finding 8 and is BC-4's.
+6. **The console's help** ends "(recordings agree at 5 and 15; 10 was recorded only with lag and jitter,
+   where the rule gives too little silence)" in place of "(a recording agrees at 5; 10 and 15 are not
+   confirmed)".
+7. **"Afterwards"**, comparison 3: the yardstick is the noise parts' table above, not finding 8's published
+   figures. Comparison 4 reports the median too; the published 38% could not be made again. The check is
+   still run on the branch before the merge, now as a confirmation that the build equals the prototype's
+   figures.
+8. **Docs.** Finding 8 gains, as a dated correction: its take column withdrawn and why; the table above;
+   "bursts averaging 2.2 frames" refuted for the noise parts (its title is BC-2's to change); open: the
+   combined take's shortfall, one stretch of 340 ms of full-level noise in the loss-15 take that matches
+   no part of the source (sound made past ten frames), and whether Steam's concealment is the bundled
+   library's sample for sample (the takes' concealed sound falls about 0, 1 and 4 dB over 60 ms and 11 to
+   18 dB by 180 ms; the library's is similar, a little slower).
+
 ## Where the plan is corrected
 
 1. **The files.** The live chain's loss is drawn in `audio.js` (`steamLiveChain`, with `streamLossMask`),
