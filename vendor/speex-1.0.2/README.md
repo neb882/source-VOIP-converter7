@@ -81,9 +81,9 @@ What it equals:
   floats and 16-bit output bit for bit, on the four test signals of `tests/speex102/native.mjs` (speech-like, a
   full-scale square wave, silence and white noise at -6 dBFS, 516 frames), and on the speech-like signal again with
   `reset()` before frame 138.
-- **The game's recording (Set M)**, privately: the decoded voice of HL2DM's 32-bit game on its own captured input,
-  145,920 of 145,920 samples at `voice_maxgain 1`, and 146,080 of 146,080 at 10 after the app's gain
-  (`tests/REFERENCE_2026.md`).
+- **The game's recording (Set M)**, in the orchestrator's private run on this build: the decoded voice of HL2DM's
+  32-bit game on its own captured input, 145,920 of 145,920 samples at `voice_maxgain 1`, and 146,080 of 146,080 at 10
+  after the app's gain run on the whole decoded stream (`tests/REFERENCE_2026.md`).
 
 Only the engine's quality 3 (Speex quality 4, 20-byte frames) is claimed exact: the other qualities were not checked.
 Not reproduced: a sub-mode 0 frame and a lost frame draw noise from the C runtime's `rand()`, which belongs to the

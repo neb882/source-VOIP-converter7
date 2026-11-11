@@ -78,6 +78,20 @@ console.log('[Speex 1.0.2] The game module\'s arithmetic (W3-18): its output on 
   // each frame encoded and its packet decoded by the same codec, as the module
   // does. Each clip fails when one of the changes of tests/speex102/patch.mjs
   // that can alter output is left out (the report's mutation table).
+  // The vectors are the module's measurements, so first that they are the
+  // files measured: SHA256SUMS (its own SHA-256 recorded here) lists every
+  // file of the folder, and each file has its listed hash.
+  const vectors = new URL('./speex102/vectors/', import.meta.url);
+  const sums = fs.readFileSync(new URL('SHA256SUMS', vectors));
+  const listed = new Map(sums.toString().trim().split('\n').map(line => line.split(/\s+\*?/)).map(([h, f]) => [f, h]));
+  const present = fs.readdirSync(vectors).filter(f => f !== 'SHA256SUMS').sort();
+  const wrong = [...listed].filter(([f, h]) => !present.includes(f)
+    || crypto.createHash('sha256').update(fs.readFileSync(new URL(f, vectors))).digest('hex') !== h).map(([f]) => f);
+  const unlisted = present.filter(f => !listed.has(f));
+  check('tests/speex102/vectors: every file is listed in SHA256SUMS with its hash, and SHA256SUMS is the recorded one',
+    crypto.createHash('sha256').update(sums).digest('hex') === 'a5317fb41e8175aa6e497b72bc6bd5ae80be9d7089c0be81ffe8124950e05e10'
+    && listed.size === 25 && wrong.length === 0 && unlisted.length === 0,
+    `${listed.size} files listed, ${present.length} present${wrong.length ? `; wrong or missing: ${wrong.join(', ')}` : ''}${unlisted.length ? `; unlisted: ${unlisted.join(', ')}` : ''}`);
   let frames = 0, equal = 0;
   for (const clip of loadClips()) {
     const stream = await wasmStream(clip.input), score = scoreClip(stream, clip);

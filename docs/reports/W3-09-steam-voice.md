@@ -585,7 +585,7 @@ are in places the C runtime's float routines, whose cosine and arc cosine are no
 unchanged source gives the same sound, coded differently from one frame on (it equals the game's recording, Set M, in
 92,967 of 145,920 samples). The app's build states those 25 places in plain C and has those two routines
 (`tests/speex102/patch.mjs`, `tests/speex102/vsx_math.c`), and equals the module, run in a CPU emulator, on every clip
-and argument it was scored on, and the game's recording sample for sample (`docs/reports/W3-18-speex-exact.md`).
+and argument it was scored on, and the game's decoded recording sample for sample (the orchestrator's private run on that build; `docs/reports/W3-18-speex-exact.md`, `tests/REFERENCE_2026.md` Set M).
 
 ### The wrapper (what `createSpeexStream` has to copy)
 

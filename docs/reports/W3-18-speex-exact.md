@@ -181,15 +181,17 @@ The page's words did not change.
   this build's `decode` throws (`Speex decode failed (error -2)`). The app only decodes its own packets.
 - A processor without SSE2: not looked at. No dependence on the listener's processor was found in the investigation.
 - `cosf` at |x| >= 8192 and `acosf` outside [-1, 1]: not specified, not used.
-- Set M on this build: the order leaves it to the orchestrator's private run (`REFERENCE_2026.md` marks it so). Set M's
-  recordings are not in this repository and I did not have them.
+- Set M: the orchestrator's private run, on this build since the review round (below). Set M's recordings are not in
+  this repository and I did not have them. What is exact is the decoder's stream and the gain run on that stream; the
+  app's whole render at `voice_maxgain 10` does not yet equal the recording, because the render drops the codec's 80
+  samples of delay before the gain (order W3-19).
 
 ## What I read differently from the order
 
 - **Set M's paragraph did not exist in `tests/REFERENCE_2026.md`** at `82e2239` (Set M is only in PROGRESS). I wrote one
   as a provenance subsection after Set J, from PROGRESS's `speex_module` text and the order: the method, the 92,967 of
-  145,920 before, the investigation in two lines, and the exact counts marked as the orchestrator's private run on the
-  investigation's prototype, to be repeated on the merged build. I also corrected the bullet "Speex cannot be recorded"
+  145,920 before, the investigation in two lines, and the exact counts as the orchestrator's private run (on the
+  investigation's prototype at first; on this build since the review round). I also corrected the bullet "Speex cannot be recorded"
   (dated correction, original kept), the Results table row and the "Engine codecs" line in "What remains unverified".
   The orchestrator should check that paragraph's wording against the private notes.
 - **The tables need no multi-precision library**, so instead of a hash of the header the test regenerates the header
@@ -200,8 +202,9 @@ The page's words did not change.
   the module's truncation) equal the module's. The decoded floats are not in the vectors and are not compared.
 - **`SPEC-cosf-acosf.md` is committed** (in `tests/speex102/`), since the routines are written from it; `mkpatch.py`
   is not (its content is `patch.mjs`), nor `verify-vectors.mjs` or `vsx_math_cr.c` (the stand-in; nothing builds it).
-- The two cosine changes in `mkpatch.py` count 2 and 2 occurrences (four calls); the order's table says "3 places in
-  `nb_encode`, 1 in `nb_decode`". The counts are the source's, and the patch asserts them.
+- The cosine change is two texts of `nb_celp.c` with two occurrences each, four calls in all: three in `nb_encode` and
+  one in `nb_decode`. The order's table counts by function, the patch by text; both are right, and the patch asserts
+  its counts. (Corrected in the review round: this note first read as if the order's count were wrong.)
 
 ## Runs
 
@@ -219,3 +222,31 @@ The page's words did not change.
 - `pnpm test:vendor`: "Speex 1.0.2 build matches its recorded hash."
 - CI: run 42975039742 on `282bee5` (the code and the documents but for this section): success. The run on this
   report's commit is in the hand-back.
+
+## Review and fixes
+
+The review found no major finding. Its own runs: a byte-identical rebuild of the module from fresh clones; the two
+routines equal between the native and WebAssembly builds on all 2^32 float arguments; 11 of 11 mutations caught in
+WebAssembly too; `test:all` green in 688 s on the reviewer's copy. Three small items, fixed:
+
+- **F1. Nothing checked `vectors/SHA256SUMS`**: the reviewer flipped the low bit of `acosf.args.f32` at index 2178 and
+  all 85 checks still passed. New check in `tests/speex102.verify.mjs`: `SHA256SUMS` has its recorded SHA-256
+  (`a5317fb4…`, a literal in the test), lists 25 files, every listed file is present with its hash, and no file of the
+  folder is unlisted. Broken three ways, it fails each time, and passes again once restored: the same flipped bit
+  (`wrong or missing: acosf.args.f32`), an extra file in the folder (`unlisted: extra.bin`), and a line removed from
+  `SHA256SUMS` (24 listed; `unlisted: acosf.args.f32`). 86 checks now.
+- **F2. Set M on this build.** The orchestrator repeated the private run on this build itself (the branch at
+  `ec352cc`, the vendored WebAssembly module, the game's own captured input): the gain-1 recording in 145,920 of
+  145,920 samples (912 of 912 frames), and the gain-10 recording in 146,080 of 146,080 after the app's
+  `receiverAutoGain` at `voice_maxgain 10` run on the whole decoded stream from its first sample. Set M's paragraph in
+  `tests/REFERENCE_2026.md` now says so, and adds what "exact" covers: the app's whole render at `voice_maxgain 10`
+  does not yet equal the recording, because the render drops the codec's 80 samples of delay before the gain, so the
+  gain's 128-sample blocks fall 80 samples off the game's (86,171 of 145,966 samples; 145,840 of 145,840 at
+  `voice_maxgain 1`); that is W3-19, not this order, and `audio.js` is unchanged. The other places that state the
+  result say whose measurement it is: W3-09 section 5's added paragraph, `tests/LEGACY_CODECS.md` (the table row, "In
+  the app" and "Done without takes"), REFERENCE's corrected bullet and "What remains unverified", and the vendor
+  README.
+- **F3. The cosine call sites**: the note in "What I read differently" is corrected (both counts are right).
+
+After the fixes: `node tests/speex102.verify.mjs` passes its 86 checks. Nothing cached changed, so `sw.js` stays at
+v29. CI on the fix round's head is in the hand-back.
