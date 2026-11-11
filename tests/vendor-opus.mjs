@@ -51,4 +51,11 @@ if (process.argv.includes('--check')) {
     throw new Error('vendor/speex-1.0.2/speex-1.0.2.wasm.mjs differs from the recorded build');
   }
   console.log('Speex 1.0.2 build matches its recorded hash.');
+  // And the VR12 build (tests/vr12/build.mjs): the vendored codec of the
+  // engine's vaudio_miles module with its wrapper. Nothing in the app loads it.
+  const vr12 = fs.readFileSync(path.join(root, 'vendor/voxware-vr12/voxware-vr12.wasm.mjs'));
+  if (createHash('sha256').update(vr12).digest('hex') !== '06208740325ec9719763a3a6e790a57b1e5b2054d65e9d70fb2a46a4dad2e027') {
+    throw new Error('vendor/voxware-vr12/voxware-vr12.wasm.mjs differs from the recorded build');
+  }
+  console.log('VR12 build matches its recorded hash.');
 }
