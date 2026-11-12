@@ -12,7 +12,9 @@
 // table's order whatever order it was named in. Every suite asked for runs,
 // whatever the earlier ones did. The browser suite runs alone, after the
 // others, at any --jobs: it times a live microphone chain against the
-// clock. After each suite, one line with its result and its seconds; at the
+// clock. A suite fails if it exits other than 0, or if it exits 0 having
+// printed a failed check (a line that starts with FAIL) or nothing at all.
+// After each suite, one line with its result and its seconds; at the
 // end, the table, each failed suite's FAIL lines and last 15 lines again,
 // the seconds summed and the wall time. Exit 1 if a suite failed, 2 on an
 // unknown name, else 0.
@@ -21,8 +23,9 @@
 // holds the workflow's list of groups to GROUPS and every tests/*.verify.*
 // file to the table.
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 export const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -79,8 +82,10 @@ function runSuite(suite, stream) {
     child.on('close', (code, signal) => {
       const seconds = (performance.now() - t0) / 1000, out = Buffer.concat(chunks).toString('utf8');
       if (!stream) process.stdout.write(out.endsWith('\n') || !out ? out : `${out}\n`);
-      const ok = code === 0 && !signal;
-      const how = ok ? 'passed' : `FAILED (${signal ? `signal ${signal}` : `exit ${code}`})`;
+      // A suite that exits 0 but printed a failed check (FAIL at a line's start), or printed nothing, failed too.
+      const failLine = /^\s*FAIL\b/m.test(out), silent = !out.trim();
+      const ok = code === 0 && !signal && !failLine && !silent;
+      const how = ok ? 'passed' : `FAILED (${signal ? `signal ${signal}` : code !== 0 ? `exit ${code}` : failLine ? 'FAIL lines, exit 0' : 'no output, exit 0'})`;
       console.log(`\n== ${suite.name}: ${how}, ${seconds.toFixed(1)} s\n`);
       resolve({ suite, ok, how, seconds, out });
     });
@@ -120,8 +125,8 @@ async function main(argv) {
 
   const done = suites.map((s) => results.get(s));
   const width = Math.max(5, ...done.map((r) => r.suite.name.length));
-  console.log(`${'suite'.padEnd(width)}  ${'group'.padEnd(7)}  ${'result'.padEnd(22)}  seconds`);
-  for (const r of done) console.log(`${r.suite.name.padEnd(width)}  ${r.suite.group.padEnd(7)}  ${r.how.padEnd(22)}  ${r.seconds.toFixed(1).padStart(7)}`);
+  console.log(`${'suite'.padEnd(width)}  ${'group'.padEnd(7)}  ${'result'.padEnd(28)}  seconds`);
+  for (const r of done) console.log(`${r.suite.name.padEnd(width)}  ${r.suite.group.padEnd(7)}  ${r.how.padEnd(28)}  ${r.seconds.toFixed(1).padStart(7)}`);
   const failed = done.filter((r) => !r.ok);
   for (const r of failed) {
     const lines = r.out.replace(/\s+$/, '').split('\n');
@@ -137,6 +142,8 @@ async function main(argv) {
   return failed.length ? 1 : 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+// Run as a program (not imported), by whatever path, symlinks included.
+const realPath = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+if (process.argv[1] && realPath(process.argv[1]) === realPath(fileURLToPath(import.meta.url))) {
   process.exitCode = await main(process.argv.slice(2));
 }
