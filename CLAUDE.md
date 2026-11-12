@@ -28,7 +28,7 @@ CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux*/chrome | h
 pnpm dev                  # the app on a local server
 ```
 
-`pnpm test:all` is what CI runs (vendor check, Node suites, browser suite), about 20 minutes of CI's 30. Most of
+`pnpm test:all` is what CI runs (vendor check, Node suites, browser suite), 12 to 21 minutes of CI's 45. Most of
 `pnpm test` is `tests/verify.js` and `tests/render-stream.verify.mjs`: run the suite a change touches on its own
 first (`node tests/<suite>`). The `CHROMIUM_EXECUTABLE` line is for a
 machine whose installed Chromium is not the one Playwright pins; elsewhere `pnpm test:browser` is enough.

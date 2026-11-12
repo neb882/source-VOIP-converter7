@@ -19,7 +19,7 @@ Node 22 or later and pnpm 10.13.1. Each suite also runs on its own (`node tests/
 the one a change touches first. Several suites take `TF2_DIR=<folder>` to test a copy of the sources, which is how a
 check is shown to fail when the code it covers is broken.
 
-On CI (GitHub's runner, main at `8035cfa`) `pnpm test:all` took 20 minutes of the workflow's 30-minute limit:
+On CI (GitHub's runner, main at `8035cfa`) `pnpm test:all` took 20 minutes; the runs of 2026-11-12 took 12 to 21, and the workflow's limit is 45 (it was 30 until one run was cut there with every check so far passed):
 `pnpm test` 17 min 16 s, the browser suite 2 min 42 s, the vendor check under a second. A commit is tested once,
 on its push; a push that changes nothing outside `docs/` runs nothing (`.github/workflows/test.yml`).
 
