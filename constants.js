@@ -288,7 +288,7 @@ const PRESET_ALIASES = { sewers: 'underwater' };
  *                 its auto-gain (128-sample blocks), and at which the voice
  *                 is entered into the mixer: 44100 Hz is mixed as it is,
  *                 22050 Hz upsampled by two once and 11025 Hz twice, by the
- *                 mixer's own rule (audio.js mixUpsample2; W3-10)
+ *                 mixer's own rule (engine/mix.js mixUpsample2; W3-10)
  *   status      : 'measured' | 'experimental' | 'modeled' | 'unverified'
  *                 (nothing reads it)
  * ------------------------------------------------------------------------- */
@@ -411,14 +411,14 @@ const CODEC_PROFILES = {
  *                 min(maxGain, 32767 / (mean + avgGain * (peak - mean)))
  *               and the next block ramps toward it in whole 1/128 steps of
  *               the difference over 127, voice_scale entering twice; the
- *               output clamps to int16. audio.js gainRule() has the exact
- *               update and its block size (GAIN_BLOCK).
+ *               output clamps to int16. engine/gain.js gainRule() has the
+ *               exact update and its block size (GAIN_BLOCK).
  *   mixRate   : the mixer's rate, a constant of the engine's code (W3-07);
- *               audio.js MIX_RATE
+ *               engine/mix.js MIX_RATE
  *   deviceRate: the listener's sound device (snd_device_rate, the app's own
  *               setting, not a TF2 variable): the system's mixer converts the
  *               game's 16-bit 44100 Hz output to it by linear interpolation
- *               (audio.js createDeviceStage, a model: W3-07 measured it at
+ *               (engine/mix.js createDeviceStage, a model: W3-07 measured it at
  *               48000 Hz, the takes' rate; another rate runs the same rule).
  *               44100 has no such stage.
  *   volume    : the game's `volume`, after the mixer's clip; 1, the game's
@@ -430,8 +430,8 @@ const CODEC_PROFILES = {
  *               per-frame model. Loss: lost 20 ms voice frames in bursts of
  *               2.2 on average, concealed by the codec; since BC-1 only the
  *               engine codecs and steam_48 draw loss this way: `steam` loses
- *               each sender message whole by a draw of its own (audio.js,
- *               steamMessageLoss), as the game loses a packet. Jitter, on every
+ *               each sender message whole by a draw of its own
+ *               (engine/network.js, steamMessageLoss), as the game loses a packet. Jitter, on every
  *               profile: late frames (3.2% of frames at net_fakejitter 50,
  *               scaled linearly), one in ten of which plays as silence instead
  *               of concealment (a fit with no mechanism read in the game).
@@ -481,8 +481,8 @@ const DSP_PRESETS = {
   27: { name: 'Weirdo 2' },
   28: { name: 'Weirdo 3' },
   29: { name: 'Weirdo 4' },
-  // The app's own room, not the game's: audio.js maps its three knobs onto
-  // the engine's processors.
+  // The app's own room, not the game's: engine/room.js maps its three knobs
+  // onto the engine's processors.
   99: { name: 'Custom: the app\'s own, not the game\'s', custom: true }
 };
 

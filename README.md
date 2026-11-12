@@ -149,7 +149,17 @@ The suites hold each stage to the rule as read and to numbers taken from the rec
 | File | What it is |
 | --- | --- |
 | `index.html`, `style.css`, `manifest.webmanifest`, `sw.js` | the page, its styles, and the service worker that makes it work offline |
-| `audio.js` | the sound path: the render, the live chain, the gain, the mixer and the output |
+| `audio.js` | builds `TF2Audio` from the engine's files; loads the codec module |
+| `engine/dsp.js` | signal arithmetic with nothing of the game in it: the seeded draw, the yield, the FFT, the downmix, the resampler, the filters, the clip, 16-bit rounding and the WAV, each whole and a piece at a time |
+| `engine/gain.js` | the receiver's gain |
+| `engine/mix.js` | the mixer and the output stage |
+| `engine/network.js` | loss and late frames: the retiming, the loss masks, the steam profile's loss by message |
+| `engine/codec.js` | what the renderers share about a profile and its codec: the gate's defaults and threshold, the profile's filters, the frame codes, a demo's frame statistics, the call to the loader |
+| `engine/room.js` | the room's settings and what the mix is told |
+| `engine/steam.js` | the steam profile: its constants, its capture, its sender's options, its timeline, its codec information |
+| `engine/render.js` | `process`, and the stages it keeps (W4-01b) |
+| `engine/render-stream.js` | `createRender`: the same render a piece at a time |
+| `engine/live-chain.js` | `createLiveChain`: the live monitor's chain |
 | `steam-sender.js` | Steam's sender: chunks, the level rule, the hold |
 | `voice-channel.js` | the game's voice channel as read; no page loads it yet |
 | `opus-codec.mjs` | packets and decoders for every codec profile |

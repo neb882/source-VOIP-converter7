@@ -13,7 +13,7 @@
  */
 
 const CACHE_PREFIX = 'tf2ve-';
-const CACHE = `${CACHE_PREFIX}v36`;
+const CACHE = `${CACHE_PREFIX}v37`;
 const ASSETS = [
   './',
   './index.html',
@@ -21,8 +21,19 @@ const ASSETS = [
   './constants.js',
   './steam-sender.js',
   './vendor/swresample/swresample.js',
+  './vendor/swresample/COPYING.LGPLv2.1',
   './room-presets.js',
   './room-dsp.js',
+  './engine/dsp.js',
+  './engine/gain.js',
+  './engine/mix.js',
+  './engine/network.js',
+  './engine/codec.js',
+  './engine/room.js',
+  './engine/steam.js',
+  './engine/render.js',
+  './engine/render-stream.js',
+  './engine/live-chain.js',
   './audio.js',
   './audio-worker.js',
   './opus-codec.mjs',

@@ -2,6 +2,8 @@
 
 > **Status 2026-11-12: held**; after W2-03.
 
+> **Note, 2026-11-12:** `audio.js` was split by S3-02; the function this document names is in the file `README.md`'s table of files gives for it. Where this order says it may not touch `audio.js`, the rule covers `engine/` too. The rest of this document is as written.
+
 **Branch:** `claude/w2-06-video-from-file`, from `main` **after W2-03 has merged** (it edits `app/source.js`).
 **Worktree:** given in the brief. **Agent:** `tf-builder`, then `tf-reviewer`. May push its branch to run CI.
 **Time budget:** 4 hours. May run beside W2-04 and W2-05.
