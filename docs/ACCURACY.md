@@ -42,7 +42,7 @@ The tool is finished when every stage of the modern preset is either equal to a 
 | the receiver's gain | equal under `vaudio_celt` (measured, Set H); under Steam voice no check to the sample exists |
 | the voice channel | the module equals the game's log; not in a render yet |
 | the mixer's entry, the clip and `volume` | equal on flat tops (measured); the rest rests on the reading |
-| the device's conversion | within one step in 98.2 to 99.5% of samples (measured, Set K); the remaining difference is not explained |
+| the device's conversion | as built, within one step in 73% of samples; in 98.2 to 99.5% with a drift of the read position that is not built (measured, Set K); what is left after that is not explained |
 
 The research beside the tool has no finish line: the older codecs beyond TF2's, `miles` (never in TF2), and bad connections in depth. It is a second track.
 
@@ -80,7 +80,7 @@ The research beside the tool has no finish line: the older codecs beyond TF2's, 
 
 - **What the app runs.** 16-bit decoding, at most 10 concealed frames, the refusal of a message longer than 12 frames, and a port of FFmpeg's libswresample from 24000 to 44100 Hz, one for the whole render.
 - **How it was checked.** Given the decoded samples, the port equals the game's recording in 524,288 of 524,288 samples once one decoded sample is set one step up (Set J, finding 29).
-- **What differs.** The port runs the `fma3` order of sums, the owner's PC's. The library's three other orders differ from the same recording in 59 to 108 samples, each by one step (measured).
+- **What differs.** The port runs the `fma3` order of sums, the owner's PC's. The library's three other orders differ from the same recording in 59 to 108 samples, each by one step (measured). After a gap of more than ten lost frames, or a refused message, the game's sound closes up and stays early (read; seen by its effect in Set C); a render leaves that time empty and moves nothing after it.
 - **Not built yet.** A demo's received voice still decodes to float with the app's own resampler (the order W3-02g).
 
 ### The receiver's gain
@@ -119,7 +119,7 @@ What these profiles still carry of the app's earlier model:
 - **The frame gate.** A frame over −39.5 dBFS RMS, with 120 ms before and 440 ms after: a fit to the first recordings of Steam voice. It is on by default only on `steam_48` (not in TF2) and can be forced on for the others.
 - **Loss in bursts.** Frames are lost in bursts that average 2.2 frames: a fit that the record has withdrawn for the game (finding 8). The order BC-5 replaces it; not built yet.
 - **A lost frame as zeros** on `speex` and on `miles`, which is not in TF2 (inferred for Speex from a module with no concealment; guessed for the other).
-- **The gain through unsent time.** With the gate forced on, the gain is held through blocks in which nothing was sent (inferred).
+- **The gain through unsent time.** With the gate on, the gain is held through blocks in which nothing was sent (inferred).
 
 ## Rooms
 
