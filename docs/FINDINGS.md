@@ -275,7 +275,7 @@ The two-PC set shows that a remote listener hears the same chain. The second PC'
 
 ## What others had published
 
-On 2026-11-12 the project's orchestrator searched the public web with about a dozen queries for earlier work on Steam's and Source's voice path. A search of that size proves no absence: work that the queries did not reach may exist.
+On 2026-11-12 the public web was searched, with about a dozen queries, for earlier work on Steam's and Source's voice path. A search of that size proves no absence: work that the queries did not reach may exist.
 
 What the search found, and what this project owes to public work:
 
