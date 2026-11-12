@@ -350,3 +350,17 @@ Asked by the owner on 2026-11-12, who allowed the documents and the project's st
 ### live.last_merge, as it stood until this merge
 
 W4-01b (2a98439, cache v35, pull request #32, 2026-11-12): a render after a changed setting runs only the stages after it (the capture signal and the codec stage's result are kept in the page's one worker), Cancel stops a render and keeps the worker, a clip over 30 s is playable from its first 14 s while the rest renders; no recorded hash moved; docs/reports/W4-01b-speed.md. On a 5-minute clip the first sound comes after 0.9 s where it took 16.9, and a re-render after a change of voice_scale takes 6.1 s where it took 16.3 (the builder's medians of three). Memory: for a 9.8-minute source the browser's peak over the idle page is 2032 MB against 1592 MB before (+28%; the order allowed a tenth; accepted by the orchestrator, most of it the kept worker's uncollected garbage, 120 MB held at rest). Two independent readers; a randomised comparison against a fresh engine (7,200 steps, and 2,400 more on the fixed head) found no difference. Before it: The documentation pass, stage 2 (merges 23eb36f and 33a011c, main at 1f86342, pull request #31, 2026-11-12): documents only, with the accuracy manifest's second-PC row and CI's time limit (45 minutes); no cache change. Before it: W3-02c-1 (a2b7dc9, pull request #30, 2026-11-12): voice-channel.js as read; no cache change, since no page loads the module. The last merge that changed the site: W4-01a and W4-01c (b9579a4, cache v34, pull request #29).
+
+## 2026-11-12 (appended at S3-01a's merge)
+
+### live.last_merge, as it stood until this merge
+
+S3-03 (11f430f, cache v36, pull request #33, 2026-11-12): the handles in the page's mock console feed are invented ones and one chat line names nobody; a browser check pins both lists by hash; no render reads either list; docs/reports/S3-03-mock-names.md. Before it: W4-01b (2a98439, cache v35, pull request #32, 2026-11-12): a render after a changed setting runs only the stages after it, Cancel keeps the worker, a clip over 30 s is playable from its first 14 s while the rest renders; docs/reports/W4-01b-speed.md; its times and its memory cost (a 9.8-minute source peaks at 2032 MB against 1592 MB before, accepted) are in docs/PROGRESS-LOG.md. Earlier merges: the index, docs/README.md.
+
+### next (S3-01a, S3-01b), as it stood until part a was merged
+
+a: one engine loader in each suite's own realm (tests/verify.js 142 s where it takes 465, the same output byte for byte, measured by the planner) and the steam sections in their own file. b: a runner in place of the && chain, a check that derives the cache list, the cache number set only at the merge, CI in five jobs (about 5 minutes expected where a run takes 16 to 20). The orchestrator's rulings of 2026-11-12 are in the order. After: a is built and under review (2026-11-12); b follows a's merge.
+
+### in_flight (the documentation and structure pass), its state until this merge
+
+stages 1 and 2 on main; stage 3: S3-03 merged, S3-01a built and under review, then S3-01b, S3-02a, S3-02b

@@ -1,6 +1,6 @@
 # S3-01: the test harness: one loader, a runner, a derived cache list, CI in parallel jobs
 
-Status: planned 2026-11-12, not built
+Status: S3-01a built and merged 2026-11-12 (`7a94dc8`, `docs/reports/S3-01a-engine-loader.md`); S3-01b planned, not built
 
 *Written 2026-11-12 from the structure audit of the same day (its items C-10 to C-19 and its proposals P1 to P4
 and P10; "the audit" below), checked against `main` at `9e0abd0` and against the branch `claude/w4-01b-speed` at
