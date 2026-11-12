@@ -13,6 +13,11 @@
       "order": "The documentation and structure pass",
       "state": "stages 1 and 2 on main; stage 3: S3-03, S3-01a, S3-01b and S3-02a merged; S3-02b next, then the pass is done",
       "note": "Asked by the owner on 2026-11-12, who allowed the documents and the project's structure to be rewritten freely. Stages 1 and 2 (three audits; the new README, docs/FINDINGS.md, docs/ACCURACY.md, docs/VOICE-PATH.md, docs/LIVE.md, docs/PAGE.md, tests/README.md, the index docs/README.md, docs/owner-runs.md, CLAUDE.md's writing rules, this file short with its history in docs/PROGRESS-LOG.md) are on main. Stage 3 is the structure: S3-03 (invented names in the mock console feed) is merged; S3-01a (one engine loader for the Node suites, the steam sections in their own test file) is merged after a clean review; S3-01b (a runner, the derived cache list, the cache number set at the merge, CI in five jobs) is merged after a review and a fix round; S3-02a (audio.js into ten files under engine/) is merged after a clean review; next is S3-02b. Later: one staged renderer (decided after BC-4); exact live-against-render checks for the older codecs (alongside W3-02c-3). Owed from the audits and not yet in an order: the real-take check's spurts still come from the old 20 ms frame gate."
+    },
+    {
+      "order": "W3-02c-2",
+      "state": "planned and ruled 2026-11-12; builder at work on claude/w3-02c2-timeline-option",
+      "note": "The planner's prototype (a patched copy in scratch, measured 2026-11-12): a 'game' render equals a reference built from voice-channel.js sample for sample at every setting tried; the stream equals process(); the channel adds 2.2 to 3.4 s to a ten-minute render and peak memory is about 100 MB lower than 'source'. The builder measures each again. Then the reviewer and the second reader (it changes how a render is computed, behind an option)."
     }
   ],
   "next": [
@@ -24,9 +29,9 @@
     },
     {
       "order": "W3-02c-2",
-      "file": "docs/work-orders/W3-02-receiver-queue.md (the amendment, section 5)",
-      "after": "S3-02a (merged 2026-11-12): a planner writes the order against engine/steam.js, engine/render.js, engine/render-stream.js and engine/gain.js",
-      "line": "process() and createRender() run the receiver's channel behind opts.timeline (default 'source', so no recorded hash moves); a lost message is not pushed, which is BC-3's build."
+      "file": "docs/work-orders/W3-02c2-render-channel.md",
+      "after": "planned and ruled 2026-11-12 (the order takes the place of the amendment's section 5); being built beside S3-02b",
+      "line": "process() and createRender() run the receiver's channel for the steam codec behind opts.timeline: 'game' (default 'source', so no recorded hash moves); asked for where it cannot run, the option is refused with an error, never ignored; a lost message is not pushed, which is BC-3's build. The page does not offer it (W3-02d) and the live chain does not run it (W3-02c-3). After the merge: the orchestrator's private runs against the takes."
     },
     {
       "order": "W3-02c-3",

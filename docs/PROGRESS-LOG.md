@@ -396,3 +396,7 @@ a: audio.js (3,436 lines) into ten files under engine/ by stage (dsp, gain, mix,
 ### in_flight (the documentation and structure pass), its state until this merge
 
 stages 1 and 2 on main; stage 3: S3-03, S3-01a and S3-01b merged; S3-02a next, then S3-02b
+
+### next (W3-02c-2), as it stood until its order was written (2026-11-12)
+
+file: docs/work-orders/W3-02-receiver-queue.md (the amendment, section 5); after: S3-02a (merged 2026-11-12): a planner writes the order against engine/steam.js, engine/render.js, engine/render-stream.js and engine/gain.js
