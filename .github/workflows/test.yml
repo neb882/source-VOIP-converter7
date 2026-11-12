@@ -1,9 +1,9 @@
 name: tests
 
 # A commit is tested once, when it is pushed. Pull requests come from this repository's own branches, so the
-# push has already tested their head: a pull_request trigger would run the same 20 minutes again. A push that
+# push has already tested their head: a pull_request trigger would run the same suites again. A push that
 # changes nothing outside docs/ runs nothing (the progress file is committed many times a day). A newer push to
-# the same branch cancels the run of the older one.
+# the same branch cancels the run of the older one, except on main.
 on:
   push:
     paths-ignore:
@@ -12,19 +12,28 @@ on:
 
 concurrency:
   group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  # Never on main: each push to main must finish, so its cache-number step runs against the commit before it.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
 
 jobs:
-  verify:
+  # The suites in five jobs side by side, one per group of tests/run.mjs (tests/site.verify.mjs holds this
+  # list to the runner's). A failing group does not stop the others; its log ends with the runner's table.
+  suites:
+    name: ${{ matrix.group }}
     runs-on: ubuntu-latest
-    # A run takes 12 to 21 minutes and one was cut at 30 while every check so far had
-    # passed (2026-11-12), so the limit leaves room until the suites run as parallel jobs.
-    timeout-minutes: 45
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [units, engine, render, stages, browser]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # units needs the history: on main it compares the cache list with the commit main was at.
+          fetch-depth: ${{ matrix.group != 'units' && 1 || 0 }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.13.1
@@ -35,6 +44,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Install browser
+        if: matrix.group == 'browser'
         # The browser itself comes from Playwright's own servers. Its system packages (on this
         # image only extra fonts are missing) come from Ubuntu's package mirrors, which are at
         # times unreachable from the runners for hours: then the suite runs on what the image
@@ -43,5 +53,26 @@ jobs:
           pnpm exec playwright install chromium
           timeout 180 pnpm exec playwright install-deps chromium \
             || echo "::warning::Ubuntu's package mirrors could not be reached; the browser suite runs on the runner image's own libraries and fonts."
-      - name: Run DSP and browser verification
-        run: pnpm test:all
+      - name: Run the ${{ matrix.group }} suites
+        run: node tests/run.mjs ${{ matrix.group }}
+      - name: The cache number against the commit main was at before the push
+        # A merge that changes a file the site keeps offline raises the number in sw.js (the orchestrator sets it
+        # at the merge with tests/cache-number.mjs --set); one pushed without it fails here.
+        if: ${{ !cancelled() && matrix.group == 'units' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: node tests/cache-number.mjs "$BEFORE"
+
+  # The one result of a run: it succeeds only if every group did, so a head has one check to read, as before.
+  verify:
+    needs: suites
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every group passed
+        env:
+          RESULT: ${{ needs.suites.result }}
+        run: |
+          echo "The five groups: $RESULT"
+          test "$RESULT" = success

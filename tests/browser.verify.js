@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { chromium } = require('playwright');
 const { createStaticServer } = require('./static-server');
+const { siteFiles } = require('./lib/site-files.cjs');
 
 let passed = 0;
 // The app shell cache sw.js populates, e.g. tf2ve-v13.
@@ -619,6 +620,11 @@ async function verifyAverageAndRealTake(page) {
   await page.locator('#reference summary').click();
   await page.locator('#reference-file').setInputFiles({ name: 'take.wav', mimeType: 'audio/wav', buffer: Buffer.from(wav) });
   await page.waitForFunction(() => document.querySelector('#reference-report table'), null, { timeout: 60000 });
+  // The meter's "Δ real" row comes once the take's own meter job (a worker's)
+  // has answered, after the report's table: wait for it, and let the check
+  // below say so if it never comes.
+  await page.waitForFunction(() => [...document.querySelectorAll('#meter-rows tr th')].some((th) => th.textContent === 'Δ real'),
+    null, { timeout: 60000 }).catch(() => {});
   const take = await page.evaluate(() => ({ segments: state.realTake.timeline.segments.length,
     delay: state.realTake.timeline.segments[0].a, ppm: state.realTake.timeline.segments[0].clockPpm,
     status: document.getElementById('reference-status').textContent,
@@ -2462,16 +2468,10 @@ async function activateServiceWorker(page, scriptPath) {
 }
 
 // The files the page needs to start and work offline, found without reading
-// sw.js: the page itself, what its markup links (scripts, style, icon,
-// manifest), the manifest's icons, and what the code loads at run time
-// (workers, audio worklets and the codec modules they import).
-const RUNTIME_FILES = ['audio-worker.js', 'mic-capture.js', 'live-worker.js', 'live-worklet.js', 'opus-codec.mjs',
-  'vendor/libopus/index.mjs', 'vendor/libopus/generated/libopus.generated.mjs',
-  'vendor/libopus-1.1/index.mjs', 'vendor/libopus-1.1/libopus-1.1.5.wasm.mjs',
-  'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs',
-  'vendor/speex-1.0.2/index.mjs', 'vendor/speex-1.0.2/speex-1.0.2.wasm.mjs',
-  'vendor/voxware-vr12/index.mjs', 'vendor/voxware-vr12/voxware-vr12.wasm.mjs',
-  'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs'];
+// sw.js: derived from the shipped files' own text (tests/lib/site-files.cjs:
+// the page, what its markup links, the manifest's icons, and what the code
+// loads at run time). tests/site.verify.mjs holds sw.js to the same list.
+const SITE_FILES = siteFiles(path.join(__dirname, '..')).files;
 
 // A first visit: the service worker installs and takes control while the
 // page is open, and the page is not reloaded under it. Every file the page
@@ -2481,10 +2481,17 @@ const RUNTIME_FILES = ['audio-worker.js', 'mic-capture.js', 'live-worker.js', 'l
 async function verifyFirstVisitOffline(browser, base) {
   console.log('\n[Browser 4b] A first visit leaves everything needed offline in the cache');
   const root = path.join(__dirname, '..');
-  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.webmanifest'), 'utf8'));
   const assets = [...fs.readFileSync(path.join(root, 'sw.js'), 'utf8').match(/const ASSETS = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+)'/g)]
     .map(m => m[1].replace(/^\.\//, ''));
   const context = await browser.newContext({ serviceWorkers: 'allow' });
+  // Every request to the test server, from the page, its workers and the
+  // service worker, from before the first visit to the end of the offline
+  // render (blob: URLs made on the page are not requests to the server).
+  const requested = [];
+  context.on('request', (request) => {
+    const url = new URL(request.url());
+    if (/^https?:$/.test(url.protocol) && url.origin === base) requested.push(decodeURIComponent(url.pathname.slice(1)) + url.search);
+  });
   try {
     const page = await context.newPage();
     page.setDefaultTimeout(30000);
@@ -2492,10 +2499,11 @@ async function verifyFirstVisitOffline(browser, base) {
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`${base}/`, { waitUntil: 'networkidle' });
     const linked = await page.evaluate(() => [...document.querySelectorAll('script[src], link[href]')]
-      .map(e => new URL(e.getAttribute('src') || e.getAttribute('href'), location.href).pathname.slice(1)));
-    const needed = [...new Set(['', 'index.html', ...linked, ...manifest.icons.map(i => i.src), ...RUNTIME_FILES])];
-    check(needed.every(f => !f || fs.existsSync(path.join(root, f))) && assets.every(a => needed.includes(a)),
-      'the files the page needs exist, and sw.js lists nothing else', `${needed.length} files`);
+      .map(e => { const u = new URL(e.getAttribute('src') || e.getAttribute('href'), location.href); return u.pathname.slice(1) + u.search; }));
+    const needed = ['', ...SITE_FILES];
+    const unread = linked.filter(f => !needed.includes(f));
+    check(needed.every(f => !f || fs.existsSync(path.join(root, f))) && assets.every(a => needed.includes(a)) && unread.length === 0,
+      'the files the page needs exist, and sw.js lists nothing else', unread.length ? `tags the static reading missed: ${unread.join(', ')}` : `${needed.length} files`);
     const missing = await page.evaluate(async ({ needed, shell }) => {
       await navigator.serviceWorker.register('sw.js');
       await navigator.serviceWorker.ready;
@@ -2514,6 +2522,10 @@ async function verifyFirstVisitOffline(browser, base) {
     const done = await page.evaluate(() => ({ status: document.getElementById('render-status').textContent, log: document.getElementById('console-out').textContent }));
     check(done.status.startsWith('Rendered in') && done.log.includes('libopus 1.1.5'), 'and renders by itself with the bundled codec', done.status);
     check(errors.length === 0, 'the first visit and the offline reload have no page errors', errors.join('; '));
+    // sw.js is the service worker's own script: registered, and not in its own cache.
+    const outside = [...new Set(requested.filter(f => !needed.includes(f) && f !== 'sw.js'))];
+    check(requested.length > 0 && outside.length === 0, 'every request of the first visit and the offline render is for a file of the list',
+      outside.length ? `outside the list: ${outside.join(', ')}` : `${requested.length} requests, ${new Set(requested).size} files`);
   } finally {
     await context.setOffline(false).catch(() => {});
     await context.close();
@@ -2720,30 +2732,67 @@ async function speedCancel(browser, base) {
   } finally { await context.close(); }
 }
 
-// A worker that does not answer a cancel (the page's cancels dropped) is
-// ended once the bound has passed (500 ms and 15 ms a second of source:
-// 1.4 s for 60 s) and replaced; the source is sent to the new worker, and
-// the render after it is right and made there (not on the page's own
-// thread). The render cancelled runs from the start (its first), so that it
-// is still busy then.
+// A worker that does not answer a cancel is ended once the bound has passed
+// (500 ms and 15 ms a second of source: 1.4 s for 60 s), no sooner and not
+// more than a second later, and replaced; the source is sent to the new worker, and the render after it is
+// right and made there (not on the page's own thread). The worker is made
+// not to answer: the page's cancels are dropped, and every reply of the
+// cancelled render but its progress and preview is held back (no result, no
+// meter, no `done`), so it is busy at the bound however fast it renders. The
+// check waits for the worker's end, not for the clock. [It used to count on
+// the render being still busy 1.4 s after the press. On the build machine
+// the press came 0.9 s after the button showed 5% and the render ended 1.6 to
+// 2.3 s after the press; CI's runner once ended it within the bound, and the
+// page kept the worker, as it should.]
 async function speedCancelUnanswered(browser, base) {
   const { context, page, errors } = await speedPage(browser, base);
   try {
-    await page.evaluate(() => { window.__dropCancel = true; });
+    await page.evaluate(() => {
+      window.__dropCancel = true;
+      // The first render: its id, when its cancel was posted, when its worker was ended.
+      const unanswered = window.__unanswered = { id: null, cancelAt: null, endedAt: null };
+      const Counted = window.Worker;
+      window.Worker = class extends Counted {
+        constructor(url, options) {
+          super(url, options);
+          // Registered before the page's onmessage, so it runs first and can stop it.
+          this.addEventListener('message', (event) => {
+            const data = event.data || {};
+            if (unanswered.id !== null && data.id === unanswered.id && data.type !== 'progress' && data.type !== 'preview') event.stopImmediatePropagation();
+          });
+        }
+        postMessage(message, transfer) {
+          if (message && message.type === 'process' && unanswered.id === null) { unanswered.id = message.id; this.__unanswered = true; }
+          if (message && message.type === 'cancel' && message.id === unanswered.id) unanswered.cancelAt = performance.now();
+          return super.postMessage(message, transfer);
+        }
+        terminate() {
+          if (this.__unanswered && unanswered.endedAt === null) unanswered.endedAt = performance.now();
+          return super.terminate();
+        }
+      };
+    });
     await page.locator('#file').setInputFiles({ name: 'unanswered.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) });
     await page.waitForFunction(() => state.processing && Number((els.process.textContent.match(/(\d+)%/) || [])[1]) >= 5, null, { timeout: 30000 });
     await page.locator('#cancel-process').click();
     await page.waitForFunction(() => !state.processing, null, { timeout: 30000 });
-    await renderNow(page, 120000);
+    // The worker's end; a page that never ends it fails the check below.
+    const ended = await page.waitForFunction(() => window.__unanswered.endedAt !== null, null, { timeout: 30000 }).then(() => true, () => false);
+    // The render after it; a page that ends the worker but does not replace it fails the check below.
+    const rendered = ended && await renderNow(page, 120000).then(() => true, () => false);
     const lines = await consoleLines(page);
     const replaced = lines.find((t) => /did not stop within \d+ ms of the cancel/.test(t));
     const compatible = lines.filter((t) => /compatibility path/.test(t)).length;
     const late = await wavHash(page);
+    const unanswered = await page.evaluate(() => window.__unanswered);
+    const after = ended && unanswered.cancelAt !== null ? unanswered.endedAt - unanswered.cancelAt : NaN;
     await page.evaluate(() => { window.__dropCancel = false; });
     const sources = await page.evaluate(() => window.__sources);
-    check(/within 1400 ms/.test(replaced || '') && await audioWorkers(page) === 2 && sources === 2 && compatible === 0 && late === await freshHash(page),
+    // Ended no sooner than the bound (less 1 ms for the two clocks' resolution, the timer's and
+    // performance.now's) and no later than the bound and 1,000 ms.
+    check(rendered && /within 1400 ms/.test(replaced || '') && after >= 1400 - 1 && after <= 1400 + 1000 && await audioWorkers(page) === 2 && sources === 2 && compatible === 0 && late === await freshHash(page),
       'a worker that does not answer a cancel is ended after the bound (1.4 s for 60 s) and replaced; the source goes to the new worker, and the render there is a fresh render\'s WAV',
-      `${await audioWorkers(page)} workers, ${sources} source messages, ${compatible} on the page's thread; ${replaced}`);
+      `${await audioWorkers(page)} workers, ${sources} source messages, ${compatible} on the page's thread; ${Number.isFinite(after) ? `ended ${after.toFixed(0)} ms after the cancel` : 'not ended'}; ${rendered ? 'rendered after it' : 'no render after it'}; ${replaced}`);
     check(errors.length === 0, 'an unanswered cancel: no page errors', errors.join('; '));
   } finally { await context.close(); }
 }
@@ -3547,13 +3596,10 @@ async function main() {
     }, SHELL_CACHE);
     check(fresh.worker === 'analyzed' && fresh.worklet === 'fresh', 'workers and audio worklets load their scripts network-first, like the page',
       `worker ${fresh.worker}, worklet ${fresh.worklet}`);
-    check(await page.evaluate(async (name) => {
+    check(await page.evaluate(async ({ name, needed }) => {
       const cache = await caches.open(name);
-      const needed = ['batch.js', 'formats.js', 'flac.js', 'zip.js', 'meter.js', 'reference.js', 'video.js', 'filerate.js', 'demo.js', 'live.js', 'live-worker.js', 'live-worklet.js',
-        'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs', 'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs',
-        'vendor/speex-1.0.2/index.mjs', 'vendor/speex-1.0.2/speex-1.0.2.wasm.mjs', 'vendor/voxware-vr12/index.mjs', 'vendor/voxware-vr12/voxware-vr12.wasm.mjs'];
       return (await Promise.all(needed.map(path => cache.match(new URL(path, location.href).href)))).every(Boolean);
-    }, SHELL_CACHE), 'batch, format, meter, reference, video, file-rate, demo, live-monitor, CELT, Speex, VR12 and MP3 encoder files are cached for offline use');
+    }, { name: SHELL_CACHE, needed: SITE_FILES }), 'batch, format, meter, reference, video, file-rate, demo, live-monitor, CELT, Speex, VR12 and MP3 encoder files are cached for offline use');
     // Restore the normal registration while still online. Otherwise reloading
     // registers sw.js again and races another replacement against file loading.
     await activateServiceWorker(page, 'sw.js');
