@@ -609,6 +609,9 @@
       // in order, voiceLength samples.
       const played = channel ? channel.finish() : null;
       steamVoice = channel ? channel.take() : timeline.take(voiceLength);
+      if (channel && steamVoice.length !== voiceLength) {
+        throw new Error(`TF2Audio: the voice channel gave ${steamVoice.length} samples for a voice of ${voiceLength}.`);
+      }
       codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate, lossSet), framesPerPacket };
       if (played) codecInfo = steamPlayedInfo(codecInfo, played, trip.lookahead);
       // The receiver's re-timing (finding 19), on the voice-rate timeline: the

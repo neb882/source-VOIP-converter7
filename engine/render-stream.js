@@ -241,7 +241,7 @@
       const stream = voice;
       const nextMiss = streamLossMask(framesPerPacket, 0, rand, jitterMs);
       const loser = steamLoser(opts, lossPct, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
-      let frame = 0, given = 0, fed = 0, index = 0, lastTick = -1;
+      let frame = 0, given = 0, fed = 0, index = 0, lastTick = -1, voiceOut = 0;
       const miss = (f) => {
         if (f !== frame++) throw new Error(`createRender: frame ${f} reached the network out of order`);
         return nextMiss();
@@ -278,7 +278,9 @@
           await feed(sender.push(steamCapture(x)));
           if (channel) {
             channel.advance(bound());
-            return channel.take();
+            const y = channel.take();
+            voiceOut += y.length;
+            return y;
           }
           return timeline.take(steamGiveOut(given, timeline.cursor, steamReach(SteamSender.STEAM_SENDER), stream.lookahead, false));
         },
@@ -286,7 +288,12 @@
           await feed(sender.finish());
           if (channel) {
             steam.played = channel.finish();
-            return channel.take();
+            const y = channel.take();
+            voiceOut += y.length;
+            if (voiceOut !== voiceLength) {
+              throw new Error(`TF2Audio: the voice channel gave ${voiceOut} samples for a voice of ${voiceLength}.`);
+            }
+            return y;
           }
           return timeline.take(voiceLength);
         }
