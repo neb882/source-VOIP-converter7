@@ -22,15 +22,15 @@ files table is the map of the code), and `tests/REFERENCE_2026.md` holds the evi
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm test                 # the Node suites, about 17 minutes on CI
+pnpm test                 # the Node suites, 8 to 14 minutes on CI
 pnpm test:vendor          # the bundled codec builds match their recorded hashes
 CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux*/chrome | head -1) node tests/browser.verify.js
 pnpm dev                  # the app on a local server
 ```
 
-`pnpm test:all` is what CI runs (vendor check, Node suites, browser suite), 12 to 21 minutes of CI's 45. Most of
-`pnpm test` is `tests/verify.js` and `tests/render-stream.verify.mjs`: run the suite a change touches on its own
-first (`node tests/<suite>`). The `CHROMIUM_EXECUTABLE` line is for a
+`pnpm test:all` is what CI runs (vendor check, Node suites, browser suite), 12 to 22 minutes of CI's 45. Most of
+`pnpm test` is `tests/render-stream.verify.mjs`, `tests/stages.verify.mjs` and `tests/steam.verify.js`: run the suite
+a change touches on its own first (`node tests/<suite>`). The `CHROMIUM_EXECUTABLE` line is for a
 machine whose installed Chromium is not the one Playwright pins; elsewhere `pnpm test:browser` is enough.
 `tests/accuracy.mjs` and `tests/retiming.mjs` need the owner's recordings, which are not in this repository: they are
 in a private one a session can attach (`docs/PROGRESS.json`, `takes`, says how to point the tests at it).
