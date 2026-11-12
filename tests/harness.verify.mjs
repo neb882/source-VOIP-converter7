@@ -177,5 +177,6 @@ console.log('\n[8] An engine file that uses one of Node\'s globals does not load
   }
 }
 
+check('a check broken on purpose on a scratch branch (S3-01b, the CI check)', false, 'on purpose');
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
