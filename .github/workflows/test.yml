@@ -11,8 +11,9 @@ on:
   workflow_dispatch:   # run by hand from the Actions tab
 
 concurrency:
-  group: tests-${{ github.ref }}
-  # Never on main: each push to main must finish, so its cache-number step runs against the commit before it.
+  # On main each push is a group of its own: its run is neither cancelled by the next push nor dropped while it
+  # waits behind one, so its cache-number step always runs against the commit before it.
+  group: tests-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
