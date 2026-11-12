@@ -8,12 +8,12 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import vm from 'node:vm';
 import * as opus from '../opus-codec.mjs';
 import { createCodec, createFramer, toInt16, frameSize, packetBytes, version, mathFunctions } from '../vendor/speex-1.0.2/index.mjs';
 import { testSignals, testRuns, wasmStream, digest, RESET_AT, loadClips, scoreClip, loadVectors } from './speex102/native.mjs';
 import { NAMES, OUTPUT_CHANGES, UNSEEN_CHANGES } from './speex102/patch.mjs';
 import { generate, HEADER } from './speex102/gen-tables.mjs';
+import { loadEngine } from './lib/engine.cjs';
 
 let passed = 0;
 function check(name, ok, detail = '') {
@@ -390,9 +390,6 @@ console.log('\n[Speex 1.0.2] Codecs side by side');
 // The speex profile (W3-12b): the module above on the engine's 11025 Hz sound,
 // with no resampling to 8000 Hz, through audio.js.
 // ---------------------------------------------------------------------------
-// Steam's sender and the decoder's resampler load beside audio.js, as on the page.
-const engineCode = ['../constants.js', '../steam-sender.js', '../vendor/swresample/swresample.js', '../audio.js']
-  .map((f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n');
 // audio.js on an opus-codec.mjs whose Speex calls are watched: the samples and
 // packets of each speexRoundTrip a render makes (the 11025 Hz voice signal,
 // before the receiver), and each frame-by-frame stream's restarts, decodes and
@@ -417,10 +414,8 @@ function watchedEngine() {
       log.trips.push({ input: Float32Array.from(samples), rate, output: result.samples, info: result.info, packets });
       return result;
     } };
-  const box = { window: {}, Blob, console, TF2Opus: watched };
-  vm.createContext(box);
-  vm.runInContext(engineCode, box);
-  return { A: box.window.TF2Audio, log, profiles: vm.runInContext('CODEC_PROFILES', box) };
+  const engine = loadEngine({ codec: watched });
+  return { A: engine.audio, log, profiles: engine.CODEC_PROFILES };
 }
 const { A, profiles: PROFILES } = watchedEngine();
 const { FRAME } = opus;
