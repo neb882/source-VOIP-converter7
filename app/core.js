@@ -149,6 +149,7 @@ const state = {
   lastLitPreset: 'modern', // the built-in preset the controls last matched (app/console.js)
   settingsRestored: false, // boot has applied the remembered settings; changes are now remembered
   batchRunning: false,   // batch.js is rendering its queue
+  preview: null,         // W4-01b: the first seconds of the render running, in the player: { source, url }
   processId: 0,
   cancelProcessing: null
 };

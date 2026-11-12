@@ -33,6 +33,8 @@
   };
   if (!ui.panel || !ui.list) return;
 
+  // Workers of their own for the batch's downloads (exportWav).
+  const OWN = { own: true };
   const AUDIO_EXT = /\.(mp3|wav|wave|flac|ogg|oga|opus|m4a|m4b|aac|mp4|webm|weba|aif|aiff|aifc|caf|mka)$/i;
   const BASE_TITLE = document.title;
   const batch = {
@@ -356,13 +358,15 @@
   }
 
   // The file for one item in `format`, as { blob, crc }. A WAV is the render
-  // itself; only its CRC (for the ZIP) is computed, in a worker.
+  // itself; only its CRC (for the ZIP) is computed, in a worker. The batch's
+  // files are made in workers of their own, as its renders are, not in the
+  // page's (W4-01b).
   async function exportItem(item, format) {
     if (format === 'wav') {
-      if (item.wavCrc == null) item.wavCrc = (await exportWav(item.wav, 'wav')).crc;
+      if (item.wavCrc == null) item.wavCrc = (await exportWav(item.wav, 'wav', OWN)).crc;
       return { blob: item.wav, crc: item.wavCrc };
     }
-    return cachedExport(item.exports, item.wav, format);
+    return cachedExport(item.exports, item.wav, format, OWN);
   }
 
   async function saveItem(item) {
@@ -374,7 +378,7 @@
     item.busy = `Encoding ${label}…`;
     renderRow(item);
     try {
-      const { blob } = await cachedExport(item.exports, wav, format);
+      const { blob } = await cachedExport(item.exports, wav, format, OWN);
       if (item.wav === wav) saveBlob(blob, name);
     } catch (error) {
       logLine(`batch: ${label} export of ${item.path} failed: ${error.message}`, 'err');

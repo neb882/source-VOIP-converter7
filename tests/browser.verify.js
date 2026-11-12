@@ -56,6 +56,24 @@ function wavSpeech(seconds, rate = 48000) {
   return buffer;
 }
 
+// A stereo file whose channels differ: wavSpeech's talk on the left, a
+// gated 700 Hz tone on the right (W4-01b: the capture channel).
+function wavStereo(seconds, rate = 48000) {
+  const mono = wavSpeech(seconds, rate), length = Math.round(seconds * rate), buffer = Buffer.alloc(44 + length * 4);
+  buffer.write('RIFF', 0); buffer.writeUInt32LE(36 + length * 4, 4);
+  buffer.write('WAVEfmt ', 8); buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20); buffer.writeUInt16LE(2, 22);
+  buffer.writeUInt32LE(rate, 24); buffer.writeUInt32LE(rate * 4, 28);
+  buffer.writeUInt16LE(4, 32); buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36); buffer.writeUInt32LE(length * 4, 40);
+  for (let i = 0; i < length; i++) {
+    buffer.writeInt16LE(mono.readInt16LE(44 + i * 2), 44 + i * 4);
+    const t = i / rate, on = Math.floor(t / 0.5) % 2 === 0;
+    buffer.writeInt16LE(Math.round((on ? 0.3 : 0) * Math.sin(2 * Math.PI * 700 * t) * 0x7fff), 44 + i * 4 + 2);
+  }
+  return buffer;
+}
+
 // The fake microphone's signal, which Chromium resamples to the device rate
 // and loops (--use-file-for-fake-audio-capture). Its own fake device plays a
 // 400 Hz square-wave beep, whose cross-correlation has a peak every 2.5 ms;
@@ -1905,20 +1923,30 @@ async function verifyJourney(browser, base) {
 
   // A change while a render runs, on a short source (review, S1): the render
   // for older settings stops or is followed by one for the controls', and
-  // what is shown is what a render of the controls' settings gives.
+  // what is shown is what a render of the controls' settings gives. Since
+  // W4-01b a render after a receiver's setting starts from the codec's result
+  // and ends before the next change's 400 ms; Packets lost % renders from the
+  // capture signal (about 1.4 s for 40 s), so the render is still running and
+  // is stopped for the newer settings.
   {
     const { context, page } = await fresh();
     try {
-      await chooseFile(page, { name: 'during.wav', mimeType: 'audio/wav', buffer: wavSpeech(20) });
-      await setControl(page, 'voice_scale', '0.6');
+      await chooseFile(page, { name: 'during.wav', mimeType: 'audio/wav', buffer: wavSpeech(40) }, 120000);
+      const mark = 'test: a change while a render runs';
+      await page.evaluate((m) => logLine(m, 'sys'), mark);
+      await setControl(page, 'loss', '5');
       await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
-      await setControl(page, 'voice_scale', '0.7');
-      await waitRendered(page);
+      await setControl(page, 'loss', '10');
+      await waitRendered(page, 120000);
+      const stopped = await page.evaluate((m) => {
+        const lines = [...document.getElementById('console-out').children].map((e) => e.textContent);
+        return lines.slice(lines.lastIndexOf(m) + 1).filter((t) => t === 'S_StopSound: render stopped for newer settings.').length;
+      }, mark);
       const shown = await wavHash(page), key = await page.evaluate(() => state.renderedKey === settingsKey() && !state.stale);
       await renderNow(page);
-      const again = await wavHash(page);
-      check(key && shown === again, 'a short source: after a change made while a render runs, the render shown is the controls\' settings\' (a fresh render of them is the same WAV)',
-        `${shown.slice(0, 12)} / ${again.slice(0, 12)}`);
+      const again = await wavHash(page), afresh = await freshHash(page);
+      check(stopped === 1 && key && shown === again && shown === afresh, 'a short source: after a change made while a render runs, that render is stopped and the render shown is the controls\' settings\' (a render of them again, and one made afresh on the page\'s own thread, are the same WAV)',
+        `${stopped} stopped; ${shown.slice(0, 12)} / ${again.slice(0, 12)} / ${afresh.slice(0, 12)}`);
       // The focus is not taken from a field being typed in (review, N5).
       await page.locator('#console-details summary').click();
       await page.evaluate(() => { window.__sourceBefore = state.decodedSource; });
@@ -2492,6 +2520,524 @@ async function verifyFirstVisitOffline(browser, base) {
   }
 }
 
+// W4-01b: the render's speed with the same samples. The page keeps one
+// worker for its jobs and does not end it on Cancel; the result comes before
+// the meter; the steam render's progress moves through its last stage.
+// Each page counts the workers it makes and logs what they post, from an
+// init script that stands in for Worker: it can also hold a worker's
+// `meter` messages back, or drop the page's cancels (a worker that does not
+// answer one).
+async function speedPage(browser, base) {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  await context.addInitScript(() => {
+    const Native = window.Worker;
+    window.__workers = [];
+    window.__posted = [];
+    window.__held = [];
+    window.__holdMeter = false;
+    window.__dropCancel = false;
+    window.__renders = [];
+    window.Worker = class extends Native {
+      constructor(url, options) {
+        super(url, options);
+        this.__index = window.__workers.length;
+        window.__workers.push(String(url));
+        // Registered before the page's onmessage, so it runs first and can stop it.
+        this.addEventListener('message', (event) => {
+          const data = event.data || {};
+          window.__posted.push({ type: data.type, id: data.id, at: performance.now(), worker: this.__index });
+          if (data.type === 'meter' && window.__holdMeter) {
+            event.stopImmediatePropagation();
+            window.__held.push({ worker: this, data });
+          }
+        });
+      }
+      postMessage(message, transfer) {
+        if (message && message.type === 'source') window.__sources = (window.__sources || 0) + 1;
+        if (message && message.type === 'process') window.__renders.push(message.id);
+        if (window.__dropCancel && message && message.type === 'cancel') return;
+        return transfer === undefined ? super.postMessage(message) : super.postMessage(message, transfer);
+      }
+    };
+    // Each render's start and end on the page (runRender's tf2:busy events).
+    window.__busy = [];
+    document.addEventListener('tf2:busy', () => window.__busy.push([performance.now(), state.processing]));
+    // Let the held `meter` messages through, in order.
+    window.__release = () => {
+      for (const { worker, data } of window.__held.splice(0)) worker.dispatchEvent(new MessageEvent('message', { data }));
+    };
+  });
+  const page = await context.newPage();
+  page.setDefaultTimeout(30000);
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto(base, { waitUntil: 'domcontentloaded' });
+  return { context, page, errors };
+}
+// The SHA-256 of a render of the source on screen with the controls'
+// settings, made afresh on the page's own thread (TF2Audio.process, no
+// worker and nothing kept), as hex.
+const freshHash = (page) => page.evaluate(async () => {
+  const demo = state.sourceDemo;
+  const opts = { ...renderOptions(), ...(demo ? { codec: demo.codecKey, received: demo.received } : {}) };
+  const result = await TF2Audio.process(captureSource(state.decodedSource, opts.captureChannel), opts);
+  const bytes = await result.blob.arrayBuffer();
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
+});
+// The last render's time on the page, from its start to its end, in ms.
+const lastRenderMs = (page) => page.evaluate(() => {
+  const b = window.__busy, end = b.length - 1;
+  let start = end - 1;
+  while (start >= 0 && !b[start][1]) start--;
+  return b[end][0] - b[start][0];
+});
+// The console's lines, and those since a line `mark` was logged.
+const consoleLines = (page) => page.evaluate(() => [...document.getElementById('console-out').children].map((e) => e.textContent));
+const linesSince = async (page, mark) => { const lines = await consoleLines(page); return lines.slice(lines.lastIndexOf(mark) + 1); };
+const audioWorkers = (page) => page.evaluate(() => window.__workers.filter((url) => /audio-worker\.js$/.test(url)).length);
+
+// Two renders of one source, the meter of each and of the original:
+// one worker. The result is posted before the meter, and the table holds
+// TF2Meter.analyze of the render, number for number.
+async function speedOneWorker(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await chooseFile(page, { name: 'two.wav', mimeType: 'audio/wav', buffer: wavSpeech(10) });
+    const r1 = await page.evaluate(() => state.renderId);
+    await setControl(page, 'voice_scale', '0.5');
+    await page.waitForFunction((r) => state.renderId === r + 1 && renderIdle(), r1, { timeout: 60000 });
+    await page.waitForFunction(() => !!(state.meterStats && state.meterStats.wet && state.meterStats.dry), null, { timeout: 30000 });
+    const made = await audioWorkers(page);
+    check(made === 1, 'two renders of one source, their meters and the original\'s, construct one worker', `${made} constructed`);
+    const order = await page.evaluate(() => {
+      const result = window.__posted.filter((m) => m.type === 'result').at(-1);
+      const of = (type) => window.__posted.findIndex((m) => m.type === type && m.id === result.id);
+      return { result: of('result'), meter: of('meter'), done: of('done') };
+    });
+    check(order.result >= 0 && order.meter > order.result && order.done > order.meter,
+      'the render\'s result is posted before its meter, and the worker is free after both', JSON.stringify(order));
+    const same = await page.evaluate(() => {
+      // Every number Object.is-equal, through the history's arrays.
+      const equal = (a, b) => {
+        if (a && typeof a === 'object') {
+          if (!b || typeof b !== 'object') return false;
+          const ka = Object.keys(a), kb = Object.keys(b);
+          return ka.length === kb.length && ka.every((k) => equal(a[k], b[k]));
+        }
+        return Object.is(a, b);
+      };
+      const fresh = TF2Meter.analyze(state.processedBuffer, state.processedRate), shown = state.meterStats.wet;
+      const tr = [...document.querySelectorAll('#meter-rows tr')].find((r) => r.querySelector('th').textContent === 'RENDER');
+      const texts = tr ? [...tr.querySelectorAll('td')].map((td) => td.textContent) : [];
+      return { keys: Object.keys(fresh).length, equal: equal(fresh, shown),
+        cells: texts.length === METER_COLUMNS.length && texts.every((t, i) => t === meterCell(METER_COLUMNS[i][0], fresh[METER_COLUMNS[i][0]])) };
+    });
+    check(same.equal && same.cells, 'the table\'s numbers are Object.is-equal to TF2Meter.analyze of the render, and its cells are those numbers',
+      `${same.keys} members`);
+    check(errors.length === 0, 'the kept worker: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// A late meter of a render no longer on screen does not fill the
+// table: the first render's meter is held back until the second render
+// and its meter are on screen.
+async function speedLateMeter(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.evaluate(() => { window.__holdMeter = true; });
+    await chooseFile(page, { name: 'late.wav', mimeType: 'audio/wav', buffer: wavSpeech(6) });
+    await page.waitForFunction(() => window.__held.length === 1, null, { timeout: 30000 });
+    const held = await page.evaluate(() => window.__held[0].data.id);
+    await page.evaluate(() => { window.__holdMeter = false; });
+    const r1 = await page.evaluate(() => state.renderId);
+    await setControl(page, 'voice_scale', '0.6');
+    await page.waitForFunction((r) => state.renderId === r + 1 && renderIdle(), r1, { timeout: 60000 });
+    await page.waitForFunction(() => !!(state.meterStats && state.meterStats.wet), null, { timeout: 30000 });
+    const row = () => page.evaluate(() => {
+      const tr = [...document.querySelectorAll('#meter-rows tr')].find((r) => r.querySelector('th').textContent === 'RENDER');
+      return tr ? tr.textContent : null;
+    });
+    const before = await row();
+    await page.evaluate(() => window.__release());
+    await page.waitForTimeout(300);
+    const after = await row(), match = await page.evaluate(() => {
+      const equal = (a, b) => (a && typeof a === 'object' ? !!b && typeof b === 'object' && Object.keys(a).length === Object.keys(b).length
+        && Object.keys(a).every((k) => equal(a[k], b[k])) : Object.is(a, b));
+      return equal(TF2Meter.analyze(state.processedBuffer, state.processedRate), state.meterStats.wet);
+    });
+    check(after === before && match, 'a meter that comes late for a render no longer on screen leaves the table to the render on screen',
+      `held the meter of job ${held}`);
+    check(errors.length === 0, 'the late meter: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// Cancel stops the render and keeps the worker; a render after it gives a
+// result. The render cancelled runs from the start (the mic gain changed),
+// so that it is far from its end: the worker is free again under
+// CANCEL_FREE_MS after the press (measured 51 to 90 ms on the build machine
+// and 66 to 67 ms on CI's runner; a worker that lets no cancel in, its
+// yields a resolved promise, was free only when its render ended, 414 ms
+// after a press on a render from B and more on one from the start).
+const CANCEL_FREE_MS = 300;
+async function speedCancel(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await chooseFile(page, { name: 'cancel.wav', mimeType: 'audio/wav', buffer: wavSpeech(20) });
+    await setControl(page, 'gain', '1.5');
+    await page.waitForFunction(() => state.processing && Number((els.process.textContent.match(/(\d+)%/) || [])[1]) >= 25, null, { timeout: 30000 });
+    const t0 = Date.now();
+    await page.locator('#cancel-process').click();
+    // The line under the player then marks the earlier render (W4-01a: the
+    // controls hold settings not rendered); the console says it was cancelled.
+    await page.waitForFunction(() => !state.processing && [...document.getElementById('console-out').children].some((e) => e.textContent === 'S_StopSound: render cancelled.'),
+      null, { timeout: 30000 });
+    await page.waitForFunction(() => !pageWorker.running, null, { timeout: 5000 });
+    const stopped = Date.now() - t0;
+    const r = await page.evaluate(() => state.renderId);
+    await renderNow(page);
+    check(stopped < CANCEL_FREE_MS && await page.evaluate((r) => state.renderId === r + 1, r) && await audioWorkers(page) === 1,
+      `Cancel stops a render from the start within ${CANCEL_FREE_MS} ms and keeps the worker; a render after it gives a result`,
+      `the worker free ${stopped} ms after Cancel; 1 worker`);
+
+    // A setting changed while a render runs (a 40 s source, Packets lost %:
+    // renders from A, about 1.4 s, longer than the 400 ms before the next one
+    // starts): the running render is stopped for the newer settings, and the
+    // render shown is a fresh render's, from the same worker.
+    await chooseFile(page, { name: 'during.wav', mimeType: 'audio/wav', buffer: wavSpeech(40) }, 120000);
+    const mark = 'test: loss changed during a render';
+    await page.evaluate((m) => logLine(m, 'sys'), mark);
+    await setControl(page, 'loss', '5');
+    await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
+    await setControl(page, 'loss', '10');
+    await waitRendered(page, 120000);
+    const stops = (await linesSince(page, mark)).filter((t) => t === 'S_StopSound: render stopped for newer settings.').length;
+    const shown = await wavHash(page), again = await freshHash(page);
+    check(stops === 1 && shown === again && await audioWorkers(page) === 1 && await page.evaluate(() => JSON.parse(state.renderedKey).lossPct === 10),
+      'a 40 s source: Packets lost % changed while a render from A runs stops that render for the newer settings; the WAV shown is a fresh render\'s, from the same worker',
+      `${stops} stopped; ${shown.slice(0, 12)} / ${again.slice(0, 12)}; ${await audioWorkers(page)} worker`);
+
+    check(errors.length === 0, 'Cancel and the kept worker: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// A worker that does not answer a cancel (the page's cancels dropped) is
+// ended once the bound has passed (500 ms and 15 ms a second of source:
+// 1.4 s for 60 s) and replaced; the source is sent to the new worker, and
+// the render after it is right and made there (not on the page's own
+// thread). The render cancelled runs from the start (its first), so that it
+// is still busy then.
+async function speedCancelUnanswered(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.evaluate(() => { window.__dropCancel = true; });
+    await page.locator('#file').setInputFiles({ name: 'unanswered.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) });
+    await page.waitForFunction(() => state.processing && Number((els.process.textContent.match(/(\d+)%/) || [])[1]) >= 5, null, { timeout: 30000 });
+    await page.locator('#cancel-process').click();
+    await page.waitForFunction(() => !state.processing, null, { timeout: 30000 });
+    await renderNow(page, 120000);
+    const lines = await consoleLines(page);
+    const replaced = lines.find((t) => /did not stop within \d+ ms of the cancel/.test(t));
+    const compatible = lines.filter((t) => /compatibility path/.test(t)).length;
+    const late = await wavHash(page);
+    await page.evaluate(() => { window.__dropCancel = false; });
+    const sources = await page.evaluate(() => window.__sources);
+    check(/within 1400 ms/.test(replaced || '') && await audioWorkers(page) === 2 && sources === 2 && compatible === 0 && late === await freshHash(page),
+      'a worker that does not answer a cancel is ended after the bound (1.4 s for 60 s) and replaced; the source goes to the new worker, and the render there is a fresh render\'s WAV',
+      `${await audioWorkers(page)} workers, ${sources} source messages, ${compatible} on the page's thread; ${replaced}`);
+    check(errors.length === 0, 'an unanswered cancel: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// Progress that moves: in a 60 s steam render the button shows at least
+// five percentages from 60 to 72 (Steam's resampler, the gain, the laying).
+async function speedProgress(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.evaluate(() => {
+      window.__percents = [];
+      new MutationObserver(() => {
+        const m = els.process.textContent.match(/(\d+)%/);
+        if (m) window.__percents.push(Number(m[1]));
+      }).observe(els.process, { childList: true, characterData: true, subtree: true });
+    });
+    await chooseFile(page, { name: 'sixty.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) }, 120000);
+    const percents = await page.evaluate(() => [...new Set(window.__percents.filter((p) => p >= 60 && p <= 72))]);
+    check(percents.length >= 5, 'a 60 s steam render shows at least five percentages from 60 to 72 on the button', percents.join(', '));
+    check(errors.length === 0, 'progress: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// Step 2, the stages before a changed setting. The option names the
+// Node suite changes one by one are the page's.
+async function speedStages(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    const text = fs.readFileSync(path.join(__dirname, 'stages.verify.mjs'), 'utf8');
+    const listed = JSON.parse(/const RENDER_OPTION_NAMES = (\[[^\]]*\]);/.exec(text)[1].replace(/'/g, '"'));
+    const sent = await page.evaluate(() => Object.keys(renderOptions()));
+    check(listed.length === sent.length && [...listed].sort().join() === [...sent].sort().join(),
+      'tests/stages.verify.mjs changes every option the page sends, and no other', `${listed.length} names`);
+    // A 60 s source, then voice_scale 0.5: the render from B takes under
+    // half the first's time and gives a fresh page's WAV. The source goes
+    // to the worker once.
+    await chooseFile(page, { name: 'reuse.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) }, 120000);
+    const first = await lastRenderMs(page);
+    await setControl(page, 'voice_scale', '0.5');
+    await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
+    await waitRendered(page, 120000);
+    const second = await lastRenderMs(page), reused = await wavHash(page);
+    await setControl(page, 'loss', '5');
+    await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
+    await waitRendered(page, 120000);
+    const third = await lastRenderMs(page), lossy = await wavHash(page), lossyFresh = await freshHash(page);
+    const sources = await page.evaluate(() => window.__sources);
+    const fresh = await speedPage(browser, base);
+    let freshHashValue = null;
+    try {
+      await setControl(fresh.page, 'voice_scale', '0.5');
+      await chooseFile(fresh.page, { name: 'reuse.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) }, 120000);
+      freshHashValue = await wavHash(fresh.page);
+    } finally { await fresh.context.close(); }
+    check(second < first / 2 && reused === freshHashValue,
+      'a 60 s source, then voice_scale 0.5: the render takes under half the first\'s time and gives a fresh page\'s WAV',
+      `${Math.round(first)} ms, then ${Math.round(second)} ms; ${reused.slice(0, 12)} / ${freshHashValue && freshHashValue.slice(0, 12)}`);
+    check(lossy === lossyFresh && third < first && sources === 1,
+      'then Packets lost % at 5: a fresh render\'s WAV, from A; the source went to the worker once for the three renders',
+      `${Math.round(third)} ms; ${sources} source message`);
+    check(errors.length === 0, 'the stages: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// A demo's voice: a new speaker is a new source for the worker (its
+// samples sent again, nothing of the other speaker's taken), and each
+// render is a fresh render's.
+async function speedDemoSource(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.locator('#file').setInputFiles(path.join(__dirname, 'demo', 'synthetic.dem'));
+    await waitRendered(page);
+    const one = { sources: await page.evaluate(() => window.__sources), wav: await wavHash(page), fresh: await freshHash(page) };
+    await page.locator('#demo-speaker').selectOption('4503603922337794');
+    await page.waitForFunction(() => state.sourceDemo && state.sourceDemo.speaker.id === '4503603922337794');
+    await waitRendered(page);
+    const two = { sources: await page.evaluate(() => window.__sources), wav: await wavHash(page), fresh: await freshHash(page) };
+    const r2 = await page.evaluate(() => state.renderId);
+    await page.evaluate(() => execCommand('voice_scale 0.5'));
+    await page.waitForFunction((r) => state.renderId > r && renderIdle(), r2, { timeout: 30000 });
+    const three = { sources: await page.evaluate(() => window.__sources), wav: await wavHash(page), fresh: await freshHash(page) };
+    check(one.sources === 1 && two.sources === 2 && three.sources === 2 && one.wav === one.fresh && two.wav === two.fresh
+      && three.wav === three.fresh && one.wav !== two.wav,
+      'a demo: another speaker sends the worker a new source, and each render (voice_scale changed too) is a fresh render\'s WAV',
+      `${one.sources}, ${two.sources}, ${three.sources} source messages`);
+    check(errors.length === 0, 'a demo\'s speakers: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// Step 3: the first seconds. A 60 s source has a playable player within
+// 2.5 s of its render's start, while the render runs: the first 14 s, said
+// so under the player; the download, the views and the table wait. The
+// whole render then takes the player's place at its position, playing on.
+// None with Packets lost % at 5, and none for a source of 30 s.
+async function speedFirstSeconds(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.evaluate(() => {
+      window.__previewSeen = null;
+      document.addEventListener('canplay', (e) => {
+        if (e.target === els.audio && state.preview && els.audio.getAttribute('src') === state.preview.url && !window.__previewSeen) {
+          const b = window.__busy, start = b.filter((x) => x[1]).at(-1);
+          window.__previewSeen = { after: performance.now() - start[0], processing: state.processing, percent: els.progress ? els.progress.value : null,
+            status: els.renderStatus.textContent, download: els.dl.disabled, wet: !!state.processedBuffer,
+            renderRow: [...document.querySelectorAll('#meter-rows th')].some((th) => th.textContent === 'RENDER'),
+            duration: els.audio.duration };
+        }
+      }, true);
+    });
+    // A click first: the page has had a user's gesture, so it may play.
+    await page.locator('#viz-wave').click();
+    await page.locator('#file').setInputFiles({ name: 'first.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) });
+    await page.waitForFunction(() => !!window.__previewSeen, null, { timeout: 30000 });
+    const seen = await page.evaluate(() => window.__previewSeen);
+    check(seen.after < 2500 && seen.processing && seen.percent < 100 && Math.abs(seen.duration - 14) < 0.01,
+      'a 60 s source: the player can play the first 14 s within 2.5 s of the render\'s start, while it renders',
+      `${Math.round(seen.after)} ms, at ${seen.percent}%; ${seen.duration.toFixed(3)} s`);
+    check(seen.status === 'The first 14 s; the rest is rendering…' && seen.download && !seen.wet && !seen.renderRow,
+      'the line under the player says so; the download, the views and the table show nothing new until the whole render', seen.status);
+    await page.evaluate(async () => { els.audio.currentTime = 3; await els.audio.play(); });
+    await page.waitForFunction(() => els.audio.currentTime > 3.2 && !els.audio.paused);
+    await page.evaluate(() => {
+      const proto = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+      window.__place = null; window.__restored = null;
+      Object.defineProperty(els.audio, 'src', { configurable: true, get() { return proto.get.call(this); },
+        set(v) { if (v === state.lastBlob) { window.__place = { at: this.currentTime, playing: !this.paused };
+          this.addEventListener('seeked', () => { window.__restored = this.currentTime; }, { once: true }); } proto.set.call(this, v); } });
+    });
+    await page.waitForFunction(() => state.renderId === 1 && renderIdle() && window.__restored !== null, null, { timeout: 60000 });
+    await page.waitForTimeout(300);
+    const after = await page.evaluate(() => ({ place: window.__place, restored: window.__restored, playing: !els.audio.paused, now: els.audio.currentTime,
+      duration: els.audio.duration, preview: state.preview, download: els.dl.disabled }));
+    await page.evaluate(() => { delete els.audio.src; els.audio.pause(); });
+    check(after.place && after.place.playing && Math.abs(after.restored - after.place.at) < 0.15 && after.playing && after.now > after.restored
+      && Math.abs(after.duration - 60) < 0.01 && after.preview === null && !after.download,
+      'the whole render then takes the player\'s place where the first seconds had got to, and plays on',
+      `at ${after.place && after.place.at.toFixed(3)} s, on from ${after.restored && after.restored.toFixed(3)} s; ${after.duration.toFixed(1)} s long`);
+    const posted = await page.evaluate(() => window.__posted.filter((m) => m.type === 'preview').length);
+    // Packets lost % at 5: no first seconds.
+    await page.evaluate(() => { window.__previewSeen = null; window.__posted.length = 0; });
+    await setControl(page, 'loss', '5');
+    await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
+    await waitRendered(page, 120000);
+    const lossy = await page.evaluate(() => ({ previews: window.__posted.filter((m) => m.type === 'preview').length, seen: window.__previewSeen }));
+    check(posted === 1 && lossy.previews === 0 && lossy.seen === null, 'with Packets lost % at 5 there are no first seconds', `${lossy.previews} posted`);
+    // A source of 30 s: none.
+    await page.evaluate(() => { window.__posted.length = 0; });
+    await setControl(page, 'loss', '0');
+    await chooseFile(page, { name: 'thirty.wav', mimeType: 'audio/wav', buffer: wavSpeech(30) }, 120000);
+    check(await page.evaluate(() => window.__posted.filter((m) => m.type === 'preview').length) === 0, 'a source of 30 s gets no first seconds');
+    check(errors.length === 0, 'the first seconds: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// Cancel while the first seconds play: the player gives back what it
+// held (nothing, for a first render), and the line says the render was
+// cancelled.
+async function speedFirstSecondsCancel(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.locator('#file').setInputFiles({ name: 'stop.wav', mimeType: 'audio/wav', buffer: wavSpeech(90) });
+    await page.waitForFunction(() => !!state.preview && state.processing, null, { timeout: 30000 });
+    await page.locator('#cancel-process').click();
+    await page.waitForFunction(() => !state.processing, null, { timeout: 30000 });
+    const left = await page.evaluate(() => ({ src: els.audio.getAttribute('src'), preview: state.preview, status: els.renderStatus.textContent, workers: window.__workers.length,
+      audio: window.__workers.filter((url) => /audio-worker\.js$/.test(url)).length }));
+    check(!left.src && left.preview === null && /cancelled/.test(left.status) && left.workers === 1 && left.audio === 1,
+      'Cancel during the first seconds empties the player of them; the line says the render was cancelled; the worker is kept', left.status);
+    check(errors.length === 0, 'Cancel during the first seconds: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// A render asked for while the page's worker makes a download (an MP3 of a
+// 60 s render) waits behind it; cancelled while it waits, it never reaches
+// the worker.
+async function speedQueuedCancel(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await chooseFile(page, { name: 'queued.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) }, 120000);
+    const before = await page.evaluate(() => window.__renders.length);
+    await page.evaluate(() => { window.__export = exportWav(state.lastWav, 'mp3'); });
+    await page.waitForFunction(() => pageWorker.running && pageWorker.running.message.type === 'export', null, { timeout: 30000 });
+    await page.locator('#process').click();
+    await page.waitForFunction(() => state.processing && pageWorker.queue.some((job) => job.render), null, { timeout: 30000 });
+    const waited = await page.evaluate(() => pageWorker.running && pageWorker.running.message.type === 'export');
+    await page.locator('#cancel-process').click();
+    await page.waitForFunction(() => !state.processing, null, { timeout: 30000 });
+    await page.evaluate(() => window.__export);
+    await page.waitForFunction(() => !pageWorker.running, null, { timeout: 30000 });
+    await page.waitForTimeout(500);
+    const after = await page.evaluate(() => ({ renders: window.__renders.length, queued: pageWorker.queue.filter((job) => job.render).length }));
+    check(waited && after.renders === before && after.queued === 0,
+      'a render asked for while the page\'s worker makes a download waits; cancelled while it waits, it never reaches the worker',
+      `${after.renders - before} renders posted after the download`);
+    check(errors.length === 0, 'a render cancelled while it waits: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// A stereo file: the capture channel switched renders the channel chosen,
+// a fresh render's WAV; the worker is sent that channel as a source of its
+// own.
+async function speedCaptureChannel(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await chooseFile(page, { name: 'stereo.wav', mimeType: 'audio/wav', buffer: wavStereo(8) });
+    const left = { wav: await wavHash(page), fresh: await freshHash(page) };
+    const r = await page.evaluate(() => state.renderId);
+    await setControl(page, 'capture_channel', 'right');
+    await page.waitForFunction((r) => state.renderId > r && renderIdle(), r, { timeout: 60000 });
+    const right = { wav: await wavHash(page), fresh: await freshHash(page), sources: await page.evaluate(() => window.__sources) };
+    check(left.wav === left.fresh && right.wav === right.fresh && right.wav !== left.wav && right.sources === 2,
+      'a stereo file: the capture channel switched renders the other channel (a fresh render\'s WAV), sent to the worker as a source of its own',
+      `${left.wav.slice(0, 12)} then ${right.wav.slice(0, 12)}; ${right.sources} source messages`);
+    check(errors.length === 0, 'the capture channel: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// Cancel during the first seconds of a re-render: the player holds the
+// earlier render again, at the place playback had got to, and plays on.
+async function speedFirstSecondsRerenderCancel(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.locator('#viz-wave').click();
+    await chooseFile(page, { name: 'again.wav', mimeType: 'audio/wav', buffer: wavSpeech(40) }, 120000);
+    const earlier = await page.evaluate(() => state.lastBlob);
+    await page.evaluate(async () => {
+      const a = els.audio;
+      if (!(a.duration > 0)) await new Promise((r) => a.addEventListener('loadedmetadata', r, { once: true }));
+      a.currentTime = 4;
+      await a.play();
+    });
+    await page.waitForFunction(() => els.audio.currentTime > 4.2 && !els.audio.paused);
+    // The gate off: a render from A, with first seconds.
+    await setControl(page, 'vad', '0');
+    await page.waitForFunction(() => !!state.preview && els.audio.getAttribute('src') === state.preview.url, null, { timeout: 30000 });
+    await page.waitForFunction(() => !els.audio.paused && els.audio.currentTime > 4.3, null, { timeout: 10000 });
+    const during = await page.evaluate(() => els.audio.currentTime);
+    await page.locator('#cancel-process').click();
+    await page.waitForFunction(() => !state.processing && els.audio.getAttribute('src') === state.lastBlob, null, { timeout: 30000 });
+    await page.waitForFunction((t) => !els.audio.paused && els.audio.currentTime > t, during, { timeout: 10000 }).catch(() => {});
+    const after = await page.evaluate(() => ({ src: els.audio.getAttribute('src'), last: state.lastBlob, t: els.audio.currentTime, playing: !els.audio.paused,
+      preview: state.preview, download: els.dl.disabled, status: els.renderStatus.textContent }));
+    await page.evaluate(() => els.audio.pause());
+    const cancelled = (await consoleLines(page)).includes('S_StopSound: render cancelled.');
+    check(after.src === earlier && after.last === earlier && after.playing && after.t > during && after.preview === null && !after.download
+      && cancelled && after.status === STALE_TEXT,
+      'Cancel during the first seconds of a re-render gives the player back the earlier render, at its place, playing; its download is offered again, and the line marks it as made with the earlier settings',
+      `from ${during.toFixed(3)} s on at ${after.t.toFixed(3)} s`);
+    check(errors.length === 0, 'Cancel during a re-render\'s first seconds: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// The batch keeps its own lanes for its files too: a ZIP of FLAC asked for
+// while the page renders a long source is made in workers of its own, ends
+// before the render, and the page's worker makes none of it.
+async function speedBatchExport(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.evaluate(() => { els.format.value = 'flac'; els.format.dispatchEvent(new Event('change')); });
+    await page.locator('#batch-files').setInputFiles([
+      { name: 'a.wav', mimeType: 'audio/wav', buffer: wavSpeech(6) }, { name: 'b.wav', mimeType: 'audio/wav', buffer: wavSpeech(6) }]);
+    await page.locator('#batch-run').click();
+    await page.waitForFunction(() => !state.batchRunning && !document.getElementById('batch-zip').disabled, null, { timeout: 60000 });
+    await page.locator('#file').setInputFiles({ name: 'long.wav', mimeType: 'audio/wav', buffer: wavSpeech(90) });
+    await page.waitForFunction(() => state.processing && Number((els.process.textContent.match(/(\d+)%/) || [])[1]) >= 5, null, { timeout: 60000 });
+    const timing = await page.evaluate(async () => {
+      const t0 = performance.now(), log = document.getElementById('console-out');
+      const zipped = () => [...log.children].some((e) => /^Host_WriteFile: tf2_voice_.*\.zip/.test(e.textContent));
+      let zip = null, render = null;
+      document.getElementById('batch-zip').click();
+      await new Promise((resolve) => {
+        const tick = setInterval(() => {
+          if (zip === null && zipped()) zip = performance.now() - t0;
+          if (render === null && !state.processing) render = performance.now() - t0;
+          if (zip !== null && render !== null) { clearInterval(tick); resolve(); }
+        }, 10);
+      });
+      return { zip: Math.round(zip), render: Math.round(render), kept: pageWorker.worker ? pageWorker.worker.__index : null };
+    });
+    const exported = await page.evaluate((kept) => ({ byKept: window.__posted.filter((m) => m.type === 'exported' && m.worker === kept).length,
+      byOthers: window.__posted.filter((m) => m.type === 'exported' && m.worker !== kept).length }), timing.kept);
+    check(timing.zip < timing.render && exported.byKept === 0 && exported.byOthers === 2,
+      'the batch\'s ZIP asked for while the page renders a long source is made in workers of its own and ends before the render',
+      `ZIP at ${timing.zip} ms, the render's end at ${timing.render} ms; ${exported.byOthers} files exported by other workers, ${exported.byKept} by the page's`);
+    check(errors.length === 0, 'the batch\'s files: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+async function verifySpeed(browser, base) {
+  console.log('\n[Browser 10] Speed with the same samples (W4-01b): the kept worker, Cancel, the meter after the result, progress, the stages, the first seconds');
+  for (const part of [speedOneWorker, speedLateMeter, speedCancel, speedCancelUnanswered, speedQueuedCancel, speedCaptureChannel, speedProgress, speedStages,
+    speedDemoSource, speedFirstSeconds, speedFirstSecondsCancel, speedFirstSecondsRerenderCancel, speedBatchExport]) await part(browser, base);
+}
+
 async function main() {
   const root = path.join(__dirname, '..');
   const server = await createStaticServer(root);
@@ -3033,6 +3579,7 @@ async function main() {
     await verifyBatchAndFormats(browser, base);
     await verifySampleRateMatrix(browser, base);
     await verifyNativeRate(browser, base);
+    await verifySpeed(browser, base);
 
     console.log(`\n${passed} browser checks passed`);
   } finally {
