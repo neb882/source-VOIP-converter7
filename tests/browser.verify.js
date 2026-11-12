@@ -2532,6 +2532,83 @@ async function verifyFirstVisitOffline(browser, base) {
   }
 }
 
+// A returning visitor after an update, with every file sent max-age=600 as
+// GitHub Pages sends it: the browser may then use its own copy of a file for
+// ten minutes without asking. The site is a copy of the page's files in a
+// temporary folder. A first visit; then the copy changes as a merge would
+// change the site: the cache number one higher, and the file input's id
+// renamed in index.html and app/core.js, so neither file works with the
+// other's old copy (app/source.js stops at load on a missing input). The
+// visitor navigates to the page (not a reload). The service worker must ask
+// the server past the browser's copies (cache: 'no-cache') and keep what it
+// served, and the newer worker's install must store the new files, not the
+// browser's old copies (cache: 'reload').
+async function verifyUpdateThroughHttpCache(browser) {
+  console.log('\n[Browser 4c] An update reaches a returning visitor whole, past the browser\'s own copies (max-age=600)');
+  const root = path.join(__dirname, '..');
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), 'tf2ve-update-'));
+  for (const file of [...SITE_FILES, 'sw.js']) {
+    fs.mkdirSync(path.dirname(path.join(tree, file)), { recursive: true });
+    fs.copyFileSync(path.join(root, file), path.join(tree, file));
+  }
+  const number = Number(/CACHE_PREFIX\}v(\d+)/.exec(fs.readFileSync(path.join(tree, 'sw.js'), 'utf8'))[1]);
+  const change = (file, from, to) => {
+    const text = fs.readFileSync(path.join(tree, file), 'utf8');
+    if (text.split(from).length !== 2) throw new Error(`${file}: "${from}" is not there once`);
+    fs.writeFileSync(path.join(tree, file), text.replace(from, to));
+  };
+  const server = await createStaticServer(tree, 0, { maxAge: 600 });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const context = await browser.newContext({ serviceWorkers: 'allow' });
+  try {
+    const page = await context.newPage();
+    page.setDefaultTimeout(30000);
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    const until = async (fn, arg, what) => {
+      for (const end = Date.now() + 30000; !(await page.evaluate(fn, arg).catch(() => false));) {
+        if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+        await page.waitForTimeout(100);
+      }
+    };
+    // Which version each copy is, in a cache: new, old or missing.
+    const versions = (name) => page.evaluate(async (name) => {
+      if (!(await caches.keys()).includes(name)) return null;
+      const cache = await caches.open(name), out = {};
+      for (const file of ['./', 'index.html', 'app/core.js']) {
+        const hit = await cache.match(new URL(file, location.href).href);
+        out[file] = hit ? ((await hit.text()).includes('file-next') ? 'new' : 'old') : 'missing';
+      }
+      return out;
+    }, name);
+    const said = (v) => v ? Object.entries(v).map(([f, s]) => `${f} ${s}`).join(', ') : 'no such cache';
+    await page.goto(`${base}/`, { waitUntil: 'networkidle' });
+    await until(() => !!navigator.serviceWorker.controller, null, 'the first visit\'s worker');
+    change('sw.js', `\${CACHE_PREFIX}v${number}\``, `\${CACHE_PREFIX}v${number + 1}\``);
+    change('index.html', 'id="file"', 'id="file-next"');
+    change('app/core.js', 'getElementById(\'file\')', 'getElementById(\'file-next\')');
+    await page.goto(`${base}/`, { waitUntil: 'networkidle' });
+    const seen = await page.evaluate(() => ({ page: document.getElementById('file-next') ? 'new' : 'old',
+      script: typeof els === 'undefined' ? 'not run' : els.file ? (els.file.id === 'file-next' ? 'new' : 'old') : 'finds no input' }));
+    const kept = await versions(`tf2ve-v${number}`);
+    check(seen.page === 'new' && seen.script === 'new' && errors.length === 0,
+      'navigating to the page after an update gives the new index.html with the new app/core.js, and no page error',
+      `index.html ${seen.page}, app/core.js ${seen.script}${errors.length ? `; ${errors.join('; ')}` : ''}`);
+    check(!!kept && kept['./'] === 'new' && kept['app/core.js'] === 'new', 'the worker that served them keeps the new copies in its cache', said(kept));
+    await page.evaluate(async () => { await (await navigator.serviceWorker.getRegistration()).update(); });
+    await until(async (name) => (await caches.keys()).join() === name && navigator.serviceWorker.controller.state === 'activated',
+      `tf2ve-v${number + 1}`, 'the newer worker');
+    const stored = await versions(`tf2ve-v${number + 1}`);
+    check(!!stored && Object.values(stored).every((s) => s === 'new'), 'once the newer worker has taken over, its cache holds the new index.html and app/core.js',
+      said(stored));
+  } finally {
+    await context.close();
+    if (server.closeAllConnections) server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tree, { recursive: true, force: true });
+  }
+}
+
 // W4-01b: the render's speed with the same samples. The page keeps one
 // worker for its jobs and does not end it on Cancel; the result comes before
 // the meter; the steam render's progress moves through its last stage.
@@ -3628,6 +3705,7 @@ async function main() {
     check(pageErrors.length === 0, 'complete conversion and recording flow has no page errors', pageErrors.join('; '));
 
     await verifyFirstVisitOffline(browser, base);
+    await verifyUpdateThroughHttpCache(browser);
     await verifyJourney(browser, base);
     await verifyVersionLine(browser);
     await verifyAccess(browser, base);

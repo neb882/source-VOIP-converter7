@@ -7,9 +7,18 @@
  *     These change on every edit, so a normal reload always fetches the latest
  *     when online — no hard refresh needed. The cache is used only when the
  *     network fails (offline), and each successful fetch refreshes that copy.
+ *     The network is asked with cache: 'no-cache': the browser's own HTTP
+ *     cache may hold a copy that is still fresh by its headers (GitHub Pages
+ *     lets it keep every file ten minutes), and 'no-cache' has the browser
+ *     check that copy with the server before using it. Without it a visit
+ *     after an update could get the old page, or a page whose markup and
+ *     scripts are of two versions, which cannot start.
  *
  *   - Everything else (icons, manifest, favicon): CACHE-FIRST for speed. These
  *     rarely change; when they do, bump CACHE below to evict the old generation.
+ *
+ * The install fetches every file with cache: 'reload', past the browser's HTTP
+ * cache, so a new generation never stores a copy left from the one before.
  */
 
 const CACHE_PREFIX = 'tf2ve-';
@@ -81,7 +90,7 @@ const ASSETS = [
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE)
-      .then((c) => c.addAll(ASSETS))
+      .then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' }))))
       .then(() => self.skipWaiting())
   );
 });
@@ -124,9 +133,12 @@ self.addEventListener('fetch', (e) => {
     return resp;
   };
 
+  // A navigation given options becomes a same-origin request (Fetch, the
+  // Request constructor) and keeps its redirect mode, manual, so a redirect
+  // still goes back to the browser to follow.
   if (isLive) {
     e.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then(keep)
         .catch(() => caches.match(req).then((hit) => {
           if (hit) return hit;
