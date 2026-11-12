@@ -97,8 +97,12 @@
   // first sample, the room set (no fade at the start) and under water from
   // the start if asked (its water preset already settled), its random taps
   // drawn from the render's seed (Decision 7); spurtStart() called once,
-  // now: a render has no voice channel yet, so the one channel starts with
-  // it (W3-02c will call it at each channel it opens). shares is the custom
+  // now. A render on the game's timeline (W3-02c-2) opens a channel at each
+  // spurt that is not appended and still calls it only here: in a render the
+  // room never changes, and the call only fixes two limits from the room's
+  // values, so no sample depends on how often it comes. The live chain's
+  // channel (W3-02c-3, not built yet) calls it at each open, where the
+  // listener can change rooms. shares is the custom
   // room's own shares, or null for the path's; cap the tail's cap (in mixer
   // samples, the module's TAIL_CAP); info is codecInfo.room.
   function resolveRoom(opts, seed) {

@@ -12,8 +12,8 @@
   const { buildLossMask, retimeSpurts, steamLoser } = E.network;
   const { DEFAULT_SENDER_GATE, celtModeRate, gateThresholdDb, loadOpusModule, profileEq, receivedCodecInfo } = E.codec;
   const { resolveRoom, roomPreset, tailAtDevice } = E.room;
-  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamCapture, steamCodecInfo, steamModules, steamSenderOptions,
-    steamTimeline } = E.steam;
+  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamCapture, steamChannel, steamCodecInfo, steamGameTimeline,
+    steamModules, steamPlayedInfo, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
   /* The stages a render keeps (W4-01b)                                 */
@@ -43,9 +43,11 @@
   // first used.
   // The options process() uses only after B, each first used after the
   // codec stage (the receiver's gain, re-timing, the room, volume, the
-  // device). An option used at or before B must not be on this list.
+  // device, the game's timeline: the channel takes B's messages and decoded
+  // packets and changes nothing in them). An option used at or before B must
+  // not be on this list.
   const AFTER_B_OPTIONS = ['voiceScale', 'agc', 'avgGain', 'maxGain', 'retime', 'volume',
-    'room', 'underwater', 'listenerPos', 'dspRoom', 'customEnv', 'deviceRate'];
+    'room', 'underwater', 'listenerPos', 'dspRoom', 'customEnv', 'deviceRate', 'timeline', 'fps', 'bufferMs'];
   // The options used only after A: those, and the sender's and the
   // network's, first used in the codec stage. An option used at or before A
   // (the codec, the capture's channel, gain and filters, the codec switch,
@@ -111,6 +113,10 @@
     // A demo's frames, as codecInfo gives them (read here, not in the codec
     // stage).
     const receivedInfo = received ? receivedCodecInfo(received, codecRate) : null;
+    // The game's timeline (W3-02c-2), or a RangeError where it was asked for
+    // and cannot run (steamGameTimeline). fps and bufferMs are handed to the
+    // channel as they were given.
+    const game = steamGameTimeline(o.timeline, { codecKey, codec, enableCodec, received, retime: o.retime });
     const used = {
       codec: Object.keys(CODEC_PROFILES).find((name) => CODEC_PROFILES[name] === codec),
       enableWarble: enableCodec, received: !!received, micGain, captureChannel, hp, lp,
@@ -120,7 +126,7 @@
     };
     return { o, codecKey, codec, seedNumber, seed, room, micGain, captureChannel, hp, lp, bits, lossPct, jitterMs,
       enableCodec, autoGain, gateSpec, gateOn, gateDb, avgGain, maxGain, voiceScale, volume, received, receivedInfo,
-      deviceRate, framesPerPacket, used };
+      deviceRate, framesPerPacket, game, used };
   }
 
   // A value as text for a key: two values give the same text only when they
@@ -373,6 +379,17 @@
    *                 the listener's sound device, an integer from 44100 to
    *                 192000; anything else is the default. The output is
    *                 at this rate. Only 48000 is measured.           [48000]
+   *   timeline:     W3-02c-2: 'source' (undefined and null too): the voice
+   *                 on the source's timeline; 'game': on the game's, through
+   *                 the receiver's voice channel (voice-channel.js: the wait,
+   *                 the queue, the one sample dropped from every packet, the
+   *                 fade, a gain reset at each channel opened). `steam` only,
+   *                 with the codec on, no `received` and no `retime`; anywhere
+   *                 else, and for any other value, a RangeError. The page
+   *                 does not offer it (W3-02d, not built yet)       ['source']
+   *   fps, bufferMs: with timeline 'game', the listener's frames a second
+   *                 and voice_buffer_ms, handed to the channel as given (it
+   *                 takes its own defaults and limits)           [300, 100]
    *   seed:         PRNG seed for the loss pattern / crackle        [0xC0FFEE]
    *   received:     the source is voice as the game received it, already
    *                 through a sender and the codec (a demo's packets,
@@ -407,6 +424,10 @@
    * key (null for measures, which are then given) with the shape, classes,
    * pair and copy of the automatic room, or the custom room's knobs; the
    * shares of 256; underwater; tail, the tail's length in mixer samples.
+   * With timeline 'game' codecInfo.frameLog and frameBytes are the frames as
+   * played (steamPlayedInfo), codecInfo.sent the sender's (the 'source'
+   * render's logs) and codecInfo.channel the channel's info; the counters
+   * and `network` are the source timeline's.
    */
   async function process(audioBuffer, opts = {}) {
     if (!audioBuffer || typeof audioBuffer.getChannelData !== 'function' ||
@@ -568,9 +589,14 @@
       const { messages, trip, sender, settings, bitrate, lossSet, framesPerPacket, codecLength } = b;
       const resampler = o.swrKernel !== undefined ? swr.createResampler({ kernel: o.swrKernel }) : swr.createResampler();
       const voiceLength = sincLength(codecLength, STEAM_RATE, STEAM_VOICE_RATE);
+      // On the game's timeline (W3-02c-2) the receiver's voice channel plays
+      // the packets, its gain object running on them, and steamTimeline is
+      // given no gain and no capacity: nothing is laid.
+      const channel = r.game ? steamChannel({ length: voiceLength, lookahead: trip.lookahead, fps: o.fps, bufferMs: o.bufferMs,
+        autoGain, avgGain, maxGain, voiceScale }) : null;
       const timeline = steamTimeline({ voiceLength, codecLength, lookahead: trip.lookahead, resampler,
-        gain: autoGain ? createGain({ avgGain, maxGain, scale: voiceScale }) : null, capacity: voiceLength,
-        onDecoded: o.onDecoded, onResampled: o.onResampled });
+        gain: autoGain && !channel ? createGain({ avgGain, maxGain, scale: voiceScale }) : null,
+        capacity: channel ? undefined : voiceLength, onDecoded: o.onDecoded, onResampled: o.onResampled, channel });
       // Progress once per 64 messages, from 60% to 72%.
       for (let k = 0; k < messages.length; k++) {
         timeline.add(messages[k], trip.results[k]);
@@ -579,8 +605,15 @@
           await pause();
         }
       }
-      steamVoice = timeline.take(voiceLength);
+      // The channel's output: what every push gave and what finish() gives,
+      // in order, voiceLength samples.
+      const played = channel ? channel.finish() : null;
+      steamVoice = channel ? channel.take() : timeline.take(voiceLength);
+      if (channel && steamVoice.length !== voiceLength) {
+        throw new Error(`TF2Audio: the voice channel gave ${steamVoice.length} samples for a voice of ${voiceLength}.`);
+      }
       codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate, lossSet), framesPerPacket };
+      if (played) codecInfo = steamPlayedInfo(codecInfo, played, trip.lookahead);
       // The receiver's re-timing (finding 19), on the voice-rate timeline: the
       // laid spurts, moved earlier as the frame path moves its decoded sound;
       // the slots of 480 codec samples are 882 here.
@@ -612,9 +645,11 @@
 
     /* ---- 4) Receiver voice channel: auto-gain + int16 clamp ---- */
     if (steamPath) {
-      // The gain ran on the decoded packets (steamTimeline).
+      // The gain ran on the decoded packets (steamTimeline); on the game's
+      // timeline the channel's gain object also scaled, clipped and rounded
+      // them with the auto-gain off.
       samples = steamVoice;
-      if (!autoGain) {
+      if (!autoGain && !r.game) {
         for (let i = 0; i < samples.length; i++) samples[i] *= voiceScale;
         samples = hardClip(samples, INT16_FULL_SCALE);
       }

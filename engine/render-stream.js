@@ -13,8 +13,8 @@
   const { DEFAULT_SENDER_GATE, FRAME_CODES, celtModeRate, gateThresholdDb, loadOpusModule, profileEq,
     receivedCodecInfo } = E.codec;
   const { resolveRoom, roomModule, tailAtDevice } = E.room;
-  const { STEAM_RATE, STEAM_VOICE_RATE, steamCapture, steamCodecInfo, steamGiveOut, steamModules, steamReach,
-    steamSenderOptions, steamTimeline } = E.steam;
+  const { STEAM_RATE, STEAM_VOICE_RATE, steamCapture, steamChannel, steamCodecInfo, steamGameTimeline, steamGiveOut,
+    steamModules, steamPlayedInfo, steamReach, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
   /* A render a piece at a time                                         */
@@ -149,6 +149,8 @@
    * Concatenated, the output is process()'s samples and codecInfo is its
    * codecInfo; steamUptime is taken as process() takes it. retime is
    * rejected with a RangeError: not streamed (W3-02f removes the rule).
+   * timeline 'game' (W3-02c-2) streams, and is refused where process()
+   * refuses it, before anything else is refused.
    * Each push and finish must resolve before the next call.
    */
   async function createRender(source, opts = {}) {
@@ -186,6 +188,10 @@
     const frameMs = 20;
     const framesPerPacket = clamp(Math.round(finiteOr(opts.frameMs, frameMs) / frameMs), 1, 10);
     const report = (f) => { if (typeof opts.onProgress === 'function') opts.onProgress(f); };
+
+    // The game's timeline (W3-02c-2), or a RangeError where it was asked for
+    // and cannot run, as process() decides it (steamGameTimeline).
+    const game = steamGameTimeline(opts.timeline, { codecKey, codec, enableCodec, received, retime: opts.retime });
 
     // What process() would do that is not streamed: the flat re-timing rule,
     // with a room or without (W3-02f removes the rule).
@@ -235,30 +241,60 @@
       const stream = voice;
       const nextMiss = streamLossMask(framesPerPacket, 0, rand, jitterMs);
       const loser = steamLoser(opts, lossPct, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
-      let frame = 0, given = 0, fed = 0, index = 0;
+      let frame = 0, given = 0, fed = 0, index = 0, lastTick = -1, voiceOut = 0;
       const miss = (f) => {
         if (f !== frame++) throw new Error(`createRender: frame ${f} reached the network out of order`);
         return nextMiss();
       };
       const resampler = opts.swrKernel !== undefined ? swr.createResampler({ kernel: opts.swrKernel }) : swr.createResampler();
+      // On the game's timeline, process()'s channel, given the messages as
+      // they come; steamTimeline lays nothing.
+      const channel = game ? steamChannel({ length: voiceLength, lookahead: stream.lookahead, fps: opts.fps, bufferMs: opts.bufferMs,
+        autoGain, avgGain, maxGain, voiceScale }) : null;
       const timeline = steamTimeline({ voiceLength, codecLength, lookahead: stream.lookahead, resampler,
-        gain: autoGain ? createGain({ avgGain, maxGain, scale: voiceScale }) : null,
-        onDecoded: opts.onDecoded, onResampled: opts.onResampled });
+        gain: autoGain && !channel ? createGain({ avgGain, maxGain, scale: voiceScale }) : null,
+        onDecoded: opts.onDecoded, onResampled: opts.onResampled, channel });
       const feed = async (messages) => {
         for (const msg of messages) {
+          lastTick = msg.tick;
           timeline.add(msg, await stream.message(msg, miss, loser.lose(index++, msg)));
           if ((++fed & 63) === 63) await microYield();
         }
       };
-      steam = { sender, settings, resampler, timeline, lossSet: loser.set };
+      steam = { sender, settings, resampler, timeline, lossSet: loser.set, played: null };
+      // The game's timeline: after a chunk's messages, no later message has a
+      // tick below max(lastTick + 1, ceil((given / 24000 + relay) / tick)), with
+      // given the samples handed to the sender so far, and relay and tick the
+      // sender's constants. A read is never earlier than the end of the last
+      // capture step it takes (steam-sender.js), and a message's tick is
+      // max(lastTick + 1, ceil((since + relay) / tick)): the sender's next read
+      // takes samples from `given` on, so its since is at least given / 24000.
+      // The channel runs every block that starts before that tick.
+      const S = SteamSender.STEAM_SENDER;
+      const bound = () => Math.max(lastTick + 1, Math.ceil((given / S.rate + S.relay) / S.tick));
       stages.push({
         async push(x) {
           given += x.length;
           await feed(sender.push(steamCapture(x)));
+          if (channel) {
+            channel.advance(bound());
+            const y = channel.take();
+            voiceOut += y.length;
+            return y;
+          }
           return timeline.take(steamGiveOut(given, timeline.cursor, steamReach(SteamSender.STEAM_SENDER), stream.lookahead, false));
         },
         async flush() {
           await feed(sender.finish());
+          if (channel) {
+            steam.played = channel.finish();
+            const y = channel.take();
+            voiceOut += y.length;
+            if (voiceOut !== voiceLength) {
+              throw new Error(`TF2Audio: the voice channel gave ${voiceOut} samples for a voice of ${voiceLength}.`);
+            }
+            return y;
+          }
           return timeline.take(voiceLength);
         }
       });
@@ -297,8 +333,10 @@
 
     /* ---- 4) Receiver voice channel: auto-gain + int16 clamp ---- */
     if (steamPath) {
-      // The gain ran on the decoded packets (steamTimeline).
-      if (!autoGain) {
+      // The gain ran on the decoded packets (steamTimeline), or in the
+      // channel's gain object on the game's timeline, which also scaled,
+      // clipped and rounded them with the auto-gain off.
+      if (!autoGain && !game) {
         stages.push(sampleStage((x) => {
           const y = new Float32Array(x);
           for (let i = 0; i < y.length; i++) y[i] *= voiceScale;
@@ -409,6 +447,7 @@
         else if (steam) {
           codecInfo = { ...steamCodecInfo(codec, voice, steam.timeline, steam.sender, steam.settings, steam.resampler, bitrate, steam.lossSet),
             framesPerPacket };
+          if (steam.played) codecInfo = steamPlayedInfo(codecInfo, steam.played, voice.lookahead);
         } else if (coder) codecInfo = { ...codecResultInfo(kind, voice, codec, coder.counts(), gate, gateOpts, bitrate, packetBytes, codecRate), framesPerPacket };
         release();
         state = 'finished';

@@ -362,6 +362,20 @@ addRoom('steam, room: preset 6, device at 96000 Hz', { room: { preset: 6 }, devi
 // those of the same render with none (section 1).
 addRoom('steam, dsp_room 137 (no room)', { listenerPos: null, dspRoom: 137 }, null, ['uneven', '960']);
 
+// W3-02c-2: renders on the game's timeline (opts.timeline 'game': the receiver's voice
+// channel, voice-channel.js), at Steam's chunk plans. The room case has a seed of its own,
+// so that the check above that a room leaves the gain's output alone, which compares with
+// the source's timeline, does not take it in.
+for (const [name, opts] of [
+  ['steam, timeline game', {}],
+  ['steam, timeline game at 66.67 fps', { fps: 66.67 }],
+  ['steam, timeline game, gate off', { gate: false }],
+  ['steam, timeline game, loss 15%, jitter 50 ms', { lossPct: 15, jitterMs: 50 }],
+  ['steam, timeline game, auto-gain off, voice_scale 0.5', { agc: false, voiceScale: 0.5 }],
+  ['steam, timeline game, device at 44100 Hz', { deviceRate: 44100 }]
+]) add(name, 48000, at48(15, 2), { timeline: 'game', ...opts }, []);
+addRoom('steam, timeline game, room: preset 6, seed 7', { timeline: 'game', room: { preset: 6 }, seed: 7 }, presetRoom(6), STEAM_PLANS);
+
 // SHA-256 of process()'s WAV, then of its codecInfo (canonical JSON, below).
 // The first 40 were recorded in commit 7e1862c, before createRender existed.
 // 'steam, volume 0.3' and the six cases of the review's fix round were added
@@ -461,6 +475,16 @@ addRoom('steam, dsp_room 137 (no room)', { listenerPos: null, dspRoom: 137 }, nu
 // make no gap of more than ten, nor any render at loss 0 or of another
 // profile, loss cases included.
 const GOLDEN = {
+  // W3-02c-2: the renders on the game's timeline (opts.timeline 'game'), recorded once from
+  // the run in which every check of tests/render-channel.verify.mjs passed, in a commit of
+  // their own. No hash above or below moved.
+  "steam, timeline game": ["22b155824ca35f9aa6bda242f9792742ac4a7abbd3743e350ee007071c2aa33d", "fedefd44a406e8e507d6b41aa2a06887841c52952ec8dc234aba174a4a31c10e"],
+  "steam, timeline game at 66.67 fps": ["ad1cfe8ebeefaf3811e556ff43554ab40c6b4ec990b3e1bcf33cee1630227cf5", "bf9907faa513b3bcc64d3f6c3bac5e19c7e412bb35aac6d4b0648e3c05c93222"],
+  "steam, timeline game, gate off": ["f89cbe08aa5e3a60e771a3e74539b2fb8300e410b50192f45866f6122018ea6d", "019d7a9446c4a372d4cec9f88fa1fb0a6e8bd2e2149dcd530a69fa5d06d436b3"],
+  "steam, timeline game, loss 15%, jitter 50 ms": ["a42317ed5a11c154d3f2906724a09bd711ee00be1a115001fc4e2ed167c222f3", "dc6a8b6dd5ea3ea2ba9bb666d8159a13faec6c963aa1179ad3a6524721fd3d0c"],
+  "steam, timeline game, auto-gain off, voice_scale 0.5": ["b1d6dc99a856549e69277995b8b59b4df5f927f04f7e8bba2d7bf03c622bcc42", "d068730fc43e25f0dba6d4ac3c144362bebe516c771408d2fca1b1674a7914ff"],
+  "steam, timeline game, device at 44100 Hz": ["1638690040e0eb2f4761f43d1112ea84a410088ce8758209adbb4472d53f903e", "fedefd44a406e8e507d6b41aa2a06887841c52952ec8dc234aba174a4a31c10e"],
+  "steam, timeline game, room: preset 6, seed 7": ["92a7e5f58cd1317edc47e8b4e7290cb807bc6e7f4ec7b095654f2d7e272a4ed8", "28075a1e3fefd18b9497ebe60fe7357e4ff1b531e1957e6ea2e67ab812948eae"],
   "steam": ["bb7ef37d9d65f1c03672fe6bb14933036cc8d8174847fd4e4c3e9671a98f4a61", "4992fbdbd3efbe23ae9c2640825202a57429755fdc7d331ea4f37e210a9d91b9"],
   "steam_48": ["cb106e3f224599e2a7d6bb5d8b3cea9092d99c91a8d9b736f5248d80a819e483", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
   "celt_22": ["8cc3cb51c948a21b6257e07495b5ce2ccb9871297d43561431d7b2ab4baf9142", "9bd2fb89789a272ca4c6ed7467eca4d5454d368133a14441b04c8d91c7c36573"],
@@ -549,6 +573,14 @@ const GOLDEN = {
 // output stage; a change before the mix point re-records them in a commit
 // of its own that says why.
 const GAIN_GOLDEN = {
+  // W3-02c-2: the renders on the game's timeline.
+  "steam, timeline game": "37fe57f3e70d29d4b632fe56aff824febed178f1d1942daaa7f68110bd8671f8",
+  "steam, timeline game at 66.67 fps": "4ac4eee9c0bbcf189d72c5304385743dc3357e10984e9bb888c516fbc782e69e",
+  "steam, timeline game, gate off": "1737150b0913a18902319e01fe38b6ef1fef13493e65ccac07f1cbddacc8219a",
+  "steam, timeline game, loss 15%, jitter 50 ms": "058c282c23aa493c54cb1bdc03f1b3ba72540b5025654c457c03cd1d55f23a4d",
+  "steam, timeline game, auto-gain off, voice_scale 0.5": "51718e3101a9f37543990ce1c9a5404571e6f4cb0aa51f965fd53769f8ae078e",
+  "steam, timeline game, device at 44100 Hz": "37fe57f3e70d29d4b632fe56aff824febed178f1d1942daaa7f68110bd8671f8",
+  "steam, timeline game, room: preset 6, seed 7": "375d70eb06e26f36538ce37565d7df36c17a802d7b9ca96263c60f22b6a60fd9",
   "steam": "58c2c5c4a9d2bcfaa3920f0f4ed0a3db6046ac9967dfbfbe1beb288566059512",
   "steam_48": "67ae552c948f640673b3cc9e5f967228dc96f40010d21300b844a5d1e97b98dc",
   "celt_22": "0f1760425be904c6c334a026621ed737ddbcec4f384e90dc783b5cf16a75ce23",

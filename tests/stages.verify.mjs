@@ -164,6 +164,13 @@ const ENGINE_OPTION_CASES = [
 ];
 // A later order's case, in the same form (W3-02c-2 adds its timeline here).
 const EXTRA_OPTION_CASES = [];
+// W3-02c-2: the game's timeline, changed alone on the page's defaults, and its two
+// settings each changed alone on a base with it. All three are read after B.
+ENGINE_OPTION_NAMES.push('timeline', 'fps', 'bufferMs');
+EXTRA_OPTION_CASES.push(
+  ['steam: {"timeline":"game"}', { ...PAGE_DEFAULTS }, { timeline: 'game' }],
+  ['steam, timeline game: {"fps":66.67}', { ...PAGE_DEFAULTS, timeline: 'game' }, { fps: 66.67 }],
+  ['steam, timeline game: {"bufferMs":200}', { ...PAGE_DEFAULTS, timeline: 'game' }, { bufferMs: 200 }]);
 // Where a render with `change` should start from, by the lists: B when every
 // option changed is read only after B, A when only after A, else neither.
 const { afterA, afterB, read, observers } = A.STAGE_OPTIONS;
@@ -481,6 +488,7 @@ console.log('\n[4] The first 14 s of a render of the first 15 s are the whole re
   const right = voice(32, rate, 44);
   for (const change of [{ gate: false }, { gate: true }, { gateThresholdDb: -30 }, { steamUptime: 14400 }, { bits: 6 }, { micGain: 3 }, { hp: 300, lp: 3000 },
     { agc: false }, { voiceScale: 2 }, { maxGain: 3 }, { avgGain: 0.25 }, { volume: 0.5 }, { deviceRate: 44100 }, { enableWarble: false },
+    { timeline: 'game' }, { timeline: 'game', fps: 66.67 },
     { frameMs: 60 }, { captureChannel: 'right' }, { captureChannel: 'mix' }, { codec: 'celt_22', steamUptime: undefined, gate: true, voiceScale: 2 }]) {
     const opts = { ...PAGE_DEFAULTS, ...change };
     const at = await firstDiffer(clips[0], change.captureChannel ? right : null, opts);

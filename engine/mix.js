@@ -31,10 +31,11 @@
   // (or of a live chain at its mix point). Nothing in this order's arithmetic
   // depends on them (the entry and mixOut have no memory, the upsampler
   // carries its state); they are reported to opts.onMixBlock for the room's
-  // slot (W3-17c). Under the game's timeline W3-02c will set the origin to
-  // its channel clock's blocks. An origin that is not a multiple of 4 mix
-  // samples would cut an 11025 Hz voice sample in two: a later order may set
-  // it only for a 44100 Hz voice, or to a multiple of 4.
+  // slot (W3-17c). The game's timeline (W3-02c-2) leaves the origin at 0:
+  // its channel's delay D is a whole number of blocks (voice-channel.js), so
+  // the channel's pulls are these blocks. An origin that is not a multiple of
+  // 4 mix samples would cut an 11025 Hz voice sample in two: a later order
+  // may set it only for a 44100 Hz voice, or to a multiple of 4.
   const MIX_BLOCK = 512, MIX_BLOCK_ORIGIN = 0;
   // The voice channel's volume in the mix: 255, of a full scale of 256
   // (headphones, the default snd_surround_speakers -1; W3-07, section 1).

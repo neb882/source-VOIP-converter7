@@ -86,7 +86,7 @@ The same document says what rests on one PC and what others had published before
 **What is not exact.** The stages that equal the game sample for sample do not speak for these four.
 
 - **When a phrase starts.** A render keeps the source's own timing; the game starts some phrases early. On the owner's speech take the model of the game's queue gets 47% of the 9 changes between phrases right, as a mean over many draws of the sender's clock, with a start error of 122 ms (a private check). Part of this cannot be closed, because where the sender's clock stood while the talker spoke is not in a recording.
-- **The receiver's queue.** Replayed over the game's logged packets, with the mixer's demand taken from the log, the module gives the logged queue on every tick (measured, Set G). It is not in a render yet.
+- **The receiver's queue.** Replayed over the game's logged packets, with the mixer's demand taken from the log, the module gives the logged queue on every tick (measured, Set G). A render runs it when `opts.timeline` is `'game'`; the page does not offer that yet (W3-02d, not built yet).
 - **Jitter.** The jitter setting is a fit to one recording. The game's own behaviour, whole messages delayed and bunched, is not built yet.
 - **The one codec in the menu that comes from older Source engines** and was never in TF2. No recording of a running engine exists to check it against.
 
@@ -95,9 +95,9 @@ The same document says what rests on one PC and what others had published before
 **Where the modern preset stands.**
 
 - **Equal to the game's own recordings:** Steam's sender rule (every verdict and message of the checked runs), the codec with the decoder and its resampler (all but 2 of 524,288 samples), and the receiver's gain (every sample, checked under `vaudio_celt`).
-- **Read from the game's files, not yet seen in a recording, and not in a render:** the fade at the end of the queue (not built yet) and the voice's level with two speakers in place of headphones.
+- **Read from the game's files, not yet seen in a recording, and not in the page's render:** the fade at the end of the queue (in a render with `opts.timeline` `'game'`, which the page does not offer yet) and the voice's level with two speakers in place of headphones.
 - **Fitted to recordings, with no rule read:** the capture's roll-off above 11 kHz, the times of Steam's reads, the jitter, and the optional "Talk-spurt timing".
-- **Not built yet:** the voice channel in a render, jitter as the game does it, and Steam's own push-to-talk rules.
+- **Not built yet:** the voice channel in the page's render and the live monitor (a render runs it when `opts.timeline` is `'game'`), jitter as the game does it, and Steam's own push-to-talk rules.
 
 **The figures.** Against the owner's 18 takes, on 2026-11-12, the overall level of the plain takes is within about 0.1 to 0.2 dB of the render's, and their levels rise and fall alike (a correlation of 0.98 to 1.00). Three plain takes are weaker: the default take (0.951) and the two takes of low tones (0.797 and 0.584, with the overall level 0.7 and 2.2 dB low). The second PC's take, rendered at settings inferred from its recording, reads 0.959 and is 0.5 dB off in overall level, the one other plain take outside 0.2 dB. Takes with packet loss can be compared only as statistics.
 
@@ -156,12 +156,12 @@ The suites hold each stage to the rule as read and to numbers taken from the rec
 | `engine/network.js` | loss and late frames: the retiming, the loss masks, the steam profile's loss by message |
 | `engine/codec.js` | what the renderers share about a profile and its codec: the gate's defaults and threshold, the profile's filters, the frame codes, a demo's frame statistics, the call to the loader |
 | `engine/room.js` | the room's settings and what the mix is told |
-| `engine/steam.js` | the steam profile: its constants, its capture, its sender's options, its timeline, its codec information |
+| `engine/steam.js` | the steam profile: its constants, its capture, its sender's options, its timeline, the voice channel on the game's timeline, its codec information |
 | `engine/render.js` | `process`, and the stages it keeps (W4-01b) |
 | `engine/render-stream.js` | `createRender`: the same render a piece at a time |
 | `engine/live-chain.js` | `createLiveChain`: the live monitor's chain |
 | `steam-sender.js` | Steam's sender: chunks, the level rule, the hold |
-| `voice-channel.js` | the game's voice channel as read; no page loads it yet |
+| `voice-channel.js` | the game's voice channel as read; a render runs it when `opts.timeline` is `'game'`; the page does not offer it (W3-02d, not built yet) |
 | `opus-codec.mjs` | packets and decoders for every codec profile |
 | `room-dsp.js`, `room-presets.js` | the game's room arithmetic and its presets as numbers |
 | `constants.js` | presets, codec profiles and the listener's places |

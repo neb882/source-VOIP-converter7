@@ -16,7 +16,7 @@ This is the path of the `steam` profile, which the Modern preset uses. The other
 | 4. The network | takes out whole messages; marks some frames late | `engine/network.js` | loss read; late frames a fit |
 | 5. Steam's decoder | 16-bit decoding, at most ten filled frames, 24000 to 44100 Hz | `opus-codec.mjs`, `vendor/swresample/` | read and measured |
 | 6. The receiver's gain | turns the voice up to ten times and clips it | `engine/gain.js` | read and measured |
-| 7. The voice channel | queues the voice and can start a phrase early | `voice-channel.js` | read; not in a render yet |
+| 7. The voice channel | queues the voice and can start a phrase early | `voice-channel.js` | read; a render runs it when `opts.timeline` is `'game'`; the page does not offer it |
 | 8. The mixer and the output | 255/256, the room, the clip, `volume`, the device's rate | `engine/mix.js`, `room-dsp.js` | read; the device's conversion measured |
 
 ## The path, stage by stage
@@ -64,18 +64,18 @@ The decoder is Steam's as read (`opus-codec.mjs`; [FINDINGS.md, entry 5](FINDING
 
 ### 6. The receiver's gain
 
-The game's automatic gain runs on the decoded messages in blocks of 128 samples ([FINDINGS.md, entry 6](FINDINGS.md#6-the-receivers-gain)). The page's `voice_maxgain`, `voice_avggain` and `voice_scale` are the game's variables with the game's defaults: 10, 0.5 and 1 (read). The gain can be switched off for comparison, which the game cannot do. The game sets the gain back to 1.0 whenever a channel is assigned (read); a render does so once, at its start.
+The game's automatic gain runs on the decoded messages in blocks of 128 samples ([FINDINGS.md, entry 6](FINDINGS.md#6-the-receivers-gain)). The page's `voice_maxgain`, `voice_avggain` and `voice_scale` are the game's variables with the game's defaults: 10, 0.5 and 1 (read). The gain can be switched off for comparison, which the game cannot do. The game sets the gain back to 1.0 whenever a channel is assigned (read). The page's render does so once, at its start; a render with `opts.timeline` `'game'` does so at each channel it opens, as the game does.
 
-### 7. The voice channel: what the game does, and what a render does not run yet
+### 7. The voice channel: what the game does, and what the page's render does not run yet
 
-In the game each speaker's voice waits in a queue before it plays ([FINDINGS.md, entry 7](FINDINGS.md#7-the-voice-channel)). The app has that queue as a module, `voice-channel.js`, with its own suite. No page loads it: it is not in a render yet.
+In the game each speaker's voice waits in a queue before it plays ([FINDINGS.md, entry 7](FINDINGS.md#7-the-voice-channel)). The app has that queue as a module, `voice-channel.js`, with its own suite. A render runs it when `opts.timeline` is `'game'` (the `steam` profile only; anywhere else that option is refused). The page does not offer the option (W3-02d, not built yet), and the live monitor does not run the channel (W3-02c-3, not built yet).
 
-So a render differs from the game here in four ways:
+So the page's render differs from the game here in four ways:
 
-- **Timing.** A render keeps the source's timeline. The game starts some phrases 80 to 350 ms early after a short pause (measured).
-- **The wait.** The game's wait before a channel plays, 7 to 30 ticks by the listener's frame rate (read), is not in a render. It delays the voice. At 300 frames a second it also makes the ring overflow at nearly every restart, which drops 55 to 136 ms of the phrase's opening, Steam's pre-roll first (read; replayed on Set G's log). A render has neither.
-- **One sample a packet.** The game drops one sample from every packet, so its playback gains about 0.04% on the talker (read; measured). A render does not.
-- **The fade.** The game fades the last 0.1 s of its queue (read). A render does not.
+- **Timing.** The page's render keeps the source's timeline. The game starts some phrases 80 to 350 ms early after a short pause (measured).
+- **The wait.** The game's wait before a channel plays, 7 to 30 ticks by the listener's frame rate (read), is not in the page's render. It delays the voice. At 300 frames a second it also makes the ring overflow at nearly every restart, which drops 55 to 136 ms of the phrase's opening, Steam's pre-roll first (read; replayed on Set G's log). The page's render has neither.
+- **One sample a packet.** The game drops one sample from every packet, so its playback gains about 0.04% on the talker (read; measured). The page's render does not.
+- **The fade.** The game fades the last 0.1 s of its queue (read). The page's render does not.
 
 The page has a stand-in, "Talk-spurt timing", off by default. Set to "Some phrases start early", a phrase that follows a silence of at most 0.45 s starts early with a probability of 0.41, by the silence less a random 0 to 130 ms and at most 350 ms. These numbers are a fit to the takes (finding 19); the rule is not the game's.
 

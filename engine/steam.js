@@ -1,5 +1,5 @@
 /* TF2 Voice Emulator, engine/steam.js: the steam profile: its constants, its capture, its sender's options, its
- * timeline, its codec information.
+ * timeline, the receiver's voice channel on the game's timeline (W3-02c-2), its codec information.
  *
  * One of the engine's files (the list and the load order are in audio.js's header). It takes what it needs from the
  * files before it as TF2Engine's parts and adds its own. */
@@ -7,6 +7,8 @@
   'use strict';
   const E = root.TF2Engine;
   const { FRAME_CODES, gateThresholdDb } = E.codec;
+  const { INT16_FULL_SCALE, clamp, joinSamples, roundEven } = E.dsp;
+  const { createGain } = E.gain;
 
   /* ------------------------------------------------------------------ */
   /* The `steam` profile: Steam's own sender and decoder                */
@@ -70,6 +72,131 @@
       throw new Error('The steam profile needs steam-sender.js and vendor/swresample/swresample.js loaded beside audio.js.');
     }
     return { sender, swr };
+  }
+
+  // The receiver's voice channel (voice-channel.js), for a render on the
+  // game's timeline (W3-02c-2), found as steamModules() finds the sender.
+  function steamChannelModule() {
+    const channel = typeof TF2VoiceChannel !== 'undefined' ? TF2VoiceChannel : null;
+    if (!channel) throw new Error('The game\'s timeline (opts.timeline \'game\') needs voice-channel.js loaded beside audio.js.');
+    return channel;
+  }
+
+  // opts.timeline (W3-02c-2): the timeline a render plays the voice on.
+  // 'source' (undefined and null too): the packets laid on the source's
+  // timeline, as every render before. 'game': the receiver's voice channel
+  // plays them on the game's clock (steamChannel). 'game' runs where the
+  // render has the game's own packets: the steam codec, on, with the sender's
+  // messages (not a demo's received voice), and without re-timing, which
+  // moves the spurts by a rule of its own; the older codecs have no sender
+  // model and their ring is another size. Anywhere else it is refused, never
+  // ignored: a render that asked for it and was given the source's timeline
+  // would let a caller compare two renders that are one. Any other value is
+  // refused too. process() and createRender() call this at their entry, with
+  // their own reading of the other options; true for 'game'.
+  function steamGameTimeline(value, { codecKey, codec, enableCodec, received, retime }) {
+    if (value === undefined || value === null || value === 'source') return false;
+    if (value !== 'game') {
+      let text;
+      try { text = typeof value === 'string' ? JSON.stringify(value) : String(value); } catch (e) { text = `a ${typeof value}`; }
+      throw new RangeError(`TF2Audio: opts.timeline is 'source' or 'game' (undefined and null are 'source'), not ${text}.`);
+    }
+    const refuse = (why) => { throw new RangeError(`TF2Audio: opts.timeline 'game' is refused here, not ignored: ${why}.`); };
+    if (received) refuse('a demo\'s received voice (opts.received) has no packets of the sender\'s to give the channel');
+    if (!enableCodec) refuse('with the codec bypassed (enableWarble false) no packet reaches the channel');
+    if (codec.senderGate?.rule !== 'steam') refuse(`it runs on the steam codec only, and ${codecKey} has no sender model`);
+    if (retime) refuse('it and retime exclude each other; re-timing moves the spurts by a rule of its own');
+    return true;
+  }
+
+  // The receiver's voice channel in a render on the game's timeline
+  // (W3-02c-2): voice-channel.js's createTimeline, made with the render's
+  // length at the voice rate, the listener's fps and voice_buffer_ms as given
+  // (the module takes its own defaults and limits), the codec's look-ahead as
+  // codecDelay (each source is the packet's place, which is that much
+  // earlier than the sender's frame), and the gain object:
+  //   - with the auto-gain on, reset() makes a new gain from the receiver's
+  //     three settings, and the channel calls it at each open, which is where
+  //     the engine resets its gain (finding 26, read); process(y) runs the
+  //     gain over the packet, a late frame's samples passed around it as
+  //     steamTimeline passes them on the source's timeline (frame j of F in
+  //     a packet of n samples is samples round(j n / F) to round((j + 1) n /
+  //     F));
+  //   - with it off there is no gain: process(y) is stage 4's scale and clip
+  //     (in single precision, as stage 4 keeps them) and the mix entry's
+  //     rounding to the nearest whole 16-bit value, ties to even, so the
+  //     channel, which works in whole values and truncates in its blend, is
+  //     given the value the source's timeline brings to the mix.
+  // steamTimeline's add() hands it each message that arrived:
+  // push(tick, y, blocks, source), y the packet over 32768 (empty for an end
+  // marker alone or a refused packet), blocks its frames' blocks. What the
+  // timeline gives out is kept in order: take() returns it joined, and
+  // finish() ends the timeline and returns its info. Nothing pushed is kept
+  // or written to: the gain's output is a new array.
+  function steamChannel({ length, lookahead, fps, bufferMs, autoGain, avgGain, maxGain, voiceScale }) {
+    const { createTimeline } = steamChannelModule();
+    let blocks = [], g = null;
+    const late = (j) => blocks[j].code === FRAME_CODES.late;
+    const gain = autoGain ? {
+      reset() { g = createGain({ avgGain, maxGain, scale: voiceScale }); },
+      process(y) {
+        const F = blocks.length, n = y.length;
+        if (!blocks.some((b) => b.code === FRAME_CODES.late)) return g.process(y);
+        const out = Float32Array.from(y);
+        for (let j = 0; j < F;) {
+          if (late(j)) { j++; continue; }
+          let k = j;
+          while (k < F && !late(k)) k++;
+          const a = Math.round(j * n / F), b = Math.round(k * n / F);
+          out.set(g.process(y.subarray(a, b)), a);
+          j = k;
+        }
+        return out;
+      }
+    } : {
+      reset() {},
+      process: (y) => Float32Array.from(y, (v) =>
+        roundEven(clamp(Math.fround(v * voiceScale), -INT16_FULL_SCALE, INT16_FULL_SCALE) * 32768) / 32768)
+    };
+    const timeline = createTimeline({ length, fps, bufferMs, codecDelay: lookahead / STEAM_RATE, gain });
+    let pieces = [];
+    return {
+      push(tick, y, packetBlocks, source) {
+        blocks = packetBlocks;
+        pieces.push(timeline.push({ tick, pcm: y, source }));
+      },
+      advance(tick) { pieces.push(timeline.advance(tick)); },
+      finish() {
+        const end = timeline.finish();
+        pieces.push(end.samples);
+        return end.info;
+      },
+      take() {
+        const out = joinSamples(pieces);
+        pieces = [];
+        return out;
+      }
+    };
+  }
+
+  // codecInfo of a render on the game's timeline (W3-02c-2), from the
+  // source's (steamCodecInfo's) and the channel's info: frameLog and
+  // frameBytes become what was played, new arrays of the sent logs' length,
+  // slot i taking the sent slot floor((source[i] x 80 / 147 + lookahead) /
+  // 480), the inverse of steamTimeline's centre(), or 0 where source[i] is
+  // -1 or i is past its end; `sent` holds the source's logs; `channel` is the
+  // channel's info, whole. The counters stay the sender's, and `network` is
+  // the source timeline's, which the two timelines share.
+  function steamPlayedInfo(codecInfo, info, lookahead) {
+    const sent = { frameLog: codecInfo.frameLog, frameBytes: codecInfo.frameBytes };
+    const n = sent.frameLog.length, source = info.source;
+    const frameLog = new sent.frameLog.constructor(n), frameBytes = new sent.frameBytes.constructor(n);
+    for (let i = 0; i < Math.min(n, source.length); i++) {
+      if (source[i] === -1) continue;
+      const k = Math.floor((source[i] * STEAM_RATE / STEAM_VOICE_RATE + lookahead) / STEAM_FRAME);
+      if (k >= 0 && k < n) { frameLog[i] = sent.frameLog[k]; frameBytes[i] = sent.frameBytes[k]; }
+    }
+    return { ...codecInfo, frameLog, frameBytes, sent, channel: info };
   }
 
   // The capture's 16 bits, after the capture roll-off at 24 kHz: Steam's
@@ -170,8 +297,21 @@
   //     a render: a move changes only where the packet lands.
   // A slot whose centre is before given is final (final()). A render passes
   // no given and keeps the fixed log and the throw.
+  //
+  // A render on the game's timeline (W3-02c-2) passes cfg.channel, a
+  // steamChannel, and no gain. Then each message runs as above (the counts,
+  // the spurt's anchor, the resampler, the place, the refusal, the frame log,
+  // the cursor and the spans) but nothing is laid: what arrived goes to the
+  // channel on its message's tick instead, with its source position, the
+  // channel's gain running on it there. A sound packet: the resampler's
+  // samples over 32768, whole, at its place; a silence record: its resampled
+  // zeros, at -1; a message that arrived with no samples (an end marker
+  // alone): nothing, at the cursor; a refused packet: nothing, at its place.
+  // A lost message is not handed on (BC-3). With no channel, add() is what it
+  // was before W3-02c-2, statement for statement.
   function steamTimeline(cfg) {
     const { lookahead, resampler, gain } = cfg;
+    const channel = cfg.channel || null;
     const voiceLength = cfg.voiceLength ?? Infinity, growing = cfg.codecLength === undefined;
     let slots = growing ? 256 : Math.ceil((cfg.codecLength + lookahead) / STEAM_FRAME);
     let frameLog = new Uint8Array(slots), frameBytes = new Uint16Array(slots), frameMode = new Array(slots).fill(null);
@@ -182,6 +322,7 @@
     const centre = (i) => (i * STEAM_FRAME + STEAM_FRAME / 2 - lookahead) * STEAM_VOICE_RATE / STEAM_RATE;
 
     function lay(y, at, floor) {
+      if (channel) return;   // on the game's timeline the channel plays the packet: nothing is laid
       const from = Math.max(at, 0, floor ?? 0), to = Math.min(at + y.length, voiceLength);
       if (to <= from) return;
       if (from < base) throw new Error('TF2Audio: a Steam packet landed on samples already given out.');
@@ -237,6 +378,7 @@
             refusedMessages++;
             if (!made.silence) cursor = place + y16.length;
             if (msg.end) open = false;
+            if (channel) channel.push(msg.tick, new Float32Array(0), [], made.silence ? -1 : place);
             return;
           }
           let y = Float32Array.from(y16, v => v / 32768);
@@ -255,6 +397,7 @@
               }
             }
           }
+          if (channel) channel.push(msg.tick, y, made.blocks, made.silence ? -1 : place);
           if (!made.silence) {
             let at = place;
             if (given !== undefined && Math.max(at, 0) < given) {
@@ -273,6 +416,7 @@
             laid = true;
           }
         }
+        if (channel && !pcm.length && !made.lost) channel.push(msg.tick, new Float32Array(0), [], cursor);
         if (msg.end) open = false;
       },
       // Where the next packet of the spurt now open will be laid (Infinity
@@ -342,7 +486,7 @@
   }
 
   E.steam = Object.freeze({
-    STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamCapture, steamCodecInfo, steamFits, steamGiveOut, steamModules,
-    steamReach, steamSenderOptions, steamTimeline
+    STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamCapture, steamChannel, steamChannelModule, steamCodecInfo, steamFits,
+    steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions, steamTimeline
   });
 })((typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : globalThis));

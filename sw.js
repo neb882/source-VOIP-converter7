@@ -26,13 +26,14 @@
  */
 
 const CACHE_PREFIX = 'tf2ve-';
-const CACHE = `${CACHE_PREFIX}v38`;
+const CACHE = `${CACHE_PREFIX}v39`;
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './constants.js',
   './steam-sender.js',
+  './voice-channel.js',
   './vendor/swresample/swresample.js',
   './vendor/swresample/COPYING.LGPLv2.1',
   './room-presets.js',
