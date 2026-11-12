@@ -775,7 +775,7 @@ each.
 
 ## A separate small order: invented names in the page's mock console feed (S3-03)
 
-Not part of S3-02; written here because the brief asked for it. It can be built on `main` today. **Taken as S3-03 on 2026-11-12** (ruling 7 above).
+Not part of S3-02; written here because the brief asked for it. It can be built on `main` today. **Taken as S3-03 on 2026-11-12** (ruling 7 above). **Built and merged on 2026-11-12** (`11f430f`, cache v36, `docs/reports/S3-03-mock-names.md`): the class names and the role and status words stayed, every handle was replaced, and a browser check pins both lists by hash.
 
 `constants.js` holds `TF2_DATA.playerNames` (lines 27 to 58), which `app/core.js:224-270` draws from to print a
 mock server's lines in the page's console, and a list of chat lines after it. Some entries of the first are the
