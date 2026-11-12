@@ -32,7 +32,7 @@ The page has four steps.
 
 The codec menu has two groups, "Team Fortress 2" and "Not in Team Fortress 2". A preset leaves three settings of the two PCs alone: how long the sender's Steam has run, the channel taken from a stereo file, and the rate of the listener's sound device. Settings are remembered in this browser, and the console's `writeconfig` copies a link that carries them.
 
-**3. Render & listen.** A source renders by itself. After a changed setting, a source of a minute or less renders again by itself; a longer one is marked as made with the earlier settings until you press **Render**. **Hear** switches between the render, the original and, when one is loaded, a real take of the game. The status line says how long the render took and how many seconds were too quiet to be sent. Downloads are WAV, FLAC or MP3, and a video comes back with the render as its sound.
+**3. Render & listen.** A source renders by itself. After a changed setting, a source of a minute or less renders again by itself; a longer one is marked as made with the earlier settings until you press **Render**. **Hear** switches between the render, the original and, when one is loaded, a real take of the game. The status line says how long the render took and how many seconds were too quiet to be sent. Downloads are WAV, FLAC or MP3, and an MP4 or MOV video comes back with the render as its sound.
 
 **4. Batch.** Render many files with the same settings, then save them one by one or as one ZIP.
 
@@ -42,7 +42,7 @@ The codec menu has two groups, "Team Fortress 2" and "Not in Team Fortress 2". A
 
 1. **Steam's sender.** Only stretches loud enough are sent, with the 100 ms before each (read) and about 0.4 s after it (read). Quiet stretches come out as silence.
 2. **The codec.** Opus at 24 kHz and 32 kbit/s (read). The band ends at 12 kHz, and held pauses and steady tones turn into comfort noise (measured).
-3. **The network.** A lost packet takes a whole voice message, 20 to 160 ms of sound (read). The decoder fills at most 10 lost frames (read).
+3. **The network.** A lost packet takes a whole voice message (read). A voice message holds 1 to 4 frames of 20 ms as a rule and usually 8 where a phrase opens (measured; other openings held 3 to 9, the rule gives an opening 9 or 10 at most, and the first packet of each clip of Set J held 12), and the game refuses a message of more than 12 frames (read). The decoder fills at most 10 lost frames (read). The page's "Packets lost %" is the share of voice messages lost: the game's `net_fakeloss 5`, on a listen server with sockets for loopback, already loses about 22% of them (computed, finding 8).
 4. **The receiver's gain.** The game turns the voice up as far as ten times and clips what passes 16 bits (read; measured). This gives TF2 voice most of its character.
 5. **The mixer and the output.** The voice enters the mix at 255/256 (read), passes a room where one is set, is clipped and multiplied by `volume`, and is converted to the rate of the listener's sound device (measured).
 
@@ -71,11 +71,11 @@ Each line is one entry of [docs/FINDINGS.md](docs/FINDINGS.md), which gives the 
 2. [The hold](docs/FINDINGS.md#2-the-hold-and-steams-clock) after speech is 0.4 s on a clock that gets coarser the longer Steam has run: 398 to 402 ms on a Steam started today, 500 to 750 ms from 24.3 to 48.5 days (read and computed; measured on a Steam of 4.8 minutes and on one of 23.9 days).
 3. [The codec](docs/FINDINGS.md#3-the-codec) is libopus 1.1.x at 24 kHz, and its comfort noise replaces held pauses and steady tones (read; measured).
 4. [The network](docs/FINDINGS.md#4-the-network) loses whole messages and never makes a single frame late (read).
-5. [Steam's decoder](docs/FINDINGS.md#5-steams-decoder) fills at most 10 frames, refuses a message longer than 12, and resamples each message by itself with FFmpeg's resampler (read; measured).
+5. [Steam's decoder](docs/FINDINGS.md#5-steams-decoder) fills at most 10 frames and resamples each message by itself with FFmpeg's resampler, and the game refuses a message longer than 12 frames (read; measured).
 6. [The receiver's gain](docs/FINDINGS.md#6-the-receivers-gain) works in blocks of 128 samples with a cap of ten times, and `voice_scale` enters it twice (read; measured).
 7. [The voice channel](docs/FINDINGS.md#7-the-voice-channel) queues each speaker's voice, so a phrase after a short pause can start 80 to 350 ms early (read; measured).
 8. [The mixer and the output](docs/FINDINGS.md#8-the-mixer-and-the-output) clip at ±32767 before `volume`, and Windows converts the result to the device's rate by linear interpolation (read; the conversion measured).
-9. [Rooms](docs/FINDINGS.md#9-rooms) take a share of every voice where the map sets one: 26 parts of 256 for a numbered room, 5 to 72 for the automatic room (read; measured in two sets).
+9. [Rooms](docs/FINDINGS.md#9-rooms) take a share of every voice where the map sets one: 26 parts of 256 for a numbered room, 5 to 72 for the automatic room (read; measured in three sets).
 10. [The older engine codecs](docs/FINDINGS.md#10-the-older-engine-codecs) run at 22050 and 11025 Hz, and Speex is fed 11025 Hz sound though it is made for 8000 Hz (read; measured).
 11. [`vaudio_miles`](docs/FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2), never in TF2, is Voxware VR12 behind a cut to 8 bits (read; no recording of a running engine).
 
@@ -85,8 +85,8 @@ The same document says what rests on one PC and what others had published before
 
 **What is not exact.** The stages that equal the game sample for sample do not speak for these four.
 
-- **When a phrase starts.** A render keeps the source's own timing; the game starts some phrases early. On the owner's speech take the model of the game's queue gets 47% of the changes between phrases right, with a start error of 122 ms (measured in a private check). Part of this cannot be closed, because where the sender's clock stood while the talker spoke is not in a recording.
-- **The receiver's queue.** As a module it gives the game's own log tick for tick (measured). It is not in a render yet.
+- **When a phrase starts.** A render keeps the source's own timing; the game starts some phrases early. On the owner's speech take the model of the game's queue gets 47% of the 9 changes between phrases right, as a mean over many draws of the sender's clock, with a start error of 122 ms (a private check). Part of this cannot be closed, because where the sender's clock stood while the talker spoke is not in a recording.
+- **The receiver's queue.** Replayed over the game's logged packets, with the mixer's demand taken from the log, the module gives the logged queue on every tick (measured, Set G). It is not in a render yet.
 - **Jitter.** The jitter setting is a fit to one recording. The game's own behaviour, whole messages delayed and bunched, is not built yet.
 - **The one codec in the menu that comes from older Source engines** and was never in TF2. No recording of a running engine exists to check it against.
 
@@ -95,11 +95,11 @@ The same document says what rests on one PC and what others had published before
 **Where the modern preset stands.**
 
 - **Equal to the game's own recordings:** Steam's sender rule (every verdict and message of the checked runs), the codec with the decoder and its resampler (all but 2 of 524,288 samples), and the receiver's gain (every sample, checked under `vaudio_celt`).
-- **Read from the game's files, not yet seen in a recording:** the fade at the end of the queue, and the voice's level with two speakers in place of headphones.
+- **Read from the game's files, not yet seen in a recording, and not in a render:** the fade at the end of the queue (not built yet) and the voice's level with two speakers in place of headphones.
 - **Fitted to recordings, with no rule read:** the capture's roll-off above 11 kHz, the times of Steam's reads, the jitter, and the optional "Talk-spurt timing".
 - **Not built yet:** the voice channel in a render, jitter as the game does it, and Steam's own push-to-talk rules.
 
-**The figures.** Against the owner's 18 takes, on 2026-11-12, the plain takes agree in level within about 0.1 to 0.2 dB, and their levels rise and fall alike (a correlation of 0.98 to 1.00). Four plain takes are weaker: the default take (0.951), the second PC's take (0.838) and the two takes of low tones (0.797 and 0.584, with the level 0.7 and 2.2 dB low). Takes with packet loss can be compared only as statistics.
+**The figures.** Against the owner's 18 takes, on 2026-11-12, the overall level of the plain takes is within about 0.1 to 0.2 dB of the render's, and their levels rise and fall alike (a correlation of 0.98 to 1.00). Three plain takes are weaker: the default take (0.951) and the two takes of low tones (0.797 and 0.584, with the overall level 0.7 and 2.2 dB low). The second PC's take, rendered at settings inferred from its recording, reads 0.959 and is 0.5 dB off in overall level, the one other plain take outside 0.2 dB. Takes with packet loss can be compared only as statistics.
 
 **What a render is not.** It is the voice alone, without the game's other sound. Real internet loss was not recorded. [docs/ACCURACY.md](docs/ACCURACY.md) has every stage and the whole table; [tests/REFERENCE_2026.md](tests/REFERENCE_2026.md) has the evidence.
 
@@ -167,6 +167,6 @@ The suites hold each stage to the rule as read and to numbers taken from the rec
 | `vendor/libopus/`, `vendor/lame/` | libopus 1.6.1 for a video's sound track; the MP3 encoder |
 | `tests/`, `docs/` | the suites and tools; the documents, orders and reports ([docs/README.md](docs/README.md)) |
 
-The application code is under the MIT licence ([LICENSE](LICENSE)). The vendored codecs keep their own: libopus, CELT and Speex are BSD (`vendor/libopus/LICENSE`, `COPYING.opus` and `THIRD_PARTY_NOTICES.md`, `vendor/libopus-1.1/COPYING.opus`, `vendor/celt-0.11/COPYING.celt`, `vendor/speex-1.0.2/COPYING.speex` and `NOTICE`), the VR12 implementation is MIT (`vendor/voxware-vr12/LICENSE`), and the musl maths code built into the modules is MIT (the `COPYRIGHT.musl` of each folder that has one). The MP3 encoder is LAME 3.100 under the GNU LGPL version 2 (`vendor/lame/COPYING.lame`); it loads only when an MP3 is saved. The resampler in `vendor/swresample/` is a modified part of FFmpeg's libswresample under the GNU LGPL version 2.1 or later (`vendor/swresample/COPYING.LGPLv2.1`), and `tests/swresample/bank.mjs` is under the same licence. Each folder's README says where its files come from and how to rebuild them.
+The application code is under the MIT licence ([LICENSE](LICENSE)). The vendored codecs keep their own: libopus, CELT and Speex are BSD (`vendor/libopus/COPYING.opus`, `vendor/libopus-1.1/COPYING.opus`, `vendor/celt-0.11/COPYING.celt`, `vendor/speex-1.0.2/COPYING.speex` and `NOTICE`), the libopus-wasm wrapper in `vendor/libopus/` is MIT (`vendor/libopus/LICENSE`, `THIRD_PARTY_NOTICES.md`), the VR12 implementation is MIT (`vendor/voxware-vr12/LICENSE`), and the musl maths code built into the modules is MIT (the `COPYRIGHT.musl` of each folder that has one). The MP3 encoder is LAME 3.100 under the GNU LGPL version 2 (`vendor/lame/COPYING.lame`); it loads only when an MP3 is saved. The resampler in `vendor/swresample/` is a modified part of FFmpeg's libswresample under the GNU LGPL version 2.1 or later (`vendor/swresample/COPYING.LGPLv2.1`), and `tests/swresample/bank.mjs` is under the same licence. Each folder's README says where its files come from and how to rebuild them.
 
 TF2, Source and Steam are trademarks of Valve. This independent tool is not affiliated with Valve.
