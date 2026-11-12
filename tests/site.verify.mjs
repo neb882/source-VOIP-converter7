@@ -12,9 +12,11 @@
 //    failure names each file "needed and not listed" and each "listed and
 //    not needed". The page's link to a file opened online only is named in
 //    the check's own list (ONLINE_ONLY) and is not in ASSETS.
-// 3. The workflow's matrix.group is the runner's groups, every
-//    tests/*.verify.js and tests/*.verify.mjs is in the runner's table, and
-//    every command in the table is a file.
+// 3. The workflow's matrix.group is the runner's groups, with no exclude or
+//    include, and its run step runs the job's own group; every
+//    tests/*.verify.js and tests/*.verify.mjs is in the runner's table, the
+//    three suites that are not (verify.js, the vendor check, gain-exact) are there with
+//    their exact commands, and every command in the table is a file.
 // Static and quick. It checks the folder it sits in (not TF2_DIR): run it
 // in a copy to check a copy.
 import fs from 'node:fs';
@@ -69,6 +71,12 @@ console.log('\n[3] The runner\'s table, the workflow\'s jobs and the suites on d
   const workflow = read('.github/workflows/test.yml');
   const groups = [...workflow.matchAll(/^\s*group:\s*\[([^\]]*)\]/gm)].map((m) => m[1].split(',').map((g) => g.trim()).filter(Boolean));
   const matrix = groups.length === 1 ? groups[0] : null;
+  // The matrix is the groups and nothing else, and each job runs its own group.
+  const narrowed = [...workflow.matchAll(/^\s*(exclude|include)\s*:/gm)].map((m) => m[1]);
+  const runs = [...workflow.matchAll(/node tests\/run\.mjs[^\n]*/g)].map((m) => m[0].trim());
+  check('the workflow\'s matrix has no exclude or include, and its one run of the runner is node tests/run.mjs ${{ matrix.group }}',
+    narrowed.length === 0 && runs.length === 1 && runs[0] === 'node tests/run.mjs ${{ matrix.group }}',
+    `${narrowed.length ? `${narrowed.join(', ')} under the matrix; ` : ''}runs: ${runs.join(' | ') || 'none'}`);
   check('the workflow\'s matrix.group is the runner\'s groups',
     matrix !== null && matrix.length === GROUPS.length && GROUPS.every((g) => matrix.includes(g)),
     matrix === null ? `${groups.length} group lists found in the workflow, not 1` : `workflow: ${list(matrix)}; runner: ${list(GROUPS)}`);
@@ -78,6 +86,17 @@ console.log('\n[3] The runner\'s table, the workflow\'s jobs and the suites on d
   const empty = GROUPS.filter((g) => !SUITES.some((s) => s.group === g));
   check('each suite has one name and a known group, and each group has a suite', twice.length === 0 && unknownGroup.length === 0 && empty.length === 0,
     [...twice.map((n) => `${n} twice`), ...unknownGroup.map((s) => `unknown group: ${s}`), ...empty.map((g) => `no suite in ${g}`)].join('; ') || `${names.length} suites`);
+  // The suites that are not tests/*.verify.* files, with their exact commands;
+  // and a *.verify.* file runs with no arguments.
+  const OTHER = { verify: 'tests/verify.js', vendor: 'tests/vendor-opus.mjs --check', 'gain-exact': 'tests/gain-exact.mjs --synthetic' };
+  const others = SUITES.filter((s) => !/\.verify\.m?js$/.test(s.command[0]));
+  const wrong = [
+    ...Object.entries(OTHER).filter(([n, c]) => !SUITES.some((s) => s.name === n && s.command.join(' ') === c)).map(([n, c]) => `${n} is not "${c}"`),
+    ...others.filter((s) => !(s.name in OTHER)).map((s) => `${s.name} (${s.command.join(' ')}) is not a verify file and not named here`),
+    ...SUITES.filter((s) => /\.verify\.m?js$/.test(s.command[0]) && s.command.length > 1).map((s) => `${s.name} has arguments: ${s.command.join(' ')}`)
+  ];
+  check('the suites that are not *.verify.* files are in the table with their commands (verify.js, vendor-opus.mjs --check, gain-exact.mjs --synthetic)',
+    wrong.length === 0, wrong.join('; ') || Object.values(OTHER).join(', '));
   const commands = SUITES.map((s) => s.command[0]);
   const onDisk = fs.readdirSync(here).filter((f) => /\.verify\.m?js$/.test(f)).map((f) => `tests/${f}`);
   const missing = onDisk.filter((f) => !commands.includes(f));

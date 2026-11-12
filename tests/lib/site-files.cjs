@@ -40,6 +40,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const vm = require('vm');
+const { spawnSync } = require('child_process');
 
 // Not read: a generated bundle whose loading forms are its maker's, and
 // which no static reading can follow. Another hash is a problem: the file is
@@ -91,7 +93,7 @@ const ONLINE_ONLY = [
 const LOADING_WORDS = [
   ['import(', /\bimport\s*\(/], ['importScripts', /\bimportScripts\b/], ['new Worker', /\bnew\s+Worker\b/],
   ['new SharedWorker', /\bnew\s+SharedWorker\b/], ['addModule', /\baddModule\b/], ['serviceWorker.register', /\bserviceWorker\s*\.\s*register\b/],
-  ['fetch(', /\bfetch\s*\(/], ['XMLHttpRequest', /\bXMLHttpRequest\b/], ['instantiateStreaming', /\binstantiateStreaming\b/],
+  ['fetch', /\bfetch\b/], ['XMLHttpRequest', /\bXMLHttpRequest\b/], ['instantiateStreaming', /\binstantiateStreaming\b/],
   ['compileStreaming', /\bcompileStreaming\b/], ['new Audio', /\bnew\s+Audio\b/], ['new Image', /\bnew\s+Image\b/],
   ['new EventSource', /\bnew\s+EventSource\b/], ['new WebSocket', /\bnew\s+WebSocket\b/], ['sendBeacon', /\bsendBeacon\b/],
   ['import.meta', /\bimport\s*\.\s*meta\b/], ['new URL(', /\bnew\s+URL\s*\(/], ['an assignment to .src', /\.\s*src\s*=(?!=)/],
@@ -103,7 +105,10 @@ const LOADING_WORDS = [
   ['setAttribute of a URL', /\bsetAttribute(?:NS)?\s*\([^,]*['"`](?:src|href|srcset|poster|data|action)['"`]/i],
   ['an assignment to .srcset or .poster', /\.\s*(?:srcset|poster)\s*=(?!=)/],
   ['markup written from a script', /\b(?:innerHTML|outerHTML|insertAdjacentHTML|document\s*\.\s*write(?:ln)?)\b/],
-  ['window.open', /\bwindow\s*\.\s*open\s*\(/], ['location.assign or replace', /\blocation\s*\.\s*(?:assign|replace)\s*\(/]
+  ['window.open', /\bwindow\s*\.\s*open\s*\(/], ['location.assign or replace', /\blocation\s*\.\s*(?:assign|replace)\s*\(/],
+  ['an assignment to [\'src\'] or [\'href\']', /\[\s*['"`](?:src|href|srcset|poster)['"`]\s*\]\s*=(?!=)/],
+  ['Object.assign with src or href', /\bObject\s*\.\s*assign\s*\([^\n]*\b(?:src|href|srcset|poster)\b/],
+  ['an assignment to location', /\blocation\s*=(?!=)/]
 ];
 
 // Attributes that name a URL, on an element other than <script>, <link>, <a>.
@@ -122,6 +127,7 @@ function stripComments(text) {
   let i = 0, last = '';             // last: the last significant character outside comments
   let lastWord = '';
   const braces = [];                // for each open `${`, the depth of { inside it
+  const parens = [];                // for each open (, whether it follows if, while, for or with
   const regexAfterWord = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'new', 'delete', 'void', 'throw', 'instanceof', 'yield', 'await']);
   const template = () => {          // i is just past a backtick or a closing } of ${ }; reads to the next ` or ${
     while (i < n) {
@@ -160,6 +166,12 @@ function stripComments(text) {
     if (c === '}' && braces.length) {
       if (braces[braces.length - 1] === 0) { braces.pop(); i++; template(); last = '`'; lastWord = ''; continue; }
       braces[braces.length - 1]--; i++; last = c; lastWord = ''; continue;
+    }
+    if (c === '(') { parens.push(['if', 'while', 'for', 'with'].includes(lastWord)); i++; last = c; lastWord = ''; continue; }
+    if (c === ')') {
+      // After the ) of if (...), while (...), for (...) or with (...) a / starts a regular expression.
+      i++; last = parens.pop() ? '(' : ')'; lastWord = '';
+      continue;
     }
     if (c === '/') {
       const regex = last === '' || '(,=:[!&|?{};+-*%<>~^'.includes(last) || regexAfterWord.has(lastWord);
@@ -210,7 +222,8 @@ function siteFiles(root) {
     }
     if (kind === 'link' && ref.startsWith('#')) return;
     if (ref.startsWith('/')) { problems.push(`${where}: ${kind} ${ref}: an absolute path (the site is served from a folder)`); return; }
-    const bare = ref.split(/[?#]/)[0];
+    if (/[?#]/.test(ref)) { problems.push(`${where}: ${kind} ${ref}: a query string or a fragment (the offline copy is kept and found by the bare path)`); return; }
+    const bare = ref;
     const f = path.posix.normalize(path.posix.join(path.posix.dirname(base), bare));
     if (f.startsWith('..') || f === '.' || f === '') { problems.push(`${where}: ${kind} ${ref}: not a file of this folder`); return; }
     if (!fs.existsSync(path.join(root, f)) || !fs.statSync(path.join(root, f)).isFile()) {
@@ -235,12 +248,20 @@ function siteFiles(root) {
     while ((m = tagRe.exec(html))) {
       const tag = m[1].toLowerCase(), line = lineOf(html, m.index), attrs = {};
       for (const a of m[2].matchAll(/([^\s=/>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g)) {
-        attrs[a[1].toLowerCase()] = a[2] ?? a[3] ?? a[4] ?? '';
+        const name = a[1].toLowerCase();
+        // A browser takes the first of two; this check would take the last.
+        if (name in attrs) problems.push(`${file}:${line}: <${tag}> has the attribute ${name} twice`);
+        else attrs[name] = a[2] ?? a[3] ?? a[4] ?? '';
       }
+      if (tag === 'meta' && (attrs['http-equiv'] || '').toLowerCase() === 'refresh') problems.push(`${file}:${line}: <meta http-equiv="refresh">: a kind this check does not know`);
       if (attrs.style !== undefined && /url\s*\(|@import/i.test(attrs.style)) problems.push(`${file}:${line}: <${tag} style="...">: a URL in a style attribute`);
       if (tag === 'script') {
-        const end = html.toLowerCase().indexOf('</script>', tagRe.lastIndex);
+        const close = /<\/script/ig;
+        close.lastIndex = tagRe.lastIndex;
+        const found = close.exec(html), end = found ? found.index : -1;
         if (end < 0) { problems.push(`${file}:${line}: <script> without </script>`); break; }
+        // A browser also ends the script at </script followed by a space or a slash; this check reads only </script>.
+        if (html[end + '</script'.length] !== '>') { problems.push(`${file}:${lineOf(html, end)}: a </script not followed by >: a form this check does not read`); break; }
         const type = (attrs.type || '').toLowerCase();
         const module = type === 'module';
         if (type && !module && type !== 'text/javascript') problems.push(`${file}:${line}: <script type="${attrs.type}">: a kind this check does not know`);
@@ -279,6 +300,8 @@ function siteFiles(root) {
       add(file, firstLine - 1 + lineOf(css, m.index), file, m[1] ?? m[2] ?? m[3], 'image');
     }
     for (const m of css.matchAll(/@import\b/gi)) problems.push(`${file}:${firstLine - 1 + lineOf(css, m.index)}: @import`);
+    // image-set() takes plain strings as URLs, without url().
+    for (const m of css.matchAll(/(?:-webkit-)?image-set\s*\(/gi)) problems.push(`${file}:${firstLine - 1 + lineOf(css, m.index)}: image-set(: a form this check does not read`);
   };
 
   // ---- the manifest ----
@@ -294,10 +317,12 @@ function siteFiles(root) {
   };
 
   // ---- a script or a module ----
+  const stripped = [];              // each script's text, its comments taken out, to be parsed at the end
   const allowedSeen = new Map(ALLOWED.map((a) => [a, 0]));
   function scanScript(file, kind, text) {
     let src;
     try { src = stripComments(text); } catch (error) { problems.push(`${file}: could not be read: ${error.message}`); return; }
+    stripped.push({ file, kind, text: src });
     const isModule = kind === 'module';
     // A file read twice (as a script and as a module) counts its allowances once.
     const counts = !scannedAs.has(file) || scannedAs.get(file) === kind;
@@ -376,11 +401,43 @@ function siteFiles(root) {
       else if (/\.svg$/i.test(f)) problems.push(`${f}: an SVG image, which can load other files: this check does not read it`);
     } else problems.push(`${f}: loaded as ${kind}, a kind this check does not know`);
   }
+  problems.push(...parseProblems(stripped));
   for (const [a, seen] of allowedSeen) {
     if (seen !== a.times) problems.push(`${a.file}: the allowance "${a.statement}" is found ${seen} time${seen === 1 ? '' : 's'}, the list says ${a.times}`);
   }
   for (const o of ONLINE_ONLY) if (!online.includes(o.file)) problems.push(`${o.from}: the link to ${o.file}, opened online only, is gone`);
   return { files: [...from.keys()].sort(), online: online.sort(), problems: [...new Set(problems)], from };
+}
+
+// Each script's text with its comments taken out must still parse, a
+// classic script as a script and a module as a module: a lexer that took
+// code for a comment (and so hid a loading form from the rules) fails here,
+// naming the file, instead of passing it. Nothing is run. Modules are
+// compiled in one child process, which has vm.SourceTextModule.
+function parseProblems(stripped) {
+  const problems = [];
+  for (const { file, text } of stripped.filter((x) => x.kind !== 'module')) {
+    try { new vm.Script(text, { filename: file }); } catch (error) {
+      problems.push(`${file}: does not parse as a script once its comments are taken out (${error.message}): this check cannot read it`);
+    }
+  }
+  const modules = stripped.filter((x) => x.kind === 'module').map(({ file, text }) => ({ file, text }));
+  if (!modules.length) return problems;
+  const child = `const vm = require('vm'); let d = '';
+    process.stdin.on('data', (c) => { d += c; }).on('end', () => {
+      const out = [];
+      for (const { file, text } of JSON.parse(d)) {
+        try { new vm.SourceTextModule(text, { identifier: file }); } catch (e) { out.push(file + ': does not parse as a module once its comments are taken out (' + e.message + '): this check cannot read it'); }
+      }
+      process.stdout.write(JSON.stringify(out));
+    });`;
+  const r = spawnSync(process.execPath, ['--experimental-vm-modules', '--no-warnings', '-e', child],
+    { input: JSON.stringify(modules), encoding: 'utf8', maxBuffer: 1 << 26 });
+  let out = null;
+  try { out = JSON.parse(r.stdout); } catch { /* reported below */ }
+  if (!Array.isArray(out)) problems.push(`the modules could not be parsed: ${(r.stderr || String(r.error || '')).trim().slice(0, 200)}`);
+  else problems.push(...out);
+  return problems;
 }
 
 // sw.js's ASSETS as written: its entries, and a problem for anything in the
