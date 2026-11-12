@@ -1,23 +1,16 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import vm from 'node:vm';
 import * as opus from '../opus-codec.mjs';
 import { createEncoder, getPacketInfo } from '../vendor/libopus/index.mjs';
+import { loadEngine } from './lib/engine.cjs';
 
 let passed = 0;
 function check(name, ok) { assert.ok(ok, name); passed++; console.log(`  ok    ${name}`); }
 const energy = x => x.reduce((sum, v) => sum + v * v, 0);
 const peak = x => { let at = 0; for (let i = 1; i < x.length; i++) if (Math.abs(x[i]) > Math.abs(x[at])) at = i; return at; };
 const difference = (a, b) => a.reduce((sum, v, i) => sum + (v - b[i]) ** 2, 0);
-const sandbox = { window: {}, Blob, console, TF2Opus: opus };
-vm.createContext(sandbox);
-for (const file of ['../steam-sender.js', '../vendor/swresample/swresample.js']) {
-  vm.runInContext(fs.readFileSync(new URL(file, import.meta.url), 'utf8'), sandbox);
-}
-vm.runInContext(fs.readFileSync(new URL('../constants.js', import.meta.url), 'utf8') + '\n' +
-  fs.readFileSync(new URL('../audio.js', import.meta.url), 'utf8'), sandbox);
-const A = sandbox.window.TF2Audio;
+const engine = loadEngine({ codec: opus });
+const A = engine.audio;
 const buffer = (data, sampleRate) => ({ sampleRate, length: data.length, numberOfChannels: 1, getChannelData: () => data });
 
 console.log('\n[Opus] Timing, framing, controls, and actual decoder concealment');
@@ -570,7 +563,7 @@ check('Downsampling rejects an out-of-band tone instead of aliasing it', energy(
 // Since W3-11a the steam profile's encoder is given the sender's messages
 // (16-bit frames); the gate off, so that every frame of the tone is sent.
 let captured;
-sandbox.TF2Opus = { ...opus, steamRoundTrip: async (messages, bitrate, options) => {
+engine.codec = { ...opus, steamRoundTrip: async (messages, bitrate, options) => {
   const sound = messages.filter(m => m.silence === undefined);
   captured = Float32Array.from(sound.flatMap(m => Array.from(m.pcm)), v => v / 32768);
   return opus.steamRoundTrip(messages, bitrate, options);
@@ -579,13 +572,13 @@ const highTone = Float32Array.from({ length: rate }, (_, i) => .15 * Math.sin(2 
 await A.process(buffer(highTone, rate), { ...base, lp: 1500, gate: false });
 check('Sender low-pass removes out-of-band energy before encoding', captured.length >= rate && energy(captured) < energy(highTone) * .001,
   `${captured.length} samples encoded`);
-sandbox.TF2Opus = opus;
+engine.codec = opus;
 const bypassed = await A.process(buffer(x, rate), { ...base, enableWarble: false });
 check('Codec bypass is only selected explicitly and reported honestly', !bypassed.realOpus && bypassed.codecInfo.backend === 'bypass');
-sandbox.TF2Opus = { roundTrip: async () => { throw new Error('Codec unavailable'); }, steamRoundTrip: async () => { throw new Error('Codec unavailable'); } };
+engine.codec = { roundTrip: async () => { throw new Error('Codec unavailable'); }, steamRoundTrip: async () => { throw new Error('Codec unavailable'); } };
 await assert.rejects(() => A.process(buffer(x, rate), base), /Codec unavailable/);
 check('Codec failure is reported, never silently bypassed', true);
-sandbox.TF2Opus = opus;
+engine.codec = opus;
 
 // Independent packet parser confirms actual codec framing, not a metadata label.
 const encoder = await createEncoder({ sampleRate: rate, channels: 1, frameSize: 480, bitrate: 32000 });
