@@ -153,6 +153,12 @@ the encoder's bitrate doubled for `opus` (its renders are `steam`, which does no
 | browser suite on CI | 3 min 43 s, passed | attempt 1 failed one check (below); attempt 2 4 min 8 s, passed |
 | the suites S3-01a did not touch, on CI | 93 s | 63 s (attempt 1), 112 s (attempt 2) |
 
+CI on the head after the documents and the merge of main (`dcadf87`, run 43183591037) passed: `pnpm test` 11 min 36 s,
+the browser suite 3 min 41 s, the job 16 min. Its untouched suites took 93.3 s, as at `ce55fa7` (93.2 s): on runners
+of the same speed `pnpm test` went from 17 min 34 s to 11 min 36 s (`verify.js` 448.9 s to 7.8 s, `steam.verify.js`
+115.9 s, `reference` 34.0 to 14.9, `speex102` 9.2 to 3.6, `opus` with `gain-exact` 7.8 to 4.8; `render-stream`
+236.3 and 232.5, `stages` 196.9 and 196.1).
+
 The last row is the control: GitHub's runners differ from run to run by as much as this change, so CI's whole times
 compare runs, not code. Per suite on CI (attempt 2 against `ce55fa7`): `verify.js` 448.9 s became 9.3 s and
 `steam.verify.js` 138.4 s; `reference` 34.0 to 18.8; `opus` with `gain-exact` 7.8 to 6.0; `speex102` 9.2 to 4.4.
