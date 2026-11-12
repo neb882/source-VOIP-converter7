@@ -3,7 +3,8 @@
 //   node tests/harness.verify.mjs
 //
 // 1. Its list of the engine's files is, in order, the page's first script
-//    tags, live-worker.js's importScripts and the head of audio-worker.js's.
+//    tags, live-worker.js's importScripts and the head of audio-worker.js's,
+//    and none of the three names an engine file twice anywhere.
 // 2. Its table names are constants.js's top-level declarations.
 // 3. No other file under tests/ names audio.js or constants.js in a quoted
 //    string, but the few places listed below with their reason: the list
@@ -20,7 +21,7 @@
 //    nothing at its top level; the files load nothing, the folder holds
 //    exactly them, and TF2Engine is named only where it should be; TF2Audio
 //    keeps its members in their order; every name a file takes from a part
-//    is there and comes from an earlier file; a load has one frozen part for
+//    is there under that name and comes from an earlier file; a load has one frozen part for
 //    each file; two loads have parts of their own, and neither is left on
 //    Node's global object. Text is read, not parsed; the checks that read
 //    only text come first, so a file they find wrong is named before a load
@@ -67,6 +68,18 @@ console.log('\n[1] The list of the engine\'s files is the page\'s and the worker
     worker.slice(0, ENGINE_FILES.length).join(', '));
   check('the files handed in by name are in the list', Object.keys(HANDED).every((f) => ENGINE_FILES.includes(f)),
     Object.keys(HANDED).join(', '));
+  // An engine file named a second time, anywhere on the page or in any
+  // importScripts call of a worker, would run again and replace its part:
+  // the checks above read only the head of each list.
+  const plain = (f) => f.replace(/^\.\//, '');
+  const twice = (list) => ENGINE_FILES.filter((f) => list.filter((x) => plain(x) === f).length > 1);
+  const everyImport = (file) => [...read(file).matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => quoted(m[1]));
+  for (const [file, list] of [['index.html', tags.filter(Boolean)], ['live-worker.js', everyImport('live-worker.js')],
+    ['audio-worker.js', everyImport('audio-worker.js')]]) {
+    const again = twice(list);
+    check(`${file} names each engine file once`, list.length >= ENGINE_FILES.length && again.length === 0,
+      again.length ? `named more than once: ${again.join(', ')}` : `${list.length} names`);
+  }
 }
 
 console.log('\n[2] The tables a load returns are constants.js\'s');
@@ -239,13 +252,16 @@ console.log('\n[12] What a file takes from a part, an earlier file gives');
       const at = `${file}:${lineAt(stripped, m.index)}`;
       if (!from || ENGINE_FILES.indexOf(from) >= ENGINE_FILES.indexOf(file)) problems.push(`${at}: takes from E.${giver}, which no earlier engine file gives`);
       const part = loaded && loaded.parts && loaded.parts[giver];
+      // A head takes each name as it is (Appendix A of the order): a name
+      // given another name, { a: b }, is refused.
+      if (m[1].includes(':')) problems.push(`${at}: renames in its head (${m[1].replace(/\s+/g, ' ').trim()})`);
       for (const name of m[1].split(',').map((x) => x.split(':')[0].trim()).filter(Boolean)) {
         taken++;
         if (!part || !Object.prototype.hasOwnProperty.call(part, name)) problems.push(`${at}: ${name} is not in E.${giver} of a loaded engine`);
       }
     }
   }
-  check('every const { ... } = E.<part>; in the engine files and audio.js names an earlier file\'s part, and each name is an own key of it',
+  check('every const { ... } = E.<part>; in the engine files and audio.js names an earlier file\'s part, and each name is an own key of it, taken under that name',
     problems.length === 0, problems.join('; ') || `${taken} names taken`);
 }
 
