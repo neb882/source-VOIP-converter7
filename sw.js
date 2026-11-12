@@ -29,6 +29,7 @@ const ASSETS = [
   './engine/network.js',
   './engine/codec.js',
   './engine/room.js',
+  './engine/steam.js',
   './audio.js',
   './audio-worker.js',
   './opus-codec.mjs',
