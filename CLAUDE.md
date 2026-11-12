@@ -22,14 +22,15 @@ files table is the map of the code), and `tests/REFERENCE_2026.md` holds the evi
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm test                 # every suite but the browser's, about 15 minutes on four cores; a failure does not stop the rest
+pnpm test                 # every suite but the browser's; a failure does not stop the rest
 pnpm test verify steam    # suites or groups by name (node tests/run.mjs with no such name lists them)
 CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux*/chrome | head -1) pnpm test:browser
 pnpm dev                  # the app on a local server
 ```
 
 `pnpm test:all` is every suite, the browser's last; CI runs the same suites as five jobs side by side
-(`.github/workflows/test.yml`), and a push has its result about five minutes later (measured on CI on 2026-11-12). Most of
+(`.github/workflows/test.yml`), and a push has its result about five minutes later (measured on CI on 2026-11-12).
+`pnpm test` whole took 14 min 36 s on a four-core machine shared with other agents (measured on 2026-11-12). Most of
 `pnpm test` is `tests/render-stream.verify.mjs`, `tests/stages.verify.mjs` and `tests/steam.verify.js`: run the
 suite a change touches on its own first (`pnpm test <name>`). The `CHROMIUM_EXECUTABLE` part is for a machine whose
 installed Chromium is not the one Playwright pins; elsewhere `pnpm test:browser` is enough.

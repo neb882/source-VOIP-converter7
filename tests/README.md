@@ -21,7 +21,8 @@ Node 22 or later and pnpm 10.13.1. Every command above is `tests/run.mjs`, the r
 the suites and their groups. It runs every suite it is asked for, whatever the earlier ones did, each as its own Node
 process with the runner's environment. After each suite it prints one line (its name, passed or FAILED with the exit
 code, its seconds), and at the end a table of all of them, each failed suite's `FAIL` lines and last 15 lines again,
-and the seconds summed and the wall time. It exits 1 if a suite failed. A name it does not know is an error that
+and the seconds summed and the wall time. A suite fails if it exits other than 0, or if it exits 0 having printed a
+failed check (a line that starts with `FAIL`) or nothing at all. It exits 1 if a suite failed. A name it does not know is an error that
 lists the names (`node tests/run.mjs nosuch`). One at a time, a suite's output goes straight through; with `--jobs N`
 each suite's output is printed whole when it ends. The browser suite always runs alone, after the others. Each suite
 also runs on its own (`node tests/<suite>`), and it is quicker to run the one a change touches first. Several suites
@@ -107,8 +108,14 @@ there. Today these are the object URLs of Blobs made on the page, a canvas's dat
 `require` that runs under Node only. An allowance whose statement is gone fails too. The generated libopus bundle is
 not read; it is pinned by its SHA-256. The link to the resampler's licence is named as opened online only and is not
 in the list. Then `ASSETS` must hold exactly the derived files: a failure names each file "needed and not listed"
-and each "listed and not needed". The same suite holds the workflow's jobs to the runner's groups and every
-`tests/*.verify.*` file to the runner's table. The browser suite's `[Browser 4b]` takes the same derived list, holds
+and each "listed and not needed". A script whose text, once its comments are taken out, no longer parses fails too, so a misread comment
+cannot hide a line. A `src` or `href` with a query string or a fragment, `image-set()` in a stylesheet,
+`<meta http-equiv="refresh">`, an attribute written twice and a `</script` not followed by `>` are failures as well.
+What it does not catch: a load whose URL or property name is built from parts or passed through code it cannot read
+(`el['sr' + 'c'] = u`, a helper of the page's own that sets an attribute, `eval`), which only the browser suite's
+request check can see, on the paths it walks. The same suite holds the workflow's jobs to the runner's groups (no
+`exclude` or `include`, and each job running its own group), every `tests/*.verify.*` file to the runner's table,
+and the three other suites (`verify.js`, the vendor check, `gain-exact.mjs --synthetic`) to their exact commands. The browser suite's `[Browser 4b]` takes the same derived list, holds
 the tags the browser sees to it, and checks that every request of a first visit and an offline render is for a file
 of it.
 
@@ -167,7 +174,8 @@ variable. Elsewhere `pnpm test:browser` is enough.
 
 ## Heavy jobs on a shared machine
 
-The browser suite, a codec build, and `pnpm test` whole or with `--jobs` run one at a time:
+The browser suite, a codec build, `pnpm test` whole or with `--jobs`, and the long suites (`render-stream`, `stages`,
+`steam`) alone run one at a time:
 `flock /tmp/tf2ve-heavy.lock <command>`. The browser suite times a live microphone chain, and two heavy jobs at once
 on four cores make it flaky ([docs/PIPELINE.md](../docs/PIPELINE.md), "Long runs"). Three suites also pass or fail
 on a time of their own (`room-dsp`, `video`, `meter`), which is why `--jobs` is 1 unless asked.

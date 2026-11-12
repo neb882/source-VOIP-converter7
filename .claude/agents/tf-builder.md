@@ -23,8 +23,9 @@ task.
 4. Prove it with the checks the order's "Done means" lists (`pnpm test` and the browser suite at least), and iterate
    until they pass.
    - Check your own tests by breaking the code they cover: each break must fail a test.
-   - Run `pnpm test`, the browser suite and any codec build as `flock /tmp/tf2ve-heavy.lock <command>`: other agents
-     share the machine. While you work, run the one suite your change touches (`pnpm test <name>`).
+   - Run `pnpm test`, the browser suite, the long suites (`render-stream`, `stages`, `steam`) and any codec build as
+     `flock /tmp/tf2ve-heavy.lock <command>`: other agents share the machine. While you work, run the one suite your
+     change touches (`pnpm test <name>`).
    - After pushing, read your branch's CI run (the `tests` workflow) and say in the report whether it passed.
 5. Update the docs the change affects (README.md, `tests/REFERENCE_2026.md`, `tests/LEGACY_CODECS.md`), unless the
    order leaves docs to the orchestrator. Do not edit `docs/PROGRESS.json`: the orchestrator keeps it. Commit in

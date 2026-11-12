@@ -81,17 +81,21 @@ figures are the vendor's own. Re-read this section when either model changes.]
    `deferred` in PROGRESS. The fixer is the order's builder, resumed with its context.
 5. **The inspection** is CI on GitHub: a fresh checkout on clean runners, in five jobs side by side (`units`,
    `engine`, `render`, `stages`, `browser`) and a sixth, `verify`, that succeeds only if all five did; a result
-   comes about five minutes after the push (measured on 2026-11-12). Read the run on the branch's head commit yourself (its
-   conclusion, which is `verify`'s, and its head SHA), not only the builder's word; a failed job's log ends with the
-   runner's table, which names every suite of that job that failed. Since 2026-11-12 a commit is tested once, on its
-   push: there is one run on a head, not two, and a push that changes nothing outside `docs/` starts none. So push a
-   merge and the progress commit on top of it together, or the head has no run to read. [One job took 16 to 18
-   minutes and stopped at the first failing suite; a third of the runs re-tested a commit already tested, and each
-   progress commit ran it twice.]
+   comes about five minutes after the push (measured on 2026-11-12). Read the run on the branch's head commit
+   yourself (its conclusion, which is `verify`'s, and its head SHA), not only the builder's word. Only `verify` with
+   the conclusion success counts: a run cancelled by a newer push leaves `verify` skipped, which is not a pass. A
+   failed job's log ends with the runner's table, which names every suite of that job that failed. Since 2026-11-12 a
+   commit is tested once, on its push: there is one run on a head, not two, and a push that changes nothing outside
+   `docs/` starts none. So push a merge and the progress commit on top of it together, or the head has no run to
+   read. [One job took 16 to 19 minutes and stopped at the first failing suite; a third of the runs re-tested a
+   commit already tested, and each progress commit ran it twice.]
 6. **The merge** is local, `--no-ff`, with a message that says what the order did and how it was checked. Before the
    push, `node tests/cache-number.mjs origin/main`: if a file the site keeps offline changed, it says so and `--set`
-   raises the number, which goes into the merge commit. [A builder's branch never raises it: two branches that do
-   conflict on that line at every merge of `main`.] Then `git push origin HEAD:main`. Never GitHub's merge button (CLAUDE.md). Then update PROGRESS, remove the worktree,
+   raises the number, which goes into the merge commit. If the last run on `main` is red, compare instead with the
+   last commit of `main` whose run was green (`node tests/cache-number.mjs <that commit>`). [A builder's branch never
+   raises it: two branches that do conflict on that line at every merge of `main`. CI's step on `main` compares only
+   with the commit before the push, so a red run's missed rise would otherwise pass unseen.] Then
+   `git push origin HEAD:main`. Never GitHub's merge button (CLAUDE.md). Then update PROGRESS, remove the worktree,
    and check the live site serves the new version.
 
 ## Briefs and reports
@@ -108,9 +112,10 @@ figures are the vendor's own. Re-read this section when either model changes.]
 
 ## Long runs
 
-- **Heavy jobs** (the browser suite, a codec build, `pnpm test` whole or with `--jobs`) run one at a time: `flock
-  /tmp/tf2ve-heavy.lock <command>`. [The browser suite times a live microphone chain; two at once on four cores make
-  it flaky. `pnpm test` whole is the longest job, about 15 minutes on four cores.]
+- **Heavy jobs** (the browser suite, a codec build, `pnpm test` whole or with `--jobs`, and the long suites
+  `render-stream`, `stages` and `steam` alone) run one at a time: `flock /tmp/tf2ve-heavy.lock <command>`. [The
+  browser suite times a live microphone chain; two at once on four cores make it flaky. `pnpm test` whole is the
+  longest job, 14 min 36 s on a four-core machine shared with other agents (measured 2026-11-12).]
 - **Parallel builds** only for orders whose files don't overlap, each in its own worktree, and at most two at once.
   Reviewers, skeptics and planners don't count.
 - **A pushed branch is never rebased or force-pushed**: bring main in with a merge.
