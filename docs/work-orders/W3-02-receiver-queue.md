@@ -3,7 +3,7 @@
 > **Status 2026-11-12, by part:**
 > - W3-02a: **built and merged** at `1ee4968` (pull request #9); report `docs/reports/W3-02a-voice-channel.md`. Nothing loads the module yet.
 > - W3-02b: **built and merged** at `f58d9a7` (pull request #11); report `docs/reports/W3-02b-voice-timeline.md`. Its sender's clock and hold were replaced by W3-16 (`d250928`).
-> - W3-02c: the plan review made it three orders (`abf872f`, `b63cc73`; the amendment below). W3-02c-1: **built and merged** at `a2b7dc9` (pull request #30; no cache change); report `docs/reports/W3-02c1-channel-as-read.md`. W3-02c-2: **planned and ruled 2026-11-12, not built**; its order is [W3-02c2-render-channel.md](W3-02c2-render-channel.md), which takes the place of the amendment's section 5. W3-02c-3: **not started**; after W3-02c-2.
+> - W3-02c: the plan review made it three orders (`abf872f`, `b63cc73`; the amendment below). W3-02c-1: **built and merged** at `a2b7dc9` (pull request #30; no cache change); report `docs/reports/W3-02c1-channel-as-read.md`. W3-02c-2: **built and merged 2026-11-12** (`73993cf`, cache v39; report `docs/reports/W3-02c2-render-channel.md`); its order is [W3-02c2-render-channel.md](W3-02c2-render-channel.md), which takes the place of the amendment's section 5. W3-02c-3: **not started**; after W3-02c-2.
 > - W3-02d: **not started**; after W3-02c-2. W3-02e: **not started**; after W3-02d. W3-02f: **not started**; after W3-02d. W3-02g: **not started**; after W3-02c-2 and W3-02f, and a planner's pass.
 > - The plan: `docs/reports/W3-02-plan.md` (revisions 1 and 2, `96f0983`, `615fb06`).
 

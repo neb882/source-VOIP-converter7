@@ -1,6 +1,6 @@
 # W3-02c-2: a render runs the receiver's voice channel, behind an option
 
-**Status 2026-11-12: built, reviewed and read a second time (no blocker from either); a fix round is running; not merged**; after W3-02c-1, W4-01b and S3-02a, all merged.
+**Status 2026-11-12: built and merged** (`73993cf`, cache v39; report `docs/reports/W3-02c2-render-channel.md`; a review and a second read with no blocker, one fix round on the checks). The orchestrator's private runs against the takes are not done yet; after W3-02c-1, W4-01b and S3-02a, all merged.
 
 *Written 2026-11-12 by a planner's pass on `main` at `622673c` (cache v37). This is the order a builder builds
 from. It takes the place of section 5 of the "Amendment of 2026-11-11" in

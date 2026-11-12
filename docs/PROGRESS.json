@@ -5,39 +5,33 @@
     "url": "https://neb882.github.io/source-VOIP-converter7/",
     "serves": "main (GitHub Pages from the branch root)",
     "main": "the head of main (git log); the site's cache number is below",
-    "cache": 38,
-    "last_merge": "S3-02b (65a2463, cache v38, pull request #37, 2026-11-12): TF2Audio.realOpusRoundTrip and two lines of the page that nothing read are removed (TF2Audio has 37 members). The service worker now asks the network for the page, scripts, styles and workers with cache: 'no-cache', fills a new generation's cache with cache: 'reload', and hands the page scripts marked Cache-Control: no-cache, so after an update a returning visitor gets the new page with the new scripts on a navigation or a reload, online or after a load made offline (measured in the suite's Chromium only; [Browser 4c] holds it in six lines, each shown to fail on a weakened worker). The cost: a returning load asks the server about each of its 38 files again (answered 'not changed' with no body where the server supports it; GitHub Pages' answer was not measured), where the browser's own cache answered for ten minutes before. The update that brings this in is still served by the worker before it: for this change's files every pairing of old and new starts without error (six pairings loaded by the reviewer). A script reached through a redirect is not covered; no file of the site is. The harness refuses an engine file named twice on the page or in a worker's list, and any head that is not plain names. Before it: S3-02a (f134d2c, v37, #36), the engine in ten files under engine/. Earlier merges: the index, docs/README.md."
+    "cache": 39,
+    "last_merge": "W3-02c-2 (73993cf, cache v39, pull request #38, 2026-11-12): TF2Audio.process and TF2Audio.createRender run the receiver's voice channel (voice-channel.js) for the steam codec when asked with timeline 'game' (with fps and bufferMs): the wait, the queue, one sample dropped from every packet, the fade at the queue's end, a gain reset at each channel opened; a lost message is not handed to the channel, which is BC-3's build. Asked for where it cannot run (another codec, the codec off, a demo's voice, with retime) or with any other value, the option is refused with an error, never ignored. The default is 'source' and no recorded hash moved; the page does not offer the option (W3-02d) and the live chain does not run it (W3-02c-3). A 'game' render equals, sample for sample, a reference the suite render-channel builds from the module at sixteen settings (measured); the stream equals process() (measured, 36 random settings by the reviewer). On a ten-minute source the channel adds 1.6 to 3.5 s and about 10 to 25 MB of peak memory (measured, builder and reviewer). A 'game' render can lose the first moments of a clip (up to 56 ms at 66.67 and 100 fps, 11 ms at 300, in about 1% of seeds) and up to 47 ms of its end at the lower rates (measured on the model): for W3-02d's words. Not yet done: the orchestrator's private runs against the takes. Just before it: S3-02b (65a2463, v38, #37): three unused pieces removed; the service worker asks the network past the browser's caches and hands the page scripts marked no-cache, so an update cannot pair an old page with new scripts or the reverse (Chromium only; [Browser 4c]); a returning load asks the server about each of its 38 files again; a script reached through a redirect is not covered, and no file of the site is. Earlier merges: the index, docs/README.md."
   },
   "in_flight": [
     {
-      "order": "W3-02c-2",
-      "state": "planned and ruled 2026-11-12; builder at work on claude/w3-02c2-timeline-option",
-      "note": "The planner's prototype (a patched copy in scratch, measured 2026-11-12): a 'game' render equals a reference built from voice-channel.js sample for sample at every setting tried; the stream equals process(); the channel adds 2.2 to 3.4 s to a ten-minute render and peak memory is about 100 MB lower than 'source'. The builder measures each again. Then the reviewer and the second reader (it changes how a render is computed, behind an option)."
+      "order": "W3-02c-2, the orchestrator's private runs",
+      "state": "next, after the merge is live",
+      "note": "From the order's section \"The orchestrator runs privately\": tests/accuracy.mjs on four takes before and after (identical, since no default render changes); the Set G replay unchanged; the speech take's source rendered with timeline 'game' at 300 and 66.67 fps and tracked as a take is (on record for comparison: the module alone reads 47% of transitions and a start error of 122 ms); the loss takes of Set C against 'game' renders at their loss (on record: 3.90 lost runs a second and 10.1% silent in the take at 15%; whether the real channel shows drops of 60 to 220 ms that the takes lack is BC-3's first question). Figures only go into the public record."
     }
   ],
   "next": [
     {
-      "order": "W3-02c-2",
-      "file": "docs/work-orders/W3-02c2-render-channel.md",
-      "after": "planned and ruled 2026-11-12 (the order takes the place of the amendment's section 5); being built beside S3-02b",
-      "line": "process() and createRender() run the receiver's channel for the steam codec behind opts.timeline: 'game' (default 'source', so no recorded hash moves); asked for where it cannot run, the option is refused with an error, never ignored; a lost message is not pushed, which is BC-3's build. The page does not offer it (W3-02d) and the live chain does not run it (W3-02c-3). After the merge: the orchestrator's private runs against the takes."
-    },
-    {
       "order": "W3-02c-3",
       "file": "docs/work-orders/W3-02-receiver-queue.md (the amendment, section 9)",
-      "after": "W3-02c-2",
+      "after": "W3-02c-2 (merged 2026-11-12)",
       "line": "the live chain runs the channel; the owner's question on its default is open (waiting_on_the_owner)."
     },
     {
       "order": "W3-02d",
       "file": "docs/work-orders/W3-02-receiver-queue.md",
-      "after": "W3-02c-2",
+      "after": "W3-02c-2 (merged 2026-11-12)",
       "line": "the page's control, the default and the words; its note of 2026-11-12 lists what W4-01a and W4-01d added. Added 2026-11-12, agreed with the owner (whose clips are mostly music over a minute, so the 60 s limit of the automatic re-render marks most of them): a changed setting re-renders a longer source by itself when the change needs no new encode (the names of AFTER_B_OPTIONS: the render then starts from the kept stage B); a change that needs a new encode still waits for the button. Before the limit moves, time a re-render from the kept stage on a phone, and set the length limit from that figure."
     },
     {
       "order": "BC-4",
       "file": "docs/reports/bad-connections-plan.md (no order yet)",
-      "after": "W3-02c-2",
+      "after": "W3-02c-2 (merged 2026-11-12)",
       "line": "jitter as in-order arrival delays through the queue; retires the late-frame fit. With W3-02c-2 and W3-02d it is the last build before the tool's finish line."
     },
     {
@@ -177,6 +171,9 @@
     {
       "finding": "filerate.js does not read WebM or Matroska (video.js does not parse them), so those files are still decoded at the audio device's rate, with a console line. A plain AAC file in ADTS at 24 kHz or less is decoded at twice its rate (the rule that keeps an HE-AAC file's upper band); HE-AAC itself was reasoned, not measured, and Firefox and Safari were not checked.",
       "why": "Each only resamples, as every file was before; none gives a wrong pitch or length."
+    },
+    {
+      "finding": "Left from the documentation and structure pass (closed 2026-11-12 with S3-02b), each for a later order: one staged renderer for process() and createRender() (decided after BC-4); exact live-against-render checks for the older codecs (with W3-02c-3); the real-take check's spurts still come from the old 20 ms frame gate (with W3-02e)."
     }
   ],
   "ideas_not_started": [
