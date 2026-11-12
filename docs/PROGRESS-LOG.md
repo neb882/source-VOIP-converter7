@@ -404,3 +404,21 @@ file: docs/work-orders/W3-02-receiver-queue.md (the amendment, section 5); after
 ### next (W3-02d), its line until the owner's note of 2026-11-12 on long clips
 
 the page's control, the default and the words; its note of 2026-11-12 lists what W4-01a and W4-01d added.
+
+## 2026-11-12, at S3-02b's merge
+
+### live.last_merge, as it stood until this merge
+
+S3-02a (f134d2c, cache v37, pull request #36, 2026-11-12): the engine's code moved, unedited, out of audio.js into ten files under engine/ (dsp, gain, mix, network, codec, room, steam, render, render-stream, live-chain); audio.js keeps the codec module's loader and builds TF2Audio from them, with the same members. Every line of the old file is in exactly one of the eleven (the builder's check and a reviewer's own byte-for-byte alignment); every suite that renders prints what it printed before; the page, both workers, sw.js's list and the tests load the ten files in one order; the resampler's licence file joined the offline list. A fresh worker starts 20 to 34 ms later (accepted beforehand). docs/reports/S3-02a-engine-split.md. Known at the merge, from the review: a visitor who loaded the site in the ten minutes before a merge that adds files and then navigates (not reloads) within those ten minutes can get the old index.html with the new audio.js, a page that cannot render until a reload; sw.js's code is unchanged, so this was true of every earlier merge that added a file; S3-02b closes it. Before it: S3-01b (087f653, pull request #35), S3-01a (7a94dc8, #34), S3-03 (11f430f, cache v36, #33). Earlier merges: the index, docs/README.md.
+
+### next (S3-02b), as it stood until it was merged
+
+TF2Audio.realOpusRoundTrip removed (nothing reads it), with two lines of the page that nothing reads. Added by the orchestrator at S3-02a's merge, from its review: the harness refuses an engine file named twice among the page's tags or a worker's list, and a renamed name in a file's head; sw.js fetches code and markup past the browser's HTTP cache (the install's addAll with cache 'reload', the network-first fetch with 'no-cache'), so an old index.html cannot be paired with new scripts after a merge; four comments that still say a moved function is in audio.js (opus-codec.mjs, room-dsp.js, steam-sender.js) corrected, with the note PREDICTIONS.md needs for changed model files.
+
+### in_flight (the documentation and structure pass), closed at this merge
+
+stages 1 and 2 on main; stage 3: S3-03, S3-01a, S3-01b and S3-02a merged; S3-02b next, then the pass is done
+
+Asked by the owner on 2026-11-12, who allowed the documents and the project's structure to be rewritten freely. Stages 1 and 2 (three audits; the new README, docs/FINDINGS.md, docs/ACCURACY.md, docs/VOICE-PATH.md, docs/LIVE.md, docs/PAGE.md, tests/README.md, the index docs/README.md, docs/owner-runs.md, CLAUDE.md's writing rules, this file short with its history in docs/PROGRESS-LOG.md) are on main. Stage 3 is the structure: S3-03 (invented names in the mock console feed) is merged; S3-01a (one engine loader for the Node suites, the steam sections in their own test file) is merged after a clean review; S3-01b (a runner, the derived cache list, the cache number set at the merge, CI in five jobs) is merged after a review and a fix round; S3-02a (audio.js into ten files under engine/) is merged after a clean review; next is S3-02b. Later: one staged renderer (decided after BC-4); exact live-against-render checks for the older codecs (alongside W3-02c-3). Owed from the audits and not yet in an order: the real-take check's spurts still come from the old 20 ms frame gate.
+
+The pass is done with S3-02b: stages 1 and 2 (the documents) and stage 3 (S3-03, S3-01a, S3-01b, S3-02a, S3-02b). Left from it for later orders: one staged renderer (decided after BC-4); exact live-against-render checks for the older codecs (with W3-02c-3); the real-take check's spurts still come from the old 20 ms frame gate.
