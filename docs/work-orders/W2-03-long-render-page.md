@@ -1,6 +1,16 @@
 # W2-03: sources past 10 minutes render in the page
 
-> **Status 2026-11-12: held** on the owner's priority; when taken up, after W4-01b (in flight). It blocks W2-05 and W2-06.
+> **Status 2026-11-12: held** on the owner's priority; W4-01b has merged (v35), so its steps need a planner's pass before a build (the note below). It blocks W2-05 and W2-06.
+
+> **Re-read 2026-11-12 at W4-01b's merge (`2a98439`), by the orchestrator.** What this order assumes and no longer holds: the
+> page now keeps one worker for its renders, downloads, the meter and the real take's jobs, one job at a time, each
+> with an id; the source goes to it once, in a `source` message, and stays there with two kept stages of the last
+> render; **Cancel** sends a `cancel` message and the worker is ended only if the render has not stopped within a
+> bound; a source over 30 s first gets a render of its first 15 s. So step 1's "a new worker message that streams",
+> step 2's chunked transfer and "cancel terminates the worker" are to be rewritten: a streaming job is either a job
+> of the kept worker (which then must not also hold a whole long source and its stages: for a 9.8-minute source the
+> kept worker's peak is about 2 GB, `docs/reports/W4-01b-speed.md`) or runs in a worker of its own, as the batch's
+> do. The limits, the meter by pieces and the output buffer are untouched by W4-01b.
 
 > **Held (the owner's priority). Note of 2026-11-10 (`docs/reports/W3-plan-maintenance-2.md`), for when it
 > is taken up:** W2-04 is superseded. Where this order says a room or `voice_retime` is refused by the stream

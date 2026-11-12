@@ -4,7 +4,7 @@
 > - The audit: **done** at `14b4608`; report `docs/reports/W4-01-page-audit.md`.
 > - W4-01a and W4-01c: **built and merged** at `b9579a4` (cache v34, pull request #29); report `docs/reports/W4-01ac-page.md`.
 > - W4-01d: **built and merged** at `b952114` (cache v31, pull request #26); report `docs/reports/W4-01d-settings-words.md`.
-> - W4-01b: **in flight** on branch `claude/w4-01b-speed`.
+> - W4-01b: **built and merged** at `2a98439` (cache v35, pull request #32), all three steps (step 3, the first seconds, is built: the owner's answers overruled Decision 6); report `docs/reports/W4-01b-speed.md`. The memory stop-and-ask was met and ruled on (section W4-01b).
 
 *Written 2026-11-10 from the audit `docs/reports/W4-01-page-audit.md` ("the audit" below; "finding n" is its
 numbered finding, "speed-up n" a row of its table of speed-ups). The owner, on scope: "I agree that the pages

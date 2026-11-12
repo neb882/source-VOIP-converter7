@@ -328,3 +328,9 @@ Asked by the owner on 2026-11-12, who allowed the documents and the project's st
 ### live.main
 
 Until this merge the file named main's commit (`9e0abd0`). A file cannot name the commit it is part of, so it now points to `git log`.
+
+## 2026-11-12 (appended at W4-01b's merge)
+
+### in_flight (W4-01b), as it stood while the order was built and reviewed
+
+docs/work-orders/W4-01-page.md, section W4-01b, with the orchestrator's plan review of 2026-11-11 against today's code: the worker is kept between renders, no timer yields in the worker, the result before the meter, the capture signal and the codec stage's result reused when the changed setting comes after them (keys safe by default: a function-valued option that is not a pure observer of later stages reuses nothing), Cancel stops the render and keeps the worker and its stages, the first seconds of a long clip playable while the rest renders. No recorded hash may move. Branch claude/w4-01b-speed. Two independent readers follow the build. Built 2026-11-12 (head a1984d5, CI green): on a 5-minute clip the first playable sound comes after 0.9 s where it took 16.9, and a re-render after a change of voice_scale takes 6.1 s where it took 16.3 (the builder's medians of three). The builder stopped on memory: for a 9.8-minute source the browser's peak over the idle page is 2050 MB against 1592 MB on main (+29%, the order allowed a tenth); most of it is the kept worker's uncollected garbage, and 231 MB more is held at rest (the source, the capture signal, the codec stage's result). The orchestrator accepts the figure for this order; a way back, should long clips strain a browser, is to hand the stages to a new worker after a long render.

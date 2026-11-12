@@ -47,7 +47,7 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | W1-04 | the live-recording check stops failing by chance | built and merged | `4efb870`, #4 | W1-04-live-check-probe.md | |
 | W2-01 | the meter a piece at a time | built and merged | `b4605e6`, #6 | W2-01-stream-meter.md | |
 | W2-02 | `createRender` | built and merged | `860a559` (v20 at `43fd35f`), #8 | W2-02-render-stream.md | |
-| W2-03 | sources past 10 minutes in the page | held (the owner's priority) | | none yet | after W4-01b; blocks W2-05, W2-06 |
+| W2-03 | sources past 10 minutes in the page | held (the owner's priority); its worker protocol needs a planner's pass since W4-01b | | none yet | blocks W2-05, W2-06 |
 | W2-04 | rooms and re-timing in the stream | superseded: the room half by W3-17c (`3250128`, v28); the re-timing half goes with W3-02f | | | |
 | W2-05 | the views quick on long files | held | | | after W2-03 |
 | W2-06 | a video keeps its file, not a copy of its bytes | held | | | after W2-03 |
@@ -93,7 +93,7 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | W4-01 audit | the page as a user meets it | done | `14b4608` | W4-01-page-audit.md (and the screenshots in `reports/W4-01/`) | |
 | W4-01a, W4-01c | the journey and the defaults; access | built and merged | `b9579a4`, v34, #29 | W4-01ac-page.md | |
 | W4-01d | the settings' words | built and merged | `b952114`, v31, #26 | W4-01d-settings-words.md | |
-| W4-01b | speed with the same samples | built, in review (two readers) | branch `claude/w4-01b-speed` | W4-01b-speed.md (on the branch) | before S3-01a |
+| W4-01b | speed with the same samples: stages kept and reused, the worker kept, Cancel, the first seconds | built and merged | `2a98439`, v35, #32 | W4-01b-speed.md | S3-01a builds on it |
 | S3-01a | the tests' one engine loader, in each suite's own realm; the steam sections of `tests/verify.js` in their own file | planned, not built | [S3-01-test-harness.md](work-orders/S3-01-test-harness.md) | | after W4-01b; before S3-01b |
 | S3-01b | a runner in place of the `&&` chain; a check that derives the cache list; the cache number set at the merge; CI in five jobs | planned, not built | the same order | | after S3-01a; before the split of `audio.js` (no order yet) and W3-02c-2 |
 | BC plan | bad connections | done | `803cffc` | bad-connections-plan.md | |
@@ -115,4 +115,4 @@ and `reports/W4-01/` those of `W4-01-page-audit.md`.
   channel's old arithmetic (the unblended copy and the old fade; its header says so, and the suite adapts around
   it), and W3-02a's report and `tests/voicequeue/README.md` describe that old arithmetic. The amendment's "As built:
   W3-02c-1" in `work-orders/W3-02-receiver-queue.md` says what the channel computes now.
-- **At W4-01b's merge:** W2-03's worker protocol is re-read, and W4-01's step 3 is marked built.
+- **Since W4-01b's merge:** W2-03's worker protocol no longer holds (its note of 2026-11-12 says what changed); a planner rewrites its steps when the order is taken up.
