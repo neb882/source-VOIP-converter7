@@ -27,6 +27,7 @@ import { engineRun, syntheticResults } from './voicequeue/synthetic-results.mjs'
 
 const require = createRequire(import.meta.url);
 const V = require('../voice-channel.js');
+const { createSender } = require('../steam-sender.js');
 const { VOICE_CHANNEL, waitTicks, latency, createChannel, createTimeline } = V;
 const TOOL = fileURLToPath(new URL('./voicequeue/log-to-fixture.mjs', import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
@@ -35,6 +36,31 @@ const REPLAY_ONLY = 'TF2VE_VOICE_REPLAY_ONLY';
 
 let passed = 0;
 function check(name, ok, detail = '') { assert.ok(ok, `${name} ${detail}`); passed++; console.log(`  ok    ${name}${detail ? `   [${detail}]` : ''}`); }
+
+// ---------------------------------------------------------------------------------------
+// A second reading of the arithmetic of TF2's own routines, as the orchestrator's private run
+// of 2026-11-11 gave it (both of the game's builds; W3-02c-1, item 4): written from the rule,
+// not from the module. Everything is in 16-bit units.
+
+const f32 = Math.fround;
+// The interpolator at a step of 1.0 over packet s from fraction frac: the values written and
+// the fraction left.
+function interpolate(s, frac) {
+  const out = [];
+  let pos = frac;
+  while (pos < s.length - 1) {
+    const i = Math.trunc(pos), f = pos - Math.floor(pos);
+    out.push(Math.trunc(s[i] + (s[i + 1] - s[i]) * f) + 0);
+    pos += 1;
+  }
+  return { out, frac: pos - Math.floor(pos) };
+}
+const fadeLength = (fadeTime) => Math.max(2, Math.trunc(f32(44100 * f32(fadeTime))));
+// Sample x with r samples queued behind it, under a fade of `fade` samples (r < fade).
+function faded(x, r, fade = 4410) {
+  const step = f32(1 / (fade - 1)), j = fade - 1 - r;
+  return Math.trunc(f32(f32(1 - f32(j * step)) * x)) + 0;
+}
 
 // ---------------------------------------------------------------------------------------
 // The replay of a fixture.
@@ -239,6 +265,44 @@ function synthesize({ fps, seed }) {
 // gain's calls, and on every sample and tag of every pull; the full drops lists and gain
 // logs are compared at the end of each case. Returns the counts and the first disagreement.
 
+// The second model keeps the queue's state, tags and drops; the values the interpolator writes
+// and the fade (item 4 of W3-02c-1, which tests/voicequeue/reference-channel.mjs predates) are
+// added here from the second reading above: the values travel in a plain array beside the
+// model's queue, cut to its length from the front, and its own pulled values are not used.
+function arithmeticReference(opts, gain) {
+  const b = createReferenceChannel({ ...opts, gain: null });
+  const keep = !!(opts.test && opts.test.keepSample);
+  const fade = fadeLength(opts.fadeTime === undefined ? 0.1 : opts.fadeTime);
+  let values = [], frac = 0.999;
+  const model = Object.create(b);
+  Object.defineProperty(model, 'fraction', { get: () => frac });
+  model.add = (pcm, tag) => {
+    if (!b.inUse) { values = []; frac = 0.999; if (gain) gain.reset(); }
+    const s = gain ? gain.process(pcm) : pcm;
+    const w = interpolate(s, frac);
+    frac = w.frac;
+    const written = keep && s.length ? [Math.trunc(s[0]) + 0, ...w.out] : w.out;
+    b.add(Float32Array.from(keep ? written : [0, ...written]), tag);
+    values.push(...written);
+    values.splice(0, values.length - b.count);
+  };
+  model.pull = (n) => {
+    const live = b.inUse && b.playing, before = b.count;
+    const { tags } = b.pull(n);
+    const samples = new Float32Array(n);
+    if (!live) return { samples, tags };
+    const got = Math.min(n, before), read = values.splice(0, got), after = values.length;
+    for (let i = 0; i < got; i++) {
+      const r = got - 1 - i + after;
+      samples[i] = r < fade ? faded(read[i], r, fade) : read[i];
+    }
+    const k = Math.min(got, n - got);
+    for (let i = 0; i < k; i++) samples[got + i] = samples[got - k + i];
+    return { samples, tags };
+  };
+  return model;
+}
+
 function differential(seeds) {
   const RINGS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 64, 513, 4411];
   const FPS = [5, 10, 30, 59.94, 66.67, 100, 144, 239.76, 300, 1000, 5000];
@@ -258,7 +322,7 @@ function differential(seeds) {
     const stub = (log) => ({ reset() { log.push('reset'); }, process(p) { log.push(`process ${p.length} ${p[0]}`); return Float32Array.from(p, (v) => v * 0.75); } });
     const withGain = r() < 0.5;
     const a = createChannel({ ...opts, gain: withGain ? stub(logA) : undefined });
-    const b = createReferenceChannel({ ...opts, gain: withGain ? stub(logB) : null });
+    const b = arithmeticReference(opts, withGain ? stub(logB) : null);
     seen.cases++;
     let tagNo = 0, head = 0, wasInUse = false;                 // head: where the module's ring is read
     const nOps = 100 + Math.floor(r() * 300);
@@ -271,7 +335,7 @@ function differential(seeds) {
           : v < 0.42 ? size + 2 + Math.floor(r() * size) : Math.floor(r() * (1.5 * size + 3));
         if (v >= 0.35 && v < 0.42) seen.longPackets++;
         n = Math.min(n, 7000);
-        const pcm = Float32Array.from({ length: n }, () => r() * 2 - 1);
+        const pcm = Float32Array.from({ length: n }, () => Math.round(r() * 65535) - 32768);   // 16-bit values
         const w = r(), tag = w < 0.05 ? undefined : w < 0.1 ? 16777216 + tagNo++ : w < 0.5 ? Math.floor(r() * 3) : tagNo++;
         const before = b.count, droppedBefore = b.dropped, opened = !b.inUse;
         a.add(pcm.slice(), tag); b.add(pcm.slice(), tag);
@@ -308,8 +372,8 @@ function differential(seeds) {
       seen.ops++;
       if (wasInUse && !b.inUse) seen.frees++;
       wasInUse = b.inUse;
-      const sa = [a.inUse, a.playing, a.starved, a.count, a.opens, a.dropped, a.waitTicks, logA.length].join();
-      const sb = [b.inUse, b.playing, b.starved, b.count, b.opens, b.dropped, b.waitTicks, logB.length].join();
+      const sa = [a.inUse, a.playing, a.starved, a.count, a.opens, a.dropped, a.waitTicks, logA.length, a.fraction].join();
+      const sb = [b.inUse, b.playing, b.starved, b.count, b.opens, b.dropped, b.waitTicks, logB.length, b.fraction].join();
       if (!bad && sa !== sb) bad = { seed, o, what, why: `state ${sa}, the model ${sb}` };
     }
     if (!bad && JSON.stringify(a.drops) !== JSON.stringify(b.drops)) bad = { seed, what: 'the drops list', why: `${JSON.stringify(a.drops).slice(0, 200)}, the model ${JSON.stringify(b.drops).slice(0, 200)}` };
@@ -338,7 +402,6 @@ function runReplay(file) {
 
 function publicChecks() {
   const near = (a, b) => Math.abs(a - b) < 1e-12;
-  const f32 = Math.fround;
 
   console.log('The module');
   {
@@ -349,8 +412,8 @@ function publicChecks() {
     check('it loads as a page script and in a worker as TF2VoiceChannel, with no imports',
       ['VOICE_CHANNEL', 'waitTicks', 'latency', 'createChannel', 'createTimeline'].every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
       && Object.keys(V).join() === 'VOICE_CHANNEL,waitTicks,latency,createChannel,createTimeline' && !/\bimport\b|\brequire\(/.test(src));
-    check('its constants are frozen: 22050, 0.015 s, 100 ms, 300 fps, 0.1 s, 512 and 513', Object.isFrozen(VOICE_CHANNEL) && Object.isFrozen(VOICE_CHANNEL.fpsRange)
-      && VOICE_CHANNEL.ring === 22050 && VOICE_CHANNEL.tick === 0.015 && VOICE_CHANNEL.bufferMs === 100 && VOICE_CHANNEL.fps === 300
+    check('its constants are frozen: 22050, 0.015 s, 100 ms, 300 fps, 0.1 s, 512 and 513; the fraction 0.999 and the unit 32768', Object.isFrozen(VOICE_CHANNEL) && Object.isFrozen(VOICE_CHANNEL.fpsRange)
+      && VOICE_CHANNEL.fraction === 0.999 && VOICE_CHANNEL.unit === 32768 && VOICE_CHANNEL.ring === 22050 && VOICE_CHANNEL.tick === 0.015 && VOICE_CHANNEL.bufferMs === 100 && VOICE_CHANNEL.fps === 300
       && VOICE_CHANNEL.fadeTime === 0.1 && VOICE_CHANNEL.mixBlock === 512 && VOICE_CHANNEL.firstBlock === 513 && VOICE_CHANNEL.rate === 44100);
   }
 
@@ -427,45 +490,49 @@ function publicChecks() {
     ch.pull(64);
     for (let k = 0; k < 30; k++) ch.tick();
     const head = ch.pull(100);
-    check('the packet\'s first sample is left out: the ring holds samples 1..n-1', head.samples[0] === 1 && head.samples[99] === 100 && head.tags.every((t) => t === 0));
+    // The interpolator writes n - 1 samples, the k-th being sample k + 1 pulled 0.1% toward
+    // sample k and truncated: on a rising ramp of whole steps, k.
+    check('a packet of n writes n - 1, the interpolator\'s: on the ramp 0, 1, 2, ... the ring holds 0, 1, ..., 5999',
+      head.samples[0] === 0 && head.samples[1] === 1 && head.samples[99] === 99 && head.tags.every((t) => t === 0) && ch.count === 5900, `${head.samples[0]}, ${head.samples[99]}`);
     ch.add(b, 1);
     check('a packet that fills the ring exactly drops nothing', ch.count === 22050 && ch.dropped === 0 && ch.drops.length === 0);
     ch.add(new Float32Array(7001).fill(5), 2);
     check('an overflow drops the oldest, recorded per tag with the samples pulled so far', ch.dropped === 7000 && ch.count === 22050
       && JSON.stringify(ch.drops) === JSON.stringify([{ pulled: 164, count: 5900, tag: 0 }, { pulled: 164, count: 1100, tag: 1 }]), JSON.stringify(ch.drops));
     const rest = ch.pull(22050);
-    check('what is left is the newest: tag 1 from its sample 1101, then tag 2', rest.samples[0] === 11101 && rest.tags[0] === 1
-      && rest.tags[15049] === 1 && rest.samples[15049] === 10000 + 16150 && rest.tags[15050] === 2 && rest.tags[22049] === 2);
+    check('what is left is the newest: tag 1 from its write 1100 (10000 + 1100), then tag 2', rest.samples[0] === 11100 && rest.tags[0] === 1
+      && rest.tags[15049] === 1 && rest.samples[15049] === 10000 + 16149 && rest.tags[15050] === 2 && rest.tags[22049] === 2, `${rest.samples[0]}, ${rest.samples[15049]}`);
   }
 
   console.log('The fade (packets written whole with test.keepSample, pulls of 512)');
   for (const N of [4410, 8820]) {
     const ch = createChannel({ fps: 300, test: { keepSample: true } });
-    ch.add(new Float32Array(N).fill(1));
+    ch.add(new Float32Array(N).fill(32767));
     for (let k = 0; k < 30; k++) ch.tick();
     const out = [];
     while (out.length < N) out.push(...ch.pull(512).samples);
     let bad = -1;
-    for (let k = 0; k < N && bad < 0; k++) if (out[k] !== f32(Math.min(1, (N - 1 - k) / 4409))) bad = k;
-    check(`${N} samples of 1.0 come out as min(1, (N - 1 - k) / 4409)`, bad < 0, bad < 0 ? '' : `first wrong at ${bad}: ${out[bad]}`);
-    if (N === 4410) check('  1 at k = 0, 4408/4409 at k = 1, 0 at the last', out[0] === 1 && out[1] === f32(4408 / 4409) && out[N - 1] === 0);
-    else check('  the first 4411 are 1 and sample 4411 is 4408/4409', out.slice(0, 4411).every((v) => v === 1) && out[4411] === f32(4408 / 4409));
+    for (let k = 0; k < N && bad < 0; k++) if (out[k] !== (N - 1 - k >= 4409 ? 32767 : faded(32767, N - 1 - k))) bad = k;
+    check(`${N} samples of 32767 come out as trunc(f(f(1 - f(j x f(1 / 4409))) x 32767)), j = 4409 - r, r queued behind`, bad < 0, bad < 0 ? '' : `first wrong at ${bad}: ${out[bad]}`);
+    if (N === 4410) check('  32767 at k = 0, 32759 at k = 1, 0 at the last', out[0] === 32767 && out[1] === 32759 && out[N - 1] === 0, `${out[0]}, ${out[1]}, ${out[N - 1]}`);
+    else check('  the first 4411 are 32767 and sample 4411 is 32759', out.slice(0, 4411).every((v) => v === 32767) && out[4411] === 32759, `${out[4411]}`);
   }
 
   console.log('The underrun');
   {
+    const pcm200 = new Float32Array(201).fill(30000); pcm200[0] = 9;
+    const w200 = interpolate(pcm200, 0.999).out;           // 29970, then 30000s
     const queued = () => {
       const ch = createChannel({ fps: 300 });
-      const pcm = new Float32Array(201).fill(1); pcm[0] = 9;
-      ch.add(pcm, 7);
+      ch.add(pcm200, 7);
       for (let k = 0; k < 30; k++) ch.tick();
       return ch;
     };
     let ch = queued();
     const { samples, tags } = ch.pull(512);
     let bad = -1;
-    for (let k = 0; k < 200 && bad < 0; k++) if (samples[k] !== f32((199 - k) / 4409) || samples[200 + k] !== samples[k] || tags[k] !== 7 || tags[200 + k] !== -1) bad = k;
-    check('200 queued, pull(512): the 200 faded as (199 - k) / 4409, the same 200 again, then 112 zeros', bad < 0
+    for (let k = 0; k < 200 && bad < 0; k++) if (samples[k] !== faded(w200[k], 199 - k) || samples[200 + k] !== samples[k] || tags[k] !== 7 || tags[200 + k] !== -1) bad = k;
+    check('200 queued, pull(512): the 200 faded (r = 199 - k behind), the same 200 again, then 112 zeros', bad < 0 && w200[0] === 29970
       && samples.subarray(400).every((v) => v === 0) && tags.subarray(400).every((t) => t === -1), bad < 0 ? '' : `first wrong at ${bad}`);
     check('the pull that empties the ring marks the channel starved', ch.starved && ch.inUse && ch.playing);
     ch.tick();
@@ -474,12 +541,12 @@ function publicChecks() {
     check('a free channel gives zeros tagged -1', silent.samples.every((v) => v === 0) && silent.tags.every((t) => t === -1));
     ch = queued();
     ch.pull(512);
-    ch.add(new Float32Array(101).fill(2), 8);
+    ch.add(new Float32Array(101).fill(20000), 8);
     ch.tick();
     check('a packet before that tick keeps it, playing with no wait', ch.inUse && ch.playing && !ch.starved && ch.opens === 1 && ch.count === 100);
     const next = ch.pull(64);
     let bad2 = -1;
-    for (let k = 0; k < 64 && bad2 < 0; k++) if (next.samples[k] !== f32(2 * (99 - k) / 4409) || next.tags[k] !== 8) bad2 = k;
+    for (let k = 0; k < 64 && bad2 < 0; k++) if (next.samples[k] !== faded(20000, 99 - k) || next.tags[k] !== 8) bad2 = k;
     check('and the next pull reads the new packet', bad2 < 0, bad2 < 0 ? '' : `first wrong at ${bad2}`);
     // More read than missing: the repeat is the last of what was read, as many as are missing.
     const ch4 = createChannel({ fps: 300 });
@@ -488,10 +555,84 @@ function publicChecks() {
     const four = ch4.pull(512).samples;
     let bad4 = -1;
     for (let k = 0; k < 512 && bad4 < 0; k++) {
-      const want = k < 400 ? f32((k + 1) * ((399 - k) / 4409)) : four[k - 112];
+      const want = k < 400 ? faded(k, 399 - k) : four[k - 112];      // the ramp 0..400 writes 0..399
       if (four[k] !== want) bad4 = k;
     }
     check('400 queued, pull(512): the 400 faded, then their last 112 once more', bad4 < 0 && four[400] === four[288] && four[511] === four[399], bad4 < 0 ? '' : `first wrong at ${bad4}`);
+  }
+
+  console.log('The interpolator and the fade as TF2\'s own routines compute them (the vectors of the private run, 2026-11-11)');
+  {
+    // Two packets on a new channel, then 5000 zeros behind them so that no fade touches them.
+    const p1 = [0, 1000, 2000, -3000, 32767, -32768, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4];
+    const p2 = [-32768, 32767, 100, 101, -100, -101, 7, -7, 30000, 29000, 28000, -28000, 1, 1, 0, 16384];
+    const w1 = [999, 1999, -2995, 32731, -32702, -27, 4, 3, 2, 1, 0, 0, -1, -2, -3];
+    const w2 = [32701, 132, 100, -99, -100, 6, -6, 29969, 29001, 28001, -27944, -27, 1, 0, 16367];
+    const ch = createChannel({ fps: 300 });
+    const at0 = ch.fraction;
+    ch.add(Float32Array.from(p1));
+    const frac1 = ch.fraction;
+    ch.add(Float32Array.from(p2));
+    const frac2 = ch.fraction;
+    ch.add(new Float32Array(5001));
+    for (let k = 0; k < 30; k++) ch.tick();
+    const got = Array.from(ch.pull(30).samples);
+    const list = (x) => x.map((v) => (Object.is(v, -0) ? '-0' : String(v))).join(',');
+    check('packet 1 writes 999, 1999, -2995, 32731, -32702, -27, 4, 3, 2, 1, 0, 0, -1, -2, -3 (no -0), the fraction then 0.9990000000000006',
+      list(got.slice(0, 15)) === list(w1) && frac1 === 0.9990000000000006, `${list(got.slice(0, 15))}; ${frac1}`);
+    check('packet 2 on the same channel writes 32701, 132, 100, -99, -100, 6, -6, 29969, 29001, 28001, -27944, -27, 1, 0, 16367, the fraction unchanged',
+      list(got.slice(15)) === list(w2) && frac2 === frac1, `${list(got.slice(15))}; ${frac2}`);
+    // The fraction is 0.999 at assignment and carried, never reset: it moves only by rounding.
+    const f = (sizes) => { const c = createChannel(); const out = []; for (const n of sizes) { c.add(new Float32Array(n)); out.push(c.fraction); } return out; };
+    const [a1] = f([1]), [b1] = f([600]), [c1, c2] = f([3000, 16]), [d1, d2] = f([3000, 0]);
+    const reopened = createChannel({ fps: 300 });
+    reopened.add(new Float32Array(3000)); for (let k = 0; k < 30; k++) reopened.tick(); reopened.pull(4000); reopened.tick();
+    reopened.add(new Float32Array(16));
+    check('the fraction: 0.999 when the channel is assigned and after a packet of 1; 0.9990000000000236 after 600; 0.9989999999997963 after 3000, and still after 16 more (carried, not reset); 0.999 again at the next open',
+      at0 === 0.999 && a1 === 0.999 && b1 === 0.9990000000000236 && c1 === 0.9989999999997963 && c2 === 0.9989999999997963 && d2 === d1
+      && reopened.opens === 2 && reopened.fraction === 0.9990000000000006, `${a1}, ${b1}, ${c1}, ${c2}; after a reopen and 16: ${reopened.fraction}`);
+    // The interpolator against its second reading on seeded 16-bit noise, packet after packet.
+    const r = mulberry32(0xB1E4D);
+    const big = createChannel({ fps: 300, test: { ring: 1 << 20 } });
+    let frac = 0.999, want = [], badAt = -1;
+    for (let k = 0; k < 400; k++) {
+      const n = [0, 1, 2, 882, 1764, 2646, 2756, 2757, 1378, 512, 160, 11264][k % 12];
+      const pcm = Float32Array.from({ length: n }, () => Math.round(r() * 65535) - 32768);
+      big.add(pcm);
+      const w = interpolate(pcm, frac); frac = w.frac; want.push(...w.out);
+      if (big.fraction !== frac && badAt < 0) badAt = k;
+    }
+    for (let k = 0; k < 30; k++) big.tick();
+    const all = big.pull(want.length - 4410).samples;
+    const firstOff = all.findIndex((v, i) => v !== want[i]);
+    check('400 packets of 16-bit noise (sizes 0 to 11264): every written sample and the carried fraction are the second reading\'s',
+      badAt < 0 && firstOff < 0 && all.length > 7e5, firstOff < 0 ? `${all.length} samples` : `sample ${firstOff}: ${all[firstOff]} against ${want[firstOff]}`);
+  }
+  {
+    // The fade: a sample with r queued behind it (a packet of r + 2 samples, its first two equal,
+    // then zeros: write 0 is the sample, r writes behind it), pulled alone.
+    const fadeAt = (x, r) => {
+      const ch = createChannel({ fps: 300 });
+      const pcm = new Float32Array(r + 2); pcm[0] = x; pcm[1] = x;
+      ch.add(pcm); for (let k = 0; k < 30; k++) ch.tick();
+      return ch.pull(1).samples[0];
+    };
+    const cases = [[32767, 4409, 32767], [32767, 4408, 32759], [32767, 2205, 16387], [32767, 2204, 16379], [32767, 1000, 7431], [32767, 1, 7], [32767, 0, 0],
+      [-32768, 4408, -32760], [-32768, 2204, -16380], [-32768, 1, -7]];
+    const off = cases.filter(([x, r, v]) => !Object.is(fadeAt(x, r), v));
+    check('the fade as (behind, result): 32767 gives (4409, 32767), (4408, 32759), (2205, 16387), (2204, 16379), (1000, 7431), (1, 7), (0, 0); -32768 gives (4408, -32760), (2204, -16380), (1, -7)',
+      off.length === 0 && fadeLength(0.1) === 4410 && f32(1 / 4409) === 0.00022680879919789732, off.map(([x, r, v]) => `${x} at ${r}: ${fadeAt(x, r)}, not ${v}`).join('; '));
+    // Where a truncated double r / 4409 is wrong.
+    const single = [[32767, 1746, 12976, 12975], [-32768, 449, -3337, -3336], [30000, 2345, 15956, 15955]];
+    check('in single precision, not the double r / 4409: 32767 at 1746 gives 12976 (12975), -32768 at 449 gives -3337 (-3336), 30000 at 2345 gives 15956 (15955)',
+      single.every(([x, r, v, dbl]) => fadeAt(x, r) === v && Math.trunc(x * (r / 4409)) === dbl), single.map(([x, r]) => fadeAt(x, r)).join(', '));
+    // The padding repeats what was read after the fade.
+    const ch = createChannel({ fps: 300 });
+    ch.add(Float32Array.from([0, 30000, -30000, 20000, -20000, 10000, -10000]));
+    for (let k = 0; k < 30; k++) ch.tick();
+    const pad = Array.from(ch.pull(16).samples);
+    check('the padding: [0, 30000, -30000, 20000, -20000, 10000, -10000] alone, pull(16): 33, -27, 13, -9, 2, 0 twice, then four zeros; starved',
+      pad.join(',') === '33,-27,13,-9,2,0,33,-27,13,-9,2,0,0,0,0,0' && ch.starved, pad.join(','));
   }
 
   console.log('The gain is called as the engine calls it');
@@ -501,7 +642,7 @@ function publicChecks() {
       reset() { calls.push('reset'); },
       process(pcm) { calls.push(`process ${pcm.length} ${pcm[0]}`); return Float32Array.from(pcm, (v) => 2 * v); },
     };
-    const packet = (n, firstValue) => { const p = new Float32Array(n).fill(1); p[0] = firstValue; return p; };
+    const packet = (n, firstValue) => { const p = new Float32Array(n).fill(10000); p[0] = firstValue; return p; };
     const ch = createChannel({ fps: 300, gain });
     ch.add(packet(100, 11));                          // opens
     for (let k = 0; k < 30; k++) ch.tick();
@@ -516,7 +657,8 @@ function publicChecks() {
     const want = ['reset', 'process 100 11', 'process 50 22', 'process 30 33', 'reset', 'process 20 44'];
     check('reset() once per open, never on an append or a grace; process() once per packet, in order, whole',
       JSON.stringify(calls) === JSON.stringify(want) && ch.opens === 2, calls.join(', '));
-    check('what the gain returns is what is queued', played === f32(2 * 98 / 4409), `${played}`);
+    // Doubled: 22, then 20000s; written first: trunc(22 + 19978 x 0.999) = 19980, faded with 98 behind.
+    check('what the gain returns is what is queued', played === faded(19980, 98) && played === 444, `${played}`);
     const plain = createChannel({ fps: 300 });
     const p = packet(10, 3);
     plain.add(p);
@@ -525,6 +667,8 @@ function publicChecks() {
 
   console.log('What the logs cannot show, case by case (the review\'s cases A to I)');
   {
+    // A rising ramp of whole steps is written as sample k for k = 0 .. n - 2 (sample k + 1
+    // pulled 0.1% toward sample k, truncated).
     const ramp = (n, from) => Float32Array.from({ length: n }, (_, i) => from + i);
     const toPlay = (ch) => { for (let k = 0; k < 1000 && !ch.playing; k++) ch.tick(); return ch; };
     const list = (x) => Array.from(x).join(',');
@@ -536,7 +680,7 @@ function publicChecks() {
       const across = list(ch.pull(6).samples);
       ch.add(ramp(5, 300), 3);
       const next = list(ch.pull(4).samples);
-      check('A. ring 10: a read across the ring\'s end, then the next read', `${across} | ${next}` === '107,108,201,202,203,204 | 205,206,207,208', `${across} | ${next}`);
+      check('A. ring 10: a read across the ring\'s end, then the next read', `${across} | ${next}` === '106,107,200,201,202,203 | 204,205,206,207', `${across} | ${next}`);
     }
     // B: ring 10, an overflow whose oldest samples straddle the ring's end.
     {
@@ -545,7 +689,7 @@ function publicChecks() {
       ch.add(ramp(6, 200), 2); ch.pull(2);
       ch.add(ramp(9, 300), 3);
       const out = list(ch.pull(10).samples);
-      check('B. ring 10: an overflow that drops across the ring\'s end keeps the newest', out === '204,205,301,302,303,304,305,306,307,0'
+      check('B. ring 10: an overflow that drops across the ring\'s end keeps the newest', out === '203,204,300,301,302,303,304,305,306,0'
         && ch.dropped === 3 && JSON.stringify(ch.drops) === JSON.stringify([{ pulled: 8, count: 3, tag: 2 }]), `${out}; ${JSON.stringify(ch.drops)}`);
     }
     // C: an empty packet (a key press) opens a channel with nothing behind it.
@@ -566,29 +710,39 @@ function publicChecks() {
       zero.pull(0);
       check('C. and so is a pull of 0 samples', zero.starved, `starved ${zero.starved}`);
     }
-    // D, E, F: other voice_fadeouttime values: fade = max(2, floor(44100 x fadeTime)).
+    // D, E, F: other voice_fadeouttime values: fade = max(2, trunc(f(44100 x f(fadeTime)))).
     const fadeOut = (fadeTime, n, take) => {
       const ch = createChannel({ fps: 300, fadeTime, test: { keepSample: true } });
-      ch.add(new Float32Array(n).fill(1));
+      ch.add(new Float32Array(n).fill(32767));
       toPlay(ch);
       return ch.pull(take).samples;
     };
     {
       const o = fadeOut(0.05, 2205, 2205);
-      check('D. fadeTime 0.05 fades 2205 samples: 2205 of 1.0 give 1, 2203/2204, ..., 0', o[0] === 1 && o[1] === f32(2203 / 2204) && o[2204] === 0, `${o[0]}, ${o[1]}, ${o[2204]}`);
+      check('D. fadeTime 0.05 fades 2205 samples: 2205 of 32767 give 32767, then the step of 1/2204, ..., 0', fadeLength(0.05) === 2205
+        && o[0] === 32767 && o[1] === faded(32767, 2203, 2205) && o[1] === 32752 && o[2204] === 0, `${o[0]}, ${o[1]}, ${o[2204]}`);
     }
     {
       const o = fadeOut(0.0999, 4405, 4405);
-      check('E. fadeTime 0.0999 fades floor(4405.59) = 4405 samples: sample 1 is 4403/4404', o[1] === f32(4403 / 4404), `${o[1]}`);
+      check('E. fadeTime 0.0999 fades trunc(4405.59) = 4405 samples: sample 1 is 32767 less a step of 1/4404', fadeLength(0.0999) === 4405
+        && o[1] === faded(32767, 4403, 4405) && o[1] === 32759, `${o[1]}`);
     }
     {
       const o = fadeOut(0, 5, 5);
-      check('F. fadeTime 0 fades max(2, 0) = 2 samples: 5 of 1.0 give 1,1,1,1,0', list(o) === '1,1,1,1,0', list(o));
+      check('F. fadeTime 0 fades max(2, 0) = 2 samples: 5 of 32767 give 32767 four times, then 0', list(o) === '32767,32767,32767,32767,0', list(o));
+    }
+    // F2: where single precision and floor(44100 x fadeTime) part: 0.00111111111 gives
+    // trunc(f(44100 x f(0.00111111111))) = 49 samples, not floor(48.99999995) = 48. With 49, the
+    // sample with 47 behind it is faded by one step of 1/48; with 48 it would be whole.
+    {
+      const o = fadeOut(0.00111111111, 49, 49);
+      check('F2. fadeTime 0.00111111111 fades 49 samples, not floor(44100 x fadeTime) = 48: of 49 of 32767, sample 1 is 32767 less a step of 1/48',
+        fadeLength(0.00111111111) === 49 && Math.floor(44100 * 0.00111111111) === 48 && o[0] === 32767 && o[1] === faded(32767, 47, 49) && o[1] < 32767, `${o[0]}, ${o[1]}`);
     }
     // G: the fade window's edge: 4408 left after a read is under the fade.
     {
       const o = fadeOut(0.1, 4410, 2);
-      check('G. 4410 of 1.0, pull(2): 4408 stay, so sample 1 is 4408/4409', o[0] === 1 && o[1] === f32(4408 / 4409), `${o[0]}, ${o[1]}`);
+      check('G. 4410 of 32767, pull(2): 4408 stay, so sample 1 is 32759', o[0] === 32767 && o[1] === 32759, `${o[0]}, ${o[1]}`);
     }
     // H: a packet longer than the ring (none comes from the game: Steam's decoder writes at
     // most 11264 samples): the queue goes, then the packet's oldest; the newest 5 stay.
@@ -597,7 +751,7 @@ function publicChecks() {
       ch.add(ramp(4, 0), 1); toPlay(ch);
       ch.add(ramp(9, 10), 2);
       const out = list(ch.pull(5).samples);
-      check('H. ring 5: 3 queued, then a packet of 9 (8 kept): the 3, then the packet\'s oldest 3, are dropped', out === '14,15,16,17,0' && ch.dropped === 6
+      check('H. ring 5: 3 queued, then a packet of 9 (8 kept): the 3, then the packet\'s oldest 3, are dropped', out === '13,14,15,16,0' && ch.dropped === 6
         && JSON.stringify(ch.drops) === JSON.stringify([{ pulled: 0, count: 3, tag: 1 }, { pulled: 0, count: 3, tag: 2 }]), `${out}; ${JSON.stringify(ch.drops)}`);
     }
     // I: tags are kept as doubles: a sample position past 2^24 (a render of 6.3 minutes) comes back whole.
@@ -862,29 +1016,43 @@ function publicChecks() {
 // ---------------------------------------------------------------------------------------
 // The game's timeline (createTimeline, W3-02b): the channel on the clock of "The model".
 
+// The zero (W3-02c-1, item 3): latency plus the mean arrival time of a spurt's opening packet,
+// 50.5 ms as measured over this suite's layouts P and Q (docs/reports/W3-02c1-channel-as-read.md),
+// on whole 512-sample blocks (item 2). Read again here from the order, not from the module.
+const ARRIVAL_MS = 50.5;
+// codecDelay: seconds the caller took off each source for its codec (createTimeline's option).
+const zeroOf = (bufferMs, fps, codecDelay = 0) => 512 * Math.round(44100 * (latency(bufferMs, fps) + ARRIVAL_MS / 1000 + codecDelay) / 512);
+// The Opus codec's look-ahead, 156 samples at 24 kHz: what W3-02c-2 takes off each source.
+const OPUS_DELAY = 156 / 24000;
+
 // A second reading of the clock, driven by blocks: before block b every tick k with
 // 1323 k <= 1024 b runs (its messages first); a block pulls 512, or 513 on the first block
-// after an open while playing, playing the last 512. Returns the whole output, and as
+// after an open while playing. The mixer plays the stream it pulls one sample late: the first
+// block plays the first 512 of its 513 and keeps the last; a later block plays the kept one
+// and the first 511 of its 512, and keeps the last. The messages are at 1/32768 of the
+// channel's 16-bit units, and so is the output. Returns the whole output, and as
 // .spurtDropped the samples each spurt lost to overflow, read from the channel's own drops
 // list (a spurt is a run of messages up to a silence record, the record its last).
 function referenceTimeline(messages, { fps, bufferMs, fadeTime, length }) {
   const ch = createChannel({ fps, bufferMs, fadeTime });
-  const D = Math.round(44100 * latency(bufferMs, fps));
+  const D = zeroOf(bufferMs, fps);
   const out = new Float32Array(length);
-  let k = 0, m = 0, fresh = false;
+  let k = 0, m = 0, fresh = false, held = 0;
   for (let b = 0; 512 * b - D < length; b++) {
     while (1323 * k <= 1024 * b) {
       while (m < messages.length && messages[m].tick === k) {
         const opens = ch.opens;
-        ch.add(messages[m].pcm, m);
+        ch.add(Float64Array.from(messages[m].pcm, (v) => v * 32768), m);   // into 16-bit units
         if (ch.opens > opens) fresh = true;
         m++;
       }
       ch.tick(); k++;
     }
     let s;
-    if (ch.playing && fresh) { s = ch.pull(513).samples.subarray(1); fresh = false; } else s = ch.pull(512).samples;
-    for (let j = 0; j < 512; j++) { const o = 512 * b - D + j; if (o >= 0 && o < length) out[o] = s[j]; }
+    if (!ch.playing) s = ch.pull(512).samples;          // zeros
+    else if (fresh) { const p = ch.pull(513).samples; s = p.subarray(0, 512); held = p[512]; fresh = false; }
+    else { const p = ch.pull(512).samples; s = new Float32Array(512); s[0] = held; s.set(p.subarray(0, 511), 1); held = p[511]; }
+    for (let j = 0; j < 512; j++) { const o = 512 * b - D + j; if (o >= 0 && o < length) out[o] = s[j] / 32768; }
   }
   const spurtOf = [], dropped = [];
   let open = false;
@@ -980,7 +1148,7 @@ function timelineChecks() {
   }
   {
     // What a call returns is final up to the last block that starts before the tick.
-    const messages = madeUpMessages(3, 700), length = 44100 * 10, D = Math.round(44100 * latency(100, 300));
+    const messages = madeUpMessages(3, 700), length = 44100 * 10, D = zeroOf(100, 300);
     let bad = 0, calls = 0;
     const expect = (tick) => Math.max(0, Math.min(length, 512 * Math.ceil(1323 * tick / 1024) - D));
     timelineRun(messages, { fps: 300, length }, { advanceEvery: 2, onReturn: (tick, total) => { calls++; if (total !== expect(tick)) bad++; } });
@@ -1014,56 +1182,103 @@ function timelineChecks() {
 
   console.log('The timeline: the first pull, the gain, the source map');
   {
-    // A ramp as sound (sample k of the stream is k + 1), an opening of 7056 samples and then
-    // 2646 every 4 ticks, at 67 fps: two spurts, the second after the channel was freed.
+    // A ramp as sound, in 16-bit units (sample k of the stream is k + 1 units, so pcm[i] is
+    // (k + 1) / 32768), an opening of 7056 samples and then 2646 every 4 ticks, at 67 fps: two
+    // spurts, the second after the channel was freed. The interpolator writes a rising ramp of
+    // whole steps as pcm[k] for its k-th write, which is the packet's sample k + 1: so a
+    // written sample's value in units is its own source position.
     const messages = [];
     let pos = 0;
     for (const [from, to] of [[70, 130], [260, 320]]) {
       for (let t = from; t <= to; t += 4) {
         const pcm = new Float32Array(t === from ? 7056 : 2646);
-        for (let i = 0; i < pcm.length; i++) pcm[i] = pos + i + 1;
+        for (let i = 0; i < pcm.length; i++) pcm[i] = (pos + i + 1) / 32768;
         messages.push({ tick: t, pcm, source: pos });
         pos += pcm.length;
       }
     }
     const length = 44100 * 6;
-    const { samples, info } = timelineRun(messages, { fps: 66.67, length });
+    const run = timelineRun(messages, { fps: 66.67, length }), info = run.info;
+    const samples = Float64Array.from(run.samples, (v) => v * 32768);      // in units
     const starts = [];
     // A start: sound after at least 1000 zeros (an underrun's padding follows a single zero).
     for (let i = 1000, z = 0; i < length; i++) { if (samples[i] !== 0 && z >= 1000) starts.push(i); z = samples[i] === 0 ? z + 1 : 0; }
-    const firstOf = (m) => m.pcm[2];
-    const ok = starts.length === 2 && [messages[0], messages.find((m) => m.tick === 260)].every((m, k) =>
-      samples.subarray(starts[k], starts[k] + 512).every((v, j) => v === m.pcm[2 + j]));
-    check('the first 512 output samples after each start are the queue\'s samples 1 to 512, not 0 to 511', ok && info.opens === 2,
-      `starts at ${starts.join(', ')}; first played ${starts.map((s) => samples[s]).join(', ')} against ${firstOf(messages[0])}`);
-    // The source map: at 67 fps the queue stays above the fade, so a sample's value is its
-    // source position plus one.
+    // The queue's sample q is the opening packet's write q, pcm[q] in units on this ramp (its
+    // pcm[0] is not written of itself: write q is sample q + 1 pulled toward sample q). The
+    // mixer asks 513 on the first block, plays the first 512 and keeps the 513th, which opens
+    // the next block (W3-10's upsampler read, section 3): the output is the queue in order.
+    const opening = [messages[0], messages.find((m) => m.tick === 260)];
+    const ok = starts.length === 2 && opening.every((m, k) =>
+      samples.subarray(starts[k], starts[k] + 2048).every((v, j) => v === m.pcm[j] * 32768));
+    check('the first block after a start plays the queue\'s first 512 samples, and the next block begins with the 513th (the one the mixer kept), the queue in order to its 2048th',
+      ok && info.opens === 2,
+      `starts at ${starts.join(', ')}; first played ${starts.map((s) => samples[s]).join(', ')} against ${opening[0].pcm[0] * 32768}; `
+      + `the next block begins ${starts.map((s) => samples[s + 512]).join(', ')} against ${opening.map((m) => m.pcm[512] * 32768).join(', ')}`);
+    // The source map: at 67 fps the queue stays above the fade, so a sample's value in units
+    // is its source position.
     const slots = Array.from(info.source, (p, i) => ({ p, v: samples[882 * i + 441] }));
-    const heard = slots.filter((x) => x.p >= 0), exact = heard.filter((x) => x.v === x.p + 1);
+    const heard = slots.filter((x) => x.p >= 0), exact = heard.filter((x) => x.v === x.p);
     const silent = slots.filter((x) => x.p === -1), noisy = silent.filter((x) => x.v !== 0);
     check('source[i] is the source position heard at the centre of slot i (the fade aside), and -1 where nothing of the source plays',
-      exact.length >= 90 && heard.every((x) => x.v === x.p + 1 || (x.v > 0 && x.v < x.p + 1)) && slots.every((x) => x.p >= -1)
+      exact.length >= 90 && heard.every((x) => x.v === x.p || (x.v >= 0 && x.v < x.p)) && slots.every((x) => x.p >= -1)
       && noisy.length <= 2 && silent.length >= 150, `${exact.length} slots exact, ${heard.length - exact.length} faded, ${silent.length} silent (${noisy.length} in an underrun's padding)`);
+  }
+  {
+    // W3-02c-1, item 2: the channel's blocks are the mixer's. Every block starts on a multiple
+    // of 512 from the output's start, so what push() and advance() return ends on one (or at the
+    // output's end), and so does the start of the sound; D, read off a return as
+    // 512 ceil(1323 tick / 1024) - samples returned, is the zero on whole blocks. With
+    // codecDelay, the codec's 6.5 ms are added before the rounding.
+    const gridRun = (codecDelay, want) => {
+      const seen = [];
+      let ok = true;
+      for (const fps of [66.67, 100, 300]) {
+        const messages = [];
+        for (let t = 40; t <= 200; t += 4) messages.push({ tick: t, pcm: new Float32Array(t === 40 ? 7056 : 2646).fill(0.5), source: 2646 * t });
+        const length = 44100 * 4 + 37, returns = [];
+        const opts = codecDelay === undefined ? { fps, length } : { fps, length, codecDelay };
+        const { samples, info } = timelineRun(messages, opts, { advanceEvery: 1, onReturn: (tick, total) => returns.push([tick, total]) });
+        const inside = returns.filter(([, total]) => total > 0 && total < length);
+        const D = inside.length ? 512 * Math.ceil(1323 * inside[0][0] / 1024) - inside[0][1] : NaN;
+        const start = samples.findIndex((v) => v !== 0);
+        const offGrid = returns.filter(([, total]) => total % 512 !== 0 && total !== length).length;
+        seen.push(`${fps} fps: D ${D}, sound from ${start}, ${offGrid} of ${returns.length} returns off the grid`);
+        ok = ok && inside.length > 100 && offGrid === 0 && start > 0 && start % 512 === 0 && D === want[fps] && D === zeroOf(100, fps, codecDelay || 0)
+          && info.codecDelay === (codecDelay || 0);
+      }
+      return { ok, seen: seen.join('; ') };
+    };
+    const plain = gridRun(undefined, { 66.67: 13312, 100: 15360, 300: 24064 });
+    check('every block\'s first output sample is a multiple of 512 from the output\'s start at 67, 100 and 300 fps: D is 13312, 15360 and 24064 samples', plain.ok, plain.seen);
+    // At 66.67 fps latency + arrival + codecDelay is 307.0 ms, 0.6 ms under the edge where D
+    // becomes 13568 (307.66 ms): a re-measured arrival could move that D by a block.
+    const opus = gridRun(OPUS_DELAY, { 66.67: 13312, 100: 15360, 300: 24576 });
+    let refused = 0;
+    for (const bad of [-0.001, NaN, Infinity, '0.0065', null]) { try { createTimeline({ length: 10, codecDelay: bad }); } catch (e) { if (e instanceof RangeError) refused++; } }
+    check('with codecDelay 156 / 24000 (the codec\'s look-ahead) D is 13312, 15360 and 24576 samples, still on the grid; info.codecDelay says it; a codecDelay below 0 or not a finite number is refused',
+      opus.ok && refused === 5, `${opus.seen}; ${refused} of 5 refused`);
   }
   {
     // Drops are placed where the skip is heard. A ramp at 300 fps: an opening of 7056 and 2646
     // every 4 ticks overflows during the wait (as by hand: 3520 samples); a packet of 9000 in
-    // mid-play overflows again. The output's ramp jumps exactly where info.drops says.
+    // mid-play overflows again. The output's ramp jumps exactly where info.drops says. (The
+    // ramp is in 16-bit units, as above: a written sample's value is its source position.)
     const messages = [];
     let pos = 0;
     for (let t = 20; t <= 200; t += 4) {
       const pcm = new Float32Array(t === 20 ? 7056 : t === 120 ? 9000 : 2646);
-      for (let i = 0; i < pcm.length; i++) pcm[i] = pos + i + 1;
+      for (let i = 0; i < pcm.length; i++) pcm[i] = (pos + i + 1) / 32768;
       messages.push({ tick: t, pcm, source: pos });
       pos += pcm.length;
     }
     const length = 44100 * 5;
-    const { samples, info } = timelineRun(messages, { fps: 300, length });
+    const run = timelineRun(messages, { fps: 300, length }), info = run.info;
+    const samples = Float64Array.from(run.samples, (v) => v * 32768);
     const start = samples.findIndex((v) => v !== 0);
     const waiting = info.drops.filter((d) => Math.round(d.time * 44100) === start);
     const playing = info.drops.filter((d) => Math.round(d.time * 44100) > start);
-    // Inside a packet the ramp moves by 1, and by 1 more at each packet's start (its first
-    // sample is not written); across a skip by the samples skipped more.
+    // Inside a packet the ramp moves by 1, and by 1 more at each packet's start (n samples,
+    // n - 1 written); across a skip by the samples skipped more.
     const jumps = [];
     for (let i = start + 1; i < start + 44100 * 2.5; i++) if (samples[i] - samples[i - 1] > 2) jumps.push([i, samples[i] - samples[i - 1]]);
     const atDrops = playing.map((d) => [Math.round(d.time * 44100), Math.round(d.ms * 44.1)]);
@@ -1071,14 +1286,14 @@ function timelineChecks() {
       waiting.length > 0 && Math.round(waiting.reduce((a, d) => a + d.ms * 44.1, 0)) === 3520 && playing.length > 0
       && jumps.length === atDrops.length && jumps.every(([i, j], k) => i === atDrops[k][0] && j - atDrops[k][1] >= 1 && j - atDrops[k][1] <= 5),
       `${waiting.length} in the wait, starting at ${start}; in play ${JSON.stringify(atDrops)}, jumps ${JSON.stringify(jumps)}`);
-    // The ramp says which source sample each output sample is (value - 1), so the offsets and
+    // The ramp says which source sample each output sample is (its value), so the offsets and
     // the source map can be read off it exactly, across the skips.
-    const into = samples.findIndex((v) => v - 1 >= 8820);
-    const want = (into - (samples[into] - 1)) / 44.1, sp = info.spurts[0];
+    const into = samples.findIndex((v) => v >= 8820);
+    const want = (into - samples[into]) / 44.1, sp = info.spurts[0];
     const centre = Array.from(info.source, (p, i) => [p, samples[882 * i + 441]]).filter(([p]) => p >= 0);
     check('the offset at 0.2 s into the spurt and the source map are exact across overflow', info.spurts.length === 1 && sp.opened
-      && sp.offsetStartMs === want && centre.length > 120 && centre.slice(0, -6).every(([p, v]) => v === p + 1),
-      `offsetStartMs ${sp.offsetStartMs} ms against ${want}; ${centre.length} slots, ${centre.slice(0, -6).filter(([p, v]) => v !== p + 1).length} not exact`);
+      && sp.offsetStartMs === want && centre.length > 120 && centre.slice(0, -6).every(([p, v]) => v === p),
+      `offsetStartMs ${sp.offsetStartMs} ms against ${want}; ${centre.length} slots, ${centre.slice(0, -6).filter(([p, v]) => v !== p).length} not exact`);
   }
   {
     // A spurt whose first message is appended and which, in a pause inside it (no silence
@@ -1097,12 +1312,14 @@ function timelineChecks() {
     // A pre-roll before sample 0 is sound, not a record: the first message's source is negative.
     const r = engineRun({ loud: [[0, 1]], seconds: 3, fps: 300, seed: 4 });
     const msg = (tick, n, source) => ({ tick, pcm: new Float32Array(n).fill(0.5), source });
-    const hand = [msg(0, 7056, -4410)];
-    for (let t = 4; t <= 120; t += 4) hand.push(msg(t, 1764, -4410 + 7056 + 1764 * (t / 4 - 1)));
+    // By hand, a pre-roll of 0.2 s, so that some of it is heard after output 0 (W3-02c-1's zero
+    // plays the output 46 ms earlier at 300 fps than W3-02b's, which this case had at 0.1 s).
+    const hand = [msg(0, 7056, -8820)];
+    for (let t = 4; t <= 120; t += 4) hand.push(msg(t, 1764, -8820 + 7056 + 1764 * (t / 4 - 1)));
     const h = timelineRun(hand, { fps: 300, length: 44100 * 3 });
-    check('a spurt that starts before sample 0 (its pre-roll) is sound: one spurt from -0.1 s; where its pre-roll is heard after output 0 the source map says -1',
+    check('a spurt that starts before sample 0 (its pre-roll) is sound: one spurt from -0.1 s (by hand, -0.2 s); where its pre-roll is heard after output 0 the source map says -1',
       r.messages[0].start === -2400 && r.pushed[0].source === -4410 && r.info.spurts.length === 1 && r.info.spurts[0].start === -0.1 && r.info.spurts[0].opened
-      && h.info.spurts.length === 1 && h.info.spurts[0].start === -0.1 && h.samples[441] !== 0 && h.info.source[0] === -1 && h.info.source[10] > 0,
+      && h.info.spurts.length === 1 && h.info.spurts[0].start === -0.2 && h.samples[441] !== 0 && h.info.source[0] === -1 && h.info.source[10] > 0,
       `slot 0 plays ${h.samples[441]} and maps to ${h.info.source[0]}; slot 10 to ${h.info.source[10]}`);
     // The stand-in's messages are spec 4's: zeros, 882 a frame, round(samples x 44100 / 24000)
     // for a record, and the source at 44.1 kHz.
@@ -1146,40 +1363,88 @@ function timelineChecks() {
     return out;
   };
 
+  // W3-02c-1 moved every offset by (D before - D after) / 44.1 ms, D before being
+  // round(44100 x latency) and after the zero on whole blocks: (22050 - 24064) / 44.1 = -45.67 ms
+  // at 300 fps and (11025 - 13312) / 44.1 = -51.86 ms at 66.67 (and one sample, +0.02 ms, for the
+  // first pull as read). The counts did not move. Three offset ranges are the measured ones
+  // with about 20 ms to spare, in steps of 5 ms (300 fps, the first spurt: -23.8 to 28.7; 67
+  // fps, every opened spurt: -40.9 to 36.8; 67 fps, the spurt after 900 ms: -35.9 to 25.8), so
+  // that a spurt opening 100 ms early fails; the other two are W3-02b's, as re-derived for
+  // W3-16's clock, moved by D's shift and rounded outward to the millisecond.
   console.log('The timeline: spurts of 2 s with 300, 500 and 1200 ms of silence (seeds 1 to 50)');
+  const opened = { 300: [], 66.67: [] };   // offsetStartMs of every opened spurt, layouts P and Q
+  const collect = (runs, fps) => { for (const r of runs) for (const s of r.info.spurts) if (s.opened) opened[fps].push(s.offsetStartMs); };
   {
     const runs = sweep([0.3, 0.5, 1.2], 300);
+    collect(runs, 300);
     check('300 fps: the 300 ms silence never ends the sender\'s spurt (its hold is about 0.4 s): the first two are one spurt', runs.every((r) => r.sp[0].i === 0 && r.sp[1].i === 0));
     const first = runs.map((r) => r.sp[0]);
-    check('300 fps: the first spurt opens a channel, its offsetStartMs between -20 and +90', first.every((s) => s.opened && s.offsetStartMs >= -20 && s.offsetStartMs <= 90),
+    check('300 fps: the first spurt opens a channel, its offsetStartMs between -45 and +50', first.every((s) => s.opened && s.offsetStartMs >= -45 && s.offsetStartMs <= 50),
       `${range(first.map((s) => s.offsetStartMs))} ms; dropped ${range(first.map((s) => s.droppedMs))} ms`);
     const own = runs.map((r) => r.sp[2]).filter((s) => s.own);
     // 42 of these 50 seeds: in the other 8 the chunk after the final one is active (the ENDED
     // state: no record), so the timeline keeps one spurt. The seeds are fixed: the count is exact.
     // (On W3-02b's clock it was 38 of 50, starting -20 to +60 ms; re-derived for W3-16's clock,
     // whose capture steps are read up to 44 ms after their time.)
-    check('300 fps: after 500 ms the next spurt is one of its own in 42 of the 50 seeds, and then is appended, starting 0 to +80 ms from the source',
-      own.length === 42 && own.every((s) => !s.opened && s.offsetStartMs >= 0 && s.offsetStartMs <= 80), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
+    check('300 fps: after 500 ms the next spurt is one of its own in 42 of the 50 seeds, and then is appended, starting -46 to +35 ms from the source (W3-02b: 0 to +80)',
+      own.length === 42 && own.every((s) => !s.opened && s.offsetStartMs >= -46 && s.offsetStartMs <= 35), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
     const last = runs.map((r) => r.sp[3]);
     check('300 fps: after 1200 ms it opens a channel and loses 30 to 170 ms to overflow', last.every((s) => s.own && s.opened && s.droppedMs >= 30 && s.droppedMs <= 170),
       `${range(last.map((s) => s.droppedMs))} ms; starts ${range(last.map((s) => s.offsetStartMs))} ms`);
     const slow = sweep([0.3, 0.5, 1.2], 66.67);
-    const opened = slow.flatMap((r) => r.sp.filter((s) => s.own && s.opened)), app = slow.flatMap((r) => r.sp.filter((s) => s.own && !s.opened));
-    // Within 100 ms since W3-16's clock (80 before).
-    check('67 fps: every spurt but the one after 500 ms opens a channel, each opened one within 100 ms of the source, nothing dropped',
+    collect(slow, 66.67);
+    const own67 = slow.flatMap((r) => r.sp.filter((s) => s.own && s.opened)), app = slow.flatMap((r) => r.sp.filter((s) => s.own && !s.opened));
+    check('67 fps: every spurt but the one after 500 ms opens a channel, each opened one -60 to +60 ms from the source, nothing dropped',
       slow.every((r) => r.sp[0].opened && r.sp[3].own && r.sp[3].opened && (!r.sp[2].own || !r.sp[2].opened) && r.info.droppedSamples === 0 && r.info.drops.length === 0)
-      && opened.every((s) => Math.abs(s.offsetStartMs) <= 100), `opened ${range(opened.map((s) => s.offsetStartMs))} ms; appended ${range(app.map((s) => s.offsetStartMs))} ms`);
+      && own67.every((s) => s.offsetStartMs >= -60 && s.offsetStartMs <= 60), `opened ${range(own67.map((s) => s.offsetStartMs))} ms; appended ${range(app.map((s) => s.offsetStartMs))} ms`);
   }
   console.log('The timeline: an early start (900, 600 and 1200 ms of silence; seeds 1 to 50)');
   {
     const runs = sweep([0.9, 0.6, 1.2], 300);
+    collect(runs, 300);
     const after = runs.map((r) => r.sp[1]), app = after.filter((s) => !s.opened);
-    // 160 to 310 ms early since W3-16's clock (190 to 330 before).
-    check('300 fps: after 900 ms the spurt is appended in at least 45 seeds, and then starts 160 to 310 ms early',
-      after.every((s) => s.own) && app.length >= 45 && app.every((s) => s.offsetStartMs >= -310 && s.offsetStartMs <= -160), `${app.length} of 50; ${range(app.map((s) => s.offsetStartMs))} ms`);
+    // 160 to 310 ms early since W3-16's clock (190 to 330 before); moved by W3-02c-1's zero.
+    check('300 fps: after 900 ms the spurt is appended in at least 45 seeds, and then starts 205 to 356 ms early (W3-02b: 160 to 310)',
+      after.every((s) => s.own) && app.length >= 45 && app.every((s) => s.offsetStartMs >= -356 && s.offsetStartMs <= -205), `${app.length} of 50; ${range(app.map((s) => s.offsetStartMs))} ms`);
     const slow = sweep([0.9, 0.6, 1.2], 66.67);
-    check('67 fps: the same spurt opens a channel (the queue holds only 0.25 s)', slow.every((r) => r.sp[1].opened && Math.abs(r.sp[1].offsetStartMs) <= 80),
-      range(slow.map((r) => r.sp[1].offsetStartMs)));
+    collect(slow, 66.67);
+    check('67 fps: the same spurt opens a channel (the queue holds only 0.25 s), starting -60 to +50 ms from the source',
+      slow.every((r) => r.sp[1].opened && r.sp[1].offsetStartMs >= -60 && r.sp[1].offsetStartMs <= 50), range(slow.map((r) => r.sp[1].offsetStartMs)));
+  }
+  console.log('The timeline: the zero (W3-02c-1)');
+  {
+    // The zero takes out the mean arrival time: over both layouts' opened spurts each rate's
+    // mean offsetStartMs is within the block grid's half block (5.8 ms) of 0, and with the
+    // grid's own move taken out ((D - 44100 x (latency + arrival)) / 44.1 ms) the two rates'
+    // spurts average to the arrival constant's precision.
+    const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length;
+    const grid = (fps) => (zeroOf(100, fps) - 44100 * (latency(100, fps) + ARRIVAL_MS / 1000)) / 44.1;
+    const m300 = mean(opened[300]), m67 = mean(opened[66.67]);
+    const pooled = mean([...opened[300].map((x) => x + grid(300)), ...opened[66.67].map((x) => x + grid(66.67))]);
+    check('an opened spurt\'s offsetStartMs averages within 5.8 ms of 0 at 300 and at 67 fps (layouts P and Q, seeds 1 to 50), and to within 0.1 ms with the block grid taken out',
+      opened[300].length === 205 && opened[66.67].length === 250 && Math.abs(m300) <= 5.8 && Math.abs(m67) <= 5.8 && Math.abs(pooled) <= 0.1,
+      `300 fps ${m300.toFixed(2)} ms over ${opened[300].length}, 67 fps ${m67.toFixed(2)} ms over ${opened[66.67].length}; the grid moves them ${grid(300).toFixed(2)} and ${grid(66.67).toFixed(2)}; both, grid out: ${pooled.toFixed(3)} ms`);
+    // The same spurts in W3-02c-2's frame: each source the position of its first captured
+    // sample less the codec's look-ahead, round((start - 156) x 44100 / 24000) (engineRun's
+    // messages, pushed again here with that source), and the timeline told so by codecDelay.
+    const shifted = (lay, fps, seed) => {
+      const { messages } = engineRun({ ...lay, fps, seed });
+      const tl = createTimeline({ fps, length: Math.round(lay.seconds * 44100), codecDelay: OPUS_DELAY });
+      for (const m of messages) {
+        tl.push(m.silence !== undefined
+          ? { tick: m.tick, pcm: new Float32Array(Math.round(m.silence * 44100 / 24000)), source: -1 }
+          : { tick: m.tick, pcm: new Float32Array(882 * (m.last - m.first + 1)), source: Math.round((m.start - 156) * 44100 / 24000) });
+      }
+      return tl.finish().info.spurts.filter((x) => x.opened).map((x) => x.offsetStartMs);
+    };
+    const inFrame = { 300: [], 66.67: [] };
+    for (const fps of [300, 66.67]) for (const lay of [layout([0.3, 0.5, 1.2]), layout([0.9, 0.6, 1.2])]) for (let seed = 1; seed <= 50; seed++) inFrame[fps].push(...shifted(lay, fps, seed));
+    const gridC = (fps) => (zeroOf(100, fps, OPUS_DELAY) - 44100 * (latency(100, fps) + ARRIVAL_MS / 1000 + OPUS_DELAY)) / 44.1;
+    const c300 = mean(inFrame[300]), c67 = mean(inFrame[66.67]);
+    const pooledC = mean([...inFrame[300].map((x) => x + gridC(300)), ...inFrame[66.67].map((x) => x + gridC(66.67))]);
+    check('with sources earlier by the codec\'s 156 samples and codecDelay 156 / 24000, the same spurts average within 5.8 ms of 0 at 300 and 67 fps, and to within 0.1 ms with the grid taken out',
+      inFrame[300].length === 205 && inFrame[66.67].length === 250 && Math.abs(c300) <= 5.8 && Math.abs(c67) <= 5.8 && Math.abs(pooledC) <= 0.1,
+      `300 fps ${c300.toFixed(2)} ms, 67 fps ${c67.toFixed(2)} ms; the grid moves them ${gridC(300).toFixed(2)} and ${gridC(66.67).toFixed(2)}; both, grid out: ${pooledC.toFixed(3)} ms`);
   }
   console.log('The timeline: the 400 ppm (one 60 s spurt, seeds 1 to 10)');
   {
@@ -1213,10 +1478,20 @@ function timelineChecks() {
       check('--engine --uptime: the sender runs with that uptime (36 days gives other engine columns than the default; 777600 the default\'s), and the Engine line names it',
         r5 && rm && rn && r5.engine.join() !== rm.engine.join() && r5.engine.join() === rn.engine.join()
         && /up 3110400 s/.test(month.stdout) && /up the default 777600 s/.test(dflt.stdout), `default ${r5 && r5.engine.join(', ')}; 3110400 ${rm && rm.engine.join(', ')}`);
-      // --uptime 0 is a value, not "left out": it reaches the sender as 0.
-      const zero = runIt('--engine', '--seeds', '5', '--uptime', '0'), r0 = row(zero);
-      check('--engine --uptime 0 reaches the sender as 0, not as the default (other engine columns), and the Engine line names it',
-        r0 && r5 && r0.engine.join() !== r5.engine.join() && /up 0 s/.test(zero.stdout), `0: ${r0 && r0.engine.join(', ')}; default ${r5 && r5.engine.join(', ')}`);
+      // --uptime 0 is a value, not "left out": the Engine line reads it as 0, and 0 is a value
+      // the sender takes as 0 (shown on exact data: the sender's own record and the messages'
+      // ticks, not the rounded columns, which a change of D can make equal).
+      const zero = runIt('--engine', '--seeds', '5', '--uptime', '0');
+      const key = (m) => [m.tick, m.spurt, m.first, m.last, m.start, m.end].join();
+      let differ = 0, ticks = 0, all = 0;
+      for (let seed = 1; seed <= 5; seed++) {
+        const L0 = { loud: [[0.5, 2.5], [3, 5], [5.9, 8]], seconds: 9, fps: 300, seed };
+        const a = engineRun({ ...L0, uptime: 0 }).messages, d = engineRun(L0).messages;
+        for (let i = 0; i < Math.max(a.length, d.length); i++) { all++; if (!a[i] || !d[i] || key(a[i]) !== key(d[i])) differ++; if (a[i] && d[i] && a[i].tick !== d[i].tick) ticks++; }
+      }
+      check('--engine --uptime 0 is read as 0 (the Engine line names it), and a sender given uptime 0 runs with 0, not the default: its record says 0 and its messages differ (seeds 1 to 5)',
+        zero.status === 0 && /up 0 s/.test(zero.stdout) && createSender({ seed: 3, uptime: 0 }).info().uptime === 0 && createSender({ seed: 3 }).info().uptime === 777600
+        && differ > 100 && ticks > 40, `${differ} of ${all} messages differ, ${ticks} in their tick`);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
