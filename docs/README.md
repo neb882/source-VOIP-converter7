@@ -98,7 +98,7 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | S3-01b | a runner in place of the `&&` chain; a check that derives the cache list; the cache number set at the merge; CI in five jobs | planned, not built | the same order | | after S3-01a; before S3-02a |
 | S3-02a | `audio.js` split into ten files under `engine/` by stage, lines moved unedited, one file a commit; no sample or hash changes | planned, not built | [S3-02-engine-split.md](work-orders/S3-02-engine-split.md) | | after S3-01b; before W3-02c-2 |
 | S3-02b | one unused name off `TF2Audio` | planned, not built | the same order | | after S3-02a |
-| S3-03 | invented names in the page's mock console feed (no real person's name) | planned, not built | the same order, its last section | | none |
+| S3-03 | invented names in the page's mock console feed (no real person's name) | built and merged `11f430f`, cache v36, #33 | the same order, its last section | `docs/reports/S3-03-mock-names.md` | none |
 | BC plan | bad connections | done | `803cffc` | bad-connections-plan.md | |
 | BC-1 | loss takes whole messages | built and merged | `a0f1cd0`, v33, #28 | BC-1-loss-per-message.md | |
 | BC-2 | the words | done, documents only, by the orchestrator; no order, no report | `1c6c9b0`, `db56bee` | none | |
