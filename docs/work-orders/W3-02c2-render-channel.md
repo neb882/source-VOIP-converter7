@@ -1,6 +1,6 @@
 # W3-02c-2: a render runs the receiver's voice channel, behind an option
 
-**Status 2026-11-12: planned and ruled, not built**; after W3-02c-1, W4-01b and S3-02a, all merged.
+**Status 2026-11-12: built, reviewed and read a second time (no blocker from either); a fix round is running; not merged**; after W3-02c-1, W4-01b and S3-02a, all merged.
 
 *Written 2026-11-12 by a planner's pass on `main` at `622673c` (cache v37). This is the order a builder builds
 from. It takes the place of section 5 of the "Amendment of 2026-11-11" in
@@ -175,9 +175,13 @@ gain object.
   open, which is where the engine resets its gain (finding 26, read).
 - `process(y)` runs the gain over the packet. A late frame's samples pass around it, as in `add` today: frame
   `j` of `F` is samples `round(j n / F)` to `round((j + 1) n / F)`.
-- With `agc: false` there is no gain: `process` multiplies by `voiceScale`, rounds to the nearest whole 16-bit
-  value (ties to even), clips to 16 bits and divides by 32768. Stage 4's own scale and clip is then not run.
-  The amendment's section 5 has the reason.
+- With `agc: false` there is no gain: the object gives each sample the whole 16-bit value the source's timeline
+  brings to the mix entry. That is the product with `voiceScale` in single precision, clipped to ±32767/32768 as
+  stage 4's `hardClip` clips it, times 32768 rounded to the nearest whole value with ties to even as `mixSample`
+  rounds it, over 32768. Stage 4's own scale and clip is then not run. The amendment's section 5 has the reason.
+  *(Corrected 2026-11-12 after the build and the second read: this said "rounds ..., clips to 16 bits", which
+  read literally (the product in double, a clip to -32768..32767) differs from the source's timeline by one
+  unit on up to 24,577 of the 65,536 inputs at the scales tried; the rule above differs on none, measured.)*
 
 **`engine/render.js`, `process()`.** Under `'game'` it makes the channel beside `steamTimeline` and gives
 `steamTimeline` no `capacity`, since nothing is laid. It keeps what every `push` returns and what `finish()`
@@ -308,7 +312,10 @@ as `render-stream` does, so a reviewer can point it at a broken copy):
    the test.
 3. **One sample dropped from every packet** (finding 24, read and measured). A 40 s spurt of noise at 44.1 kHz,
    `agc` off, `fps: 150`. Away from a packet's edge a single shift `d` makes the `'game'` voice equal to the
-   module's blend of two neighbours of the `'source'` voice, `trunc(a + (b - a) x 0.999)`, over 200 samples.
+   module's blend of two neighbours of the `'source'` voice, `trunc(a + (b - a) x 0.999)`, over 200 samples. *(Corrected 2026-11-12: the module carries its fraction
+   from packet to packet and it drifts from 0.999 by parts in 10^13 (measured: 0.9990000000000236 after a packet
+   of 882 samples, 0.9989999999997963 after 2,646), so where `b - a` is a non-zero multiple of 1000 the
+   truncation can fall on either side; the check accepts both there and one value everywhere else.)*
    `d` at 30 s less `d` at 10 s is within 2 of the count of packets with ticks between, and lies between 340
    and 375 (prototype: 356, 358 and 360 at seeds 1, 2 and 3, against 356, 357 and 359 packets).
 4. **The layouts: the early start and the overflow** (findings 19, 21 and 22). Layouts P and Q as the amendment
@@ -334,7 +341,10 @@ as `render-stream` does, so a reviewer can point it at a broken copy):
      because at 66.67 fps the queue is short enough that the fade touches ordinary play.
 7. **The stream's bound.** Seed 1, the gate off, a 24 kHz source, in pieces of 10, 48 and 480 samples:
    `createRender` under `'game'` gives `process()`'s samples and `codecInfo`. With the bound one tick high the
-   same render throws (prototype). With `advance` left out, `push` returns nothing while the source runs; the
+   same render throws (prototype). With `advance` left out, `push` returns nothing while the source runs *(corrected
+   2026-11-12: false with the gate off, where a message comes with every chunk and each `push` returns the blocks
+   before its tick; the line is run with the gate on, where only `advance` gives anything out during a pause,
+   and also on a 48 kHz source, so that a bound counted at the source's rate fails)*; the
    check asks that, in pieces of 960 at `deviceRate: 44100`, the samples returned so far never fall more than
    `D + 2,048` behind the source given, counted at 44.1 kHz. The prototype counted inside the engine, after the
    capture stage, and read 141 samples under `D` at both rates; the builder counts from outside and reports
