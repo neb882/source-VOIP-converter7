@@ -1,43 +1,41 @@
 /* =========================================================================
- * tests/verify.js — headless verification of the TF2 voice pipeline.
+ * tests/verify.js: headless verification of the TF2 voice pipeline.
  *
- * The DSP core (audio.js) is pure JS, so it runs under Node:
+ * The engine is plain JS, so it runs under Node, loaded in this realm by the
+ * tests' one loader (tests/lib/engine.cjs):
  *     node tests/verify.js
- * TF2_DIR env var points the suite at a copy of the sources elsewhere.
+ * TF2_DIR points the suite at a copy of the sources elsewhere.
  *
- * Covers:
- *   - resampler passband, stopband, alignment and exact lengths
- *   - profile calibration FIR response
- *   - receiver auto-gain: target, cap, int16 clamp, silence, voice_scale
- *   - the measured clipping signature on dense input
- *   - real libopus modes for every codec profile
- *   - Valve DSP room presets, burst loss, WAV integrity, option robustness
+ * Covers, by the labels it prints:
+ *   [1] the resampler: passband, stopband, alignment and exact lengths
+ *   [2] the profile calibration FIR's response
+ *   [3] the receiver's auto-gain: target, cap, int16 clamp, silence, voice_scale
+ *   [4] the measured clipping signature on dense input
+ *   [5] [5b] real codec modes for every profile; the sender's voice gate
+ *   [5c] [5d] the steam profile: Steam's sender and decoder; loss of whole messages
+ *   [6] the clean path and the codec bypass
+ *   [7] [8] room presets, the automatic room, the custom room and under water
+ *   [9] packet loss and jitter, and the codec's own concealment
+ *   [10] [10b] [10c] option robustness; the live chain a block at a time
+ *       (steam's in its second half); talk-spurt re-timing
+ *   [11] WAV integrity
  * ========================================================================= */
 
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
+const { loadEngine, sourceRoot } = require('./lib/engine.cjs');
 
-const root = process.env.TF2_DIR || path.join(__dirname, '..');
-const code =
-  fs.readFileSync(path.join(root, 'constants.js'), 'utf8') + '\n' +
-  fs.readFileSync(path.join(root, 'audio.js'), 'utf8');
-
-// The room module and its table (W3-17c), loaded by Node outside the
-// sandbox, where its Math runs at full speed, and put in it as the globals
-// the page gives audio.js.
+const root = sourceRoot();
+// The engine in this realm, from the tests' one loader (tests/lib/engine.cjs):
+// its six files, the room module and its table among them, as the page loads
+// them. The codec module is set in main().
+const engine = loadEngine({ root });
+// The suite's own copy of the room module, for its checks in [7] and [8]
+// (the one the engine was handed: Node loads a module once).
 const TF2Room = require(path.join(root, 'room-dsp.js'));
-const sandbox = { window: {}, Blob: globalThis.Blob, console, TF2Room, TF2_ROOM_PRESETS: require(path.join(root, 'room-presets.js')) };
-vm.createContext(sandbox);
-// Steam's sender and the decoder's resampler load beside audio.js, as on the page.
-for (const file of ['steam-sender.js', 'vendor/swresample/swresample.js']) {
-  vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), sandbox);
-}
-vm.runInContext(code, sandbox);
-const TF2Audio = sandbox.window.TF2Audio;
-const ENGINE = vm.runInContext('VOICE_ENGINE', sandbox);
+const TF2Audio = engine.audio;
+const ENGINE = engine.VOICE_ENGINE;
 
 /* ---------------- helpers ---------------- */
 
@@ -189,10 +187,10 @@ const clean = { enableWarble: false, agc: false, volume: 1, listenerPos: 'open' 
 // bits, as process() makes it.
 async function steamSection() {
   console.log('\n[5c] The steam profile: Steam\'s sender and decoder (W3-11a)');
-  const R = 24000, VR = 44100, opus = sandbox.TF2Opus;
+  const R = 24000, VR = 44100, opus = engine.codec;
   // The test's own copies, in this realm (the sender takes only this realm's Int16Array).
   const Sender = require(path.join(root, 'steam-sender.js')), Swr = require(path.join(root, 'vendor/swresample/swresample.js'));
-  const PROFILES = vm.runInContext('CODEC_PROFILES', sandbox), steam = PROFILES.steam;
+  const PROFILES = engine.CODEC_PROFILES, steam = PROFILES.steam;
   const eqTaps = TF2Audio.firwin2(steam.captureEq.taps, steam.captureEq.freqs, steam.captureEq.gainsDb, R);
   const round16 = (y) => Int16Array.from(y, (v) => {
     const s = v * 32768;
@@ -221,9 +219,9 @@ async function steamSection() {
   const render = (x, opts = {}, h = null) => TF2Audio.process(mkBuffer(x, R), { codec: 'steam', volume: 1, ...opts, ...(h ? h.opts : {}) });
   // A hand-made loss mask through the codec module's makeLossMask hook.
   const withMask = async (make, run) => {
-    const real = sandbox.TF2Opus;
-    sandbox.TF2Opus = { ...real, steamRoundTrip: (m, b, o) => real.steamRoundTrip(m, b, { ...o, makeLossMask: make }) };
-    try { return await run(); } finally { sandbox.TF2Opus = real; }
+    const real = engine.codec;
+    engine.codec = { ...real, steamRoundTrip: (m, b, o) => real.steamRoundTrip(m, b, { ...o, makeLossMask: make }) };
+    try { return await run(); } finally { engine.codec = real; }
   };
   const same = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
   const sine = (f, seconds, peak) => Float32Array.from({ length: Math.round(seconds * R) }, (_, i) => peak * Math.sin(2 * Math.PI * f * i / R));
@@ -792,9 +790,9 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
     check('the draw: raising the setting only adds lost messages (every message lost at 10% is lost at 30%, same seed)', nested && at10 > 1500, `${at10} lost at 10%`);
     // In a render: which messages the steam path is told are lost.
     const lostBy = async (x, opts) => {
-      const real = sandbox.TF2Opus, seen = [];
-      sandbox.TF2Opus = { ...real, steamRoundTrip: (m, b, o) => real.steamRoundTrip(m, b, { ...o, lose: (k, msg) => { const v = o.lose(k, msg); if (v) seen.push(k); return v; } }) };
-      try { await render(x, opts); } finally { sandbox.TF2Opus = real; }
+      const real = engine.codec, seen = [];
+      engine.codec = { ...real, steamRoundTrip: (m, b, o) => real.steamRoundTrip(m, b, { ...o, lose: (k, msg) => { const v = o.lose(k, msg); if (v) seen.push(k); return v; } }) };
+      try { await render(x, opts); } finally { engine.codec = real; }
       return seen.join();
     };
     const x = talk(10, 41), base = { seed: 5, lossPct: 30 };
@@ -1131,8 +1129,8 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
     // above the expected number of the first spurt (N, all of whose frames
     // arrived), so with the marker lost the gap from N is concealed from the
     // old state; with it delivered, a fresh decoder conceals ten (zeros).
-    const steamP = vm.runInContext('CODEC_PROFILES.steam', sandbox);
-    const streamOf = () => sandbox.TF2Opus.createSteamStream(steamP.bitrate, { application: steamP.application, signal: steamP.signal,
+    const steamP = engine.CODEC_PROFILES.steam;
+    const streamOf = () => engine.codec.createSteamStream(steamP.bitrate, { application: steamP.application, signal: steamP.signal,
       runtime: steamP.encoder?.runtime, complexity: steamP.encoder?.complexity, vbr: steamP.encoder?.vbr, dtx: steamP.encoder?.dtx });
     const N = marker.first, b = senderOf(talk(8, 19), { seed: 3, gate: false }).msgs;
     const seq = [...msgs, ...b.map((m) => ({ ...m, spurt: m.spurt + 1, first: m.first + N, last: m.last + N }))];
@@ -1188,7 +1186,7 @@ async function liveSteamSection() {
   console.log('\n[10b] Live chain, steam: the render\'s own stages (W3-11b)');
   const Sender = require(path.join(root, 'steam-sender.js'));
   const S = Sender.STEAM_SENDER, VR = 44100;
-  const PROFILES = vm.runInContext('CODEC_PROFILES', sandbox), steam = PROFILES.steam;
+  const PROFILES = engine.CODEC_PROFILES, steam = PROFILES.steam;
   const eqTaps = TF2Audio.firwin2(steam.captureEq.taps, steam.captureEq.freqs, steam.captureEq.gainsDb, 24000);
   const eqDelay = (steam.captureEq.taps - 1) / 2;
   const fullReach = 3 * S.grid + S.preroll, lowReach = 3 * S.grid + S.frame - 1;
@@ -1325,12 +1323,12 @@ async function liveSteamSection() {
   // A hand-made loss mask, through the codec module's stream (createRender
   // and the live chain both call createSteamStream): mask(f) for frame f.
   const withStreamMask = async (mask, run) => {
-    const real = sandbox.TF2Opus;
-    sandbox.TF2Opus = { ...real, createSteamStream: async (b, o) => {
+    const real = engine.codec;
+    engine.codec = { ...real, createSteamStream: async (b, o) => {
       const s = await real.createSteamStream(b, o);
       return { ...s, message: (msg, miss, lost) => s.message(msg, (f) => { miss(f); return mask(f); }, lost) };
     } };
-    try { return await run(); } finally { sandbox.TF2Opus = real; }
+    try { return await run(); } finally { engine.codec = real; }
   };
   const count = (codes, c) => codes.reduce((n, v) => n + (v === c ? 1 : 0), 0);
   // The stream's blocks, message by message (createRender and the live chain
@@ -1339,8 +1337,8 @@ async function liveSteamSection() {
   // Also each message's whole result (made: its blocks, whether it was lost,
   // its skipped frames).
   const withBlockTally = async (run) => {
-    const real = sandbox.TF2Opus, tallies = [], mades = [];
-    sandbox.TF2Opus = { ...real, createSteamStream: async (b, o) => {
+    const real = engine.codec, tallies = [], mades = [];
+    engine.codec = { ...real, createSteamStream: async (b, o) => {
       const s = await real.createSteamStream(b, o), tally = [], made = [];
       tallies.push(tally);
       mades.push(made);
@@ -1351,7 +1349,7 @@ async function liveSteamSection() {
         return m;
       } };
     } };
-    try { return { result: await run(), tallies, mades }; } finally { sandbox.TF2Opus = real; }
+    try { return { result: await run(), tallies, mades }; } finally { engine.codec = real; }
   };
   // The live chain equals the render over what it gave out: the laid signal,
   // the resampler's packets, the slots' codes.
@@ -1821,7 +1819,7 @@ async function liveSteamSection() {
 /* ---------------- tests ---------------- */
 
 async function main() {
-  sandbox.TF2Opus = await import(require('url').pathToFileURL(path.join(root, 'opus-codec.mjs')).href);
+  engine.codec = await import(require('url').pathToFileURL(path.join(root, 'opus-codec.mjs')).href);
   const SR = 48000;
 
   console.log('\n[1] Resampler');
@@ -1852,8 +1850,8 @@ async function main() {
   console.log('\n[2] Profile calibration FIR');
   {
     // libopus 1.1.5 reproduces Steam's decoded spectrum, so only the capture resampler's band edge remains.
-    check('steam has no decoder EQ', vm.runInContext('CODEC_PROFILES.steam.decoderEq', sandbox) == null);
-    const eq = vm.runInContext('CODEC_PROFILES.steam.captureEq', sandbox);
+    check('steam has no decoder EQ', engine.CODEC_PROFILES.steam.decoderEq == null);
+    const eq = engine.CODEC_PROFILES.steam.captureEq;
     const taps = TF2Audio.firwin2(eq.taps, eq.freqs, eq.gainsDb, 24000);
     const gains = [1000, 5000, 9000, 10500].map(f => firGainDb(taps, f, 24000));
     check('steam capture EQ is transparent up to 10.5 kHz', gains.every(g => Math.abs(g) < 0.15), gains.map(g => g.toFixed(2)).join(' / '));
@@ -2329,7 +2327,7 @@ async function main() {
     parts.reduce((o, p) => { live.set(p, o); return o + p.length; }, 0);
     chain.free();
     const whole = await TF2Audio.process(mkBuffer(src, SR), opts), offline = whole.samples;
-    const live48 = vm.runInContext('CODEC_PROFILES.steam_48', sandbox), eqHalf = live48.captureEq ? (live48.captureEq.taps - 1) / 2 : 0;
+    const live48 = engine.CODEC_PROFILES.steam_48, eqHalf = live48.captureEq ? (live48.captureEq.taps - 1) / 2 : 0;
     const delay = (eqHalf + whole.codecInfo.lookahead) / live48.codecRate, shift = Math.round(delay * SR);
     const correlate = (d) => {
       let dot = 0, ea = 0, eb = 0;
