@@ -210,10 +210,11 @@ console.log('\n[10] The engine files load nothing and touch no page, the folder 
 
 console.log('\n[11] TF2Audio keeps its members, in their order');
 {
-  // Recorded when audio.js was split (S3-02a): the split changes none of them.
+  // Recorded when audio.js was split (S3-02a), which changed none of them;
+  // S3-02b took off one member that nothing read.
   const MEMBERS = ['process', 'stagesHold', 'stageKeys', 'STAGE_OPTIONS', 'previewAllowed', 'encodeWav', 'toInt16',
     'bufferToMono', 'resampleSinc', 'resampleLinear', 'firwin2', 'applyFirZeroPhase', 'hardClip', 'receiverAutoGain',
-    'createGain', 'decodedFromFrames', 'biquadCoefs', 'applyBiquad', 'mulberry32', 'buildLossMask', 'realOpusRoundTrip',
+    'createGain', 'decodedFromFrames', 'biquadCoefs', 'applyBiquad', 'mulberry32', 'buildLossMask',
     'createLiveChain', 'createRender', 'roomPreset', 'streamResampleSinc', 'streamFir', 'streamAutoGain', 'streamLossMask',
     'steamGiveOut', 'steamMessageLoss', 'steamFits', 'mixEntry', 'mixUpsample2', 'mixOut', 'mixClip', 'mixDevicePosition',
     'createDeviceStage', 'createOutputStage'];
