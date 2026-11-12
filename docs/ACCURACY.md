@@ -12,13 +12,13 @@ Several stages of the modern path equal the game's sound sample for sample. Thos
 
   | Timing model | Changes it gets right | Error of a phrase's start |
   | --- | --- | --- |
-  | the game's queue as read (`voice-channel.js`, not in a render yet) | 47% | 122 ms |
+  | the game's queue as read (`voice-channel.js`; a render runs it when `opts.timeline` is `'game'`; the page does not offer it) | 47% | 122 ms |
   | the earlier queue model | 41% | 100 ms |
   | the flat rule (the page's "Talk-spurt timing") | 31% | 134 ms |
   | no timing model (a render today) | 11% | 150 ms |
 
   Part of this cannot be closed. Which pause closes depends on where Steam's reads fell while the talker spoke, and that is not in a recording.
-- **The receiver's queue.** Replayed over the game's logged packets, with the mixer's demand taken from the log, the module gives the logged queue on every tick (measured, Set G). When the mixer pulls is therefore not tested. No page loads the module: it is not in a render yet. So a render has no early starts, does not drop one sample from every packet, and has no fade at the end of the queue.
+- **The receiver's queue.** Replayed over the game's logged packets, with the mixer's demand taken from the log, the module gives the logged queue on every tick (measured, Set G). When the mixer pulls is therefore not tested. A render runs the module when `opts.timeline` is `'game'`; the page does not offer that option (W3-02d, not built yet). So the page's render has no early starts, does not drop one sample from every packet, and has no fade at the end of the queue.
 - **Jitter.** The jitter setting is a fit to one recording: single frames marked late. The game's jitter delays and bunches whole messages and makes no frame late (read). The order that builds that, BC-4, is not built yet.
 - **Loss.** Which messages are lost is random in the game and in the app, so a take with loss can be compared only by its statistics. One take with loss, lag and jitter together has more silence than the rule gives (measured: 10.3% against 4.0%), and why is not known. Real internet loss was not recorded.
 - **`miles`, which was never in Team Fortress 2.** It has not been checked against any recording of a running engine. Four parts of it are stand-ins (guessed).
@@ -40,7 +40,7 @@ The tool is finished when every stage of the modern preset is either equal to a 
 | Steam's sender, the read clock | drawn; the difference cannot be closed from a recording |
 | the codec, the decoder and its resampler | equal in all but 2 of 524,288 samples (measured, Set J) |
 | the receiver's gain | equal under `vaudio_celt` (measured, Set H); under Steam voice no check to the sample exists |
-| the voice channel | the module gives the game's logged queue when it is given the log's packets and the mixer's demand; not in a render yet |
+| the voice channel | the module gives the game's logged queue when it is given the log's packets and the mixer's demand; a render runs it when `opts.timeline` is `'game'`, which the page does not offer |
 | the mixer's entry, the clip and `volume` | equal on flat tops (measured); the rest rests on the reading |
 | the device's conversion | as built, within one step in 73% of samples; in 98.2 to 99.5% with a drift of the read position that is not built (measured, Set K); what is left after that is not explained |
 
