@@ -1,6 +1,18 @@
 name: tests
 
-on: [push, pull_request, workflow_dispatch]   # workflow_dispatch: run by hand from the Actions tab
+# A commit is tested once, when it is pushed. Pull requests come from this repository's own branches, so the
+# push has already tested their head: a pull_request trigger would run the same 20 minutes again. A push that
+# changes nothing outside docs/ runs nothing (the progress file is committed many times a day). A newer push to
+# the same branch cancels the run of the older one.
+on:
+  push:
+    paths-ignore:
+      - 'docs/**'
+  workflow_dispatch:   # run by hand from the Actions tab
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

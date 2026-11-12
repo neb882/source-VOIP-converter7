@@ -79,7 +79,10 @@ figures are the vendor's own. Re-read this section when either model changes.]
    goes straight to the fixer. The fixer reproduces each minor finding, fixes the cheap ones, and the rest go under
    `deferred` in PROGRESS. The fixer is the order's builder, resumed with its context.
 5. **The inspection** is CI on GitHub: a fresh checkout on a clean runner. Read the run on the branch's head commit
-   yourself (its conclusion and head SHA), not only the builder's word.
+   yourself (its conclusion and head SHA), not only the builder's word. Since 2026-11-12 a commit is tested once,
+   on its push: there is one run on a head, not two, and a push that changes nothing outside `docs/` starts none.
+   So push a merge and the progress commit on top of it together, or the head has no run to read. [CI takes
+   20 minutes; a third of its runs re-tested a commit already tested, and each progress commit ran it twice.]
 6. **The merge** is local, `--no-ff`, with a message that says what the order did and how it was checked, then
    `git push origin HEAD:main`. Never GitHub's merge button (CLAUDE.md). Then update PROGRESS, remove the worktree,
    and check the live site serves the new version.

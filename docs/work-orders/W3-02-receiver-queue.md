@@ -148,13 +148,15 @@ source has it. Output before sample 0 or past the render's length is dropped.
 | Part | In the model | Why |
 | --- | --- | --- |
 | Ring size, overflow dropping the oldest | exact | read; every logged add |
-| One sample dropped per packet | exact in count; the kept samples are the packet's samples 1..n-1 | the engine blends each with 0.001 of its neighbour (an interpolator at fraction 0.999): under the 16-bit step |
+| One sample dropped per packet, and the interpolator | exact: n - 1 samples written, the k-th `trunc(s[k] + (s[k+1] - s[k]) x f)`, the fraction 0.999 at assignment and carried from packet to packet; in 16-bit units *(corrected 2026-11-12, W3-02c-1: this row said the blend was under the 16-bit step, which was wrong)* | run: TF2's own routine, both builds, 1,944,423 of 1,944,423 written samples per build and 9,369,073 of 9,369,073 over 6,000 packets; the 0.999 at assignment read (W3-03); a step other than 1.0 not run |
 | The countdown | exact for a steady frame rate | the game's frame times vary and a hitch shortens the wait; the input is one number |
 | Append, with the one-tick grace; freed when found empty | exact | read; one grace case and 34 opens in the logs |
-| The fade | the law as read; the product is not rounded to 16 bits | the render carries floats; no log can show it |
-| Underrun padding | the law as read | not seen in a log (it changes samples, not counts) |
+| The fade | exact: `trunc(f(f(1 - f(j x f(1 / (fade - 1)))) x s))`, `j = fade - 1 - r`, `fade = max(2, trunc(f(44100 x f(voice_fadeouttime))))`, `f` a single-precision round *(W3-02c-1)* | run: TF2's own routine, both builds, 885,240 of 885,240 pulled samples |
+| Underrun padding | exact: the last samples read, after the fade, once more, then zeros *(W3-02c-1)* | run: as the fade |
 | The gain, and its reset when a channel is assigned | exact | W3-05; verified sample for sample on Set H |
-| The extra sample at a start | counted; dropped unheard | its use was not read |
+| The extra sample at a start | exact: the mixer's look-ahead; the first block plays the first 512 of 513, every later block the kept sample and 511 new ones; nothing dropped *(W3-02c-1)* | read: W3-10's upsampler read, section 3 (the voice source's side of the pull not re-read; the kept sample of a freed channel is 0 and is not modelled) |
+| A read of more than 1024, a padded pull of more than 2048 | not modelled: `pull(n)` takes `n` | the routine's caps; the mixer's blocks ask 512 or 513, larger requests not seen from the mixer. Wrong for a single engine call over 1024 or a replay with real samples whose tick ends in an underrun |
+| The zero `D` (the model's own, to line a render up with its source) | `D = 512 x round(44100 x (latency + 0.0505 + codecDelay) / 512)`: 13312, 15360, 24064 samples at 66.67, 100, 300 fps with no codec delay; 13312, 15360, 24576 with the Opus codec's 156 samples at 24 kHz | the game has no such figure. `latency`: the wait and the opening burst (read); 0.0505 s: the mean arrival after the message's first captured sample, measured on the model over 455 spurts; `codecDelay`: what the caller took off each source for its codec; on whole blocks so that the channel's blocks are the mixer's (read: W3-07, W3-10). At 66.67 fps the sum sits 0.6 ms under the edge where `D` becomes 13568 |
 | When the mixer pulls | approximated: a block every 512 samples | in the game the pulls follow the frames (a tick sees 0, 1 or 2 blocks, 7% see none); it matters by at most a block (11.6 ms) at a full or a nearly empty ring |
 | Ticks | approximated below 67 fps: evenly spaced | there several ticks run in one frame |
 | Five channels, other speakers | not modelled | one speaker |
@@ -1003,8 +1005,11 @@ or `GAIN_GOLDEN`.
   - The resampler: stands (one per render, `audio.js:1753` and 2781).
   - The gain: stands. Today `gainRule`'s `reset()` takes nothing and the three settings are fixed when the rule
     is made (`audio.js:789` to 797; `createGain` at 861). Either form the order allows is acceptable. With
-    `agc: false` the object multiplies by `voice_scale` and clips as `audio.js:1814` to 1817 do; it does not
-    round (the mix entry does: `mixSample`, `audio.js:356`).
+    `agc: false` the object multiplies by `voice_scale`, **rounds to the nearest whole 16-bit value (ties to
+    even, as `mixSample` does, `audio.js:356`) and clips, before `push`** *(the orchestrator, 2026-11-12, from
+    W3-02c-1's review: the channel works in whole 16-bit units and truncates in its blend, so an unrounded value
+    would come out one unit lower under `'game'` than under `'source'`, where the mix entry rounds it: 1.5 units
+    gave 1 against 2)*.
   - A late frame: stands; it is the rule of `audio.js:1481` to 1491, moved into the object.
   - "The timeline's output replaces the auto-gain's (stage 4)": it replaces `steamVoice` (`audio.js:1762`).
     With the gate off: stands; section 6 has the figures.
@@ -1260,6 +1265,30 @@ Each with the recommendation and what it rests on.
    per channel in a render.
 
 BC-3's build is folded into c-2 and BC-4 stays an order of its own after it, as section 10 says.
+
+**As built: W3-02c-1, merged 2026-11-12** (`docs/reports/W3-02c1-channel-as-read.md`). What c-2 builds on:
+
+- All five items of section 4 are in. Decision 3 is settled: TF2's own routine, run on both builds, blends and
+  truncates as the 2006 and 2007 engines do, so the interpolator is built (item 4), and the fade's arithmetic is
+  known (decision 4): single precision, truncated toward zero. "The model"'s table has the rows as built.
+- `createChannel` works in whole 16-bit units. `createTimeline` multiplies its gain's output by 32768 going in
+  and divides by 32768 coming out, so c-2's contract (the resampler's Int16 over 32768) is unchanged; whatever
+  is handed to the channel that is not whole is truncated in the blend.
+- **The zero has two parts, kept apart.** `ARRIVAL_SECONDS` is 50.5 ms: the mean arrival after the message's
+  first captured sample (the sender's `start`), measured over 455 spurts. `createTimeline` takes `codecDelay` in
+  seconds (default 0): what the caller has already taken off each `source` for its codec. **c-2 passes
+  `codecDelay: lookahead / codecRate` (156 / 24000)**, since it pushes `source = round((start - lookahead) x
+  44100 / 24000)`; then `D` is 13312, 15360 and 24576 samples at 66.67, 100 and 300 fps. Without the option a
+  render at 300 fps would sit 11.8 ms late (the review's blocking finding).
+- The offsets of section 5's table move with `D`: by -51.86, -53.29 and -45.67 ms at 66.67, 100 and 300 fps
+  against the old `D`, and by one more block at 300 fps with the codec's delay. c-2's planner re-derives its
+  ranges from the suite's measured values, not from the table as written.
+- The orchestrator's private runs on the merged module: the Set G replay matches the game on every tick of six
+  sections; `tests/retiming.mjs --engine` on the speech take reads 47% of transitions and a start error of
+  122 ms (129 before; between 110 and 130 the work goes on).
+- Left stale by this order and owed to a later one: `tests/voicequeue/reference-channel.mjs` still carries the
+  unblended copy and the old fade (the suite adapts around it; its header says so), and W3-02a's report
+  describes the old arithmetic.
 
 #### 12. Not settled here
 
