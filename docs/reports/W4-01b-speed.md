@@ -3,15 +3,19 @@
 The builder's report. The order is `docs/work-orders/W4-01-page.md`, section W4-01b with the order's top sections and
 the owner's answers (step 3 is built), with the eight amendments of the orchestrator's plan review of 2026-11-11, which
 win where they differ. Branch `claude/w4-01b-speed`, from `8035cfa` (main, cache v34), in three commits (steps 1, 2
-and 3) and this report.
+and 3) and this report, then a fix round: the memory ruling, the two readers' findings, and main merged ("Fix round
+1").
 
-**Status:** built, and **stopped at one of the order's stop-and-ask conditions: memory.** For a 9.8-minute source the
-browser's peak over the idle page is 2050 MB against 1592 MB on main (+29%, the order's limit is a tenth); see
-"Memory" for what makes it up and the ways back, which are the orchestrator's or the owner's to choose. Nothing was
-changed to bring it down. Everything else holds: no golden hash moved and none was re-recorded
-(`tests/render-stream.verify.mjs` is not touched and passes), the new `tests/stages.verify.mjs` gives every one of its
-76 recorded renders again from warm stages, every check the order and the amendments name passes, and every new check
-was shown to fail with the code it covers broken (41 breaks, "Breaks"). CI passed on the code's head (`c74d976`).
+**Status:** built, and fixed after review. The build stopped at one of the order's stop-and-ask conditions, memory:
+for a 9.8-minute source the browser's peak over the idle page is 2050 MB against 1592 MB on main (+29%, the order's
+limit is a tenth). **The orchestrator ruled on 2026-11-12: accepted for this order** ("Memory" keeps the figures; a
+way back, should long clips strain a browser, is to hand the stages to a new worker after a long render). The fix
+round then took the first reader's six findings and the second reader's six items ("Fix round 1"): among them
+`process()` now reads every option once, at the call, and keys the stages by what it uses. Everything holds: no golden
+hash moved and none was re-recorded (`tests/render-stream.verify.mjs` is not touched and passes), the new
+`tests/stages.verify.mjs` gives every one of its 76 recorded renders again from warm stages, every check the order,
+the amendments and the two readers name passes, and every new check was shown to fail with the code it covers broken
+(41 breaks in the build, 19 in the fix round). CI passed on the code's head (`c635b4f`, run 43163376113).
 
 ## Summary
 
@@ -27,8 +31,10 @@ was shown to fail with the code it covers broken (41 breaks, "Breaks"). CI passe
 - **Step 2, the stages.** `process()` takes `opts.stages` and `opts.sourceKey` and keeps A (the capture at the
   codec's rate) and B (the codec stage's result). The keys are safe by default (an unlisted option is in both), keyed
   by a serialisation that keeps NaN, -0, undefined, typed arrays, holes and nested objects apart, and a function-valued
-  option that is not one of the three observers keeps and takes nothing. `process()` reads each option where it is
-  first used, so the two lists can be checked against the code (the lists, with the line of first use, are below).
+  option that is not one of the three observers keeps and takes nothing. `process()` reads every option once, at the
+  call (`readOptions`, since the fix round), and the keys hold each option as the stages use it; the two lists say
+  where each is first used, so they can be checked against the code (the lists, with the line of first use, are
+  below).
   The page sends its source once per source and capture channel; the worker holds it and its stages.
 - **Step 3, the first seconds.** A source longer than 30 s, at the settings `TF2Audio.previewAllowed()` allows, first
   gets a render of its first 15 s; the player is given its first 14 s ("The first 14 s; the rest is rendering…" under
@@ -39,10 +45,12 @@ was shown to fail with the code it covers broken (41 breaks, "Breaks"). CI passe
 - **Times** (median of three, this machine, the browser suite's Chromium): see "Times". A re-render with `voice_scale`
   changed takes about a third of a first render; one with Packets lost % changed about 55 to 70%; the first sound of
   a 5-minute source comes in about 1 s instead of about 17.
-- **Memory: the stop-and-ask is met.** 9.8 minutes: 2050 MB over the idle page against 1592 MB on main (+29%), most
-  of it the kept worker's garbage, not the stages ("Memory").
-- **The browser suite:** 374 checks on main (`8035cfa`), 386 after step 1, 392 after step 2, **401** at the head.
-  `tests/stages.verify.mjs`: **297** checks.
+- **Memory: the stop-and-ask was met, and the figure is accepted** (the orchestrator, 2026-11-12). 9.8 minutes: 2050
+  MB over the idle page against 1592 MB on main (+29%), most of it the kept worker's garbage, not the stages; 2032 MB
+  (+28%) after the fix round, which keeps `steam`'s B without the messages' samples ("Memory").
+- **The browser suite:** 374 checks on main (`8035cfa`), 386 after step 1, 392 after step 2, 401 at step 3,
+  **409** after the fix round. `tests/stages.verify.mjs`: 297 checks at step 3, **331** after the fix
+  round.
 
 ## Commits
 
@@ -51,9 +59,119 @@ was shown to fail with the code it covers broken (41 breaks, "Breaks"). CI passe
 | `bcfeaaa` | step 1: `audio.js` (`microYield`, `opts.signal`, the progress line), `audio-worker.js` (cancel, the meter after the result, `done`), `app/render.js` (the kept worker), `sw.js` v35, `tests/browser.verify.js`, `tests/predictions/PREDICTIONS.md` |
 | `c76af7e` | step 2: `audio.js` (the two places, the keys, the reads moved to their first use), `audio-worker.js` (the held source and its stages), `app/render.js` (the source message, non-render jobs while the worker is busy), `tests/stages.verify.mjs` (new), `package.json` (in `pnpm test`), `tests/browser.verify.js`, `README.md`, `PREDICTIONS.md` |
 | `c74d976` | step 3: `audio.js` (`previewAllowed`), `audio-worker.js` (the first seconds), `app/render.js` (the preview in the player, the cancel bound by length), `app/core.js` (`state.preview`), `tests/stages.verify.mjs` (section 4), `tests/browser.verify.js`, `README.md`, `PREDICTIONS.md` |
-| (this report) | `docs/reports/W4-01b-speed.md` |
+| `f32ec08` | this report, and the order's memory stop-and-ask |
+| `a1984d5` | main merged (`9e0abd0`) |
+| `3a37326` | main merged (`e3dacb7`) |
+| `99fd5d0` | the first reader's findings: `tests/stages.verify.mjs` (every option read changed alone), `tests/browser.verify.js` (five new parts, `speedCancel` and W4-01a's check repaired), `app/render.js` (a cancelled waiting render taken out of the queue; `exportWav`'s `own`), `batch.js` (its files in workers of its own) |
+| `c635b4f` | the second reader's items: `audio.js` (`readOptions`, the keys of what is used, `stagePlan`'s checks, `steam`'s B without the messages' samples, the observers' sentence), `tests/stages.verify.mjs` (section 3's new checks) |
+| (after `c635b4f`) | `README.md` (step 3), `docs/PAGE.md`, `tests/README.md`, the order's ruling note, this report |
 
 `index.html` and `style.css` are not touched: the preview's mark is W4-01a's status line under the player.
+
+## Fix round 1 (2026-11-12)
+
+The orchestrator's ruling on the memory stop-and-ask, the first reader's findings (F1 to F5 and B8), the second
+reader's (1 to 6), and main merged (`e3dacb7`). Every new check was run against the break named beside it, in a copy
+of the tree, and failed there; none of the breaks is left in the code.
+
+### The memory ruling
+
+"Ruled 2026-11-12 by the orchestrator: accepted for this order (the figures, docs/reports/W4-01b-speed.md); a way
+back, should long clips strain a browser, is to hand the stages to a new worker after a long render." The order
+carries this note at its memory stop-and-ask. No code was changed for it. "Memory" keeps the figures as measured; the
+one change to what is held since then is the second reader's item 4 below, measured there again.
+
+### The first reader
+
+| Finding | What changed | The check | The break, and what fails |
+| --- | --- | --- | --- |
+| F1: section 2 could not catch `frameMs` or `seed` on the wrong list | `tests/stages.verify.mjs` changes every option `process()` reads alone: `frameMs` alone on `steam` and `celt_22` and on a base with jitter 50 ms, the seed on a base with loss 15%, the codec on a base without Steam's uptime, the older room options (`dspRoom`, `listenerPos`, `customEnv`), `swrKernel` and a demo's voice (`received`, on a base with mic gain 2); and a check that every option read and every name on the two lists is changed alone in some case | [2] `steam, jitter 50 ms: {"frameMs":60}` and the others; "each option process() reads, and each name on the two lists, is changed alone in a case below" | N1, `frameMs` put on `AFTER_B_OPTIONS`: the `{"frameMs":60}` cases (B taken). N2, `seed` put on it: `steam, loss 15%: {"seed":2}` and the `celt_22` one. `received` put on `AFTER_A_OPTIONS`: `{"received":…}` (A taken). A name put on the lists with no case: the "changed alone" check |
+| F2: [Browser 10] could not catch the page losing track of the source the worker holds | `speedCancelUnanswered` also asks for 2 workers, 2 source messages and nothing rendered on the page's thread; a new part, `speedCaptureChannel`, switches a stereo file's capture channel | "a worker that does not answer a cancel is ended after the bound … the source goes to the new worker"; "a stereo file: the capture channel switched renders the other channel (a fresh render's WAV), sent to the worker as a source of its own" | B1, `pageWorker.held` not cleared with the worker: 2 workers, 1 source message. B2, the source id without the channel: the same WAV twice, 1 source message |
+| F3: Cancel during a re-render's first seconds was untested | a new part, `speedFirstSecondsRerenderCancel` | "Cancel during the first seconds of a re-render gives the player back the earlier render, at its place, playing; its download is offered again, and the line marks it as made with the earlier settings" | B5, the restore in `dropPreview` disabled: the wait for the earlier render times out |
+| F4: both halves of `speedCancel` could pass without testing what they name, and W4-01a's check had become vacuous | the worker must be free within 300 ms of Cancel (51 to 90 ms here, 66 to 67 ms on CI); the change during a render is now Packets lost % 5 then 10 on a 40 s source, which renders from A, with one "render stopped for newer settings" line; W4-01a's check in `verifyJourney` the same (40 s, loss 5 then 10, `stopped === 1`, the WAV against a render again and one made on the page's thread) | "Cancel stops a render from the start within 300 ms …"; "a 40 s source: Packets lost % changed while a render from A runs stops that render for the newer settings …"; W4-01a's "a short source: after a change made while a render runs, that render is stopped …" | B3, the worker's yield a resolved promise: free 817 ms after Cancel. No cancel in `startRender`: 0 stopped (Browser 10), and W4-01a's "a short source: after a change made while a render runs, that render is stopped …" fails (the journey) |
+| F5: the batch's downloads used the page's kept worker | `exportWav(…, { own })` and `cachedExport` take `own`; `batch.js` passes it (`OWN`), so its files are made in workers of its own, as its renders are | a new part, `speedBatchExport`: "the batch's ZIP asked for while the page renders a long source is made in workers of its own and ends before the render" | the batch sent through the page's worker: the ZIP at 4662 ms, after the render's end at 3896 ms |
+| B8: a render cancelled while it waits for the worker was left in the queue | `cancelPageJob` takes a waiting job out of the queue | a new part, `speedQueuedCancel` (an MP3 export holds the worker; a render asked for then is cancelled): "… cancelled while it waits, it never reaches the worker" | the job left in the queue: 1 render posted after the download |
+
+### The second reader
+
+Numbered as the orchestrator's message numbers the items; the reader's own finding is in brackets (`c635b4f`'s
+message uses the reader's numbers).
+
+1. (Finding 1.) **The options are read once, at the call.** `process()` now begins with `readOptions(opts)`, which reads each
+   option it uses once into a record of its own (`READ_OPTIONS`, every name), converts each as the stages use it, in
+   the order the engine read them before W4-01b, and makes the room first, as main did. The stages use what was read;
+   nothing in `process()` reads `opts` again. The steam sender's settings and the loss draw are given the record, and
+   a demo's frames are read at the call (`receivedCodecInfo`). The two lists keep their meaning: where each option is
+   first used.
+2. (Finding 2.) **The keys are made of what the stages use.** `keysOf` takes each option the stages up to B use as they use it
+   (`used`: the profile's name for `codec`, the converted numbers, `gate` as on or off, `gateThresholdDb` as the
+   threshold or the profile's own, `frameMs` as frames a packet, the seed as the 32-bit number, a demo's voice as
+   given or not); the test hooks, Steam's uptime and the resampler's kernel as given. An option `process()` does not
+   read is in both keys as given, as before. So `{}` and a null-prototype object, or `{}` and an object whose
+   `Symbol.toPrimitive` gives 60, no longer share a key while the engine reads them differently; and NaN for
+   `gateThresholdDb` is now read as `undefined` is and takes B.
+3. (Finding 4.) **A stages object that cannot keep renders from the start.** `stagePlan` keeps nothing in an object that cannot
+   take new members (frozen, sealed) or whose `counts` the engine did not make (a `WeakSet` of the counts it made); it
+   takes only what it kept itself (likewise); and a stages object that fails while it is used takes and keeps nothing
+   more, and the render goes on. `stagesHold` answers `null` for these.
+4. (Finding 5.) **`steam`'s B holds the messages without their `pcm`.** The kept B is `{ ...b, messages }` with each message
+   copied without `pcm` (`({ pcm, ...rest }) => rest`); the render that makes it uses its own whole messages. Nothing
+   after B reads a message's samples; no hash moved (`render-stream.verify.mjs` 553 of 553, the stages suite's 152
+   recorded renders from warm stages).
+5. (Findings 3 and 6.) Notes, no code (below).
+6. (The caution under the reader's item 7.) **`STAGE_OBSERVERS`** has the sentence: "An observer must never be handed an object a kept stage holds: it could
+   write into it."
+
+| Item | The check (`tests/stages.verify.mjs`, section 3) | The break, and what fails |
+| --- | --- | --- |
+| 1 | "celt_22, with stages: bits set to 4 on the line after the call; the render is the call's, and so is the next, from B"; the same without stages; "steam, with stages: lossPct set to 60 from onProgress during the render; the render is the call's, and so is the next, from B"; the same without stages | the engine the reader read (`99fd5d0`): all four. `bits` and `lossPct` read from `opts` in the codec stage again: all four |
+| 2 | each of the reader's cases, the second render with warm stages against a fresh render (the same WAV and codecInfo, or the same error): `speex`, `lossPct` `{}` then `Object.create(null)`; `steam`, `{}` then `{ [Symbol.toPrimitive]: () => 60 }`; `celt_22`, `micGain` `{}` then an object whose non-enumerable `valueOf` gives 3; `speex`, `Float32Array.of(0)` then the same with its own `valueOf` giving 70; `steam`, no `lossPct` then 60 as a non-enumerable own member; `celt_22`, no `micGain` then a class whose getter gives 4; the randomised run's seed 20001, step 122 (its options, `micGain` `{}` then a null-prototype object, on a source of its shape) | the engine the reader read: all seven. The keys made from the values as given (`for…in` over `opts`, as before): the five that render (the two that throw throw at the call, before any key, once the options are read there) |
+| 2 | the NaN check, changed: "NaN where the page sends undefined (gateThresholdDb, used in the codec stage) is read as undefined is, the profile's own: B is taken, and the render is the same" | the engine the reader read, and the keys from the values as given: A taken, B not |
+| 3 | "stages frozen", "stages { counts: 5 }", "stages { counts: {} }": "a fresh render's WAV and codecInfo, nothing kept, no error" (and `stagesHold` gives `null`) | the engine the reader read: `TypeError: Cannot add property counts, object is not extensible` and `Cannot read properties of undefined (reading 'kept')`. `stagePlan` as before: all three. The check of the object taken out, the catch kept: the two `counts` cases (A and B written into the caller's object) |
+| 4 | "`steam`'s B holds its messages without their pcm, and the renders from it above are fresh renders'" | the engine the reader read, and B kept whole: that check |
+| — | section 2's first check now also asks that every name `process()` reads (`TF2Audio.STAGE_OPTIONS.read`) is the page's, the engine's own, a hook, an observer or a control, and the "changed alone" check covers them | a name added to `READ_OPTIONS` with no case: that check |
+
+One case of section 2 changed with item 2: on `celt_22`, which has no sender gate, `gate: false` is its own setting,
+so the case is now `gate: true` (with the keys of what is used, `false` took B, as it should).
+
+**Notes (item 5; no code):**
+
+- **What the keys cannot see.** Each gives a stale render from B: the same `sourceKey` for other samples (another
+  buffer of the same rate, length and channels, or the samples changed in place: the caller's promise broken); the
+  profile tables (`CODEC_PROFILES`, `VOICE_ENGINE`; neither is frozen) or the codec module (`TF2Opus`) changed between
+  two renders. No caller that passes stages does either; `tests/verify.js` swaps `TF2Opus` four times, never with
+  stages.
+- **The worker makes a new stages object for each source.** A `source` message replaces the held source and its
+  stages (`holdSource`, `stages: {}`), so the worker does not depend on the id changing.
+- **The error order with two invalid options.** The options are converted at the call in the order main converted
+  them (the seed, the room, `micGain`, `hp`, `lp`, `bits`, `lossPct`, `jitterMs`, `avgGain`, `maxGain`, `voiceScale`,
+  `volume`, `frameMs`), so of two invalid options the one main reported is reported: `steamUptime: -1` with a room
+  that throws gives the room's error, as on main (on the head the reader read, the uptime's). The uptime itself is
+  checked where main checked it, when the sender is made in the codec stage. One difference remains: a demo's frame
+  data is read at the call, so a demo whose frame data throws and a source with a non-finite sample report the demo's
+  error, where main reported the sample's.
+
+### The merge of main
+
+`3a37326` merges main at `e3dacb7` (the documentation pass, S3-01 planned). File by file:
+
+- `README.md`: main's text, whole. Then, in its "Use it", step 3, three sentences after the existing ones (CLAUDE.md's
+  "Writing the documents": the reader's words, no order names):
+  > A render after a changed setting runs again only the stages from that setting on: a change on the receiver's side
+  > (its gain, talk-spurt timing, volume, the room, the sound device) skips the sender and the codec, and a change to
+  > the sender's gate or bit rate or to the network skips the capture. A clip longer than 30 s can be played from its
+  > first 14 s while the rest renders, except with loss, jitter, talk-spurt timing, a room or under water, a sound
+  > device at a rate other than 44.1 or 48 kHz, a demo, or a change on the receiver's side alone. **Cancel** stops a
+  > render and keeps what was already done for the next one.
+- `docs/PAGE.md` (new on main): in "Rendering and the status line", a sentence that the meter's numbers follow the
+  render a moment later; three paragraphs, "What a render runs again", the sound being a render from the start's, and
+  Cancel; "The first seconds"; and in the batch's part, that it renders and makes its files in workers of its own.
+- `tests/README.md` (new on main): a row for `stages.verify.mjs`, the browser suite's row extended, and the times
+  corrected to CI's on this branch.
+- `docs/README.md`'s W4-01b row, `docs/PROGRESS.json` and the order's status line: main's, untouched.
+- `sw.js`: `CACHE` stays v35. `package.json`: main's test line with `node tests/stages.verify.mjs` after
+  `render-stream.verify.mjs`. `.github/workflows/test.yml`: main's (the 45-minute limit).
+- Everything else from main as it is; nothing of the branch's code conflicted.
 
 ## Step 1: the worker
 
@@ -70,7 +188,8 @@ unchanged) and the real take's jobs (`app/realtake.js`, likewise) go to one work
   locate, compare and meter jobs side by side, as before (a strict queue for them made `[Browser 3e]`'s meter row
   late, and would make a render wait behind a long locate);
 - the batch keeps workers of its own (`startWorkerJob` and the new `startOwnWorker`, as `startWorker` was), with the
-  meter in the result (`measure`), and sends no stages.
+  meter in the result (`measure`), and sends no stages. Since the fix round its downloads and ZIP files are made in
+  workers of their own too (`exportWav`'s `own`); before, they went to the page's kept worker (the first reader's F5).
 
 **Cancel** (amendment 4). `cancelPageJob` posts `{ type: 'cancel', id }`, rejects the job with an AbortError at once
 (so the page's journey goes on as W4-01a has it) and waits for the worker's `done`. The worker's `AbortController`
@@ -107,9 +226,10 @@ ends before the meter comes, the meter measures the render itself.
 
 ### The two places
 
-`process()` (`audio.js`) now runs: the keys (`stagePlan`); B from the stages, or else A from the stages or stages 1
-and 2 (A kept at line 1938), then stage 3 (B kept at line 2017); then the receiver from B. Each place has a note in
-the code: what is kept there, and that an option read before it must not be on the list after it.
+`process()` (`audio.js`, lines 1981 to 2242) now runs: every option read, once (`readOptions`, line 1990; the
+function is at 1651); the keys (`stagePlan`, 1996); B from the stages, or else A from the stages or stages 1 and 2 (A
+kept at line 2049), then stage 3 (B kept at line 2124); then the receiver from B. Each place has a note in the code:
+what is kept there, and that an option used before it must not be on the list after it.
 
 **A** is `{ samples, sourceLength }`: the capture at the codec's rate after the filters and the capture EQ, and the
 source's length (for the output's).
@@ -117,13 +237,14 @@ source's length (for the output's).
 **B** (amendment 2, read from the code as it is today):
 
 - `steam`: `{ messages, trip, sender, settings, bitrate, lossSet, framesPerPacket, codecLength, sourceLength }`. The
-  sender's messages, unchanged (ticks, spurts, frames, start, end marker, samples); `trip` is
+  sender's messages (ticks, spurts, frames, start, end marker), each kept without its samples (`pcm`, the encoder's
+  input, which nothing after B reads; since the fix round); `trip` is
   `steamRoundTrip`'s result, with BC-1's loss drawn per message before the decoder: each message's decoded packet
   (`pcm`, `blocks`, `silence`, `lost`, `skipped`), the stream's lookahead and version. After B, from these alone:
   `steamTimeline` (one resampler per render, never reset; the 12-frame refusal; the gain; the laying; the frame log;
   the network counts), `steamCodecInfo` (the sender's `info()`, called afresh for each render, its settings, the
   resampler's kernel and calls, the bitrate, `codecInfo.network` when loss was set or a message refused) and
-  re-timing. The resampler is made after B (`opts.swrKernel`), so its state is the render's own.
+  re-timing. The resampler is made after B (`swrKernel`), so its state is the render's own.
 - the frame path (`steam_48`, `celt_22`, `celt_44`, `speex`, `miles`): `{ samples, info, head, gateOn,
   sourceLength }`: the decoded samples after the decoder's filter (where a profile has one), `codecInfo` with
   `framesPerPacket`, and W3-19's `head` (the decoder's first `lookahead` samples, which the gain runs on before
@@ -137,52 +258,51 @@ alone, on `steam` and `celt_22`).
 
 ### The two lists, with the line of first use
 
-Line numbers are the head's `audio.js`; `process()` is lines 1869 to 2139, A is kept at 1938, B at 2017, and the part
-after B starts at 2021. "Read" is where `process()` first touches the option.
+Line numbers are the head's `audio.js`. Since the fix round every option is read once, at the call: `readOptions`
+(lines 1651 to 1694) reads each into a record of its own and converts it, and `process()` (1981 to 2242) uses what
+was read. "First used" is the line where a stage first uses the value. A is kept at 2049, B at 2124, and the part
+after B starts at 2128.
 
-`AFTER_B_OPTIONS` (read only after B):
+`AFTER_B_OPTIONS` (used only after B):
 
-| Option | First read | Where |
+| Option | First used | Where |
 | --- | --- | --- |
-| `agc` | 2022 | `const autoGain = opts.agc !== false` |
-| `avgGain` | 2023 | the gain's settings |
-| `maxGain` | 2024 | the gain's settings |
-| `voiceScale` | 2025 | the gain's settings |
-| `retime` | 2051 | re-timing (`steam`; 2061 and 2069 on the frame path) |
-| `room`, `underwater`, `listenerPos`, `dspRoom`, `customEnv` | 2113 | `resolveRoom(opts, …)` (moved here from the top) |
-| `volume` | 2127 | the output stage |
-| `deviceRate` | 2128 | the output stage (the output's length is computed here now) |
+| `agc`, `avgGain`, `maxGain`, `voiceScale` | 2142 | the gain on `steam`'s timeline (2171 and 2191 to 2202 on the frame path) |
+| `retime` | 2157 | re-timing (`steam`; 2167 and 2175 on the frame path) |
+| `room`, `underwater`, `listenerPos`, `dspRoom`, `customEnv` | 2219 | the mix (`createMixStage(…, room)`); the room is made at the call (`resolveRoom`, 1660), as on main |
+| `deviceRate` | 2232 | the output's length |
+| `volume` | 2233 | the output stage |
 
-`AFTER_A_OPTIONS` adds (read in the codec stage, after A):
+`AFTER_A_OPTIONS` adds (used in the codec stage, after A):
 
-| Option | First read | Where |
+| Option | First used | Where |
 | --- | --- | --- |
-| `bits` | 1946 | the bitrate |
-| `lossPct` | 1947 | the loss |
-| `jitterMs` | 1948 | the late frames |
-| `gate` | 1950 | `gateOn` (stage 4 on the frame path uses B's own `gateOn`, line 2094) |
-| `gateThresholdDb` | 1951 | the frame gate's threshold; `steamSenderOptions` at 1962 |
-| `seed` | 1952 | the loss draw (also the room's taps and re-timing, after B; in B's key) |
-| `frameMs` | 1953 | `framesPerPacket` |
-| `steamUptime` | 1962 | `steamSenderOptions(opts, …)` |
+| `seed` | 2058 | the loss draw (`rand`; also the sender, the message loss, the room's taps and re-timing: in B's key) |
+| `bits` | 2066 | the bitrate (`steam`; 2086 on the frame path) |
+| `gate`, `gateThresholdDb`, `steamUptime` | 2067 | `steamSenderOptions` (the frame gate at 2090; stage 4 on the frame path uses B's own `gateOn`, 2200) |
+| `lossPct` | 2073 | the message loss (`steamLoser`; 2092 on the frame path) |
+| `jitterMs`, `frameMs` | 2077 | the late frames' mask (2092 on the frame path) |
 
-Read at or before A (in both keys): `codec` (1876), `enableWarble` (1888), `received` (1889), `micGain` (1908),
-`captureChannel` (1909), `hp` (1923), `lp` (1924). Every name the order put on the lists is read where the list says;
-none had to move. `retime` is on "after B" and is read after B (2051). Not on any list, so in both keys when not a
-function: `swrKernel` (read at 2033, after B; left off: a test option, a missed reuse at most), and any option a later
-order adds. `onMove` is not read by `process()` (the live chain's), so it is on no list.
+Used at or before A (in both keys): `codec` (2000), `enableWarble` and `received` (2006), `captureChannel` (2021),
+`micGain` (2026), `hp` (2036), `lp` (2037). Every name the order put on the lists is first used where the list says;
+none had to move. Not on any list, so in both keys when not a function: `swrKernel` (first used at 2139, after B;
+left off: a test option, a missed reuse at most), and any option a later order adds.
 
-**Function-valued options** (amendment 1). The observers, `STAGE_OBSERVERS`: `onProgress` (1879, progress only),
-`onGain` (2105, after B), `onMixBlock` (2130, after B). Any other function makes the render keep and take nothing:
-`loseMessage` (read by `steamLoser`, line 1968, in the codec stage; it decides which messages are lost), `onDecoded` and
-`onResampled` (handed to the timeline at 2037; they watch the decoded packets). `stages`, `sourceKey` and `signal`
-are the keeping's own and in neither key.
+**Function-valued options** (amendment 1). The observers, `STAGE_OBSERVERS`: `onProgress` (1992, progress only),
+`onGain` (2211, after B), `onMixBlock` (2233, after B). An observer must never be handed an object a kept stage holds
+(the sentence at the list, the second reader's item 6): `onGain` gets the gain's output, a new array; `onMixBlock` a
+copy of each block. Any other function makes the render keep and take nothing: `loseMessage` (2073, in the codec
+stage; it decides which messages are lost), `onDecoded` and `onResampled` (2143; they watch the decoded packets).
+`stages`, `sourceKey` and `signal` are the keeping's own and in neither key.
 
 ### The keys
 
-`stageKeys` builds A's key from `opts.sourceKey`, the source's rate, length and channels, and every option not on
-`AFTER_A_OPTIONS`; B's from A's and every option on it but not on `AFTER_B_OPTIONS`. Each value goes through
-`keyText`: a type letter before each part; numbers as `String()` writes them (NaN, Infinity, -0 apart); strings
+`keysOf` builds A's key from `sourceKey`, the source's rate, length and channels, and every option not on
+`AFTER_A_OPTIONS`; B's from A's and every option on it but not on `AFTER_B_OPTIONS`. Since the fix round each option
+`process()` reads is in the keys as the stages use it (`readOptions`' `used`: the profile's name, the converted
+numbers, the gate on or off, the threshold or the profile's own, frames a packet, the 32-bit seed, a demo's voice
+given or not; the hooks, Steam's uptime and the resampler's kernel as given), and an option it does not read as it is
+given. Each value goes through `keyText`: a type letter before each part; numbers as `String()` writes them (NaN, Infinity, -0 apart); strings
 quoted; typed arrays by type and elements; arrays and plain objects by their own keys in order, so a hole, an
 `undefined` member and an absent one differ; `null` (no key: keep nothing) for a function, a symbol, a `DataView`, an
 instance of a class or a cycle. No `sourceKey`, no keeping. One A and one B are held; a render whose key differs lets
@@ -196,9 +316,10 @@ the held one go before it makes its own (it would replace it anyway), so the wor
   22,050 Hz that is 5.3 MB and a few milliseconds, against a codec stage of about half a second saved.
 - B's `codecInfo` is copied for each render made from it (`copyInfo`, arrays and typed arrays included): re-timing
   writes into its frame log and frame bytes, and a caller may write into what it is given. A few kilobytes.
-- `steam`: nothing to copy. The timeline reads the decoded packets and their blocks and writes into arrays of its
-  own (`Float32Array.from` of the resampler's output, which the gain writes into); the frame log is the timeline's
-  new array; `sender.info()` is made afresh for each render.
+- `steam`: nothing to copy after B. The timeline reads the decoded packets and their blocks and writes into arrays
+  of its own (`Float32Array.from` of the resampler's output, which the gain writes into); the frame log is the
+  timeline's new array; `sender.info()` is made afresh for each render. The messages are copied once, as B is kept,
+  without their samples.
 
 ### The page and the worker (item 8, amendment 5)
 
@@ -207,8 +328,9 @@ live take and demo speaker mounts a new one) and the channel the render captures
 first message to a worker that does not hold that id, it sends `{ type: 'source', sourceId, sampleRate, samples }`
 once; renders name the id and the worker passes its stages and the id as `opts.sourceKey`. A new source replaces the
 old one and its stages; a worker ended forgets it. With a demo the key (`settingsKey`) leaves out the sender's
-settings as W4-01a has it; a new speaker is a new source (the check shows the second source message). The batch is
-unchanged.
+settings as W4-01a has it; a new speaker is a new source (the check shows the second source message), and so is a
+stereo file switched to its other channel (checked since the fix round, the first reader's F2). The batch sends no
+source and keeps no stages.
 
 ## Step 3: the first seconds
 
@@ -282,6 +404,11 @@ gave 16706, 16266, 16121). After 605/653/634, 218/190/204, 387/393/383 (10 s); 3
 The order's stop-and-ask: "if the worker's memory with the stages kept, for a 9.8-minute source, is more than a tenth
 over today's peak, say the figure". **It is: +29%.**
 
+**The ruling.** "Ruled 2026-11-12 by the orchestrator: accepted for this order (the figures,
+docs/reports/W4-01b-speed.md); a way back, should long clips strain a browser, is to hand the stages to a new worker
+after a long render." The figures below are kept as measured at `c74d976`; the fix round's one change to what is held
+(`steam`'s B without the messages' samples, way 2's second half) is measured after them.
+
 Measured as the audit measured it: the resident memory of all the browser's processes (the test's Chromium, its
 process tree) over what they held with the page loaded and idle, sampled five times a second, while a fresh page
 renders a 588 s synthetic speech-like WAV (48 kHz, 16-bit, chosen as a file), then renders again with `voice_scale`
@@ -310,7 +437,7 @@ What it shows:
   past the codec stage.
 - So the order's estimate "B's is small for `steam`" does not hold: B is about the size of A for continuous sound.
 
-Ways back, each a decision (none was made here):
+Ways back, each a decision (the ruling took 4; the second reader's item 4 then took the second half of 2):
 
 1. For long sources, measure before sending the result, as before (no 113 MB copy; the meter's 0.27 s a minute comes
    back before the result for them).
@@ -324,9 +451,30 @@ Ways back, each a decision (none was made here):
 reaches the garbage a kept worker carries, which only 3 (or a GC the page cannot ask for) removes. The figures are
 one run each; the differences are far larger than the 25% the audit saw between runs of a render's time.
 
+**After the fix round** (`c635b4f`, the same harness, one run each):
+
+| Peak over the idle page, MB | first render | `voice_scale` 0.5 | Packets lost % 5 | 2 s after, idle |
+| --- | ---: | ---: | ---: | ---: |
+| this branch (`c635b4f`) | 1777 | 1857 | **2032** | 1391 |
+| diagnostic: the worker's garbage collected after each job | **1827** | 1644 | 1732 | 850 |
+
+The peak is 2032 MB, +28% over main's 1592 (2050 at `c74d976`). With the garbage collected, the branch holds 120 MB
+more than main at rest, against 231 MB at `c74d976`. The messages' samples are 28 MB of that drop (computed: 588 s at
+24,000 Hz, 2 bytes a sample, sound that is never gated); the figures are one run each, and the rest of the
+difference is not attributed.
+
 ## Checks
 
-Run on the head of the three code commits (`c74d976`), on this machine:
+After the fix round, on its code's head (`c635b4f`), on this machine, each under `flock /tmp/tf2ve-heavy.lock`:
+
+| Command | Last lines |
+| --- | --- |
+| `pnpm test` (19 min 13 s) | every suite passes; among them `553 render-stream checks passed, 0 failed` and `331 stages checks passed, 0 failed` |
+| `git diff 8035cfa -- tests/render-stream.verify.mjs` | empty |
+| `CHROMIUM_EXECUTABLE=… node tests/browser.verify.js` | `409 browser checks passed` |
+| CI, the `tests` workflow, run 43163376113 on `c635b4f` | success; `pnpm test:all` took 17 min 56 s of the job's 45-minute limit (`pnpm test` 14 min 26 s with the stages suite 2 min 57 s of it, the browser suite 3 min 29 s); `331 stages checks passed, 0 failed`, `409 browser checks passed` |
+
+At step 3, on the head of the three code commits (`c74d976`):
 
 | Command | Last lines |
 | --- | --- |
@@ -429,9 +577,8 @@ failing check's name read from its output. All 41 failed the check named; none w
 - The first seconds of a source whose earlier render was playing past 14 s start at 14 s (the position clamped to
   their length), as part a clamps a shorter render; the whole render then takes their place.
 - Firefox and Safari were not run (the MessageChannel turn and `AbortController` are standard in both).
-- CI's verification step now takes 23 min 36 s of the job's 30-minute limit (`tests/stages.verify.mjs` 3 min 41 s of
-  it, [Browser 10] about 1.5 min); about 6 minutes are left for the orders after this one. The workflow is not a file
-  this order may touch.
+- CI's verification step took 23 min 36 s at step 3 (`tests/stages.verify.mjs` 3 min 41 s of it, [Browser 10]
+  about 1.5 min); main has since raised the job's limit to 45 minutes. On the fix round's code head (`c635b4f`) it took 17 min 56 s.
 - The memory figures are one run each (above).
 - I scanned the branch's diff and commit messages for recordings, personal details, real SteamIDs and model names:
   none, beyond the attribution trailers the brief requires.

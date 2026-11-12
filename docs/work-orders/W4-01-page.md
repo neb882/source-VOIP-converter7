@@ -445,6 +445,8 @@ calls a function whose shape changed, `tests/stages.verify.mjs` (new), `tests/br
 - If a later stage writes into what A or B keeps and a copy would cost more than the reuse saves.
 - If the worker's memory with the stages kept, for a 9.8-minute source, is more than a tenth over today's
   peak (the audit measured 1.1 GB): say the figure.
+  - Ruled 2026-11-12 by the orchestrator: accepted for this order (the figures, docs/reports/W4-01b-speed.md); a
+    way back, should long clips strain a browser, is to hand the stages to a new worker after a long render.
 
 ## Not in this order
 

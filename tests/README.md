@@ -20,8 +20,11 @@ the one a change touches first. Several suites take `TF2_DIR=<folder>` to test a
 check is shown to fail when the code it covers is broken.
 
 On CI (GitHub's runner, main at `8035cfa`) `pnpm test:all` took 20 minutes; the runs of 2026-11-12 took 12 to 21, and the workflow's limit is 45 (it was 30 until one run was cut there with every check so far passed):
-`pnpm test` 17 min 16 s, the browser suite 2 min 42 s, the vendor check under a second. A commit is tested once,
-on its push; a push that changes nothing outside `docs/` runs nothing (`.github/workflows/test.yml`).
+`pnpm test` 17 min 16 s, the browser suite 2 min 42 s, the vendor check under a second. W4-01b adds
+`stages.verify.mjs` and the browser suite's checks of the kept worker: on its branch (`claude/w4-01b-speed` at
+`c635b4f`) `pnpm test:all` took 17 min 56 s, `pnpm test` 14 min 26 s with `stages.verify.mjs` 2 min 57 s of it, and
+the browser suite 3 min 29 s. A commit is tested once, on its push; a push that changes nothing outside `docs/` runs
+nothing (`.github/workflows/test.yml`).
 
 ## The suites
 
@@ -43,12 +46,13 @@ In the order `pnpm test` runs them. Times are CI's at `8035cfa`.
 | `video.verify.mjs` | The video remux on the fixtures in `tests/video/`: every picture sample comes out as it went in, and the new audio starts where the old did. | 1 s |
 | `demo.verify.mjs` | The demo reader on a synthetic SourceTV demo written bit by bit (`tests/demo/synthetic.dem`). | 2 s |
 | `render-stream.verify.mjs` | A render made a piece at a time (`createRender`) against the whole render (`process`), and `process`'s renders against hashes recorded before, so a change that moves a render shows. | 4 min 55 s |
+| `stages.verify.mjs` | The stages a render keeps (`opts.stages`, W4-01b) give the samples a render from the start gives. Every recorded render of `render-stream.verify.mjs` is made again from stages first used for other settings of the same source and gives its recorded hashes. Each option `process()` reads, changed alone with warm stages, gives a fresh render's hashes, starting from the stage the two lists in `audio.js` say. A render reads its options once, when it starts, and the keys hold each option as the stages use it: a change made while a render runs, or two values the engine reads differently, never gives a kept stage to the wrong render. The keys keep apart what JSON would make equal; options that decide or watch an early stage keep nothing; a stages object that cannot keep renders from the start; nothing kept is written to. And the first 14 s of a render of a source's first 15 s are the whole render's, for each profile and each setting the page allows them with. | 2 min 57 s (at `c635b4f`) |
 | `output-stage.verify.mjs` | The mixer and the output stage against the engine's read: the entry at 255/256, the upsampler, the clip, `volume`, the device's rate, the file's bytes; and the live chain equal to a render after its mix point. | 9 s |
 | `voice-channel.verify.mjs` | The receiver's voice channel (`voice-channel.js`, not in a render yet) against the rule read from the engine, and a replay of a console log in the game's format. | 14 s |
 | `steam-sender.verify.mjs` | Steam's sender against the orders' text and a second model written with plain arrays: the clock, the float hold, the gate, the pre-roll. | 13 s |
 | `swresample.verify.mjs` | The port of FFmpeg's resampler against hashes the native library made, on each of its kernels. | 5 s |
 | `room-dsp.verify.mjs` | The rooms as the engine does them, against a reference model's recorded outputs (`tests/roomdsp/`). | 13 s |
-| `browser.verify.js` (`pnpm test:browser`) | The page in Chromium: the journey from a file to a download, every view and control, the live monitor with a fake microphone, video, demos, the batch, the real-take check, the file-rate matrix, the service worker, keyboard and screen-reader use, and the phone layout. | 2 min 42 s |
+| `browser.verify.js` (`pnpm test:browser`) | The page in Chromium: the journey from a file to a download, every view and control, the live monitor with a fake microphone, video, demos, the batch, the real-take check, the file-rate matrix, the service worker, keyboard and screen-reader use, and the phone layout. Since W4-01b also the kept worker: one worker for the page's jobs, Cancel, a worker that does not answer replaced, the meter after the result, the source sent once, a re-render's speed and WAV, the first seconds of a long source, and the batch's own workers. | 2 min 42 s; 3 min 29 s at `c635b4f` |
 
 The two long suites, `verify.js` and `render-stream.verify.mjs`, take most of the time.
 

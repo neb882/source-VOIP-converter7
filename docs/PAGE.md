@@ -57,7 +57,35 @@ by itself; after the first render the player takes the focus, so Space plays.
 
 The line under the render says how long it took, the length and rate of the sound, the codec, and how many seconds
 the voice gate did not send. For a demo it gives the seconds with no voice packets, and for a recorded live session
-it says "Recorded live".
+it says "Recorded live". A render is in the player as soon as it is made; the meter's numbers for it follow a moment
+later.
+
+**What a render runs again.** The page renders in one worker, which it keeps for its renders, its downloads, the
+meter and the real take's jobs. It sends the worker the source once. Each render leaves two of its stages there for
+the next render of the same source: the capture signal at the codec's rate, and the codec's result (for Steam voice
+the sender's messages and their decoded packets; for the other codecs the decoded sound). A render after a changed
+setting starts from the last of them that the setting does not change:
+- `voice_scale`, `voice_avggain`, `voice_maxgain`, the gain switch, talk-spurt timing, `volume`, the room, under water
+  and the sound device: from the codec's result, in about a third of a first render's time (measured on the build
+  machine);
+- the voice gate and its threshold, how long the sender's Steam has run, `snd_bits`, loss, jitter and the packet
+  length: from the capture signal;
+- the codec, the codec switch, the capture channel, mic gain and the filters: from the start.
+
+The sound is the one a render from the start gives, sample for sample. A new source, or a demo's other speaker, starts
+from the start.
+
+**Cancel** stops a render at its next pause, within a moment, and the worker keeps what the render had finished for
+the next one. A render that has not stopped after half a second and 15 ms for each second of the source has its worker
+ended; the next render starts a new one and sends the source again.
+
+**The first seconds.** A source longer than 30 s first gets a render of its first 15 s, and the player can play its
+first 14 s while the rest renders; the line under the player says "The first 14 s; the rest is rendering…". The
+downloads, the views and the meter wait for the whole render, which then takes the player's place where playback
+had got to, playing or not. A render that stops before (cancelled, failed or replaced by a newer one) gives the player
+back what it held. The first seconds are made only where a test shows they are the whole render's, sample for
+sample: with no loss and no jitter, talk-spurt timing off, no room and not under water, a sound device at 44.1 or
+48 kHz, and not for a demo. They are not made when the render starts from the codec's result.
 
 ## Downloads
 
@@ -89,7 +117,9 @@ step 3.
 - Add files with the batch's own picker, by choosing several files in step 1, or by dropping files or whole folders
   anywhere on the page. A single file dropped outside the batch loads as the source. A video in the batch gives its
   voice as audio.
-- Two files render at a time where the machine has four or more cores and enough memory; otherwise one.
+- Two files render at a time where the machine has four or more cores and enough memory; otherwise one. The batch
+  renders and makes its files in workers of its own and keeps nothing between files, so it does not wait for the
+  page's render, nor the page's render for it.
 - Each row gives the render's length, integrated loudness and true peak, with buttons to preview, save and remove.
 - A changed setting marks the renders made before it as made with older settings, and **Render** redoes them. The
   tab's title shows the progress.
