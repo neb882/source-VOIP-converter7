@@ -205,6 +205,9 @@ The review found no blocker and five small points; each was probed by the review
    the check holds (no other suite names `audio.js` or `constants.js` in a quoted string) and what gets past it (a
    name built from parts, or a suite that runs `engineSource()` in a context of its own). The check was not widened.
 4. **CI's whole time.** `CLAUDE.md` and the README gave `pnpm test:all` as 12 to 22 minutes; the 22 was a run at
-   `ce55fa7`. Both, and `tests/README.md`, now give the range of this branch's own runs: CI_RANGE.
+   `ce55fa7`. Both now give 16 to 18 minutes, the range of this branch's three whole runs, each the job's time:
+   15 min 51 s (`dcadf87`) and 18 min 27 s (`131a319`, attempt 2), as the reviewer read them, and 18 min 3 s
+   (`7929116`, this fix round's code head, run 43196964293). `tests/README.md` gives per-run figures, not the range,
+   and needed no change. `CLAUDE.md`'s `pnpm test` range (8 to 14 minutes) holds: 13 min 32 s on `7929116`.
 5. **This report's status line** said five one-function loaders print the same output byte for byte; three do (`gain`,
    `miles`, `output-stage`), and `render-stream` and `stages` are the same once times are blanked. Corrected.
