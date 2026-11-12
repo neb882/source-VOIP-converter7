@@ -1038,6 +1038,8 @@ version up.
 
 ## The owner's recording (handed over as it is)
 
+*Run on 2026-11-10 (Set K). What is still open of it is in `docs/owner-runs.md`, with the owner's other runs (2026-11-12).*
+
 **What it is for.** Your Set C and Set D takes turned out to carry the game's room effect, and the app's new
 room code fits them (echo times and level). Set B has no room. These steps find out why, and then check the
 room code sample for sample, which the old takes cannot do. About 20 minutes. Nothing needs `sv_cheats`.

@@ -745,6 +745,8 @@ words would be "Steam keeps sending for 0.5 s after the release (read from Steam
 
 ### The run (for the owner; a real microphone path, Steam's console and the game's)
 
+*Also in `docs/owner-runs.md`, with the owner's other runs (2026-11-12).*
+
 What it must contain, so that the planner can specify the part against it:
 
 - **Steam's uptime, noted**: when Steam was last started, to the hour, and the PC's. If it is easy, the run

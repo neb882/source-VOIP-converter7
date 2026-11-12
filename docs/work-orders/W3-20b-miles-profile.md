@@ -414,6 +414,8 @@ each place by its text.
 
 ## One day: what a recording could settle (the owner's choice; optional; unverified)
 
+*Also in `docs/owner-runs.md`, with the owner's other runs (2026-11-12).*
+
 Nobody has run this. The variables below are registered in both engines with default 0 (read); what they
 do there was not run, and the file names are TF2's of today (W3-03's report), not read for these builds.
 

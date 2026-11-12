@@ -25,6 +25,8 @@ that is known to the sample. That one recording can settle all three.
 
 ## What is known about the recording
 
+*Run on 2026-11-10 (Set J). The re-check after a Steam update in `docs/owner-runs.md` is this run cut to one take (2026-11-12).*
+
 - `voice_decompressed.wav` holds **whole packets as decoded**, taken before the channel drops its one sample
   per packet (W3-03's report, "For the recording session", point 3). There is no drop to model.
 - At `voice_maxgain 1` the gain is **exactly unity** (`fixed` 128, `step` 0), from the first sample: the reset
