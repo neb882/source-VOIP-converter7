@@ -314,3 +314,17 @@ A Miles run in HL2DM's 32-bit game (steps given 2026-11-11): whether bin holds v
 ### done[25]
 
 W3-02c-1 (2026-11-12): voice-channel.js as read: the first pull, D on whole blocks, the zero (arrival 50.5 ms and the caller's codec delay as an option), the interpolator's blend and the fade as TF2's routines compute them, in 16-bit units. Report docs/reports/W3-02c1-channel-as-read.md. No cache change.
+
+## 2026-11-12 (appended at the merge of the documentation pass, stage 2)
+
+### open_questions (the weak takes), as it stood before the documents' review
+
+2026-11-12, from the accuracy run on all 18 takes with main's model: the two low-tone takes (Set F) are the weakest plain takes (lowtone_default -0.7 dB and 0.797; lowtone_maxgain_1 -2.2 dB, 0.584 and -15.5 dB at 11 to 12 kHz), and take1_default and listener_B are 2.7 and 3.2 dB high at 10 to 12 kHz. Whether the record already explains each (the low-tone and comfort-noise findings; the capture's roll-off) is to be checked when docs/ACCURACY.md is reviewed.
+
+### in_flight (the documentation and structure pass), as it stood while stage 2 was written
+
+Asked by the owner on 2026-11-12, who allowed the documents and the project's structure to be rewritten freely. Stage 1 is done: three read-only audits (the documents a reader meets; the orders, reports and this file; the code, tests, CI and how work is run). Applied at once: CI tests a commit once and skips pushes that touch only docs/ (34c36b8). Stage 2, writing now on two branches: claude/docs-w1-readme-findings (a new README, docs/FINDINGS.md, docs/ACCURACY.md, docs/VOICE-PATH.md) and claude/docs-w2-guides (docs/LIVE.md, docs/PAGE.md, tests/README.md, docs/README.md as the index of orders with a status line on each, docs/owner-runs.md, every existing document corrected, this file reshaped into a short file and docs/PROGRESS-LOG.md); a reader then checks every stated fact against the code. Stage 3, after W4-01b merges and before W3-02c-2: a test-harness order (verify.js loads the engine in its own realm, a runner in place of the && chain, parallel CI jobs, a check that derives the cache list, the cache number set only at the merge, one shared test loader), then audio.js split by stage into eight files with no recorded hash moved, with built orders moved to a done folder in the same order. Later: one staged renderer (decided after BC-4); exact live-against-render checks for the older codecs (alongside W3-02c-3).
+
+### live.main
+
+Until this merge the file named main's commit (`9e0abd0`). A file cannot name the commit it is part of, so it now points to `git log`.
