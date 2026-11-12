@@ -34,7 +34,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ENGINE_FILES, PART_DIR, PART_FILES, HANDED, TABLES, loadEngine, sourceRoot } from './lib/engine.cjs';
-import { siteFiles, stripComments } from './lib/site-files.cjs';
+import { siteFiles, stripComments, stripHtmlComments } from './lib/site-files.cjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = sourceRoot();
@@ -46,21 +46,25 @@ function check(name, ok, detail = '') {
   console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${name}${detail ? `   [${detail}]` : ''}`);
 }
 const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
-const quoted = (text) => [...text.matchAll(/'([^'\n]*)'/g)].map((m) => m[1]);
+// Strings in either quote.
+const strings = (text) => [...text.matchAll(/'([^'\n]*)'|"([^"\n]*)"/g)].map((m) => m[1] ?? m[2]);
 
 console.log('\n[1] The list of the engine\'s files is the page\'s and the workers\'');
 {
   // Every script tag that has a src, found loosely, must be one this check
   // reads (<script src="...">): a tag in another form fails here, named,
   // rather than being skipped.
-  const withSrc = [...read('index.html').matchAll(/<script\b[^>]*>/gi)].map((m) => m[0]).filter((t) => /\ssrc\s*=/i.test(t));
+  // Comments are taken out first, as tests/lib/site-files.cjs takes them out.
+  const page = stripHtmlComments(read('index.html'));
+  const code = (file) => stripComments(read(file));
+  const withSrc = [...page.matchAll(/<script\b[^>]*>/gi)].map((m) => m[0]).filter((t) => /\ssrc\s*=/i.test(t));
   const tags = withSrc.map((t) => (t.match(/^<script\s+src="([^"]+)"/) || [])[1]);
   const unread = withSrc.filter((t, i) => tags[i] === undefined);
   check('index.html\'s first script tags are the list, in order', unread.length === 0 && same(tags.slice(0, ENGINE_FILES.length), ENGINE_FILES),
     unread.length ? `script tags this check cannot read: ${unread.join(' ')}` : tags.slice(0, ENGINE_FILES.length).join(', '));
   const imports = (file) => {
-    const m = read(file).match(/importScripts\(([^)]*)\)/);
-    return m ? quoted(m[1]) : [];
+    const m = code(file).match(/importScripts\(([^)]*)\)/);
+    return m ? strings(m[1]) : [];
   };
   const live = imports('live-worker.js'), worker = imports('audio-worker.js');
   check('live-worker.js imports the list and nothing else, in order', same(live, ENGINE_FILES), live.join(', '));
@@ -70,15 +74,25 @@ console.log('\n[1] The list of the engine\'s files is the page\'s and the worker
     Object.keys(HANDED).join(', '));
   // An engine file named a second time, anywhere on the page or in any
   // importScripts call of a worker, would run again and replace its part:
-  // the checks above read only the head of each list.
-  const plain = (f) => f.replace(/^\.\//, '');
-  const twice = (list) => ENGINE_FILES.filter((f) => list.filter((x) => plain(x) === f).length > 1);
-  const everyImport = (file) => [...read(file).matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => quoted(m[1]));
-  for (const [file, list] of [['index.html', tags.filter(Boolean)], ['live-worker.js', everyImport('live-worker.js')],
+  // the checks above read only the head of each list. Each name is taken as
+  // the address a browser would ask for (the page and both workers are at
+  // the site's root), so ./engine/gain.js, /engine/gain.js, engine//gain.js
+  // and engine/gain.js?v=2 are engine/gain.js. An importScripts call whose
+  // arguments are not all plain strings is one this check cannot read.
+  const address = (name) => path.posix.normalize(decodeURIComponent(new URL(name, 'https://site.invalid/').pathname)).replace(/^\/+/, '');
+  const twice = (list) => ENGINE_FILES.filter((f) => list.filter((x) => address(x) === f).length > 1);
+  const pageSrcs = withSrc.map((t) => { const m = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i.exec(t); return m ? m[1] ?? m[2] ?? m[3] : ''; });
+  const everyImport = (file) => {
+    const calls = [...code(file).matchAll(/importScripts\s*\(([^)]*)\)/g)].map((m) => m[1]);
+    const unreadable = calls.filter((args) => args.replace(/'[^'\n]*'|"[^"\n]*"/g, '').replace(/[\s,]/g, '') !== '');
+    return { names: calls.flatMap(strings), unreadable };
+  };
+  for (const [file, { names, unreadable }] of [['index.html', { names: pageSrcs, unreadable: [] }], ['live-worker.js', everyImport('live-worker.js')],
     ['audio-worker.js', everyImport('audio-worker.js')]]) {
-    const again = twice(list);
-    check(`${file} names each engine file once`, list.length >= ENGINE_FILES.length && again.length === 0,
-      again.length ? `named more than once: ${again.join(', ')}` : `${list.length} names`);
+    const again = twice(names);
+    check(`${file} names each engine file once`, names.length >= ENGINE_FILES.length && again.length === 0 && unreadable.length === 0,
+      unreadable.length ? `importScripts calls this check cannot read: ${unreadable.join('; ')}`
+        : again.length ? `named more than once: ${again.join(', ')}` : `${names.length} names`);
   }
 }
 
@@ -247,21 +261,31 @@ console.log('\n[12] What a file takes from a part, an earlier file gives');
   let taken = 0;
   for (const file of [...PART_FILES, 'audio.js']) {
     const stripped = stripComments(read(file));
-    for (const m of stripped.matchAll(/\bconst\s*\{([^}]*)\}\s*=\s*E\s*\.\s*([A-Za-z_$][\w$]*)\s*;/g)) {
+    // Where each head this check read ends (its closing brace).
+    const headEnds = new Set();
+    for (const m of stripped.matchAll(/\bconst\s*\{([^{}]*)\}\s*=\s*E\s*\.\s*([A-Za-z_$][\w$]*)\s*;/g)) {
+      headEnds.add(m.index + m[0].indexOf('}'));
       const giver = m[2], from = PART_FILES.find((f) => partOf(f) === giver);
       const at = `${file}:${lineAt(stripped, m.index)}`;
       if (!from || ENGINE_FILES.indexOf(from) >= ENGINE_FILES.indexOf(file)) problems.push(`${at}: takes from E.${giver}, which no earlier engine file gives`);
       const part = loaded && loaded.parts && loaded.parts[giver];
-      // A head takes each name as it is (Appendix A of the order): a name
-      // given another name, { a: b }, is refused.
-      if (m[1].includes(':')) problems.push(`${at}: renames in its head (${m[1].replace(/\s+/g, ' ').trim()})`);
-      for (const name of m[1].split(',').map((x) => x.split(':')[0].trim()).filter(Boolean)) {
+      // A head takes each name as it is (Appendix A of the order): one that
+      // renames ({ a: b }), gives a default ({ a = 1 }) or nests is refused.
+      const items = m[1].split(',').map((x) => x.trim()).filter(Boolean);
+      const other = items.filter((x) => !/^[A-Za-z_$][\w$]*$/.test(x));
+      if (other.length) problems.push(`${at}: a head names something other than plain names (${other.join(', ')})`);
+      for (const name of items.filter((x) => !other.includes(x))) {
         taken++;
         if (!part || !Object.prototype.hasOwnProperty.call(part, name)) problems.push(`${at}: ${name} is not in E.${giver} of a loaded engine`);
       }
     }
+    // Fail closed: every pattern that takes from a part (} = E.<name>, or
+    // ] = E.<name>) must be a head read above.
+    for (const t of stripped.matchAll(/[}\]]\s*=\s*E\s*\.\s*[A-Za-z_$]/g)) {
+      if (!headEnds.has(t.index)) problems.push(`${file}:${lineAt(stripped, t.index)}: takes from a part in a form this check cannot read`);
+    }
   }
-  check('every const { ... } = E.<part>; in the engine files and audio.js names an earlier file\'s part, and each name is an own key of it, taken under that name',
+  check('every const { ... } = E.<part>; in the engine files and audio.js names an earlier file\'s part, and each name is an own key of it, taken under that name; no other form takes from a part',
     problems.length === 0, problems.join('; ') || `${taken} names taken`);
 }
 

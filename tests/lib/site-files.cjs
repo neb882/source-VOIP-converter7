@@ -202,6 +202,12 @@ function stripComments(text) {
   return out.join('');
 }
 
+// The text of an HTML file with its comments replaced by spaces (newlines
+// kept, so a line keeps its number).
+function stripHtmlComments(text) {
+  return text.replace(/<!--[\s\S]*?-->/g, (c) => c.replace(/[^\n]/g, ' '));
+}
+
 function siteFiles(root) {
   const problems = [], from = new Map(), online = [], queue = [], queued = new Set(), scannedAs = new Map();
   const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
@@ -239,7 +245,7 @@ function siteFiles(root) {
   from.set('index.html', '');
   const scanHtml = (file) => {
     const raw = read(file);
-    const html = raw.replace(/<!--[\s\S]*?-->/g, (c) => c.replace(/[^\n]/g, ' '));
+    const html = stripHtmlComments(raw);
     const tagRe = /<([a-zA-Z][a-zA-Z0-9-]*)\b((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
     let m;
     while ((m = tagRe.exec(html))) {
@@ -447,4 +453,4 @@ function swAssets(text) {
   return { entries, problems: rest ? [`sw.js: ASSETS holds something that is not a plain quoted string: ${rest.slice(0, 80)}`] : [] };
 }
 
-module.exports = { siteFiles, swAssets, stripComments, OPAQUE, ALLOWED, ONLINE_ONLY, LOADING_WORDS };
+module.exports = { siteFiles, swAssets, stripComments, stripHtmlComments, OPAQUE, ALLOWED, ONLINE_ONLY, LOADING_WORDS };
