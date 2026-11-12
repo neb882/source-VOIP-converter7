@@ -152,7 +152,9 @@ defaults.
 
 **The version and updates.** The footer shows "version N", N being the site's cache number. The site works offline
 once it has loaded. When a newer version takes over in the background, a line above step 1 says so; the page never
-reloads by itself, because a loaded file and its render live only in the page. Reload when you are ready.
+reloads by itself, because a loaded file and its render live only in the page. Reload when you are ready. Online, the
+page and its scripts are always checked with the server first, so a visit after an update gets the new version whole,
+even though GitHub Pages lets the browser keep its own copy of each file for ten minutes.
 
 ## The console
 
