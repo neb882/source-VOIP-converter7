@@ -2533,25 +2533,27 @@ async function verifyFirstVisitOffline(browser, base) {
 }
 
 // A returning visitor after an update, with every file sent max-age=600, as
-// GitHub Pages sends index.html (measured on the live site on 2026-11-12):
-// the browser's HTTP cache may then use its copy of a file for ten minutes
-// without asking, and the page's own memory cache may give a <script> the
-// copy an earlier load of the same tab had. The site is a copy of the page's
-// files in a temporary folder. A first visit, then a second the worker
-// controls; then the copy changes as a merge would: the file input's id
-// renamed in index.html and app/core.js, so neither works with the other's
-// old copy (app/source.js stops at load on a missing input), and
-// audio-worker.js, which a navigation does not load but the install stores.
-// The visitor navigates; the cache number then rises and the newer worker
-// takes over (the number is held until the serving worker's cache has been
-// read, so a check of sw.js the browser makes by itself cannot start the
-// newer worker first). The copy changes again and the visitor reloads; then
-// a load made offline, a third change, and a navigation back online. The
-// worker must ask the server past the browser's copies (cache: 'no-cache')
-// and keep what it served, hand the page copies that its memory cache must
-// ask about again (Cache-Control: no-cache), from the network and from its
-// cache, and the newer worker's install must store the new files, not the
-// browser's old copies (cache: 'reload').
+// GitHub Pages sends index.html (measured on the live site on 2026-11-12;
+// the other files inferred): the browser's HTTP cache may then use its copy
+// of a file for ten minutes without asking, and the page's own memory cache
+// may give a script or a module the copy an earlier load of the same tab
+// had. The site is a copy of the page's files in a temporary folder. A first
+// visit, then a second the worker controls, which also imports
+// opus-codec.mjs. Each change k then: the file input's id renamed in
+// index.html and app/core.js, so neither works with the other's old copy
+// (app/source.js stops at load on a missing input); opus-codec.mjs exports
+// __change = k; and audio-worker.js, which a navigation does not load but
+// the install stores, ends with the line // change k. Change 1 and a
+// navigation; change 2 and a reload, the same worker serving (the cache
+// number is held until then, so a check of sw.js the browser makes by
+// itself cannot start the newer worker first); the number then rises and
+// the newer worker takes over; change 3 and a reload; a load made offline,
+// change 4, and a navigation back online. The worker must ask the server
+// past the browser's copies (cache: 'no-cache') and keep what it served,
+// hand the page copies that its memory cache must ask about again
+// (Cache-Control: no-cache), from the network and from its cache, and the
+// newer worker's install must store the new files, not the browser's old
+// copies (cache: 'reload').
 async function verifyUpdateThroughHttpCache(browser) {
   console.log('\n[Browser 4c] An update reaches a returning visitor whole, past the browser\'s own copies (max-age=600)');
   const root = path.join(__dirname, '..');
@@ -2566,13 +2568,13 @@ async function verifyUpdateThroughHttpCache(browser) {
     if (text.split(from).length !== 2) throw new Error(`${file}: "${from}" is not there once`);
     fs.writeFileSync(path.join(tree, file), text.replace(from, to));
   };
-  // Change k: the input's id is file-k in index.html and app/core.js, and
-  // audio-worker.js ends with the line // change k.
   const worker = fs.readFileSync(path.join(tree, 'audio-worker.js'), 'utf8');
+  const codec = fs.readFileSync(path.join(tree, 'opus-codec.mjs'), 'utf8');
   let id = 'file';
   const change = (k) => {
     replace('index.html', `id="${id}"`, `id="file-${k}"`);
     replace('app/core.js', `getElementById('${id}')`, `getElementById('file-${k}')`);
+    fs.writeFileSync(path.join(tree, 'opus-codec.mjs'), `${codec}\nexport const __change = ${k};\n`);
     fs.writeFileSync(path.join(tree, 'audio-worker.js'), `${worker}\n// change ${k}\n`);
     id = `file-${k}`;
   };
@@ -2603,50 +2605,60 @@ async function verifyUpdateThroughHttpCache(browser) {
       return out;
     }, name);
     const said = (v) => v ? Object.entries(v).map(([f, k]) => `${f} ${k}`).join(', ') : 'no such cache';
-    // The page after change k: is the markup change k's, and did app/core.js find its input?
-    const pageAt = async (k) => {
-      const seen = await page.evaluate((k) => ({ page: document.getElementById(`file-${k}`) ? 'new' : 'old',
-        script: typeof els === 'undefined' ? 'not run' : els.file ? (els.file.id === `file-${k}` ? 'new' : 'old') : 'finds no input' }), k);
-      return { ok: seen.page === 'new' && seen.script === 'new' && errors.length === 0,
-        detail: `index.html ${seen.page}, app/core.js ${seen.script}${errors.length ? `; ${errors.join('; ')}` : ''}` };
+    // The page after change k: is the markup change k's, did app/core.js find
+    // its input, and (withModule) is the imported opus-codec.mjs change k's?
+    const pageAt = async (k, withModule = false) => {
+      const seen = await page.evaluate(async ({ k, withModule }) => ({ page: document.getElementById(`file-${k}`) ? 'new' : 'old',
+        script: typeof els === 'undefined' ? 'not run' : els.file ? (els.file.id === `file-${k}` ? 'new' : 'old') : 'finds no input',
+        module: withModule ? await import('./opus-codec.mjs').then((m) => (m.__change === k ? 'new' : 'old'), (e) => `error ${e.message}`) : 'new' }), { k, withModule });
+      return { ok: seen.page === 'new' && seen.script === 'new' && seen.module === 'new' && errors.length === 0,
+        detail: `index.html ${seen.page}, app/core.js ${seen.script}${withModule ? `, opus-codec.mjs ${seen.module}` : ''}${errors.length ? `; ${errors.join('; ')}` : ''}` };
     };
     await page.goto(`${base}/`, { waitUntil: 'networkidle' });
     await until(() => !!navigator.serviceWorker.controller, null, 'the first visit\'s worker');
     await page.goto(`${base}/`, { waitUntil: 'networkidle' });
     await until(() => !!navigator.serviceWorker.controller, null, 'a second visit the worker controls');
+    await page.evaluate(() => import('./opus-codec.mjs'));
     // A navigation after change 1.
     change(1);
     errors.length = 0;
     await page.goto(`${base}/`, { waitUntil: 'networkidle' });
-    const one = await pageAt(1);
+    const one = await pageAt(1, true);
     const kept = await versions(`tf2ve-v${number}`);
-    check(one.ok, 'navigating to the page after an update gives the new index.html with the new app/core.js, and no page error', one.detail);
+    check(one.ok, 'navigating to the page after an update gives the new index.html with the new app/core.js and the new opus-codec.mjs, and no page error', one.detail);
     check(!!kept && kept['./'] === 1 && kept['app/core.js'] === 1, 'the worker that served them keeps the new copies in its cache', said(kept));
+    // A reload after change 2, the same worker serving.
+    change(2);
+    errors.length = 0;
+    await page.reload({ waitUntil: 'networkidle' });
+    const two = await pageAt(2, true);
+    check(two.ok, 'a reload after a second update, the same worker serving, gives the new index.html with the new app/core.js and the new opus-codec.mjs, and no page error',
+      two.detail);
     replace('sw.js', `\${CACHE_PREFIX}v${number}\``, `\${CACHE_PREFIX}v${number + 1}\``);
     await page.evaluate(async () => { await (await navigator.serviceWorker.getRegistration()).update(); });
     await until(async (name) => (await caches.keys()).join() === name && navigator.serviceWorker.controller.state === 'activated',
       `tf2ve-v${number + 1}`, 'the newer worker');
     const stored = await versions(`tf2ve-v${number + 1}`);
-    check(!!stored && Object.values(stored).every((k) => k === 1),
+    check(!!stored && Object.values(stored).every((k) => k === 2),
       'once the newer worker has taken over, its cache holds the new index.html, app/core.js and audio-worker.js', said(stored));
-    // A reload after change 2.
-    change(2);
+    // A reload after change 3, the newer worker serving.
+    change(3);
     errors.length = 0;
     await page.reload({ waitUntil: 'networkidle' });
-    const two = await pageAt(2);
-    check(two.ok, 'a reload after a second update gives the new index.html with the new app/core.js, and no page error', two.detail);
-    // A load made offline; change 3; back online, a navigation.
+    const three = await pageAt(3);
+    check(three.ok, 'a reload after a third update, the newer worker serving, gives the new index.html with the new app/core.js, and no page error', three.detail);
+    // A load made offline; change 4; back online, a navigation.
     await context.setOffline(true);
     errors.length = 0;
     await page.goto(`${base}/`, { waitUntil: 'networkidle' });
-    const offline = await pageAt(2);
-    change(3);
+    const offline = await pageAt(3);
+    change(4);
     await context.setOffline(false);
     errors.length = 0;
     await page.goto(`${base}/`, { waitUntil: 'networkidle' });
-    const three = await pageAt(3);
-    check(offline.ok && three.ok, 'after a load made offline, a third update and a navigation back online give the new index.html with the new app/core.js, and no page error',
-      `offline: ${offline.detail}; online again: ${three.detail}`);
+    const four = await pageAt(4);
+    check(offline.ok && four.ok, 'after a load made offline, a fourth update and a navigation back online give the new index.html with the new app/core.js, and no page error',
+      `offline: ${offline.detail}; online again: ${four.detail}`);
   } finally {
     await context.setOffline(false).catch(() => {});
     await context.close();

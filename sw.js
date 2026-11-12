@@ -122,14 +122,22 @@ function cachePut(request, response) {
 
 // A copy of a response for the page that says Cache-Control: no-cache (the
 // network's or the cache's; the cache keeps the server's headers). Only a
-// whole same-origin response is copied; a navigation's, an opaque redirect,
-// an error, or one reached through a redirect (whose address the copy, with
-// no URL of its own, would lose) goes out as it is.
+// whole same-origin response with a body is copied; a navigation's, an opaque
+// redirect, an error, a 204 or 205 (no body), or one reached through a
+// redirect (whose address the copy, with no URL of its own, would lose; such
+// a script can still be reused from the tab's memory cache, and no file of
+// the site is reached through one) goes out as it is. If making the copy
+// throws, the response goes out as it is: nothing has read its body by then.
 function askAgain(request, response) {
-  if (request.mode === 'navigate' || !response || !response.ok || response.type !== 'basic' || response.redirected) return response;
-  const headers = new Headers(response.headers);
-  headers.set('Cache-Control', 'no-cache');
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  if (request.mode === 'navigate' || !response || !response.ok || response.type !== 'basic' || response.redirected ||
+      response.status === 204 || response.status === 205) return response;
+  try {
+    const headers = new Headers(response.headers);
+    headers.set('Cache-Control', 'no-cache');
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  } catch (err) {
+    return response;
+  }
 }
 
 self.addEventListener('fetch', (e) => {
