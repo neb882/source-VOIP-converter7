@@ -23,6 +23,7 @@ const ASSETS = [
   './vendor/swresample/swresample.js',
   './room-presets.js',
   './room-dsp.js',
+  './engine/dsp.js',
   './audio.js',
   './audio-worker.js',
   './opus-codec.mjs',

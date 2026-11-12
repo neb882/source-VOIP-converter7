@@ -11,7 +11,9 @@
  * renders name it, and the worker keeps their stages for the next. */
 'use strict';
 
-importScripts('constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'room-presets.js', 'room-dsp.js', 'audio.js', 'flac.js', 'formats.js', 'zip.js', 'meter.js', 'reference.js');
+importScripts('constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'room-presets.js', 'room-dsp.js',
+  'engine/dsp.js',
+  'audio.js', 'flac.js', 'formats.js', 'zip.js', 'meter.js', 'reference.js');
 
 // The job running now: { id, controller } (its AbortController).
 let running = null;

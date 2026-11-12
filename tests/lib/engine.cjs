@@ -40,7 +40,7 @@ const REPO = path.join(__dirname, '..', '..');
 // The page's order: index.html's first script tags, live-worker.js's
 // importScripts, and the head of audio-worker.js's.
 const ENGINE_FILES = ['constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'room-presets.js',
-  'room-dsp.js', 'audio.js'];
+  'room-dsp.js', 'engine/dsp.js', 'audio.js'];
 
 // The engine's own files, each one part of TF2Engine: the entries of
 // ENGINE_FILES in the folder PART_DIR, in load order. The folder is named here
