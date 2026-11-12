@@ -38,21 +38,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { loadEngine } from './lib/engine.cjs';
 
 const root = process.env.TF2_DIR ? pathToFileURL(path.resolve(process.env.TF2_DIR) + '/') : new URL('..', import.meta.url);
-const engineCode = ['constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'audio.js'].map(f => fs.readFileSync(new URL(f, root), 'utf8')).join('\n');
 const TF2Opus = await import(new URL('opus-codec.mjs', root).href);
 const requireHere = createRequire(import.meta.url);
 const roomModule = requireHere(fileURLToPath(new URL('room-dsp.js', root)));
 const roomTable = requireHere(fileURLToPath(new URL('room-presets.js', root)));
 
-// The engine as tests/render-stream.verify.mjs loads it: constants.js and
-// audio.js in one function of this realm, no timers, the codec module and
-// the room module injected.
-const window = {};
-const tables = new Function('window', 'TF2Opus', 'setTimeout', 'self', 'module', 'TF2Room', 'TF2_ROOM_PRESETS',
-  `${engineCode}\nreturn { CODEC_PROFILES, VOICE_ENGINE };`)(window, TF2Opus, undefined, undefined, undefined, roomModule, roomTable);
-const engine = { audio: window.TF2Audio, ...tables }, A = engine.audio;
+// The engine as tests/render-stream.verify.mjs loads it, from the tests' one
+// loader (tests/lib/engine.cjs): one function of this realm, no timers, the
+// codec module and the room module injected.
+const engine = loadEngine({ root, codec: TF2Opus, TF2Room: roomModule, TF2_ROOM_PRESETS: roomTable }), A = engine.audio;
 // render-stream's test-only profile, as it defines it (its cases use it).
 engine.CODEC_PROFILES.test_decoder_eq = { ...engine.CODEC_PROFILES.steam, displayName: 'test only: Steam with a decoder EQ',
   senderGate: { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 },

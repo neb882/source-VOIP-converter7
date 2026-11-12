@@ -16,21 +16,20 @@
 // its own that says why (W3-05 did, below).
 //
 // The engine is loaded as a plain function in this realm rather than in a vm
-// context as the older suites do: the same code gives the same samples (two
-// cases below are rendered both ways), and Math runs several times faster
-// outside a vm context. TF2_DIR points the suite at a copy of the sources.
-// Every signal is synthetic, made here.
+// context as the suites did before tests/lib/engine.cjs: the same code gives
+// the same samples (two cases below are rendered both ways), and Math runs
+// several times faster outside a vm context. TF2_DIR points the suite at a
+// copy of the sources. Every signal is synthetic, made here.
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+import { loadEngine, engineSource } from './lib/engine.cjs';
 
 const root = process.env.TF2_DIR ? pathToFileURL(path.resolve(process.env.TF2_DIR) + '/') : new URL('..', import.meta.url);
-const engineCode = ['constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'audio.js'].map(f => fs.readFileSync(new URL(f, root), 'utf8')).join('\n');
 const TF2Opus = await import(new URL('opus-codec.mjs', root).href);
 const printHashes = process.argv.includes('--hashes');
 // The room module and its table (W3-17c), loaded as Node loads them, outside
@@ -61,22 +60,20 @@ const room = { ...roomModule, createRoomPath(o) {
   return p;
 } };
 
-// constants.js and audio.js as the page's classic scripts see them, inside
-// one function: no timers (as in the vm suites, the codec loop's yields
-// resolve at once), the codec module injected, the tables returned. With
-// rooms false the room module is absent, as for a page that did not load it.
+// The engine's files as the page's classic scripts see them, inside one
+// function, from the tests' one loader (tests/lib/engine.cjs): no timers (the
+// codec loop's yields resolve at once), the codec module injected, the tables
+// returned, `room` handed in as TF2Room. With rooms false the room module is
+// absent, as for a page that did not load it.
 function engineInThisRealm(rooms = true) {
-  const window = {};
-  const tables = new Function('window', 'TF2Opus', 'setTimeout', 'self', 'module', 'TF2Room', 'TF2_ROOM_PRESETS',
-    `${engineCode}\nreturn { CODEC_PROFILES, VOICE_ENGINE, LISTENER_POSITIONS, DSP_PRESETS };`)(window, TF2Opus, undefined, undefined, undefined,
-    rooms ? room : undefined, rooms ? roomTable : undefined);
-  return { audio: window.TF2Audio, ...tables };
+  return loadEngine({ root, codec: TF2Opus, TF2Room: rooms ? room : null, TF2_ROOM_PRESETS: rooms ? roomTable : null });
 }
-// The way tests/verify.js and tests/reference.compare.mjs load it.
+// The same text in a vm context, the way the suites loaded it before the
+// loader (tests/verify.js until S3-01a).
 function engineInVm() {
   const sandbox = { window: {}, Blob, console, TF2Room: roomModule, TF2_ROOM_PRESETS: roomTable };
   vm.createContext(sandbox);
-  vm.runInContext(engineCode, sandbox);
+  vm.runInContext(engineSource(root), sandbox);
   sandbox.TF2Opus = TF2Opus;
   return { audio: sandbox.window.TF2Audio };
 }
@@ -839,7 +836,7 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
   check('the received voice past full scale peaks above 1', sources.get('demo voice as received, past full scale').some(v => Math.abs(v) > 1.1));
 }
 
-// The vm load the other suites use gives the same renders.
+// The vm load the suites used before tests/lib/engine.cjs gives the same renders.
 {
   const B = engineInVm().audio;
   for (const name of ['steam, 1 s pushed a sample at a time', 'celt_22, gate on, loss 15%, jitter 300 ms']) {

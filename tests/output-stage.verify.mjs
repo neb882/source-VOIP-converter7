@@ -13,17 +13,14 @@
 // stage's own output. Every signal is synthetic, made here. TF2_DIR points
 // the suite at a copy of the sources.
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { loadEngine } from './lib/engine.cjs';
 
 const root = process.env.TF2_DIR ? pathToFileURL(path.resolve(process.env.TF2_DIR) + '/') : new URL('..', import.meta.url);
-const engineCode = ['constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'audio.js'].map(f => fs.readFileSync(new URL(f, root), 'utf8')).join('\n');
 const TF2Opus = await import(new URL('opus-codec.mjs', root).href);
-const window = {};
-const tables = new Function('window', 'TF2Opus', 'setTimeout', 'self', 'module',
-  `${engineCode}\nreturn { CODEC_PROFILES, VOICE_ENGINE };`)(window, TF2Opus, undefined, undefined, undefined);
-const A = window.TF2Audio, ENGINE = tables.VOICE_ENGINE;
+const tables = loadEngine({ root, codec: TF2Opus });
+const A = tables.audio, ENGINE = tables.VOICE_ENGINE;
 
 let passed = 0, failed = 0;
 function check(name, ok, detail = '') {
