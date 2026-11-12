@@ -353,3 +353,57 @@ orchestrator's, in each brief), the order's status line, `docs/PROGRESS.json`, `
 
 `git diff 5eb232a...HEAD` and the branch's commit messages hold no recording, personal detail, real SteamID or
 model name; the only model name is in the commit trailers the brief gives.
+
+## After the review
+
+The review found no blocker and ten items, each small. The orchestrator answered the two questions: `sw.js` allowed
+by name in the request check is accepted as built; the scratch branch is left alone and no new one was made. Each
+break below was run in a copy of the fixed branch; "before" is the reviewer's run on `809abd1` (its logs in the
+review's scratch folder) where the reviewer showed one. The browser breaks ran one part of the suite in a loop, under
+the lock.
+
+| Item | What changed | The break, before and after |
+| --- | --- | --- |
+| 1. `[Browser 10]` had no upper limit | the worker must be ended no sooner than the bound and no later than the bound and 1,000 ms; the head comment says so | the page's timer at twice the bound: before, passed (`ended 2801 ms`); after, fails by name (`ended 2801 ms after the cancel`). At 1.5 times (2,100 ms) it passes, inside the limit. The unchanged page: 20 of 20 passed, each `ended 1401 ms` |
+| 2. a worker ended and not replaced failed by `renderNow`'s timeout | the render after the end is caught (`rendered`) and is part of the check's condition and detail | `pageWorker.worker` left set after `terminate`: before, `page.waitForFunction: Timeout 120000ms exceeded`; after, fails by name, `1 workers, 1 source messages ...; no render after it`. The reviewer's other two breaks of the page (the source not sent again; the job settled without the worker ended) fail by name too |
+| 3. the comment lexer read a regular expression after `)` as a division | every script's text, once its comments are taken out, must parse (a classic script with `vm.Script`, the modules in one child process with `vm.SourceTextModule`, nothing run); a file that does not is a problem naming it. And a `/` after the `)` of `if`, `while`, `for` or `with` starts a regular expression | `if (self) /\/\//.test('a') && fetch('x.json');` in `app/boot.js` (the reviewer's 18 and 18b): before, passed; after, fails, `app/boot.js:79: fetch: ...`. With the `)` case taken back out of a copy of the lexer, the parse rule alone fails it: `app/boot.js: does not parse as a script once its comments are taken out (Invalid regular expression: missing /)`. Every shipped script parses: the worktree passes |
+| 4. CSS `image-set("x.png" 1x)` | `image-set(` and `-webkit-image-set(` are problems | before, passed; after, `style.css:558: image-set(: a form this check does not read` |
+| 5. forms passed over | all eight closed, none fires on the worktree: `fetch` as a word (`w['fetch']`, `globalThis.fetch`); `['src']`, `['href']` (and `srcset`, `poster`) assignments; `Object.assign(` with `src` or `href` on its line; an assignment to `location`; `<meta http-equiv="refresh">`; an attribute written twice; `</script` not followed by `>`; a `src` or `href` with a query string or a fragment. `[Browser 4b]` keeps a tag's and a request's query string | the reviewer's 23 to 26 and 29 to 34 each passed before and each fails after, naming the file and line. `<script src="zip.js?v=2">`: the site check fails (`a query string or a fragment`), and `[Browser 4b]` fails (`tags the static reading missed: zip.js?v=2`), which passed before. Not closed, and said in `tests/README.md` in one sentence: a URL or property name built from parts or passed through code the check cannot read (`el['sr' + 'c']`, a helper of the page's own, `eval`) |
+| 6. the site suite's section on the runner and the workflow | the suites that are not `*.verify.*` files are named with their exact commands (`tests/verify.js`, `tests/vendor-opus.mjs --check`, `tests/gain-exact.mjs --synthetic`), and a `*.verify.*` suite has no arguments; the workflow has no `exclude` or `include` and its one runner line is `node tests/run.mjs ${{ matrix.group }}` | each passed before and fails after: `vendor` taken out of the table; `gain-exact` taken out; `--check` dropped; `--synthetic` dropped; a matrix `exclude`; a run step that names `units`. (`verify.js` taken out of the table fails as well.) |
+| 7. the runner | it compares real paths to know it was run as a program; a suite that exits 0 having printed a line that starts with `FAIL`, or nothing, is FAILED with that cause. No suite does either when it passes: a whole passing `pnpm test:all` log has no such line and no suite with no output | called through a symlink to the worktree: before, nothing run and exit 0; after, the suites run. A copy whose `vr12` suite also prints `  FAIL  ...` and whose `filerate` suite prints nothing: before, both `passed`, exit 0; after, `FAILED (FAIL lines, exit 0)` and `FAILED (no output, exit 0)`, exit 1 |
+| 8. the workflow's `concurrency` | `cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}`, with one comment line | seen only on `main` |
+| 9. `docs/PIPELINE.md` | step 5: only `verify` with success counts, and a run cancelled by a newer push leaves `verify` skipped, which is not a pass; its reason says 16 to 19 minutes. Step 6: after a red run on `main`, the next merge compares with the last commit of `main` whose run was green. "Long runs" and `tf-builder`'s lock bullet name the long suites (`render-stream`, `stages`, `steam`) as heavy jobs | documents |
+| 10. `CLAUDE.md` and `tests/cache-number.mjs` | the commands block no longer gives a time; the paragraph under it gives `pnpm test` whole as 14 min 36 s on a four-core machine shared with other agents, measured on 2026-11-12. An empty or all-zeros base: `the base is "...", which names no commit: there is no commit before this push to compare with` (exit 2), not the advice on `fetch-depth` | both messages shown |
+
+**The rules, before and after, as changed in this round** (the earlier ones are above):
+
+- `CLAUDE.md`, the commands block: "`pnpm test` # every suite but the browser's, about 15 minutes on four cores; a
+  failure does not stop the rest" became "... every suite but the browser's; a failure does not stop the rest", and
+  the paragraph under it gained "`pnpm test` whole took 14 min 36 s on a four-core machine shared with other agents
+  (measured on 2026-11-12)."
+- `docs/PIPELINE.md`, step 5: "... not only the builder's word; a failed job's log ends with the runner's table ..."
+  became "... not only the builder's word. Only `verify` with the conclusion success counts: a run cancelled by a
+  newer push leaves `verify` skipped, which is not a pass. A failed job's log ends with the runner's table ...". Its
+  reason: "One job took 16 to 18 minutes" became "16 to 19 minutes".
+- `docs/PIPELINE.md`, step 6: added "If the last run on `main` is red, compare instead with the last commit of `main`
+  whose run was green (`node tests/cache-number.mjs <that commit>`)", and to its reason "CI's step on `main` compares
+  only with the commit before the push, so a red run's missed rise would otherwise pass unseen."
+- `docs/PIPELINE.md`, "Long runs": "**Heavy jobs** (the browser suite, a codec build, `pnpm test` whole or with
+  `--jobs`)" became "(..., and the long suites `render-stream`, `stages` and `steam` alone)"; its figure "about 15
+  minutes on four cores" became "14 min 36 s on a four-core machine shared with other agents (measured
+  2026-11-12)".
+- `.claude/agents/tf-builder.md`, step 4: "Run `pnpm test`, the browser suite and any codec build as ..." became "Run
+  `pnpm test`, the browser suite, the long suites (`render-stream`, `stages`, `steam`) and any codec build as ...".
+
+Each adds to a rule; none takes anything away.
+
+**Not changed:** the request check of `[Browser 4b]` still does not see a request made only on a path the first
+visit and the offline render do not walk: `fetch('LICENSE')` put in `live-worker.js` passes it (as on `809abd1`),
+since the live monitor is not started there; the site check fails it.
+
+**Checks after the fixes.** `pnpm test:all` under the lock on the fixed code (`b46340f`): all 25 suites passed, the
+browser suite last with 411 checks, exit 0; 1,114.9 s (18 min 35 s), load 1.3 at the start. `node tests/site.verify.mjs`
+on the worktree passes. CI on `b46340f` (run 43220056967, the push's run): all six jobs passed; `units` 1 min 50 s,
+`engine` 1 min 33 s, `render` 4 min 3 s, `stages` 3 min 28 s, `browser` 4 min 39 s, `verify` 2 s; wall 4 min 49 s.
+`git fetch origin && git merge origin/main`: already up to date (`main` is `5eb232a`). `node tests/cache-number.mjs
+origin/main --report`: `no cached file changed; the number stays v36`.
