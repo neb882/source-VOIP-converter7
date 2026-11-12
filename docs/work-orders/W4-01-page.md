@@ -13,9 +13,9 @@ order: every golden hash stays as it is.*
 
 | Part | What | Files it touches | Starts after | Budget |
 | --- | --- | --- | --- | --- |
-| **W4-01a** | the journey: a file renders by itself, the result comes into view, a changed setting is rendered or marked, presets show what was changed, settings are remembered, the first screen, the version line | `index.html`, `style.css`, `app/`, `sw.js`, `README.md`, the browser suite | **W3-10 merged.** Beside W3-17c. **Before W3-17d** | 1.5 days |
-| **W4-01c** | keyboard, the microphone's refusal, the phone, what a screen reader is given | `index.html`, `style.css`, `app/source.js`, `app/console.js`, `live.js`, the browser suite | W4-01a (same builder, same files). **Before W3-17d** | half a day |
-| **W4-01d** | the settings' words: one sentence of help under every control, and the labels the audit found untrue or unclear | `index.html`, `style.css`, `app/console.js`, `README.md`, the browser suite | **W3-17d merged** (it rebuilds the panel these words sit in) | half a day |
+| **W4-01a** (built and merged, `b9579a4`, cache v34) | the journey: a file renders by itself, the result comes into view, a changed setting is rendered or marked, presets show what was changed, settings are remembered, the first screen, the version line | `index.html`, `style.css`, `app/`, `sw.js`, `README.md`, the browser suite | **W3-10 merged.** Beside W3-17c. **Before W3-17d** | 1.5 days |
+| **W4-01c** (built and merged, `b9579a4`, cache v34) | keyboard, the microphone's refusal, the phone, what a screen reader is given | `index.html`, `style.css`, `app/source.js`, `app/console.js`, `live.js`, the browser suite | W4-01a (same builder, same files). **Before W3-17d** | half a day |
+| **W4-01d** (built and merged, `b952114`, cache v31) | the settings' words: one sentence of help under every control, and the labels the audit found untrue or unclear | `index.html`, `style.css`, `app/console.js`, `README.md`, the browser suite | **W3-17d merged** (it rebuilds the panel these words sit in) | half a day |
 | **W4-01b** | speed with the same samples: the worker kept and not made to wait, the result sent before the meter, the stages before a changed setting reused; then, if the owner wants it, the first seconds playable while the rest renders | `audio.js`, `audio-worker.js`, `app/render.js`, `app/core.js`, `sw.js`, tests | **W3-17c and W3-17d merged**, no other `audio.js` order open. **Before W3-02c** | 2 days (step 3: half a day more) |
 
 **Kind:** code. `tf-builder` (effort high for a, c and d; xhigh for b), then `tf-reviewer`. Part b's diff also
@@ -84,11 +84,11 @@ From the audit, in the order of what it costs a user:
 3. **Settings are remembered between visits** (in the browser's own storage, nowhere else), and the page
    always shows what differs from the defaults, with one press to return. A share link's settings win over
    remembered ones.
-4. **`volume` stays 0.5.** Part d says under the control whose choice that is. Moving it is the owner's:
+4. *Overruled 2026-11-10 (the owner's answers, below); `volume`'s default is 1 since W3-10.* **`volume` stays 0.5.** Part d says under the control whose choice that is. Moving it is the owner's:
    the takes behind the model were made at 0.15.
 5. **The order of the page's steps stays** (source, sound, render, batch). The audit's trouble with the
    first screen is met by the result coming into view, not by moving the panels.
-6. **Part b's step 3 (the first seconds) is built only if the owner's clips are often longer than a
+6. *Overruled 2026-11-10 (the owner's answers, below).* **Part b's step 3 (the first seconds) is built only if the owner's clips are often longer than a
    minute.** Until the owner says so it is not started.
 
 ## The owner's answers (2026-11-10): these overrule Decisions 4 and 6
@@ -388,7 +388,7 @@ The rule of this part: **no golden hash moves and no hash is re-recorded.** `tes
 9. **The receiver's orders keep the two places.** A note in `audio.js` at each: what is kept there and that
    an option read before it must not be on the list after it.
 
-**Step 3: the first seconds (speed-up 2). Not started until the owner asks (Decision 6).**
+**Step 3: the first seconds (speed-up 2). Part of W4-01b, which is being built (the owner's answer of 2026-11-10).**
 
 10. For a source longer than 30 s whose settings allow it, the worker first renders the source's first 15 s
     and posts it; the page gives it to the player, marked "the first 14 s; the rest is rendering", and the
@@ -460,7 +460,7 @@ calls a function whose shape changed, `tests/stages.verify.mjs` (new), `tests/br
 - A light theme, a redesign of the panels, any new feature. Nothing here sends anything anywhere: the
   remembered settings are in the browser's own storage, as the download format already is.
 - The simulated game feed in the console and its list of names (the audit, finding 12): the owner's call.
-- Moving `volume`'s default (Decision 4).
+- ~~Moving `volume`'s default (Decision 4).~~ W3-10 did it.
 
 ## Open
 

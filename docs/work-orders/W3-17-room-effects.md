@@ -13,7 +13,7 @@ the same day after the plan's review (4 must-fix, 14 should-fix; all answered be
 of the amplifier and the modulating delay, `docs/reports/W3-17-amp-mdy-second-read.md`, which corrects the
 first: the water preset's amplifier does not swing. Below, "R2 a" to "R2 f" are the second read's sections,
 "R1 1" to "R1 6" the first's, and "AM 0" to "AM 5" those of the amplifier's read. **Amended once more after
-`docs/reports/W3-18-rooms-in-the-takes.md` ("RT" below): two of the owner's existing sets carry the room.
+`docs/reports/W3-15b-rooms-in-the-takes.md` ("RT" below): two of the owner's existing sets carry the room.
 Part a was already being built and is unchanged: its arithmetic, files and checks stand as written. The
 amendment touches Decision 1, part b's cases, parts c and d, the owner's procedure and "What moves".***
 *Brought up to date 2026-11-10 for the new order of work (`docs/PROGRESS.json`, decisions;

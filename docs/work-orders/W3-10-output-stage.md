@@ -36,7 +36,7 @@ device**. The evidence is in the recordings: flat tops stay exactly on the ceili
 The fitted filter agrees with it within 0.1 dB up to 13 kHz, is 1.1 dB too bright at 18 kHz, and has no images.
 
 The voice's level into the mix is measured too: Set B's clipped 1 kHz plateaus sit at 4895 to 4896 of a ceiling
-of 4915, where the engine's 255/256 predicts 4895.85 (`docs/reports/W3-18-rooms-in-the-takes.md`, 1.5). The app
+of 4915, where the engine's 255/256 predicts 4895.85 (`docs/reports/W3-15b-rooms-in-the-takes.md`, 1.5). The app
 enters the voice at full level, so its plateaus sit on the ceiling itself.
 
 **What stands in `audio.js` today** (stages 5 and 6 of `process()`, the same in `createRender`; in the live
