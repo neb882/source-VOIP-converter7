@@ -294,8 +294,9 @@ failure; a to c from `622673c`'s worker, d to h and j from this round's, i `4b63
 | this round's worker, three runs | passes | passes | passes | passes | passes |
 
 Every line fails for at least one variant; f now fails (line 3), and j fails line 5 alone. The reload line passes on
-i: after the first navigation and the takeover, the tab's copies are the newer worker's and the reload asks for every
-script (the reviewer's warm reload, on the other hand, fails on i, above).
+i: in the check a takeover comes between the navigation and the reload, and after a takeover the tab asked the worker
+for every script again (as in the first-update measurement above); the reviewer's warm reload, with no takeover
+between, fails on i (above). Why a takeover has that effect was not looked into.
 
 ### S-2 and S-3: harness checks [1] and [12]
 
