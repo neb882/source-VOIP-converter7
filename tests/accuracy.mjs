@@ -38,6 +38,7 @@ import { chromium } from 'playwright';
 
 const require = createRequire(import.meta.url);
 const { createStaticServer } = require('./static-server.js');
+const { PART_FILES } = require('./lib/engine.cjs');
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
 function args() {
@@ -314,8 +315,9 @@ async function openApp() {
 const PREDICTIONS = path.join(root, 'tests/predictions');
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 // The model files a prediction depends on, so a later run can tell whether
-// the model has changed since.
-const MODEL_FILES = ['audio.js', 'constants.js', 'opus-codec.mjs', 'reference.js', 'vendor/libopus-1.1/libopus-1.1.5.wasm.mjs',
+// the model has changed since: the engine's own files (tests/lib/engine.cjs,
+// PART_FILES), then the others.
+const MODEL_FILES = [...PART_FILES, 'audio.js', 'constants.js', 'opus-codec.mjs', 'reference.js', 'vendor/libopus-1.1/libopus-1.1.5.wasm.mjs',
   'vendor/celt-0.11/celt-0.11.wasm.mjs', 'vendor/libopus/generated/libopus.generated.mjs', 'steam-sender.js', 'vendor/swresample/swresample.js'];
 
 async function writePredictions() {
