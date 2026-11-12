@@ -68,9 +68,10 @@ Read from the owner's copy of the game's `vaudio_miles.dll` and checked by runni
   and 2007 engines never call it without data, so a lost packet gets no decoder call at all (read). The module offers
   no lost-frame path.
 
-The wrappers of the 2006 and 2007 engines with their plug-in (Miles 6.6a, 2004) give the vectors' packets and samples
-exactly on the eight signals, and that plug-in equals TF2's (Miles 9.3a, 2012) on every codec frame and sample
-(measured). So the vectors stand for the wrappers and plug-ins of 2006, 2008 and 2024 alike.
+The wrappers of the 2006 and 2007 engines (built 2006-05-22 and 2008-07-11) with their plug-in (Miles 6.6a, 2004)
+give the vectors' packets and samples exactly on the eight signals, and that plug-in equals TF2's (Miles 9.3a, 2012)
+on every codec frame and sample (measured). So the vectors stand for those two wrappers and for TF2's own (built
+2024-01-17) alike, the dates being the files' build dates.
 
 ## Build and tests
 

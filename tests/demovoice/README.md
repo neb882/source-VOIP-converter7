@@ -17,7 +17,7 @@ The app reads demos itself ([`demo.js`](../../demo.js)): load a `.dem` in step 1
 This needs Node 22 and the repository's `pnpm install`.
 
 ```sh
-node tests/demovoice/extract.mjs voicetest.dem
+node tests/demovoice/extract.mjs voicetest.dem     # or: pnpm demo:extract voicetest.dem
 ```
 
 It prints the demo's header and, for each speaker:
@@ -30,7 +30,7 @@ It prints the demo's header and, for each speaker:
 It writes, per speaker, into `tests/demovoice/out/` (wherever the demo is; `--out <folder>` chooses another folder) and prints the folder:
 - `<demo>.<speaker>.wav`: 16-bit at the codec's rate (24 kHz for Steam), each talk spurt at its demo tick
 - `<demo>.<speaker>.packets.tsv`: every packet with its tick, kind (`opus`, `end`, `silence`, `celt`), sequence number and size
-- `<demo>.<speaker>.frames.tsv`: the decoded frame log, one row per frame: its start, its code (0 nothing sent, 1 SILK, 2 hybrid, 3 CELT, 4 DTX, 5 lost and concealed) and its size
+- `<demo>.<speaker>.frames.tsv`: the decoded frame log, one row per frame: its start, its code (0 nothing sent, 1 SILK, 2 hybrid, 3 CELT, 4 DTX, 5 lost and concealed) and its size. These are the app's frame codes (`FRAME` in `opus-codec.mjs`), which also have 6 late, 7 Speex and 8 VR12; a demo's voice, Steam's or CELT's, gives none of those three
 
 Lost frames are concealed, DTX frames give comfort noise, and each end-of-transmission marker resets the decoder, as Steam's receiver does. When the packet carrying a marker was lost, the next spurt shows as a sequence number going backwards; if its tick is more than four frames after the write position, it starts a new spurt at its tick with a fresh decoder (`demo.js` explains the rule).
 

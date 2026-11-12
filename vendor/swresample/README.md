@@ -37,8 +37,8 @@ rs.reset();                              // a new stream: a new speaker, or a vo
   16 samples stay in the stream, so everything after the first packet is 16 input samples (0.67 ms) late.
 - `KERNELS` is `['fma3', 'avx', 'sse', 'c']`, `DEFAULT_KERNEL` is `'fma3'`. On x86 the library picks an assembly loop
   by the processor's features, and the four sum the 32 products in different orders, so they differ in the last bit
-  of a few samples in ten thousand at full scale. Which one Steam runs on a given PC is not known: the default is what
-  a current x86-64 processor picks (not confirmed on Steam; see `docs/work-orders/W3-14-steam-file-input.md`).
+  of a few samples in ten thousand at full scale. On the owner's PC Steam runs the `fma3` kernel (measured, Set J;
+  `tests/REFERENCE_2026.md`, finding 29). What it runs on another processor was not measured.
 - The filter bank (147 phases of 32 float taps) is stored in the script as base64, not computed in the page, so the
   output does not depend on the browser's `Math.sin`. `tests/swresample/bank.mjs` computes it the library's way.
 

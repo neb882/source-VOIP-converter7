@@ -1,6 +1,6 @@
 # libopus 1.1.5 (WebAssembly)
 
-This folder holds the codec for the Steam profile. Steam's own voice packets match libopus 1.1.x: frame sizes, DTX decisions, and decoded spectrum and comfort noise (see `tests/REFERENCE_2026.md`, finding 16). The other profiles keep libopus 1.6.1 from `../libopus`.
+This folder holds the codec for the Steam profile. Steam's own voice packets match libopus 1.1.x: frame sizes, DTX decisions, and decoded spectrum and comfort noise (see `tests/REFERENCE_2026.md`, finding 16). Both Steam profiles run it (`steam`, and `steam_48`, which is not in TF2). libopus 1.6.1 in `../libopus` is used for a video's audio track and as `roundTrip`'s default, not by any voice profile.
 
 - `libopus-1.1.5.wasm.mjs`: the module, base64 encoded. It contains:
   - libopus 1.1.5 at commit `d3977edab4cbfeafd3650b572c78711e0b04a5f8`, float build without SIMD
