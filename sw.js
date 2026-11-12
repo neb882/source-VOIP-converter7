@@ -24,6 +24,7 @@ const ASSETS = [
   './room-presets.js',
   './room-dsp.js',
   './engine/dsp.js',
+  './engine/gain.js',
   './audio.js',
   './audio-worker.js',
   './opus-codec.mjs',
