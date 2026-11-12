@@ -20,8 +20,12 @@
 //   3. the keys: an option the engine does not know, a changed sourceKey,
 //      function-valued options (loseMessage decides, onDecoded and
 //      onResampled watch an early stage: nothing is kept or taken; the
-//      observers keep the reuse), values JSON would make equal, a caller
-//      writing into what it was given, a render stopped part way;
+//      observers keep the reuse), values JSON would make equal, options
+//      changed while the render runs (read once, at the call), values the
+//      engine reads differently that look alike (the keys hold each option
+//      as the stages use it), a stages object that cannot keep, a caller
+//      writing into what it was given, what `steam`'s B holds, a render
+//      stopped part way;
 //   4. W4-01b's step 3: the first 14 s of a render of a source's first 15 s
 //      are the first 14 s of the render of the whole source, sample for
 //      sample, for each profile on three seeded clips and for each setting
@@ -165,7 +169,11 @@ const ENGINE_OPTION_CASES = [
 const EXTRA_OPTION_CASES = [];
 // Where a render with `change` should start from, by the lists: B when every
 // option changed is read only after B, A when only after A, else neither.
-const { afterA, afterB } = A.STAGE_OPTIONS;
+const { afterA, afterB, read, observers } = A.STAGE_OPTIONS;
+// The names process() reads that no case of section 2 changes: the codec
+// stage's hooks (section 3: each keeps and takes nothing), the observers
+// and the keeping's own controls.
+const HOOKS = ['loseMessage', 'onDecoded', 'onResampled'], CONTROLS = ['stages', 'sourceKey', 'signal'];
 const startsFrom = (base, change) => {
   const changed = Object.keys(change).filter((k) => !Object.is(change[k], base[k]));
   const coded = (change.enableWarble ?? base.enableWarble) !== false && !(change.received ?? base.received);
@@ -174,10 +182,12 @@ const startsFrom = (base, change) => {
 };
 
 console.log('\n[2] Each option process() reads, changed alone, rendered with warm stages, against a fresh render');
-check('every option the page sends has a changed value here, and every name the lists hold is one the page sends or the engine\'s own',
+check('every option the page sends has a changed value here, and every name the lists hold, and every name process() reads, is one the page sends, the engine\'s own, a hook, an observer or a control',
   RENDER_OPTION_NAMES.every((k) => CHANGES[k] && Object.hasOwn(PAGE_DEFAULTS, k)) && Object.keys(CHANGES).length === RENDER_OPTION_NAMES.length
-  && afterA.every((k) => RENDER_OPTION_NAMES.includes(k) || ENGINE_OPTION_NAMES.includes(k)),
-  `${RENDER_OPTION_NAMES.length} names; after A: ${afterA.length}, after B: ${afterB.length}`);
+  && afterA.every((k) => RENDER_OPTION_NAMES.includes(k) || ENGINE_OPTION_NAMES.includes(k))
+  && read.every((k) => [...RENDER_OPTION_NAMES, ...ENGINE_OPTION_NAMES, ...HOOKS, ...observers, ...CONTROLS].includes(k))
+  && [...RENDER_OPTION_NAMES, ...ENGINE_OPTION_NAMES, ...HOOKS, ...observers, ...CONTROLS].every((k) => read.includes(k)),
+  `${RENDER_OPTION_NAMES.length} names; after A: ${afterA.length}, after B: ${afterB.length}; read: ${read.length}`);
 {
   const t2 = performance.now();
   // A stereo source, so that the capture channel matters: speech-like talk
@@ -189,17 +199,22 @@ check('every option the page sends has a changed value here, and every name the 
     const base = baseCodec === 'steam' ? { ...PAGE_DEFAULTS } : { ...CELT_BASE };
     for (const name of RENDER_OPTION_NAMES) {
       for (const change of CHANGES[name]) {
-        const c = name === 'codec' && baseCodec !== 'steam' ? { codec: 'steam' } : change;
+        // On celt_22 the codec and the gate change to what the base is not
+        // (celt_22 has no sender gate: gate false is its own setting).
+        const c = name === 'codec' && baseCodec !== 'steam' ? { codec: 'steam' }
+          : name === 'gate' && baseCodec !== 'steam' ? { gate: true } : change;
         cases.push([`${baseCodec}: ${JSON.stringify(c)}`, base, c]);
       }
     }
   }
   const all = [...cases, ...ENGINE_OPTION_CASES, ...EXTRA_OPTION_CASES];
   // Each name process() reads (the page's, the engine's own, and every name
-  // on the two lists) is the one option changed in at least one case.
+  // on the two lists; not the hooks, observers and controls) is the one
+  // option changed in at least one case.
   const alone = new Set(all.map(([, base, change]) => Object.keys(change).filter((k) => !Object.is(change[k], base[k])))
     .filter((names) => names.length === 1).map(([k]) => k));
-  const names = [...new Set([...RENDER_OPTION_NAMES, ...ENGINE_OPTION_NAMES, ...afterA])];
+  const names = [...new Set([...RENDER_OPTION_NAMES, ...ENGINE_OPTION_NAMES, ...afterA,
+    ...read.filter((k) => ![...HOOKS, ...observers, ...CONTROLS].includes(k))])];
   check('each option process() reads, and each name on the two lists, is changed alone in a case below',
     names.every((k) => alone.has(k)), `missing: ${names.filter((k) => !alone.has(k)).join(', ') || 'none'}`);
   for (const [name, base, change, own] of all) {
@@ -307,8 +322,89 @@ console.log('\n[3] The keys');
       [instance, cycle, Symbol('s'), new DataView(new ArrayBuffer(2)), { f: () => 0 }].every((v) => A.stageKeys(source, { sourceKey: 's', thing: v }) === null));
     const stages = await warmed();
     const r = await A.process(source, { ...base, gateThresholdDb: NaN, stages, sourceKey: 'k' });
-    check('NaN where the page sends undefined (gateThresholdDb, read in the codec stage) is another B key: A is taken, B is not, and the render is the same',
-      taken(stages).a === 1 && taken(stages).b === 0 && await hashes(r) === await fresh(base), counts(stages));
+    check('NaN where the page sends undefined (gateThresholdDb, used in the codec stage) is read as undefined is, the profile\'s own: B is taken, and the render is the same',
+      taken(stages).b === 1 && await hashes(r) === await fresh(base), counts(stages));
+  }
+  // The options are read once, at the call (the second reader's finding
+  // 1): a change to the object while the render runs reaches neither the
+  // render nor what it keeps.
+  {
+    const celt = { codec: 'celt_22', micGain: 1 }, loud = { ...base, lossPct: 60 };
+    const callCelt = await fresh(celt), changedCelt = await fresh({ ...celt, bits: 4 });
+    const callSteam = await fresh(base), changedSteam = await fresh(loud);
+    for (const withStages of [true, false]) {
+      const stages = {}, keep = withStages ? { stages, sourceKey: 'live' } : {}, how = withStages ? 'with stages' : 'without stages';
+      const opts = { ...celt, ...keep };
+      const p = A.process(source, opts);
+      opts.bits = 4;
+      const got = await hashes(await p);
+      const next = withStages ? await hashes(await A.process(source, { ...celt, ...keep })) : callCelt;
+      check(`celt_22, ${how}: bits set to 4 on the line after the call; the render is the call's${withStages ? ', and so is the next, from B' : ''}`,
+        got === callCelt && next === callCelt && callCelt !== changedCelt && (!withStages || taken(stages).b === 1), withStages ? counts(stages) : '');
+      const s2 = {}, keep2 = withStages ? { stages: s2, sourceKey: 'live' } : {};
+      const live = { ...base, ...keep2 };
+      let set = false;
+      live.onProgress = (f) => { if (!set && f >= 0.05) { set = true; live.lossPct = 60; } };
+      const steamGot = await hashes(await A.process(source, live));
+      const steamNext = withStages ? await hashes(await A.process(source, { ...base, ...keep2 })) : callSteam;
+      check(`steam, ${how}: lossPct set to 60 from onProgress during the render; the render is the call's${withStages ? ', and so is the next, from B' : ''}`,
+        set && steamGot === callSteam && steamNext === callSteam && callSteam !== changedSteam && (!withStages || taken(s2).b === 1),
+        withStages ? counts(s2) : '');
+    }
+  }
+  // Values the keys would write alike and the engine reads differently
+  // (the second reader's finding 2, each of the reader's cases): the keys
+  // are made of each option as the stages use it, so each second render
+  // gives what a fresh render gives (the same error, where it throws).
+  {
+    const outcome = async (promise) => { try { return `ok ${await hashes(await promise)}`; } catch (e) { return `${e.name}: ${e.message}`; } };
+    const hiddenValueOf = (v) => Object.defineProperty({}, 'valueOf', { value: () => v });
+    const ownValueOf = (v) => { const t = Float32Array.of(0); t.valueOf = () => v; return t; };
+    const hiddenLoss = (o) => Object.defineProperty(o, 'lossPct', { value: 60, enumerable: false });
+    class GetterOpts { constructor(keep) { this.codec = 'celt_22'; Object.assign(this, keep); } get micGain() { return 4; } }
+    // The randomised run's seed 20001, step 122 (its options; a source of its shape).
+    const step122 = (micGain) => ({ codec: 'celt_44', hp: 300, jitterMs: NaN, frameMs: null, micGain, retime: true, bits: 2, onMixBlock: 7,
+      onProgress: 'x', gate: null, voiceScale: 1, deviceRate: NaN, captureChannel: Float32Array.of(2), seed: '7', lp: 50, onDecoded: undefined,
+      gateThresholdDb: 5, maxGain: 10, lossPct: true, zzz: undefined, volume: 1, swrKernel: undefined, agc: true });
+    const fuzzSource = buffer(voice(2.434, 32000, 1002), 32000);
+    const pairs = [
+      ['speex: lossPct {} then Object.create(null) (a fresh render throws)', source,
+        (k) => ({ codec: 'speex', lossPct: {}, ...k }), (k) => ({ codec: 'speex', lossPct: Object.create(null), ...k })],
+      ['steam: lossPct {} then { [Symbol.toPrimitive]: () => 60 }', source,
+        (k) => ({ codec: 'steam', lossPct: {}, ...k }), (k) => ({ codec: 'steam', lossPct: { [Symbol.toPrimitive]: () => 60 }, ...k })],
+      ['celt_22: micGain {} then an object whose valueOf (not enumerable) gives 3', source,
+        (k) => ({ codec: 'celt_22', micGain: {}, ...k }), (k) => ({ codec: 'celt_22', micGain: hiddenValueOf(3), ...k })],
+      ['speex: lossPct Float32Array.of(0) then the same with a valueOf of its own giving 70', source,
+        (k) => ({ codec: 'speex', lossPct: Float32Array.of(0), ...k }), (k) => ({ codec: 'speex', lossPct: ownValueOf(70), ...k })],
+      ['steam: no lossPct, then lossPct 60 as an own member that is not enumerable', source,
+        (k) => ({ codec: 'steam', ...k }), (k) => hiddenLoss({ codec: 'steam', ...k })],
+      ['celt_22: no micGain, then options of a class whose getter gives micGain 4', source,
+        (k) => ({ codec: 'celt_22', ...k }), (k) => new GetterOpts(k)],
+      ['the randomised run\'s seed 20001, step 122: micGain {} then Object.create(null) (a fresh render throws)', fuzzSource,
+        (k) => ({ ...step122({}), ...k }), (k) => ({ ...step122(Object.create(null)), ...k })]
+    ];
+    for (const [name, src, first, second] of pairs) {
+      const stages = {};
+      await A.process(src, first({ stages, sourceKey: 'k' }));
+      const warm = await outcome(A.process(src, second({ stages, sourceKey: 'k' })));
+      const cold = await outcome(A.process(src, second({})));
+      check(`${name}: the second render with warm stages gives a fresh render's outcome`, warm === cold,
+        `${warm.slice(0, 48)}; ${counts(stages)}`);
+    }
+  }
+  // A stages object the render cannot keep in (the second reader's finding
+  // 4): frozen, or with counts the engine did not make. The render is made
+  // from the start, keeps nothing and does not throw.
+  {
+    const want = await fresh(base);
+    for (const [name, stages] of [['frozen', Object.freeze({})], ['{ counts: 5 }', { counts: 5 }], ['{ counts: {} }', { counts: {} }]]) {
+      const before = JSON.stringify(stages);
+      let got = null, error = null;
+      try { got = await hashes(await A.process(source, { ...base, stages, sourceKey: 'k' })); } catch (e) { error = e; }
+      check(`stages ${name}: a fresh render's WAV and codecInfo, nothing kept, no error`,
+        !error && got === want && JSON.stringify(stages) === before && A.stagesHold(source, { ...base, stages, sourceKey: 'k' }) === null,
+        error ? `${error.name}: ${error.message}` : JSON.stringify(stages));
+    }
   }
   // Nothing kept is written to: a caller writing into what it was given,
   // re-timing (which works in place), a render stopped. On a source whose
@@ -336,6 +432,12 @@ console.log('\n[3] The keys');
     const s2 = await A.process(retimable, { ...base, stages: steamStages, sourceKey: 'r' });
     check('the same on `steam`: re-timing and a caller\'s writes change nothing kept', taken(steamStages).b === 2 && s1.codecInfo.retimed.length > 0
       && await hashes(s2) === await freshOf(base) && s1Hashes === await freshOf({ ...base, retime: true }), counts(steamStages));
+    // steam's B keeps the sender's messages without their pcm, the encoder's
+    // input, which nothing after B reads (the second reader's finding 5).
+    const messages = steamStages.b.value.messages;
+    check('`steam`\'s B holds its messages without their pcm, and the renders from it above are fresh renders\'',
+      messages.length > 0 && messages.every((m) => !('pcm' in m)) && messages.some((m) => m.spurt !== undefined),
+      `${messages.length} messages`);
     // A render stopped part way (opts.signal): it ends with an AbortError; A,
     // finished before the stop, is kept, and the next render takes it.
     const stopped = {}, signal = { aborted: false };
