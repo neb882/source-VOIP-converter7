@@ -12,7 +12,7 @@ Several stages of the modern path equal the game's sound sample for sample. Thos
 
   | Timing model | Changes it gets right | Error of a phrase's start |
   | --- | --- | --- |
-  | the game's queue as read (`voice-channel.js`, in review, not in a render yet) | 47% | 122 ms |
+  | the game's queue as read (`voice-channel.js`, not in a render yet) | 47% | 122 ms |
   | the earlier queue model | 41% | 100 ms |
   | the flat rule (the page's "Talk-spurt timing") | 31% | 134 ms |
   | no timing model (a render today) | 11% | 150 ms |
