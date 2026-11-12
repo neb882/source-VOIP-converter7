@@ -1015,6 +1015,10 @@ ms: inside the band "go on, and say so in PROGRESS". Above 130 ms c-2 is held.
 
 #### 5. W3-02c-2: the order above, statement by statement
 
+> **2026-11-12:** the order for W3-02c-2 is now [W3-02c2-render-channel.md](W3-02c2-render-channel.md), written
+> against the files of `engine/`. It goes through this section statement by statement and says which still hold.
+> Build from that file; where it and this section differ, it rules. This section is kept for its reasons.
+
 **Branch.** `claude/w3-02c2-timeline-option`, from main after W3-02c-1 and W4-01b. Budget 2 days.
 
 **Files.** May touch: `audio.js` (`steamTimeline`, `process()`, `createRender()`; `gainRule` and `createGain`,
