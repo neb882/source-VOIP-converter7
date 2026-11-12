@@ -49,6 +49,20 @@ async function processMessage(message, signal) {
     signal,
     onProgress: (value) => self.postMessage({ type: 'progress', id, value })
   };
+  // The first seconds (W4-01b, step 3), when the page asks for them
+  // ({ seconds, keep }) and the settings allow them (TF2Audio.previewAllowed):
+  // a render of the source's first `seconds`, of which the first `keep` are
+  // the whole render's, sample for sample, posted before the whole render
+  // starts. Two renders, each from the start: the first seconds keep no
+  // stages. None when the stages hold B for these settings: the whole
+  // render is then a third of the time.
+  if (message.preview && TF2Audio.previewAllowed(message.opts || {}) && TF2Audio.stagesHold(source, opts) !== 'b') {
+    const n = Math.min(source.length, Math.round(message.preview.seconds * source.sampleRate));
+    const first = await TF2Audio.process(monoSource(source.getChannelData(0).subarray(0, n), source.sampleRate), { ...(message.opts || {}), signal });
+    const samples = first.samples.slice(0, Math.round(message.preview.keep * first.sampleRate));
+    const blob = TF2Audio.encodeWav(samples, first.sampleRate);
+    self.postMessage({ type: 'preview', id, samples: samples.buffer, sampleRate: first.sampleRate, blob, seconds: message.preview.keep }, [samples.buffer]);
+  }
   const result = await TF2Audio.process(source, opts);
   // Loudness and levels of the render (meter.js): with `measure` in the
   // result (the batch), with `meterAfter` in a `meter` message of their own

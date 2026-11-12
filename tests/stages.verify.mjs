@@ -21,6 +21,11 @@
 //      onResampled watch an early stage: nothing is kept or taken; the
 //      observers keep the reuse), values JSON would make equal, a caller
 //      writing into what it was given, a render stopped part way;
+//   4. W4-01b's step 3: the first 14 s of a render of a source's first 15 s
+//      are the first 14 s of the render of the whole source, sample for
+//      sample, for each profile on three seeded clips and for each setting
+//      TF2Audio.previewAllowed() allows; and previewAllowed() allows nothing
+//      else.
 // A later order adds its case to EXTRA_OPTION_CASES (section 2).
 // Every signal is synthetic, made here or in render-stream.verify.mjs.
 import crypto from 'node:crypto';
@@ -317,6 +322,50 @@ console.log('\n[3] The keys');
     try { await A.process(source, { ...base, signal: { aborted: true } }); } catch (e) { early = e; }
     check('a render whose signal is already set does not start', early && early.name === 'AbortError');
   }
+}
+
+/* ---------------- 4. the first seconds (step 3) ---------------- */
+
+console.log('\n[4] The first 14 s of a render of the first 15 s are the whole render\'s');
+{
+  const t4 = performance.now();
+  const rate = 48000, head = (x, s) => x.subarray(0, s * rate);
+  // The first 14 s of the output of a render of the source's first 15 s,
+  // against the render of the whole source: where they first differ, or -1.
+  const firstDiffer = async (left, right, opts) => {
+    const whole = await A.process(right ? stereo(left, right, rate) : buffer(left, rate), opts);
+    const part = await A.process(right ? stereo(head(left, 15), head(right, 15), rate) : buffer(head(left, 15), rate), opts);
+    const n = 14 * whole.sampleRate;
+    if (part.samples.length < n || whole.samples.length < n) return -2;
+    for (let i = 0; i < n; i++) if (!Object.is(part.samples[i], whole.samples[i])) return i;
+    return -1;
+  };
+  const clips = [41, 42, 43].map((seed) => voice(32, rate, seed));
+  for (const codec of ['steam', 'steam_48', 'celt_22', 'celt_44', 'speex', 'miles']) {
+    const opts = { ...PAGE_DEFAULTS, codec, ...(codec === 'steam' ? {} : { steamUptime: undefined }) };
+    const at = [];
+    for (const clip of clips) at.push(await firstDiffer(clip, null, opts));
+    check(`${codec}: on three seeded 32 s clips, the first 14 s of the render of the first 15 s are the whole render's`,
+      at.every((i) => i === -1) && A.previewAllowed(opts), at.every((i) => i === -1) ? 'sample for sample' : `first differing sample ${at.join(', ')}`);
+  }
+  // The page's settings that previewAllowed() allows, one at a time.
+  const right = voice(32, rate, 44);
+  for (const change of [{ gate: false }, { gate: true }, { gateThresholdDb: -30 }, { steamUptime: 14400 }, { bits: 6 }, { micGain: 3 }, { hp: 300, lp: 3000 },
+    { agc: false }, { voiceScale: 2 }, { maxGain: 3 }, { avgGain: 0.25 }, { volume: 0.5 }, { deviceRate: 44100 }, { enableWarble: false },
+    { frameMs: 60 }, { captureChannel: 'right' }, { captureChannel: 'mix' }, { codec: 'celt_22', steamUptime: undefined, gate: true, voiceScale: 2 }]) {
+    const opts = { ...PAGE_DEFAULTS, ...change };
+    const at = await firstDiffer(clips[0], change.captureChannel ? right : null, opts);
+    check(`${JSON.stringify(change)}: the first 14 s are the whole render's, and the first seconds are allowed`, at === -1 && A.previewAllowed(opts),
+      at === -1 ? 'sample for sample' : `first differing sample ${at}`);
+  }
+  // Nothing else is allowed.
+  const refused = [{ lossPct: 5 }, { jitterMs: 50 }, { retime: true }, { room: { preset: 6 } }, { underwater: true },
+    { room: { custom: { duration: 1, decay: 2, mix: 0.3 } } }, { room: { auto: 'tunnel' } }, { deviceRate: 96000 },
+    { received: { frameLog: [2], frameBytes: [60], frameMs: 20, spurts: 1 } }, { loseMessage: () => false }];
+  check('previewAllowed() allows nothing else: loss, jitter, re-timing, a room, under water, an untested device rate, a demo\'s voice, loseMessage',
+    refused.every((change) => !A.previewAllowed({ ...PAGE_DEFAULTS, ...change })) && A.previewAllowed({ ...PAGE_DEFAULTS, room: { preset: 0 } }),
+    `${refused.length} refused; a room number that is no room is allowed`);
+  console.log(`  (${((performance.now() - t4) / 1000).toFixed(1)} s)`);
 }
 
 console.log(`\n${passed} stages checks passed, ${failed} failed`);

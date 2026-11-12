@@ -2667,21 +2667,32 @@ async function speedCancel(browser, base) {
       'a 20 s source: a setting changed while it renders gives the WAV of a fresh render of the new settings, and no second worker',
       `${shown.slice(0, 12)} / ${again.slice(0, 12)}; ${await audioWorkers(page)} worker`);
 
-    // A change read before the capture's place (the mic gain), so that the
-    // render runs from the start and is still busy 500 ms after the cancel.
+    check(errors.length === 0, 'Cancel and the kept worker: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// A worker that does not answer a cancel (the page's cancels dropped) is
+// ended once the bound has passed (500 ms and 15 ms a second of source:
+// 1.4 s for 60 s) and replaced, and the render after it is right. The
+// render cancelled runs from the start (its first), so that it is still
+// busy then.
+async function speedCancelUnanswered(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
     await page.evaluate(() => { window.__dropCancel = true; });
-    await setControl(page, 'gain', '1.5');
+    await page.locator('#file').setInputFiles({ name: 'unanswered.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) });
     await page.waitForFunction(() => state.processing && Number((els.process.textContent.match(/(\d+)%/) || [])[1]) >= 5, null, { timeout: 30000 });
     await page.locator('#cancel-process').click();
     await page.waitForFunction(() => !state.processing, null, { timeout: 30000 });
-    await renderNow(page);
-    const replaced = await page.evaluate(() => [...document.getElementById('console-out').children].some((e) => e.textContent.includes('did not stop within 500 ms')));
+    await renderNow(page, 120000);
+    const replaced = await page.evaluate(() => [...document.getElementById('console-out').children].map((e) => e.textContent)
+      .find((t) => /did not stop within \d+ ms of the cancel/.test(t)));
     const late = await wavHash(page);
     await page.evaluate(() => { window.__dropCancel = false; });
-    check(replaced && await audioWorkers(page) === 2 && late === await freshHash(page),
-      'a worker that does not answer a cancel within 500 ms is ended and replaced, and the render after it is a fresh render\'s WAV',
-      `${await audioWorkers(page)} workers`);
-    check(errors.length === 0, 'Cancel and the kept worker: no page errors', errors.join('; '));
+    check(/within 1400 ms/.test(replaced || '') && await audioWorkers(page) === 2 && late === await freshHash(page),
+      'a worker that does not answer a cancel is ended after the bound (1.4 s for 60 s) and replaced, and the render after it is a fresh render\'s WAV',
+      `${await audioWorkers(page)} workers; ${replaced}`);
+    check(errors.length === 0, 'an unanswered cancel: no page errors', errors.join('; '));
   } finally { await context.close(); }
 }
 
@@ -2770,9 +2781,93 @@ async function speedDemoSource(browser, base) {
   } finally { await context.close(); }
 }
 
+// Step 3: the first seconds. A 60 s source has a playable player within
+// 2.5 s of its render's start, while the render runs: the first 14 s, said
+// so under the player; the download, the views and the table wait. The
+// whole render then takes the player's place at its position, playing on.
+// None with Packets lost % at 5, and none for a source of 30 s.
+async function speedFirstSeconds(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.evaluate(() => {
+      window.__previewSeen = null;
+      document.addEventListener('canplay', (e) => {
+        if (e.target === els.audio && state.preview && els.audio.getAttribute('src') === state.preview.url && !window.__previewSeen) {
+          const b = window.__busy, start = b.filter((x) => x[1]).at(-1);
+          window.__previewSeen = { after: performance.now() - start[0], processing: state.processing, percent: els.progress ? els.progress.value : null,
+            status: els.renderStatus.textContent, download: els.dl.disabled, wet: !!state.processedBuffer,
+            renderRow: [...document.querySelectorAll('#meter-rows th')].some((th) => th.textContent === 'RENDER'),
+            duration: els.audio.duration };
+        }
+      }, true);
+    });
+    // A click first: the page has had a user's gesture, so it may play.
+    await page.locator('#viz-wave').click();
+    await page.locator('#file').setInputFiles({ name: 'first.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) });
+    await page.waitForFunction(() => !!window.__previewSeen, null, { timeout: 30000 });
+    const seen = await page.evaluate(() => window.__previewSeen);
+    check(seen.after < 2500 && seen.processing && seen.percent < 100 && Math.abs(seen.duration - 14) < 0.01,
+      'a 60 s source: the player can play the first 14 s within 2.5 s of the render\'s start, while it renders',
+      `${Math.round(seen.after)} ms, at ${seen.percent}%; ${seen.duration.toFixed(3)} s`);
+    check(seen.status === 'The first 14 s; the rest is rendering…' && seen.download && !seen.wet && !seen.renderRow,
+      'the line under the player says so; the download, the views and the table show nothing new until the whole render', seen.status);
+    await page.evaluate(async () => { els.audio.currentTime = 3; await els.audio.play(); });
+    await page.waitForFunction(() => els.audio.currentTime > 3.2 && !els.audio.paused);
+    await page.evaluate(() => {
+      const proto = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+      window.__place = null; window.__restored = null;
+      Object.defineProperty(els.audio, 'src', { configurable: true, get() { return proto.get.call(this); },
+        set(v) { if (v === state.lastBlob) { window.__place = { at: this.currentTime, playing: !this.paused };
+          this.addEventListener('seeked', () => { window.__restored = this.currentTime; }, { once: true }); } proto.set.call(this, v); } });
+    });
+    await page.waitForFunction(() => state.renderId === 1 && renderIdle() && window.__restored !== null, null, { timeout: 60000 });
+    await page.waitForTimeout(300);
+    const after = await page.evaluate(() => ({ place: window.__place, restored: window.__restored, playing: !els.audio.paused, now: els.audio.currentTime,
+      duration: els.audio.duration, preview: state.preview, download: els.dl.disabled }));
+    await page.evaluate(() => { delete els.audio.src; els.audio.pause(); });
+    check(after.place && after.place.playing && Math.abs(after.restored - after.place.at) < 0.15 && after.playing && after.now > after.restored
+      && Math.abs(after.duration - 60) < 0.01 && after.preview === null && !after.download,
+      'the whole render then takes the player\'s place where the first seconds had got to, and plays on',
+      `at ${after.place && after.place.at.toFixed(3)} s, on from ${after.restored && after.restored.toFixed(3)} s; ${after.duration.toFixed(1)} s long`);
+    const posted = await page.evaluate(() => window.__posted.filter((m) => m.type === 'preview').length);
+    // Packets lost % at 5: no first seconds.
+    await page.evaluate(() => { window.__previewSeen = null; window.__posted.length = 0; });
+    await setControl(page, 'loss', '5');
+    await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
+    await waitRendered(page, 120000);
+    const lossy = await page.evaluate(() => ({ previews: window.__posted.filter((m) => m.type === 'preview').length, seen: window.__previewSeen }));
+    check(posted === 1 && lossy.previews === 0 && lossy.seen === null, 'with Packets lost % at 5 there are no first seconds', `${lossy.previews} posted`);
+    // A source of 30 s: none.
+    await page.evaluate(() => { window.__posted.length = 0; });
+    await setControl(page, 'loss', '0');
+    await chooseFile(page, { name: 'thirty.wav', mimeType: 'audio/wav', buffer: wavSpeech(30) }, 120000);
+    check(await page.evaluate(() => window.__posted.filter((m) => m.type === 'preview').length) === 0, 'a source of 30 s gets no first seconds');
+    check(errors.length === 0, 'the first seconds: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// Cancel while the first seconds play: the player gives back what it
+// held (nothing, for a first render), and the line says the render was
+// cancelled.
+async function speedFirstSecondsCancel(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.locator('#file').setInputFiles({ name: 'stop.wav', mimeType: 'audio/wav', buffer: wavSpeech(90) });
+    await page.waitForFunction(() => !!state.preview && state.processing, null, { timeout: 30000 });
+    await page.locator('#cancel-process').click();
+    await page.waitForFunction(() => !state.processing, null, { timeout: 30000 });
+    const left = await page.evaluate(() => ({ src: els.audio.getAttribute('src'), preview: state.preview, status: els.renderStatus.textContent, workers: window.__workers.length,
+      audio: window.__workers.filter((url) => /audio-worker\.js$/.test(url)).length }));
+    check(!left.src && left.preview === null && /cancelled/.test(left.status) && left.workers === 1 && left.audio === 1,
+      'Cancel during the first seconds empties the player of them; the line says the render was cancelled; the worker is kept', left.status);
+    check(errors.length === 0, 'Cancel during the first seconds: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
 async function verifySpeed(browser, base) {
-  console.log('\n[Browser 9] Speed with the same samples (W4-01b): the kept worker, Cancel, the meter after the result, progress');
-  for (const part of [speedOneWorker, speedLateMeter, speedCancel, speedProgress, speedStages, speedDemoSource]) await part(browser, base);
+  console.log('\n[Browser 10] Speed with the same samples (W4-01b): the kept worker, Cancel, the meter after the result, progress, the stages, the first seconds');
+  for (const part of [speedOneWorker, speedLateMeter, speedCancel, speedCancelUnanswered, speedProgress, speedStages, speedDemoSource, speedFirstSeconds,
+    speedFirstSecondsCancel]) await part(browser, base);
 }
 
 async function main() {

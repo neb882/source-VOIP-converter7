@@ -1742,6 +1742,22 @@
     return value;
   }
 
+  // TF2Audio.previewAllowed(opts): whether a render of a source's first 15 s
+  // is, over its first 14 s, the render of the whole source, sample for
+  // sample (W4-01b, step 3), as tests/stages.verify.mjs shows for every
+  // profile at these settings. Not for a demo's voice, with loss or jitter,
+  // with talk-spurt re-timing, with a room that runs or under water (none
+  // of them was shown), nor at a device rate the test does not cover.
+  const PREVIEW_DEVICE_RATES = [44100, 48000];
+  function previewAllowed(opts = {}) {
+    if (opts.received || opts.retime || typeof opts.loseMessage === 'function') return false;
+    if (clamp(finiteOr(opts.lossPct, 0), 0, 100) > 0 || clamp(finiteOr(opts.jitterMs, 0), 0, 500) > 0) return false;
+    let room;
+    try { room = roomPreset(opts); } catch (e) { return false; }
+    if (room.preset !== null || room.water) return false;
+    return PREVIEW_DEVICE_RATES.includes(deviceRateOf(opts.deviceRate));
+  }
+
   // A render stopped by its caller ends with this error (opts.signal).
   function abortError() {
     const error = new Error('The render was cancelled.');
@@ -3264,11 +3280,13 @@
   const TF2Audio = {
     process,
     // the stages a render keeps (W4-01b): which place a render would start
-    // from, the keys, and the lists the keys are made by
+    // from, the keys, the lists the keys are made by, and whether a
+    // render's first seconds are the whole render's (step 3)
     stagesHold,
     stageKeys,
     STAGE_OPTIONS: Object.freeze({ afterB: Object.freeze([...AFTER_B_OPTIONS]), afterA: Object.freeze([...AFTER_A_OPTIONS]),
       observers: Object.freeze([...STAGE_OBSERVERS]) }),
+    previewAllowed,
     encodeWav,
     toInt16,
     bufferToMono,
