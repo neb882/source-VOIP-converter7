@@ -3372,7 +3372,8 @@ async function main() {
       page.on('worker', seen);
     });
     const loaded = await page.evaluate(async () => {
-      const page = typeof TF2SteamSender === 'object' && typeof TF2Swresample === 'object' && typeof TF2Swresample.createResampler === 'function';
+      const page = typeof TF2SteamSender === 'object' && typeof TF2Swresample === 'object' && typeof TF2Swresample.createResampler === 'function'
+        && typeof TF2VoiceChannel === 'object' && typeof TF2VoiceChannel.createTimeline === 'function';
       // The live monitor's worker: it answers only once its scripts have loaded.
       const live = await new Promise((resolve) => {
         const worker = new Worker('live-worker.js');
@@ -3389,10 +3390,11 @@ async function main() {
         link: !!credit, licence: /GNU LESSER GENERAL PUBLIC LICENSE/.test(licence) && /Version 2\.1/.test(licence) };
     });
     const scope = await liveWorker.then((w) => w ? w.evaluate(() => typeof self.TF2SteamSender === 'object'
-      && typeof self.TF2Swresample === 'object' && typeof self.TF2Swresample.createResampler === 'function') : 'no worker seen').catch((e) => `error ${e.message}`);
+      && typeof self.TF2Swresample === 'object' && typeof self.TF2Swresample.createResampler === 'function'
+      && typeof self.TF2VoiceChannel === 'object' && typeof self.TF2VoiceChannel.createTimeline === 'function') : 'no worker seen').catch((e) => `error ${e.message}`);
     await page.evaluate(() => { window.__liveWorker.terminate(); delete window.__liveWorker; });
     check(loaded.page && ['ready', 'stats'].includes(loaded.live) && scope === true,
-      'the page and the live monitor\'s worker load steam-sender.js and vendor/swresample/swresample.js', `${loaded.live}; in the worker's scope: ${scope}`);
+      'the page and the live monitor\'s worker load steam-sender.js, voice-channel.js and vendor/swresample/swresample.js', `${loaded.live}; in the worker's scope: ${scope}`);
     check(loaded.footer.includes('libswresample') && loaded.footer.includes('LGPL') && loaded.footer.includes('translated to JavaScript, modified') && loaded.link && loaded.licence,
       'the footer credits FFmpeg\'s libswresample (LGPL, translated to JavaScript, modified) beside LAME, with a link to its licence', loaded.footer);
     // W3-11b: the threshold control's default is the profile's own (-40 for

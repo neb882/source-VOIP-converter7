@@ -11,7 +11,7 @@
 // 4. to 6. A load's codec module is its own, the engine takes a new one at
 //    its next render and the old one again once it is set back, and a load
 //    without the room module stops a render with a room as the page would.
-// 7. A load leaves no engine name on Node's global object but the two it is
+// 7. A load leaves no engine name on Node's global object but the three it is
 //    known to leave.
 // 8. An engine file that uses one of Node's globals does not load.
 // 9. to 14., run after 3 and before 4: the engine's own files (PART_FILES,
@@ -330,8 +330,9 @@ console.log('\n[7] What a load leaves on Node\'s global object');
   loadEngine({ root });
   check('TF2Audio and the tables are not globals of the process',
     !('TF2Audio' in globalThis) && TABLES.every((t) => !(t in globalThis)));
-  check('TF2SteamSender and TF2Swresample are (they attach themselves, as on the page)',
-    typeof globalThis.TF2SteamSender === 'object' && typeof globalThis.TF2Swresample === 'object');
+  check('TF2SteamSender, TF2VoiceChannel and TF2Swresample are (they attach themselves, as on the page)',
+    typeof globalThis.TF2SteamSender === 'object' && typeof globalThis.TF2VoiceChannel === 'object'
+    && typeof globalThis.TF2Swresample === 'object');
 }
 
 console.log('\n[8] An engine file that uses one of Node\'s globals does not load');

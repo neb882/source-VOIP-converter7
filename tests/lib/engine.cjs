@@ -19,15 +19,16 @@
  * globalThis is not caught at all. With no setTimeout a render's yields
  * resolve at once, as in every loader before this one.
  *
- * steam-sender.js and the resampler attach themselves to Node's global object
- * (TF2SteamSender, TF2Swresample), and audio.js finds them there: the engine's
- * files find one another by global name, and these two do so as the page's do.
- * Two engines in one process therefore share those two objects, and nothing
- * else: each load has its own tables, its own TF2Audio and its own codec module.
+ * steam-sender.js, voice-channel.js and the resampler attach themselves to
+ * Node's global object (TF2SteamSender, TF2VoiceChannel, TF2Swresample), and
+ * the engine finds them there: the engine's files find one another by global
+ * name, and these three do so as the page's do. Two engines in one process
+ * therefore share those three objects, and nothing else: each load has its own
+ * tables, its own TF2Audio and its own codec module.
  * The engine's own files (PART_FILES, under engine/) find one another through
  * TF2Engine on the load's window, so two engines share none of them; a load
- * returns that object as `parts`. steam-sender.js and the resampler still
- * attach to Node's global object.
+ * returns that object as `parts`. steam-sender.js, voice-channel.js and the
+ * resampler still attach to Node's global object.
  */
 'use strict';
 
@@ -39,10 +40,10 @@ const REPO = path.join(__dirname, '..', '..');
 
 // The page's order: index.html's first script tags, live-worker.js's
 // importScripts, and the head of audio-worker.js's.
-const ENGINE_FILES = ['constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'room-presets.js',
-  'room-dsp.js', 'engine/dsp.js', 'engine/gain.js', 'engine/mix.js', 'engine/network.js', 'engine/codec.js',
-  'engine/room.js', 'engine/steam.js', 'engine/render.js', 'engine/render-stream.js', 'engine/live-chain.js',
-  'audio.js'];
+const ENGINE_FILES = ['constants.js', 'steam-sender.js', 'voice-channel.js', 'vendor/swresample/swresample.js',
+  'room-presets.js', 'room-dsp.js', 'engine/dsp.js', 'engine/gain.js', 'engine/mix.js', 'engine/network.js',
+  'engine/codec.js', 'engine/room.js', 'engine/steam.js', 'engine/render.js', 'engine/render-stream.js',
+  'engine/live-chain.js', 'audio.js'];
 
 // The engine's own files, each one part of TF2Engine: the entries of
 // ENGINE_FILES in the folder PART_DIR, in load order. The folder is named here
