@@ -57,7 +57,7 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | W3-02b | `steam-sender.js`, `createTimeline` | built and merged | `f58d9a7`, #11 | W3-02b-voice-timeline.md | its sender's clock and hold since replaced by W3-16 |
 | W3-02c | the plan review: one order became three | done (the amendment and the rulings are in the order) | `abf872f`, `b63cc73` | none (the amendment is in the order) | |
 | W3-02c-1 | the module as read (the first pull, D on blocks, the zero, the interpolator) | built and merged (no render runs it yet) | `a2b7dc9`, #30 (no cache change) | W3-02c1-channel-as-read.md | W3-02c-2 builds on it |
-| W3-02c-2 | the render behind `opts.timeline`; BC-3's build | not started | | | after S3-02a |
+| W3-02c-2 | the render behind `opts.timeline`; BC-3's build | not started | | | S3-02a is merged: a planner writes it against `engine/` |
 | W3-02c-3 | the live chain runs the channel | not started | | | after W3-02c-2; an owner's question is open |
 | W3-02d | the page: controls, the default, the words | not started | | | after W3-02c-2 |
 | W3-02e | the codec lane's marks, the real-take check | not started | | | after W3-02d |
@@ -96,7 +96,7 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | W4-01b | speed with the same samples: stages kept and reused, the worker kept, Cancel, the first seconds | built and merged | `2a98439`, v35, #32 | W4-01b-speed.md | S3-01a builds on it |
 | S3-01a | the tests' one engine loader, in each suite's own realm; the steam sections of `tests/verify.js` in their own file | built and merged `7a94dc8`, no cache change, #34 | [S3-01-test-harness.md](work-orders/S3-01-test-harness.md) | `docs/reports/S3-01a-engine-loader.md` | S3-01b builds on it |
 | S3-01b | a runner in place of the `&&` chain; a check that derives the cache list; the cache number set at the merge; CI in five jobs | built and merged `087f653`, no cache change, #35 | the same order | `docs/reports/S3-01b-runner-cache-ci.md` | S3-02a builds on it |
-| S3-02a | `audio.js` split into ten files under `engine/` by stage, lines moved unedited, one file a commit; no sample or hash changes | built, not merged (branch `claude/s3-02a-engine-split`) | [S3-02-engine-split.md](work-orders/S3-02-engine-split.md) | `docs/reports/S3-02a-engine-split.md` | after S3-01b; before W3-02c-2 |
+| S3-02a | `audio.js` split into ten files under `engine/` by stage, lines moved unedited, one file a commit; no sample or hash changes | built and merged `f134d2c`, cache v37, #36 | [S3-02-engine-split.md](work-orders/S3-02-engine-split.md) | `docs/reports/S3-02a-engine-split.md` | S3-02b and W3-02c-2 build on it |
 | S3-02b | one unused name off `TF2Audio` | planned, not built | the same order | | after S3-02a |
 | S3-03 | invented names in the page's mock console feed (no real person's name) | built and merged `11f430f`, cache v36, #33 | the same order, its last section | `docs/reports/S3-03-mock-names.md` | none |
 | BC plan | bad connections | done | `803cffc` | bad-connections-plan.md | |

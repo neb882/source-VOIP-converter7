@@ -847,7 +847,8 @@ point, which is the app's own (below).
   longest, so a message after such a gap is at most 10 concealed and 6 decoded: the 17-frame cut is out of
   reach (given N4). The game's refusal of a message over 12 frames is not: at a long uptime the float tail
   runs up to 250 ms past the exact one. The game's refusal of a message over 12 frames is built on both
-  timelines and in the live chain since BC-1 (`steamFits` in `audio.js`); at a long uptime the float tail can
+  timelines and in the live chain since BC-1 (`steamFits` in `audio.js`; since S3-02a, 2026-11-12, in
+  `engine/steam.js`); at a long uptime the float tail can
   reach it, and the live chain refuses such a message and counts it.
 
 ## Not in this order

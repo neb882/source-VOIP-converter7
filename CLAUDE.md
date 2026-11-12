@@ -17,6 +17,9 @@ files table is the map of the code), and `tests/REFERENCE_2026.md` holds the evi
 - `tests/REFERENCE_2026.md`: the recordings, the findings and what remains unverified.
 - `tests/README.md`: what each suite proves and how long it runs, the tools that need the owner's recordings, and how
   each bundled codec is rebuilt.
+- `engine/`: the sound path's code, one file per stage, loaded in one order by the page, both workers, the offline
+  list and the tests (`tests/lib/engine.cjs` holds the order; `tests/harness.verify.mjs` holds the five lists to it).
+  `audio.js` loads the codec module and builds `TF2Audio` from them. A new engine file goes into all five lists.
 
 ## Commands
 

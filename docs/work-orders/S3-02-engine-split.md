@@ -1,6 +1,6 @@
 # S3-02: `audio.js` split into files by stage
 
-Status: planned 2026-11-12, not built
+Status: S3-02a built and merged 2026-11-12 (`f134d2c`, cache v37, `docs/reports/S3-02a-engine-split.md`); S3-02b planned, not built. At the merge the orchestrator added to S3-02b: the two harness gaps and the service worker's cache modes that S3-02a's review found, and four stale comments (see the brief's record in `docs/PROGRESS.json`)
 
 *Written 2026-11-12 from the structure audit of the same day (its section 1, its items C-01 to C-09, its section 4
 and its proposals P5 and P6; "the audit" below), which read `main` at `8035cfa`. Everything here was read again on

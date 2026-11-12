@@ -382,3 +382,17 @@ Since 2026-11-12 (34c36b8) a commit is tested once, on its push: a push that cha
 ### in_flight (the documentation and structure pass), its state until this merge
 
 stages 1 and 2 on main; stage 3: S3-03 and S3-01a merged, S3-01b next, then S3-02a and S3-02b
+
+## 2026-11-12 (appended at S3-02a's merge)
+
+### live.last_merge, as it stood until this merge
+
+S3-01b (087f653, pull request #35, 2026-11-12; tests, the workflow and the rule files, no cache change): tests/run.mjs runs the suites by name or group and goes on after a failure; tests/site.verify.mjs derives the files the site loads and holds sw.js's list to them; tests/cache-number.mjs says whether a merge must raise the cache number, which the orchestrator sets and a builder never does; CI runs five jobs side by side with one result, verify, about five minutes after a push (measured on five runs) where one job took 16 to 19; two browser checks that failed by timing wait for what they read; docs/reports/S3-01b-runner-cache-ci.md. Before it: S3-01a (7a94dc8, pull request #34, 2026-11-12): one engine loader for the Node suites. The last merge that changed the site: S3-03 (11f430f, cache v36, pull request #33). Earlier merges: the index, docs/README.md.
+
+### next (S3-02a, S3-02b), as it stood until part a was merged
+
+a: audio.js (3,436 lines) into ten files under engine/ by stage (dsp, gain, mix, network, codec, room, steam, render, render-stream, live-chain), plain script tags, lines moved unedited, one file a commit with CI on each; no sample or recorded hash changes (the planner built the whole split in scratch: the golden hashes and every compared suite output the same). b: one unused name off TF2Audio. The orchestrator's rulings of 2026-11-12 are in the order. A fresh worker starts 19 to 39 ms later (accepted). After: S3-01b (merged 2026-11-12): S3-02a can start.
+
+### in_flight (the documentation and structure pass), its state until this merge
+
+stages 1 and 2 on main; stage 3: S3-03, S3-01a and S3-01b merged; S3-02a next, then S3-02b
