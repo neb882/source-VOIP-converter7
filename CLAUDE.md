@@ -22,17 +22,17 @@ files table is the map of the code), and `tests/REFERENCE_2026.md` holds the evi
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm test                 # the Node suites, 8 to 14 minutes on CI
-pnpm test:vendor          # the bundled codec builds match their recorded hashes
-CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux*/chrome | head -1) node tests/browser.verify.js
+pnpm test                 # every suite but the browser's, about 15 minutes on four cores; a failure does not stop the rest
+pnpm test verify steam    # suites or groups by name (node tests/run.mjs with no such name lists them)
+CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux*/chrome | head -1) pnpm test:browser
 pnpm dev                  # the app on a local server
 ```
 
-`pnpm test:all` is what CI runs (vendor check, Node suites, browser suite), 16 to 18 minutes of CI's 45 (measured
-on CI on 2026-11-12). Most of `pnpm test` is `tests/render-stream.verify.mjs`, `tests/stages.verify.mjs` and
-`tests/steam.verify.js`: run the suite a change touches on its own first (`node tests/<suite>`). The
-`CHROMIUM_EXECUTABLE` line is for a machine whose installed Chromium is not the one Playwright pins; elsewhere
-`pnpm test:browser` is enough.
+`pnpm test:all` is every suite, the browser's last; CI runs the same suites as five jobs side by side
+(`.github/workflows/test.yml`), and a push has its result about five minutes later (measured on CI on 2026-11-12). Most of
+`pnpm test` is `tests/render-stream.verify.mjs`, `tests/stages.verify.mjs` and `tests/steam.verify.js`: run the
+suite a change touches on its own first (`pnpm test <name>`). The `CHROMIUM_EXECUTABLE` part is for a machine whose
+installed Chromium is not the one Playwright pins; elsewhere `pnpm test:browser` is enough.
 `tests/accuracy.mjs` and `tests/retiming.mjs` need the owner's recordings, which are not in this repository: they are
 in a private one a session can attach (`docs/PROGRESS.json`, `takes`, says how to point the tests at it).
 Nothing from it is ever copied here.
@@ -75,6 +75,10 @@ Most rules give their reason in brackets, so a rule can be dropped once its reas
   decision reversible by one commit.]
 - No Valve art, footage or logos. It is a fan project.
 - No uploads and no runtime CDN: everything runs in the browser from this folder. [That is the app's promise.]
+- `sw.js` lists every file the site loads, and its number rises in every merge that changes one of them. A test
+  derives the list (`tests/site.verify.mjs`); the orchestrator sets the number at the merge and a builder never does.
+  [The offline copy is part of the app's promise: a file missing from the list is a page that breaks offline, and a
+  number that does not rise leaves old and new files mixed in a visitor's cache.]
 - Deterministic: the same decoded PCM and settings give the same samples (seeded randomness). [The tests and the
   registered predictions depend on it.]
 - The bundled codecs are pinned: a build must match its recorded hash, and changing one is an order of its own.

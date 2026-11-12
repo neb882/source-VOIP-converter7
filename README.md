@@ -136,12 +136,13 @@ The site has no build step. For GitHub Pages, publish the root of the branch and
 ## Tests
 
 ```sh
-pnpm test                               # the sound path, under Node
+pnpm test                               # every suite but the browser's; a failure does not stop the rest
+pnpm test verify steam                  # suites or groups by name
 pnpm exec playwright install chromium   # once, for the browser suite
-pnpm test:all                           # the vendored files, the sound path and the page in a browser
+pnpm test:all                           # every suite, the page in a browser last
 ```
 
-The suites hold each stage to the rule as read and to numbers taken from the recordings, and hold the live chain to a render. The owner's recordings are private, so the checks that need them are run privately and reported as numbers. CI runs `pnpm test:all` on every push that changes more than `docs/`; a run takes 16 to 18 minutes (measured on CI on 2026-11-12). [tests/README.md](tests/README.md) lists the suites.
+The suites hold each stage to the rule as read and to numbers taken from the recordings, and hold the live chain to a render. The owner's recordings are private, so the checks that need them are run privately and reported as numbers. CI runs the same suites as five jobs side by side on every push that changes more than `docs/`; a push has its result about five minutes later (measured on CI on 2026-11-12). [tests/README.md](tests/README.md) lists the suites.
 
 ## Files and licences
 

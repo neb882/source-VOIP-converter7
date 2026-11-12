@@ -12,9 +12,9 @@ copy what you need to the scratch folder the brief names and delete your copy wh
 
 1. Read `CLAUDE.md`, the order, and the diff the brief names (`git diff origin/main...<branch>`).
 2. Look for real defects: wrong samples or timing, crashes, broken contracts (determinism, the source timeline,
-   pinned codec hashes, the offline cache list), tests that cannot fail, docs that contradict the code. Skip style
-   and taste: a reviewer asked to find problems always finds something, and fixing every nit adds layers and tests
-   for cases that cannot happen.
+   pinned codec hashes, the offline cache list (not its number, which is set at the merge)), tests that cannot fail,
+   docs that contradict the code. Skip style and taste: a reviewer asked to find problems always finds something,
+   and fixing every nit adds layers and tests for cases that cannot happen.
 3. **Test the tests.** For each new or changed check in the diff, break the code it covers in a copy 3–5 ways:
    invert a condition, drop a step, loosen a bound, return early. Then run the tests that cover it. Every break that
    leaves the tests green, and would ship a real defect, is a finding.
