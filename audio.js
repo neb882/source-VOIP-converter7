@@ -41,6 +41,9 @@
  * - engine/mix.js: the mixer and the output stage.
  * - engine/network.js: loss and late frames: the retiming, the loss masks,
  *   the steam profile's loss by message.
+ * - engine/codec.js: what the renderers share about a profile and its codec:
+ *   the gate's defaults and threshold, the profile's filters, the frame
+ *   codes, a demo's frame statistics, the call to the loader.
  */
 
 (function () {
@@ -54,8 +57,7 @@
   const { MIX_BLOCK, MIX_RATE, createDeviceStage, createMixStage, createOutStage, createOutputStage, deviceRateOf,
     joinInts, mixClip, mixDevicePosition, mixEntry, mixOut, mixToFloat, mixUpsample2 } = E.mix;
   const { buildLossMask, retimeSpurts, steamLoser, steamMessageLoss, streamLossMask } = E.network;
-
-  const DEFAULT_SENDER_GATE = { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 };
+  const { DEFAULT_SENDER_GATE, FRAME_CODES, celtModeRate, gateThresholdDb, profileEq, receivedCodecInfo } = E.codec;
 
   // The same pinned codec runs in browsers, workers, and the Node tests.
   // Tests inject the module because their DSP sandbox has no import loader.
@@ -77,26 +79,7 @@
     const opus = await loadOpusModule();
     return (await opus.roundTrip(samples, rate, bitrate, options)).samples;
   }
-
-  /* ------------------------------------------------------------------ */
-  /* Main processing function                                            */
-  /* ------------------------------------------------------------------ */
-
-  const firCache = new Map();
-  function profileEq(codec, stage = 'decoderEq') {
-    const eq = codec[stage];
-    if (!eq) return null;
-    const key = `${codec.codecRate}:${eq.taps}:${eq.freqs}:${eq.gainsDb}`;
-    if (!firCache.has(key)) firCache.set(key, firwin2(eq.taps, eq.freqs, eq.gainsDb, codec.codecRate));
-    return firCache.get(key);
-  }
-  // A CELT profile's mode rate, as the option celtRoundTrip and
-  // createCeltStream take and the field their info gains; nothing for a
-  // profile without one (vaudio_celt_high is the 44100 Hz mode fed 22050 Hz
-  // sound).
-  function celtModeRate(codec) {
-    return codec.modeRate != null ? { modeRate: codec.modeRate } : {};
-  }
+  E.audio = Object.freeze({ loadOpusModule });
 
   /* ------------------------------------------------------------------ */
   /* The room (W3-17c)                                                  */
@@ -240,24 +223,6 @@
   // what it adds to the output's length.
   const tailAtDevice = (mix, deviceRate) => Math.round(mix * deviceRate / MIX_RATE);
 
-  // opus-codec.mjs FRAME: what happened to each codec frame.
-  const FRAME_CODES = { gated: 0, silk: 1, hybrid: 2, celt: 3, dtx: 4, lost: 5, late: 6, speex: 7, vr12: 8 };
-
-  // Frame statistics for voice that arrived already coded (opts.received),
-  // in the shape roundTrip's info takes, for the codec lane and net_graph.
-  function receivedCodecInfo(received, sampleRate) {
-    const frameLog = Uint8Array.from(received.frameLog);
-    const frameBytes = received.frameBytes ? Uint16Array.from(received.frameBytes) : new Uint16Array(frameLog.length);
-    const count = (code) => frameLog.reduce((n, c) => n + (c === code ? 1 : 0), 0);
-    const frameMs = finiteOr(received.frameMs, 20);
-    return { backend: 'demo', version: received.version || 'as received', sampleRate, frameMs, framesPerPacket: 1,
-      frameSamples: Math.round(sampleRate * frameMs / 1000), frames: frameLog.length,
-      gatedFrames: count(FRAME_CODES.gated), dtxFrames: count(FRAME_CODES.dtx), lostFrames: count(FRAME_CODES.lost), underrunFrames: 0,
-      spurts: finiteOr(received.spurts, 0), encodedBytes: frameBytes.reduce((n, b) => n + b, 0), gate: null,
-      modes: { silk: count(FRAME_CODES.silk), hybrid: count(FRAME_CODES.hybrid), celt: count(FRAME_CODES.celt) },
-      plc: 'opus', frameLog, frameBytes, lookahead: 0 };
-  }
-
   /* ------------------------------------------------------------------ */
   /* The `steam` profile: Steam's own sender and decoder                */
   /*                                                                    */
@@ -334,16 +299,6 @@
       q[i] = r > 32767 ? 32767 : r < -32768 ? -32768 : r;
     }
     return q;
-  }
-
-  // The threshold control's one reading (W3-11b), for the sender and the
-  // frame gate alike: null, undefined and '' (or a string of spaces) give the
-  // profile's own, `own`; a number, or a string that reads as one, is
-  // clamped to -90..0 dBFS; anything else gives the profile's own.
-  function gateThresholdDb(raw, own) {
-    if (raw == null) return own;
-    const typed = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
-    return Number.isFinite(typed) ? clamp(typed, -90, 0) : own;
   }
 
   // The sender's settings from process()'s options. opts.gateThresholdDb

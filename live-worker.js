@@ -24,7 +24,7 @@
 'use strict';
 
 importScripts('constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'room-presets.js', 'room-dsp.js',
-  'engine/dsp.js', 'engine/gain.js', 'engine/mix.js', 'engine/network.js',
+  'engine/dsp.js', 'engine/gain.js', 'engine/mix.js', 'engine/network.js', 'engine/codec.js',
   'audio.js');
 
 let chain = null, port = null, rate = 48000, queue = Promise.resolve(), generation = 0;
