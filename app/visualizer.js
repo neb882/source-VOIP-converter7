@@ -199,11 +199,6 @@ function bufferId(samples) {
   return bufferIds.get(samples);
 }
 
-function playheadFraction() {
-  const d = els.audio.duration;
-  return Number.isFinite(d) && d > 0 ? Math.min(1, Math.max(0, els.audio.currentTime / d)) : 0;
-}
-
 /* ---------------- time view (zoom and pan) and selection ---------------- */
 
 // Visible time range in seconds; t1 = Infinity runs to the end of the file.

@@ -7,13 +7,26 @@
  *     These change on every edit, so a normal reload always fetches the latest
  *     when online — no hard refresh needed. The cache is used only when the
  *     network fails (offline), and each successful fetch refreshes that copy.
+ *     The network is asked with cache: 'no-cache': the browser's own HTTP
+ *     cache may hold a copy that is still fresh by its headers (GitHub Pages
+ *     sends index.html with max-age=600, measured on the live site on
+ *     2026-11-12, and the other files so too, inferred), and 'no-cache' has
+ *     the browser check that copy with the server before using it. Without
+ *     it a visit after an update could get the old page, or a page whose
+ *     markup and scripts are of two versions, which cannot start.
+ *     What this branch hands the page for anything but a navigation, from
+ *     the network or the cache, says Cache-Control: no-cache, so the page's
+ *     own memory cache asks this worker again instead of reusing a script.
  *
  *   - Everything else (icons, manifest, favicon): CACHE-FIRST for speed. These
  *     rarely change; when they do, bump CACHE below to evict the old generation.
+ *
+ * The install fetches every file with cache: 'reload', past the browser's HTTP
+ * cache, so a new generation never stores a copy left from the one before.
  */
 
 const CACHE_PREFIX = 'tf2ve-';
-const CACHE = `${CACHE_PREFIX}v37`;
+const CACHE = `${CACHE_PREFIX}v38`;
 const ASSETS = [
   './',
   './index.html',
@@ -81,7 +94,7 @@ const ASSETS = [
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE)
-      .then((c) => c.addAll(ASSETS))
+      .then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' }))))
       .then(() => self.skipWaiting())
   );
 });
@@ -107,6 +120,26 @@ function cachePut(request, response) {
   return Promise.resolve();
 }
 
+// A copy of a response for the page that says Cache-Control: no-cache (the
+// network's or the cache's; the cache keeps the server's headers). Only a
+// whole same-origin response with a body is copied; a navigation's, an opaque
+// redirect, an error, a 204 or 205 (no body), or one reached through a
+// redirect (whose address the copy, with no URL of its own, would lose; such
+// a script can still be reused from the tab's memory cache, and no file of
+// the site is reached through one) goes out as it is. If making the copy
+// throws, the response goes out as it is: nothing has read its body by then.
+function askAgain(request, response) {
+  if (request.mode === 'navigate' || !response || !response.ok || response.type !== 'basic' || response.redirected ||
+      response.status === 204 || response.status === 205) return response;
+  try {
+    const headers = new Headers(response.headers);
+    headers.set('Cache-Control', 'no-cache');
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  } catch (err) {
+    return response;
+  }
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -124,12 +157,16 @@ self.addEventListener('fetch', (e) => {
     return resp;
   };
 
+  // A navigation given options becomes a same-origin request (Fetch, the
+  // Request constructor) and keeps its redirect mode, manual, so a redirect
+  // still goes back to the browser to follow.
   if (isLive) {
     e.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then(keep)
+        .then((resp) => askAgain(req, resp))
         .catch(() => caches.match(req).then((hit) => {
-          if (hit) return hit;
+          if (hit) return askAgain(req, hit);
           return req.mode === 'navigate' ? caches.match('./index.html') : Response.error();
         }))
     );

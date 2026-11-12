@@ -154,6 +154,15 @@ defaults.
 once it has loaded. When a newer version takes over in the background, a line above step 1 says so; the page never
 reloads by itself, because a loaded file and its render live only in the page. Reload when you are ready.
 
+Online, the page and its scripts are checked with the server before they are used, so a visit after an update gets
+the new version whole. GitHub Pages sends `index.html` with `max-age=600` (measured on the live site on 2026-11-12;
+the other files are inferred to be sent so too), which would let the browser use its own copies for ten minutes
+without asking. This holds from the version that brings it (S3-02b) on. The first visit after that version ships is
+still answered by the worker the visitor already has: on a navigation within those ten minutes it can show the
+previous version, and on a reload a page that does not start if the two versions' markup and scripts do not fit.
+The newer worker can take over a few seconds later, but need not (a review saw none across four loads in a row);
+once it has, the next navigation or reload is whole (measured in the browser suite's Chromium).
+
 ## The console
 
 The developer console takes Source-style `;` chaining, `alias`, `toggle`, `find`, `cvarlist`, `help`, history (the

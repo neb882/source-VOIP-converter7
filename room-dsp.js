@@ -113,7 +113,7 @@
     return p;
   }
 
-  // The generator of audio.js.
+  // The generator of engine/dsp.js.
   function mulberry32(seed) {
     let a = seed >>> 0;
     return function () {

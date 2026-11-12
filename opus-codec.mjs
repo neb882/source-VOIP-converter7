@@ -580,7 +580,7 @@ export async function speexRoundTrip(samples, sampleRate, options = {}) {
 }
 
 // The codec's settings as speexRoundTrip reports them (codecResultInfo in
-// audio.js gives the same for TF2Audio.createRender).
+// engine/render-stream.js gives the same for TF2Audio.createRender).
 function speexInfo(voice, sampleRate) {
   return { backend: 'speex', version: voice.version, runtime: 'speex-1.0.2', sampleRate,
     bitrate: voice.bitrate, quality: voice.quality, application: 'speex', signal: 'auto', complexity: voice.complexity,
@@ -725,7 +725,7 @@ export async function vr12RoundTrip(samples, sampleRate, options = {}) {
 }
 
 // The codec's settings as vr12RoundTrip reports them (codecResultInfo in
-// audio.js gives the same for TF2Audio.createRender).
+// engine/render-stream.js gives the same for TF2Audio.createRender).
 function vr12Info(voice, sampleRate) {
   return { backend: 'vr12', version: voice.version, runtime: 'voxware-vr12', sampleRate,
     bitrate: voice.bitrate, application: 'vr12', signal: 'auto',

@@ -83,11 +83,6 @@
     return opusModulePromise;
   }
 
-  // Compatibility helper for external callers; no browser-dependent fallback.
-  async function realOpusRoundTrip(samples, rate, bitrate, options = {}) {
-    const opus = await loadOpusModule();
-    return (await opus.roundTrip(samples, rate, bitrate, options)).samples;
-  }
   E.audio = Object.freeze({ loadOpusModule });
 
   /* ------------------------------------------------------------------ */
@@ -121,7 +116,6 @@
     applyBiquad,
     mulberry32,
     buildLossMask,
-    realOpusRoundTrip,
     createLiveChain,
     createRender,
     roomPreset,
