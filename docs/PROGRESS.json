@@ -23,15 +23,21 @@
       "line": "a: one engine loader in each suite's own realm (tests/verify.js 142 s where it takes 465, the same output byte for byte, measured by the planner) and the steam sections in their own file. b: a runner in place of the && chain, a check that derives the cache list, the cache number set only at the merge, CI in five jobs (about 5 minutes expected where a run takes 16 to 20). The orchestrator's rulings of 2026-11-12 are in the order."
     },
     {
-      "order": "the split of audio.js",
-      "file": "no order yet (a planner writes it now that W4-01b has merged)",
+      "order": "S3-03",
+      "file": "docs/work-orders/S3-02-engine-split.md (its last section)",
+      "after": "nothing; taken 2026-11-12",
+      "line": "the names in the page's mock console feed replaced by invented ones, and one chat line reworded, so that no real person's name stands next to invented lines."
+    },
+    {
+      "order": "S3-02a, S3-02b",
+      "file": "docs/work-orders/S3-02-engine-split.md",
       "after": "S3-01b",
-      "line": "audio.js into eight files by stage (dsp, gain, mix, network, room, steam, render, live) as plain script tags, no recorded hash moved; with it the dead code the structure audit listed, built orders moved to a done folder, real people's names out of the page's mock console feed, and the licence link added to the cache list."
+      "line": "a: audio.js (3,436 lines) into ten files under engine/ by stage (dsp, gain, mix, network, codec, room, steam, render, render-stream, live-chain), plain script tags, lines moved unedited, one file a commit with CI on each; no sample or recorded hash changes (the planner built the whole split in scratch: the golden hashes and every compared suite output the same). b: one unused name off TF2Audio. The orchestrator's rulings of 2026-11-12 are in the order. A fresh worker starts 19 to 39 ms later (accepted)."
     },
     {
       "order": "W3-02c-2",
       "file": "docs/work-orders/W3-02-receiver-queue.md (the amendment, section 5)",
-      "after": "S3-01 and the split of audio.js (W3-02c-1 and W4-01b are merged)",
+      "after": "S3-02a (W3-02c-1 and W4-01b are merged)",
       "line": "process() and createRender() run the receiver's channel behind opts.timeline (default 'source', so no recorded hash moves); a lost message is not pushed, which is BC-3's build."
     },
     {
