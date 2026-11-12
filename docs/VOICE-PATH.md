@@ -6,7 +6,7 @@ Every figure carries its standing: **read** from the game's or Steam's files, **
 
 ## The path at a glance
 
-This is the path of the `steam` profile, which the Modern preset uses. The other profiles differ at stages 2 to 5 ([Codecs](#codecs)).
+This is the path of the `steam` profile, which the Modern preset uses. The other profiles differ at stages 2 to 6 and at stage 8 ([Codecs](#codecs)).
 
 | Stage | What it does to the sound | Where it runs | Standing |
 | --- | --- | --- | --- |
@@ -40,7 +40,7 @@ A source file has no packets, so the app makes them as Steam does (`steam-sender
 - **Before and after.** The 100 ms before the opening chunk go with it (read). After the last loud chunk the sender holds on for 0.4 s of Steam's float clock (read), so the real length depends on the setting "Sender's Steam has been running".
 - **The uptime setting.** The page offers since today, a few days, about a week, about two weeks and about a month. About a week (9 days) is the default: the Steam of one two-PC recording is inferred to have run 6.1 to 12.1 days (finding 28). At that uptime the hold runs out 375 to 437 ms after the read of the last loud chunk (computed from the rule as read).
 - **What is drawn.** Only the times of Steam's reads are a model. A read comes 48.0 to 63.7 ms after the one before, drawn evenly (measured range, Set J), and each capture step is ready up to 13 ms late (a fit to one demo). The draw comes from the render's seed, so the same settings give the same file.
-- **The gate's controls.** "Gate opening level" moves the mean rule's threshold; its default, −40 dBFS, is Steam's own 1.0% of full scale (read). With the voice gate switched off every chunk is sent, which is there for comparison.
+- **The gate's controls.** "Gate opens above dBFS" moves the mean rule's threshold; its default, −40 dBFS, is Steam's own 1.0% of full scale (read). With the voice gate switched off every chunk is sent, which is there for comparison.
 
 ### 3. The codec
 
@@ -50,7 +50,7 @@ What you hear of it: a band to 12 kHz, comfort noise where the encoder went into
 
 ### 4. The network
 
-- **Packet loss.** On this profile the loss setting is the share of voice messages lost. Each message is lost whole by a draw of its own, which is the game's rule (read). A message is 20 to 160 ms of sound. The game's `net_fakeloss 5` loses about 22% of messages on a listen server (computed, finding 25), so the page's number is not `net_fakeloss`'s number.
+- **Packet loss.** On this profile the loss setting is the share of voice messages lost. Each message is lost whole by a draw of its own, which is the game's rule (read). A voice message holds 1 to 4 frames of 20 ms as a rule and usually 8 where a phrase opens (measured; other openings held 3 to 9, the rule gives an opening 9 or 10 at most, and the first packet of each clip of Set J held 12), and the game refuses a message of more than 12 frames (read). The game's `net_fakeloss 5` loses about 22% of messages on a listen server with sockets for loopback (computed, finding 8), so the page's number is not `net_fakeloss`'s number.
 - **Jitter.** The jitter setting marks single frames as late. At 50 ms, 3.2% of frames are late; nine in ten of those are filled by the decoder and one in ten plays as silence. This is a fit to one recording (finding 9), and the game has no rule that makes a frame late (read). The game's jitter delays and bunches whole messages; that is the order BC-4, not built yet.
 
 ### 5. Steam's decoder and its resampler
@@ -73,8 +73,8 @@ In the game each speaker's voice waits in a queue before it plays ([FINDINGS.md,
 So a render differs from the game here in four ways:
 
 - **Timing.** A render keeps the source's timeline. The game starts some phrases 80 to 350 ms early after a short pause (measured).
-- **The wait.** The game's wait before a channel plays, 7 to 30 ticks by the listener's frame rate (read), is not in a render. It delays the whole voice and cannot be heard in a file.
-- **One sample a packet.** The game drops one sample from every packet, so its playback runs about 0.04% fast (read; measured). A render does not.
+- **The wait.** The game's wait before a channel plays, 7 to 30 ticks by the listener's frame rate (read), is not in a render. It delays the voice. At 300 frames a second it also makes the ring overflow at nearly every restart, which drops 55 to 136 ms of the phrase's opening, Steam's pre-roll first (read; replayed on Set G's log). A render has neither.
+- **One sample a packet.** The game drops one sample from every packet, so its playback gains about 0.04% on the talker (read; measured). A render does not.
 - **The fade.** The game fades the last 0.1 s of its queue (read). A render does not.
 
 The page has a stand-in, "Talk-spurt timing", off by default. Set to "Some phrases start early", a phrase that follows a silence of at most 0.45 s starts early with a probability of 0.41, by the silence less a random 0 to 130 ms and at most 350 ms. These numbers are a fit to the takes (finding 19); the rule is not the game's.
@@ -92,14 +92,14 @@ The file is as long as the source, plus the room's tail where a room is on. The 
 
 ## Codecs
 
-The codec menu has six profiles in two groups. Four are in Team Fortress 2. Two are not and are marked so in the menu.
+The codec menu has six profiles in two groups. Four are in Team Fortress 2, and Steam voice is the default of the game's `sv_voicecodec` (read). Two are not and are marked so in the menu.
 
 | Menu entry | Key | In TF2 | Codec | Rate and frame | Standing against the game |
 | --- | --- | --- | --- | --- | --- |
 | Steam voice (Opus, 32 kbps) | `steam` | yes | libopus 1.1.5 | 24000 Hz, 20 ms, 32 kbit/s | measured: the decoder's output, all but 2 of 524,288 samples (finding 16) |
 | vaudio_celt (CELT, 22 kHz) | `celt_22` | yes | CELT 0.11 | 22050 Hz, 23.2 ms, 64 bytes | measured: the decoder's output, all but 1 of 292,352 samples (finding 31) |
 | vaudio_celt_high (44 kHz mode) | `celt_44` | yes | CELT 0.11 in its 44100 Hz mode on 22050 Hz sound | 46.4 ms, 128 bytes, band to about 10 kHz | measured: the decoder's output, all but 75 of 292,864 samples (finding 31) |
-| vaudio_speex (Speex, 11 kHz) | `speex` | yes, in the 32-bit game only | Speex 1.0.2 on 11025 Hz sound | 14.51 ms, 20 bytes, band to 5.5 kHz | measured: the decoder's output after the gain, 145,966 of 145,966 samples (finding 31) |
+| vaudio_speex (Speex, 11 kHz) | `speex` | yes, in the 32-bit game only | Speex 1.0.2 on 11025 Hz sound | 14.51 ms, 20 bytes, band to 5.5 kHz | measured: the decoder's output after the gain, 145,966 of 145,966 samples in TF2's 32-bit game (Set O, finding 31) |
 | Fullband Opus: not in the game | `steam_48` | no, never | libopus 1.1.5 | 48000 Hz, 20 ms, 64 kbit/s | none: the app's own extra |
 | vaudio_miles: not in TF2 (VR12) | `miles` | no, never | Voxware VR12 on 11025 Hz sound | 32.65 ms, 12 bytes, 2940 bit/s | not checked against the game |
 
@@ -112,12 +112,12 @@ The figures of the game's codecs are in [FINDINGS.md, entry 10](FINDINGS.md#10-t
 - **The sender.** The three older codecs, and `miles` (not in TF2), have no voice gate by default: everything is sent. The page's gate, when switched on, is the app's frame gate: a frame over −39.5 dBFS RMS is sent with the 120 ms before it and the 440 ms after it. Those three numbers are a fit to the first recordings of Steam voice (finding 12), not a rule of these codecs. `steam_48` (not in TF2) has that gate on by default.
 - **The loss.** Loss takes frames in bursts that average 2.2 frames. That number is a fit to an earlier reading of the loss recordings, which the record has withdrawn for the game (finding 8). The "Frames per packet" setting makes a lost packet take that many frames.
 - **A lost frame.** The two CELT profiles fill it with CELT's own concealment. `speex` plays zeros, and so does `miles` (not in TF2): the Speex module has no concealment (read), and what the engine plays in that place was not read.
-- **The gain** runs on the decoder's samples from the first one (measured for Speex, finding 31).
+- **The gain.** On the three older codecs and on `miles` (not in TF2) the gain runs on the decoder's samples from the first one (measured for CELT and Speex, finding 31). On `steam_48` (not in TF2) it runs on the source's timeline.
 - **Into the mix.** 22050 Hz voice is doubled once and 11025 Hz voice twice, by the mixer's own rule (read).
 
-**`steam_48`, not in Team Fortress 2.** Opus at 48000 Hz and 64 kbit/s with the frame gate, a float decoder and the app's own resampler. It is what Steam voice would sound like with a full band, and nothing in it was measured against a game.
+**`steam_48`, not in Team Fortress 2.** Opus at 48000 Hz and 64 kbit/s with the frame gate, a float decoder and the app's own resampler. It is the app's own guess at Steam voice with a full band (guessed), and nothing in it was measured against a game.
 
-**`miles`, not in Team Fortress 2.** `vaudio_miles` could be selected in the Source engines of 2006 and 2007; current TF2 ships its files and refuses the name ([FINDINGS.md, entry 11](FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2)). The codec stage is those engines' as read: each sample cut to its top 8 bits, then VR12, 360 samples in 12 bytes. The codec itself is a public implementation, vendored in `vendor/voxware-vr12/`. It has not been checked against any recording of a running engine. Three things in the profile are stand-ins (guessed): a new phrase resets both the encoder and the decoder, the gain is held through time in which nothing was sent, and a lost frame plays as zeros. Everything after the gain is TF2's of today, which is not what those engines had. [tests/LEGACY_CODECS.md](../tests/LEGACY_CODECS.md#vaudio_miles) has the detail.
+**`miles`, not in Team Fortress 2.** `vaudio_miles` could be selected in the Source engines of 2006 and 2007; current TF2 ships its files and refuses the name ([FINDINGS.md, entry 11](FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2)). The codec stage is those engines' as read: each sample cut to its top 8 bits, then VR12, 360 samples in 12 bytes. The codec itself is a public implementation, vendored in `vendor/voxware-vr12/`. It has not been checked against any recording of a running engine. Four things in the profile are stand-ins (guessed): the encoder's start-up block is coded as zeros, a new phrase resets both the encoder and the decoder, the gain is held through time in which nothing was sent, and a lost frame plays as zeros. Everything after the gain is TF2's of today, which is not what those engines had. [tests/LEGACY_CODECS.md](../tests/LEGACY_CODECS.md#vaudio_miles) has the detail.
 
 ## Rooms
 
@@ -133,9 +133,9 @@ A room is off by default. With one on, the app runs the game's room arithmetic o
 | Automatic room, as recorded | the two automatic rooms that the owner's recordings carry | the arithmetic read; echo times and level measured against those recordings |
 | Automatic room: examples by shape | fourteen shapes, from a closet to open space | the arithmetic read; the measures are examples |
 | Automatic room: places measured on 2Fort | five places, built from the measures the game printed there | the arithmetic read; the measures measured |
-| A room the map sets by number | the ten numbered rooms that the game's soundscape scripts ask for | read; room 6 measured echo by echo to 102 ms |
+| A room the map sets by number | the ten numbered rooms that the game's soundscape scripts ask for | read |
 
-A manual panel sets a room by its number or the automatic room by its measures. It also has a custom room, which is the app's own and not the game's.
+A manual panel sets a room by its number or the automatic room by its measures. Room 6, reached by the manual number, was measured echo by echo to 102 ms (Set K). The panel also has a custom room, which is the app's own and not the game's.
 
 **Under water.** The "Listener under water" switch passes the whole sound through the game's water preset (read). It comes out dull and at about 0.77 of its level, with no tremolo (measured in one recording).
 

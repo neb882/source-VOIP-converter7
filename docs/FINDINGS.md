@@ -26,7 +26,7 @@ A rule that was read holds for the files it was read from. A Steam or game updat
 | rooms | the game's preset file, its sound mixer file and its 40 soundscape scripts | not given | 2026-11-10 |
 | `vaudio_miles` (never in TF2) | the engines of Source SDK Base 2006 and 2007 with their wrappers and plug-in, and the module TF2 ships | engines 2009-12-04 and 2010-02-01; wrappers 2006-05-22 and 2008-07-11; TF2's module 2024-01-17 | 2026-11-11 |
 
-The recordings fall in two periods. Sets A to F were recorded from 2026-09-24 to 2026-09-27. Sets G to O were made on 2026-11-10 and 2026-11-11 with the game's and Steam's own debug output.
+The recordings fall in two periods. Sets A to F were recorded from 2026-09-24 to 2026-09-27. Sets G to O were made on 2026-11-10 and 2026-11-11, most of them with the game's and Steam's own debug output; Set K is recordings of the game's output.
 
 ## The voice path
 
@@ -79,9 +79,10 @@ The rows of the table other than those two were not measured.
 
 1. In the game set `voice_loopback 1`, make one short loud sound in a room with a steady quiet background, and record the game's output.
 2. Measure the time from the loud sound to the point where the voice goes silent. The last part of that tail is the codec's comfort noise, which is quieter than the background itself.
-3. Restart Steam and do it again.
+3. Do this a few times and take the average: one sound can fall anywhere between two of Steam's reads.
+4. Restart Steam and do it all again.
 
-By the table the voice goes silent about 0.40 to 0.47 s after the loud sound on the Steam started today, and 0.1 to 0.35 s later than that on the old one (computed; no Steam older than 24.3 days was measured, and the check was not made in this form). With Steam's console the same shows in counts. With `@voice_spew_activity_check 1` on, the phrase ended on the 7th or 8th chunk after the last loud one on the young Steam (measured: 5 and 32 of 37, never the 9th), and on the 7th, 8th or 9th on the Steam of 23.9 days (measured: 4, 5 and 3 of 12).
+By the table the voice goes silent about 0.4 to 0.5 s after the loud sound on the Steam started today, and 0.1 to 0.35 s later than that on the old one (computed; no Steam older than 24.3 days was measured, and the check was not made in this form). The single values of the two runs can overlap; the averages should not. With Steam's console the same shows in counts, and that is the sounder form of the check. With `@voice_spew_activity_check 1` on, the phrase ended on the 7th or 8th chunk after the last loud one on the young Steam (measured: 5 and 32 of 37, never the 9th), and on the 7th, 8th or 9th on the Steam of 23.9 days (measured: 4, 5 and 3 of 12).
 
 **Record.** Findings 12, 16 (its paragraph on Set L), 27 and 28.
 
@@ -105,7 +106,7 @@ Steam codes what is sent with Opus at 24 kHz, and in held pauses and under stead
 
 ### 4. The network
 
-A lost packet takes a whole voice message with it, 20 to 160 ms of sound at once, and nothing in the game makes a single frame late.
+A lost packet takes a whole voice message with it, and nothing in the game makes a single frame late. A voice message holds 1 to 4 frames of 20 ms as a rule and usually 8 where a phrase opens (measured; other openings held 3 to 9, the rule gives an opening 9 or 10 at most, and the first packet of each clip of Set J held 12), and the game refuses a message of more than 12 frames (read).
 
 - **One message, one packet.** Once a tick, every 15 ms, the engine asks Steam for voice and sends what comes as one message with its next packet (read). The server passes each message to each listener and merges or re-times nothing (read). A message is never split over two packets (read). That one packet carries one message on a listen server is inferred; how many it carries at a real server's rates was not read.
 - **Loss.** A packet is lost whole, and one that arrives out of order is thrown away (read). The game has no rule that loses packets in bursts (read).
@@ -116,7 +117,7 @@ A lost packet takes a whole voice message with it, 20 to 160 ms of sound at once
 
 **Not settled.** A take with loss, lag and jitter together has more silence than the rule gives (10.3% against 4.0%), and the cause is not known. Real internet loss was not recorded. An earlier reading of these takes, that single frames are lost in bursts averaging 2.2 frames and that jitter makes single frames late, is withdrawn in the record.
 
-**Check it yourself.** `net_fakeloss` needs `sv_cheats 1`, and on a listen server it acts on voice only with `net_usesocketsforloopback 1`.
+**Check it yourself.** This gives the set-up only, not a procedure that shows the effect. Set C was made on a listen server with `sv_cheats 1` and `net_usesocketsforloopback 1`, and there a voice message meets four draws of `net_fakeloss`. Without it the reading gives two, one for each crossing; that reading is of medium confidence and nothing here rests on it. The record's own check counts the runs of lost sound in a recording of steady noise.
 
 **Record.** Findings 8, 9 and 25.
 
@@ -126,7 +127,7 @@ On the listener's PC Steam decodes each message to 16-bit sound, fills at most t
 
 - **Frames.** An end marker starts a fresh decoder. A frame whose number is ahead of the expected one has the gap in front of it filled by the codec's concealment, at most 10 frames of it. A number that goes back starts a fresh decoder with nothing filled. A record of silence becomes that many zeros (all read).
 - **Limits.** One record decodes to at most 17 frames. The game takes a message only if its converted sound fits 22,528 bytes, which is 12 frames; a longer one is not heard at all (read).
-- **The resampler.** Each message goes by itself through FFmpeg's libswresample at its default settings, in 32-bit float (read; the library is public and was run). One resampler serves a speaker for the whole session and outlives key presses and reconnects (measured). It finishes a speaker's opening message by mirroring its last 16 input samples, so everything after is 0.67 ms late (run on the public library; seen in Set J).
+- **The resampler.** Each message goes by itself through FFmpeg's libswresample at its default settings, in 32-bit float (read; the library is public and was run). One resampler serves a speaker for the whole session and outlives key presses and reconnects (measured). Once for each speaker in a session, on that speaker's opening message, it mirrors the last 16 input samples to finish the message, so everything after is 0.67 ms late (run on the public library; seen in Set J).
 - **Its sound.** Flat to 10 kHz, then −0.7 dB at 11 kHz, −2.4 dB at 11.5 kHz and −6.0 dB at 12 kHz, with a mirror of the band just under 12 kHz left just above it (computed from the public source).
 
 **Standing.** Read from Steam's client on 2026-11-10. Measured the same day (Set J): given the decoded samples, a port of the resampler equals the game's recording in every one of 524,288 samples once one decoded sample is set one step up; with nothing changed, 2 samples differ. The limit of 12 frames shows in the loss takes of entry 4: after 7 long runs of lost sound the game is early by 13 to 17 frames.
@@ -152,7 +153,7 @@ The receiving game turns quiet voice up as far as ten times and cuts off whateve
 
 **Not settled.** That check ran under `vaudio_celt`. The same routine serves Steam voice (read), where no check to the sample exists. The divisor 127 rests on the reading alone: 128 gives the same samples on that signal.
 
-**Check it yourself.** Play a steady sine into the microphone with `voice_loopback 1`: its tops come out flat, and its level does not change when the input is turned down by 10 dB.
+**Check it yourself.** Play a steady sine between −18 and −1 dBFS into the microphone with `voice_loopback 1`: its tops come out flat, and its level does not change when the input is turned down by 10 dB within that range. At −24 dBFS the gain has reached its cap, and from −30 dBFS down the codec's DTX sets in.
 
 **Record.** Findings 3, 4 and 26.
 
@@ -162,12 +163,13 @@ The game queues each speaker's voice before it plays it, so a phrase that follow
 
 - **The queue.** Each speaker has a ring of 22050 samples, 0.5 s at 44100 Hz (read). A packet that does not fit overwrites the oldest sound, which is heard as a skip (read).
 - **The wait.** A packet for a speaker with no channel opens one, and the channel waits before it plays. The wait is `voice_buffer_ms`, 100, but the engine counts it down by one frame's duration on each 15 ms tick, so it lasts `ceil(0.1 × frames a second)` ticks (read). Sound starts about 90 ms after the packet at 67 frames a second, 135 ms at 100 and 435 ms at 300 (measured).
+- **The opening cut short at 300 frames a second.** At TF2's default cap of 300 frames a second the wait is long and a phrase opens with 160 ms at once, so the ring overflows at nearly every restart: it was full when it started to play in 24 of 28 channels (measured, Set G). The rule, replayed over one run's log, drops 55 to 136 ms of what was queued at each of 16 restarts, Steam's pre-roll first and then the onset. So the phrase's opening comes out shortened by that much. At 67 and 100 frames a second nothing was dropped (measured).
 - **Early starts.** A channel ends on the tick after its ring has run empty. A packet that arrives before that is added to what is queued and plays straight after it. So a phrase after a short pause starts early by the pause less the 62.5 ms record of silence (read; measured).
 - **How often.** Over 146 changes from one phrase to the next in 13 takes, 25 phrases start 80 to 350 ms early. After a pause of at most 0.45 s, 21 of 51 do (measured). Which ones cannot be told from the sound alone: where a pause sits at the threshold, 30 ms in when the packets arrive decide, and a recording does not show that (inferred).
 - **One sample a packet.** The engine writes one sample fewer into the ring than each packet holds (read). At about 17.8 packets a second, playback gains about 0.04% on the talker (measured: 404 to 406 parts in a million on most takes).
 - **The end of the queue.** The last 0.1 s of what is queued is faded to zero (read; not seen in a recording).
 
-**Standing.** Read from the game's engine on 2026-11-10. Measured the same day in the game's own console logs (Set G): the rule, replayed over 2,375 packets, gives the logged queue on every one of 9,808 ticks. The early starts were measured in the takes of September 2026.
+**Standing.** Read from the game's engine on 2026-11-10. Measured the same day in the game's own console logs (Set G): the rule, replayed over 2,375 packets with the mixer's demand taken from the log, gives the logged queue on every one of 9,808 ticks. So the replay does not test when the mixer pulls. The early starts were measured in the takes of September 2026.
 
 **Not settled.** A listener under 67 frames a second, and the queue under the older codecs, were not logged. The fade and what an empty queue plays were read and not recorded.
 
@@ -183,13 +185,13 @@ The voice enters the game's 44100 Hz mix a little under its full level, the mix 
 - **The older codecs** run at 22050 or 11025 Hz. The mixer doubles their rate once or twice, each added sample the mean of its two neighbours rounded down (read).
 - **The sum.** All sound is added, clipped at ±32767, multiplied by `volume` and rounded to 16 bits, in that order (read). So the loudest sample is `round(32767 × volume)`: 4915 at `volume 0.15` (measured).
 - **Other sound.** While a voice plays, every other sound falls to half over 0.4 s (read).
-- **To the sound device.** The game hands its 44100 Hz sound to Windows, which brings it to the device's rate by linear interpolation. This is measured, not read: flat tops stay exactly on the ceiling, and a 1 kHz tone has images at 2900 and 4900 Hz about 65 dB under it, where linear interpolation gives 66.2 and 65.4 dB. It lowers the top of the band: −0.95 dB at 8 kHz and −5.1 dB at 18 kHz (computed from linear interpolation).
+- **To the sound device.** The game hands its 44100 Hz sound to Windows, which brings it to the device's rate by linear interpolation. This is measured, not read: flat tops stay exactly on the ceiling, and a 1 kHz tone has images at 2900 and 4900 Hz about 65 dB under it, where linear interpolation gives 66.2 and 65.4 dB. It lowers the top of the band: −0.95 dB at 8 kHz and −5.1 dB at 18 kHz (arithmetic on linear interpolation, which itself is measured and not read).
 
 **Standing.** Read from the game's engine on 2026-11-10. Measured in five recordings of September 2026, all on 48000 Hz devices.
 
 **Not settled.** A 44100 Hz device would need no conversion (inferred; no recording). With two speakers in place of headphones the voice enters at 182.6/256 (read; that a voice belongs to that group of the game's sound mixer rests on a name; no recording). A recording of 2026-11-11 that could be placed to the sample against the conversion is within one step of the rule in 73% of its samples, and in 98.2% once the read position is let drift as a single-precision position would (measured); the drift is inferred, not read.
 
-**Check it yourself.** Record a loud voice with `voice_loopback 1`: the largest sample is 32767 times your `volume`. Play a 1 kHz tone and look for the two images at 2.9 and 4.9 kHz.
+**Check it yourself.** Record a loud voice with `voice_loopback 1`: its flat tops sit at 32639 times your `volume`, which is 255/256 of full scale, and samples reach 32767 times `volume` only where the game's own sound adds to the voice. On a 48000 Hz device a 1 kHz tone shows images at 2.9 and 4.9 kHz.
 
 **Record.** Findings 1 and 30.
 
@@ -213,7 +215,7 @@ Where the map sets a room, part of the voice passes that room's reverb and is ad
 
 ### 10. The older engine codecs
 
-Before Steam voice the engine coded voice itself, at lower rates, and TF2 still has three of those codecs.
+Before Steam voice the engine coded voice itself, at lower rates, and TF2 still has three of those codecs. Steam voice is the default of `sv_voicecodec` today (read).
 
 - **`vaudio_celt`.** CELT 0.11 with its pitch filter, at 22050 Hz, in frames of 512 samples (23.2 ms) and 64 bytes, at the library's default complexity of 5 (read).
 - **`vaudio_celt_high`.** The same library in its 44100 Hz mode, with frames of 1024 samples and 128 bytes, fed 22050 Hz sound (read). So a frame lasts 46.4 ms, the rate is the same 22.05 kbit/s, and the band ends at about 10 kHz (measured on the mode itself: a 9 kHz tone comes back at +0.35 dB and a 10.5 kHz tone at −66 dB).
@@ -223,15 +225,17 @@ Before Steam voice the engine coded voice itself, at lower rates, and TF2 still 
 
 **Standing.** Read on 2026-11-10 from the game's `vaudio_celt` module and from a `vaudio_speex` module of another Source game. Measured against the game's own recordings of its decoded voice, with a file as the microphone:
 
-| Codec | Set, date | A build of the public source, set up as read, gives the game's recording in |
+| Codec | Set, date | The app's build of the public source, set up as read, gives the game's recording in |
 | --- | --- | --- |
 | `vaudio_celt` | H, 2026-11-10 | 292,351 of 292,352 samples; the other is one step off |
 | `vaudio_celt_high` | H, 2026-11-10 | 292,789 of 292,864 samples; the others are one step off |
-| `vaudio_speex`, after the gain | M (HL2DM) and O (TF2), 2026-11-11 | 145,966 of 145,966 samples, at `voice_maxgain 1` and at 10 |
+| `vaudio_speex`, after the gain | M (HL2DM) and O (TF2), 2026-11-11 | Set O: 145,966 of 145,966 samples at `voice_maxgain 1` and at 10. Set M: 145,840 of 145,840 at 1 and 145,966 of 145,966 at 10 |
+
+For Speex the build also computes as the module's compiler did: the module's arithmetic differs from strict C of the same source in 25 places, and a strict build codes the same sound differently (measured: 92,967 of 145,920 samples).
 
 **Not settled.** Those recordings are the decoded voice after the gain, not the game's output: no recording of what a listener hears under these codecs exists. What a listener hears after a lost Speex frame was not read and not measured. No recording of `vaudio_celt_high` at `voice_maxgain 10` exists.
 
-**Check it yourself.** Set `sv_voicecodec` before the map loads. `voice_showincoming 1` then prints packets of 512 samples for `vaudio_celt`, 1024 for `vaudio_celt_high` and multiples of 160 for `vaudio_speex`. `voice_inputfromfile 1` takes a 16-bit mono file at the codec's rate as the microphone, and `voice_recordtofile 1` writes the decoded voice.
+**Check it yourself.** Set `sv_voicecodec` before the map loads. `voice_showincoming 1` then prints packets of 512 samples for `vaudio_celt`, 1024 for `vaudio_celt_high` and multiples of 160 for `vaudio_speex`. `voice_inputfromfile 1` takes a file as the microphone: it must be named `voice_input.wav`, 16-bit mono at the codec's rate with a plain 44-byte header, and lie in the game's working directory (read; that this is the folder of the game's executable is inferred). The game skips the file's first two samples (read; seen in Set H). `voice_recordtofile 1` writes the decoded voice.
 
 **Record.** Finding 31, and [tests/LEGACY_CODECS.md](../tests/LEGACY_CODECS.md) for what public sources say.
 
@@ -254,7 +258,7 @@ Before Steam voice the engine coded voice itself, at lower rates, and TF2 still 
 
 ## What rests on one PC
 
-Every measurement here was made on the owner's PC, with one exception: Set D, where a second account on a second PC recorded the same voice as a remote listener.
+Every recording here was made on the owner's PC, with one exception: Set D, where a second account on a second PC recorded the same voice as a remote listener.
 
 What a single PC limits is what belongs to a PC and not to the code:
 
@@ -277,10 +281,10 @@ What the search found, and what this project owes to public work:
 
 - **Zhenyang Li, ["Reversing Steam Voice Codec"](https://zhenyangli.me/posts/reversing-steam-voice-codec/) (2021-03-30).** The layout of Steam's voice packet, read from the 32-bit Steam client: the SteamID in front, payloads marked by a type number (0, 1 to 6 with 6 as Opus with concealment, and 11 as the sample rate) and a CRC32 at the end.
 - **[`steam-audio-codec`](https://docs.rs/steam-audio-codec)**, a Rust crate from the demos.tf project: a decoder for those packets, built on that layout.
-- **[CS2VoiceData](https://github.com/DandrewsDev/CS2VoiceData)**, a Go example that takes the voice out of Counter-Strike 2 demos.
+- **CS2VoiceData**, a Go example that reads the voice of Counter-Strike 2 demos.
 - **[A gist by ericek111](https://gist.github.com/ericek111/abe5829f6e52e4b25b3b97a0efd0b22b)** that decodes CS:GO's CELT voice by calling the game's own library: 22050 Hz, frames of 512 samples, packets of 64 bytes.
-- **In this repository's own code:** the demo reader's message layouts follow tf-demo-parser, and the VR12 codec of entry 11 is a public implementation by another author, vendored unchanged ([vendor/voxware-vr12](../vendor/voxware-vr12/README.md)).
+- **In this repository's own code:** the demo reader's message layouts follow tf-demo-parser, and the VR12 codec of entry 11, which was never in TF2, is a public implementation by another author, vendored unchanged ([vendor/voxware-vr12](../vendor/voxware-vr12/README.md)).
 
 The search found nothing on the sender's gate, its hold or its clock, on the receiver's gain, queue or mixer, on rooms on a voice, or on Steam's uptime.
 
-No fact was taken from any of these into the model as it stands: what each says about the game was established again from the owner's own files and recordings before it was used. Nothing here rests on leaked source code, and nothing that does is linked.
+No fact about the game's voice path was taken from these projects into the model without being found again in the owner's own files or recordings. The layouts of a demo file's messages follow tf-demo-parser as published. Nothing here rests on leaked source code, and nothing that does is linked.

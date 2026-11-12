@@ -8,7 +8,7 @@ Every figure carries its standing: **read**, **measured**, **inferred**, **guess
 
 Several stages of the modern path equal the game's sound sample for sample. Those stages do not speak for the ones in this list.
 
-- **When a phrase starts.** A render keeps the source's own timing. The game starts some phrases 80 to 350 ms early after a short pause (measured). The orchestrator's private check of 2026-11-12, on the owner's speech take with its 9 changes from one phrase to the next, gave:
+- **When a phrase starts.** A render keeps the source's own timing. The game starts some phrases 80 to 350 ms early after a short pause (measured). The orchestrator's private check of 2026-11-12, on the owner's speech take with its 9 changes from one phrase to the next, gave the figures below. Each share is a mean over many draws of the sender's clock (`tests/retiming.mjs`, 200 seeds unless set otherwise), not a count of the 9:
 
   | Timing model | Changes it gets right | Error of a phrase's start |
   | --- | --- | --- |
@@ -18,10 +18,10 @@ Several stages of the modern path equal the game's sound sample for sample. Thos
   | no timing model (a render today) | 11% | 150 ms |
 
   Part of this cannot be closed. Which pause closes depends on where Steam's reads fell while the talker spoke, and that is not in a recording.
-- **The receiver's queue.** The queue as read gives the game's own log on every tick of the logged runs (measured, Set G). It is a module that no page loads: not in a render yet. So a render has no early starts, does not drop one sample from every packet, and has no fade at the end of the queue.
+- **The receiver's queue.** Replayed over the game's logged packets, with the mixer's demand taken from the log, the module gives the logged queue on every tick (measured, Set G). When the mixer pulls is therefore not tested. No page loads the module: it is not in a render yet. So a render has no early starts, does not drop one sample from every packet, and has no fade at the end of the queue.
 - **Jitter.** The jitter setting is a fit to one recording: single frames marked late. The game's jitter delays and bunches whole messages and makes no frame late (read). The order that builds that, BC-4, is not built yet.
 - **Loss.** Which messages are lost is random in the game and in the app, so a take with loss can be compared only by its statistics. One take with loss, lag and jitter together has more silence than the rule gives (measured: 10.3% against 4.0%), and why is not known. Real internet loss was not recorded.
-- **`miles`, which was never in Team Fortress 2.** It has not been checked against any recording of a running engine. Three parts of it are stand-ins (guessed).
+- **`miles`, which was never in Team Fortress 2.** It has not been checked against any recording of a running engine. Four parts of it are stand-ins (guessed).
 - **The capture.** The roll-off above 11 kHz is a fit to the owner's PC, and the resampler in front of the sender is the app's own. No order replaces either.
 - **The sender's clock.** The rule is exact; when Steam reads the capture is drawn from a seed. How long the talker's Steam has run is a setting, and for someone else's voice it cannot be known.
 - **The sound device.** The conversion to the device's rate is measured, not read, and only at 48000 Hz.
@@ -40,7 +40,7 @@ The tool is finished when every stage of the modern preset is either equal to a 
 | Steam's sender, the read clock | drawn; the difference cannot be closed from a recording |
 | the codec, the decoder and its resampler | equal in all but 2 of 524,288 samples (measured, Set J) |
 | the receiver's gain | equal under `vaudio_celt` (measured, Set H); under Steam voice no check to the sample exists |
-| the voice channel | the module equals the game's log; not in a render yet |
+| the voice channel | the module gives the game's logged queue when it is given the log's packets and the mixer's demand; not in a render yet |
 | the mixer's entry, the clip and `volume` | equal on flat tops (measured); the rest rests on the reading |
 | the device's conversion | as built, within one step in 73% of samples; in 98.2 to 99.5% with a drift of the read position that is not built (measured, Set K); what is left after that is not explained |
 
@@ -93,9 +93,9 @@ The research beside the tool has no finish line: the older codecs beyond TF2's, 
 ### The voice channel
 
 - **What the app runs.** In a render, nothing: each message's sound is laid on the source's timeline. The optional "Talk-spurt timing" is a flat rule, a fit (finding 19).
-- **How it was checked.** The module `voice-channel.js`, replayed over the game's logged packets, gives the logged queue on every tick (Set G, finding 22).
+- **How it was checked.** The module `voice-channel.js`, replayed over the game's logged packets with the mixer's demand taken from the log, gives the logged queue on every tick (Set G, finding 22).
 - **What differs.** See "What is not exact": the start of phrases, one sample a packet, the fade.
-- **Not built yet.** The queue in a render, on the page and for a demo (the orders W3-02c to W3-02g).
+- **Not built yet.** The queue in a render, on the page and for a demo (the orders W3-02c-2 to W3-02g).
 
 ### The mixer and the output
 
@@ -110,7 +110,7 @@ The research beside the tool has no finish line: the older codecs beyond TF2's, 
 | --- | --- | --- |
 | `celt_22` | the decoder's output: 292,351 of 292,352 samples (Set H) | what a listener hears; the queue under this codec |
 | `celt_44` | the decoder's output: 292,789 of 292,864 samples (Set H) | the same; the gain at `voice_maxgain 10` |
-| `speex` | the decoder's output after the gain: 145,966 of 145,966 samples, at `voice_maxgain` 1 and 10 (Sets M and O) | what a listener hears; what plays for a lost frame |
+| `speex` | the decoder's output after the gain. Set O: 145,966 of 145,966 samples at `voice_maxgain` 1 and at 10. Set M: 145,840 of 145,840 at 1 and 145,966 of 145,966 at 10 | what a listener hears; what plays for a lost frame |
 | `steam_48`, not in TF2 | nothing: there is no game to check it against | everything |
 | `miles`, not in TF2 | the codec stage against the old engines' own module, run on signals of our own: every packet equal, decoded samples within one step | any recording of a running engine |
 
@@ -138,7 +138,7 @@ The live monitor runs the same stages on a microphone, piece by piece, and it is
 
 ## The figures: the app against the owner's takes
 
-These figures are from the orchestrator's private run of 2026-11-12: `node tests/accuracy.mjs --takes <folder>` over all 18 takes of [tests/accuracy.takes.json](../tests/accuracy.takes.json), with the model as it stood at commit `8035cfa`. The suite renders each take's source with the take's settings, lines the take up with the render phrase by phrase, and compares the two where they overlap. Tables of earlier dates are in the record and are not repeated here.
+These figures are from the orchestrator's private run of 2026-11-12: `node tests/accuracy.mjs --takes <folder>` over all 18 takes of [tests/accuracy.takes.json](../tests/accuracy.takes.json), with the model as it stood at commit `8035cfa`. The row of `listener_B` is from a private run of the same day with main at `9e0abd0`, at other settings (see below); `sender_A` read the same in that run. The suite renders each take's source with the take's settings, lines the take up with the render phrase by phrase, and compares the two where they overlap. Tables of earlier dates are in the record and are not repeated here.
 
 How to read each column:
 
@@ -170,23 +170,23 @@ How to read each column:
 | `net_combined` (random) | C | 13 | 15 | 1.866 to 2.630 | 0 | 14 | +2792 | 0.65 | 5.28 / 21.7 | 0.441 | −1.0 dB at 8 to 10 kHz | 0.8 / 0.8 | +0.3 |
 | `speech_loss10` (random) | C | 10 | 27 | 1.674 to 2.033 | 1 | 25 | +280 | 0.70 | 5.89 / 25.2 | 0.579 | −0.8 dB at 11 to 12 kHz | 0.9 / 0.9 | +0.4 |
 | `sender_A` | D | 17 | 23 | 1.560 to 1.894 | 1 | 22 | +405 | 0.76 | 0.12 / 0.5 | 0.997 | +2.1 dB at 11 to 12 kHz | 7.6 / 9.3 | +0.1 |
-| `listener_B` | D | 17 | 20 | 4.792 to 4.946 | 0 | 19 | +405 | 0.78 | 0.89 / 2.7 | 0.838 | +3.2 dB at 11 to 12 kHz | 1.2 / 9.8 | +0.2 |
+| `listener_B` | D | 17 | 20 | 4.792 to 4.946 | 0 | 19 | +403 | 0.78 | 0.41 / 2.0 | 0.959 | +2.4 dB at 11 to 12 kHz | 1.2 / 1.9 | +0.5 |
 | `river_artifact` | E | 1 | 1 | −0.596 | 0 | 0 | +403 | 0.85 | 0.20 / 0.7 | 0.989 | +0.5 dB at 80 to 120 Hz | 12.9 / 14.9 | −0.0 |
 | `lowtone_default` | F | 19 | 22 | 1.940 to 2.362 | 0 | 21 | +397 | 0.82 | 3.58 / 30.0 | 0.797 | −2.2 dB at 120 to 200 Hz | 14.1 / 16.4 | −0.7 |
 | `lowtone_maxgain_1` | F | 19 | 17 | 3.586 to 3.682 | 0 | 16 | +405 | 0.80 | 4.48 / 16.3 | 0.584 | −15.5 dB at 11 to 12 kHz | 0.7 / 0.7 | −2.2 |
 | `music_river` | A | 1 | 4 | −51.985 to −51.960 | 0 | 3 | +408 | 0.85 | 0.12 / 0.8 | 0.991 | +0.2 dB at 8 to 10 kHz | 13.7 / 16.2 | +0.0 |
 | `music_take_it_off` | A | 1 | 2 | −1.436 to −1.417 | 0 | 1 | +408 | 0.78 | 0.08 / 0.3 | 0.997 | +0.2 dB at 11 to 12 kHz | 12.6 / 18.5 | +0.2 |
 
-How the takes were rendered: every take at `volume 0.15` except `listener_B` at 0.077; the Set C takes with the automatic room that set carries, and `sender_A` with its street room; the takes marked "random" with the loss the rule gives for their `net_fakeloss` (21.7%, 49.8% and 37.0% of messages) and the jitter fit at 50 ms.
+How the takes were rendered: every take at `volume 0.15` except `listener_B`, at `volume 0.11` and `voice_scale 0.77`; the Set C takes with the automatic room that set carries, and `sender_A` with its street room; the takes marked "random" with the loss the rule gives for their `net_fakeloss` (21.7%, 49.8% and 37.0% of messages) and the jitter fit at 50 ms.
 
 What the figures say, the weak ones included:
 
-- **The plain takes agree closely.** For the test signal at changed settings, the music and the sender's own side, the offset is within about 0.1 to 0.2 dB and the level correlation is 0.98 to 1.00.
+- **The plain takes agree closely in overall level.** For the test signal at changed settings, the speech, the music and the sender's own side, the offset is within about 0.1 to 0.2 dB and the level correlation is 0.98 to 1.00. Block by block they differ by more: 0.08 to 1.01 dB RMS.
 - **`take1_default` is weaker**: a level correlation of 0.951, a worst block of 12.5 dB, and +2.7 dB at 10 to 11 kHz. The record puts its largest block differences in the −36 dBFS sine near the game's ambience, in the tails of the hold, and in the 10 to 12 kHz tones that Steam puts into DTX more often than the app (findings 13 and 14).
-- **`listener_B` is weaker**: 0.838, +3.2 dB at 11 to 12 kHz, and 1.2% of samples clipped against 9.8% in the render. It was rendered at `volume 0.077` and `voice_scale 1`. The record infers that this PC ran `volume 0.11` and `voice_scale 0.77`, at which a loud tone is not clipped; the take has not been rendered at those settings.
+- **`listener_B`, the second PC's take, is off in overall level: +0.5 dB.** Apart from the two low-tone takes it is the one plain take outside 0.2 dB. Its level correlation is 0.959. Its row is rendered at `volume 0.11` and `voice_scale 0.77`. Both are inferred from the recording (finding 15); neither was read off that PC. At the settings first fitted to its levels, `volume 0.077` and `voice_scale 1`, the row read 0.89 / 2.7, 0.838, +3.2 dB at 11 to 12 kHz, 1.2 / 9.8 and +0.2 dB. What remains is the +0.5 dB overall and +2.4 dB at 11 to 12 kHz. That PC had a room on the voice which the record has not identified, and it is not in the render.
 - **The two low-tone takes are the worst plain takes.** `lowtone_default`: −0.7 dB and 0.797, with a worst block of 30.0 dB. `lowtone_maxgain_1`: −2.2 dB, 0.584, and −15.5 dB at 11 to 12 kHz. The record says of them that their comfort-noise plateaus are random in the game and in the app, so they differ block by block, and that the 11 to 12 kHz band of the `voice_maxgain 1` take is the game's ambience against near silence (finding 18). It says no more, and neither does this document.
 - **The loss and jitter takes are statistics only.** Their lost messages are other messages than the game's, so the block figures (level correlations of 0.44 to 0.78 with loss) are expected to be poor and measure nothing about the model. The offset column is the usable one: −0.1 to +0.4 dB.
-- **The clock column** reads about +400 on the plain takes: the game's one sample a packet, which a render does not drop. `take3_voice_maxgain_1` reads +510, and the record says that take had more packets a second (finding 24). The takes with loss or jitter read from +280 to +2792, and nothing here explains those values.
+- **The clock column** reads about +400 on the plain takes: the game's one sample a packet, which a render does not drop. `take3_voice_maxgain_1` reads +510; the record says that one take, at 505 then, had 22.3 packets a second (finding 24), and that this is the take is inferred. The takes with loss or jitter read from +280 to +2792. For the jitter take the record infers skips where a bunch of messages overflows the queue (finding 9; not checked). The loss takes close up after a refused message (finding 8). Neither is checked against these figures.
 - **The clipped column** is higher in the render on the two music takes (16.2% against 13.7%, 18.5% against 12.6%). Those takes are MP3 files, and the record shows that MP3 coding lowers this figure (finding 7). On three lossless takes, `sender_A`, `river_artifact` and `lowtone_default`, the render also has 1.7 to 2.3 points more, and that is not explained.
 
 What this table cannot show: whether a phrase starts at the right time (the first item of "What is not exact"), and anything about a profile other than `steam`, since every take here is Steam voice.
