@@ -59,11 +59,20 @@
     };
   }
 
-  // Cooperative yield — keeps the UI responsive during long renders
-  // (no-op in bare JS contexts like the Node test sandbox).
-  const microYield = (typeof setTimeout === 'function')
-    ? () => new Promise(r => setTimeout(r, 0))
-    : () => Promise.resolve();
+  // Cooperative yield, so that the page or the worker can do other work
+  // during a long render. On a page, a timer (a browser makes each nested
+  // setTimeout(0) wait at least 4 ms). In a worker (W4-01b), a turn of a
+  // MessageChannel: no 4 ms, yet a message waiting for the worker (a cancel)
+  // is taken in before the render goes on. In bare JS contexts with no
+  // timers (the Node test sandboxes), a resolved promise.
+  const microYield = (() => {
+    if (typeof WorkerGlobalScope !== 'undefined' && typeof MessageChannel === 'function') {
+      const channel = new MessageChannel(), waiting = [];
+      channel.port1.onmessage = () => { const next = waiting.shift(); if (next) next(); };
+      return () => new Promise((resolve) => { waiting.push(resolve); channel.port2.postMessage(0); });
+    }
+    return typeof setTimeout === 'function' ? () => new Promise(r => setTimeout(r, 0)) : () => Promise.resolve();
+  })();
 
   /* ------------------------------------------------------------------ */
   /* FFT — iterative radix-2, in-place, complex                          */
@@ -1576,6 +1585,20 @@
     return info;
   }
 
+  // A render stopped by its caller ends with this error (opts.signal).
+  function abortError() {
+    const error = new Error('The render was cancelled.');
+    error.name = 'AbortError';
+    return error;
+  }
+  // process()'s yield: microYield, with a stop asked for by opts.signal
+  // (anything with `aborted`: an AbortSignal in the worker) seen before and
+  // after it. The codec stages are given it as their yieldControl.
+  function pauseFor(signal) {
+    const stop = () => { if (signal && signal.aborted) throw abortError(); };
+    return async () => { stop(); await microYield(); stop(); };
+  }
+
   /**
    * Render a source AudioBuffer (or any { sampleRate, length,
    * numberOfChannels, getChannelData }) through the TF2 voice pipeline.
@@ -1645,6 +1668,9 @@
    *                 demo.js): { frameLog, frameBytes, frameMs, spurts,
    *                 concealed, version }. Only the receiver runs; sender,
    *                 gate, codec and network settings are ignored.      [null]
+   *   signal:       { aborted } (the worker's AbortSignal): looked at at
+   *                 each of the render's yields; once true, the render ends
+   *                 with an error named AbortError                   [none]
    * }
    *
    * Resolves to { samples: Float32Array, sampleRate, blob, codecInfo }:
@@ -1696,6 +1722,7 @@
     const frameMs = 20;
     const framesPerPacket = clamp(Math.round(finiteOr(opts.frameMs, frameMs) / frameMs), 1, 10);
     const report = (f) => { if (typeof opts.onProgress === 'function') opts.onProgress(f); };
+    const pause = pauseFor(opts.signal);
 
     /* ---- 1) Sender capture: downmix, capture gain, int16 clip ---- */
     let samples = bufferToMono(audioBuffer, captureChannel);
@@ -1707,7 +1734,7 @@
     }
     samples = hardClip(samples, INT16_FULL_SCALE);
     report(0.05);
-    await microYield();
+    await pause();
 
     /* ---- 2) Resample to the codec rate; optional capture filters ---- */
     samples = resampleSinc(samples, srcRate, codecRate);
@@ -1719,7 +1746,7 @@
     const captureEq = enableCodec && !received ? profileEq(codec, 'captureEq') : null;
     if (captureEq) samples = applyFirZeroPhase(samples, captureEq);
     report(0.2);
-    await microYield();
+    await pause();
 
     /* ---- 3) Encode -> lose packets -> decode / conceal ---- */
     let codecInfo = { backend: 'bypass', sampleRate: codecRate, frameMs };
@@ -1747,7 +1774,7 @@
         complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx,
         makeLossMask: count => buildLossMask(count, framesPerPacket, 0, rand, jitterMs),
         lose: loser.lose,
-        yieldControl: microYield,
+        yieldControl: pause,
         onProgress: f => report(0.2 + 0.4 * f)
       });
       const resampler = opts.swrKernel !== undefined ? swr.createResampler({ kernel: opts.swrKernel }) : swr.createResampler();
@@ -1755,9 +1782,13 @@
       const timeline = steamTimeline({ voiceLength, codecLength: samples.length, lookahead: trip.lookahead, resampler,
         gain: autoGain ? createGain({ avgGain, maxGain, scale: voiceScale }) : null, capacity: voiceLength,
         onDecoded: opts.onDecoded, onResampled: opts.onResampled });
+      // Progress once per 64 messages, from 60% to 72%.
       for (let k = 0; k < messages.length; k++) {
         timeline.add(messages[k], trip.results[k]);
-        if ((k & 63) === 63) await microYield();
+        if ((k & 63) === 63) {
+          report(0.6 + 0.12 * (k + 1) / messages.length);
+          await pause();
+        }
       }
       steamVoice = timeline.take(voiceLength);
       codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate, loser.set), framesPerPacket };
@@ -1779,7 +1810,7 @@
         gate: gateOn ? { thresholdDb: gateDb, prerollFrames: Math.round(gateSpec.prerollMs / codecFrameMs),
           holdFrames: Math.round(gateSpec.holdMs / codecFrameMs) } : null,
         makeLossMask: count => buildLossMask(count, framesPerPacket, lossPct, rand, jitterMs),
-        yieldControl: microYield,
+        yieldControl: pause,
         onProgress: f => report(0.2 + 0.5 * f)
       };
       const result = codec.engine === 'celt011'
@@ -1805,7 +1836,7 @@
       if (opts.retime) codecInfo.retimed = retimeSpurts(samples, codecInfo, codecRate, mulberry32((finiteOr(opts.seed, 0xC0FFEE) ^ 0x9E3779B9) >>> 0));
     }
     report(0.72);
-    await microYield();
+    await pause();
 
     /* ---- 4) Receiver voice channel: auto-gain + int16 clamp ---- */
     if (steamPath) {
@@ -1847,9 +1878,9 @@
     const mix = whole(mixStage, samples);
     const tail = room ? mixStage.tail() : 0;
     report(0.8);
-    await microYield();
+    await pause();
     report(0.9);
-    await microYield();
+    await pause();
 
     /* ---- 6) mixOut, the device's rate, the output's length ---- */
     // The blocks, the clip, volume and the 16-bit rounding, then the device

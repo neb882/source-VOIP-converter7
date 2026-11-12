@@ -19,10 +19,16 @@ function canUseWorker() {
   return typeof Worker !== 'undefined' && location.protocol !== 'file:';
 }
 
-// One job in a dedicated worker. Returns { promise, cancel }: the promise
-// resolves with the worker's reply; cancel() terminates the worker and
-// rejects with an AbortError.
-function startWorker(message, transfer, onProgress) {
+const abortedError = () => {
+  const error = new Error('Audio processing cancelled.');
+  error.name = 'AbortError';
+  return error;
+};
+
+// One job in a worker of its own, as before W4-01b (the batch's lanes).
+// Returns { promise, cancel }: the promise resolves with the worker's
+// reply; cancel() terminates the worker and rejects with an AbortError.
+function startOwnWorker(message, transfer, onProgress) {
   const worker = new Worker('audio-worker.js');
   const id = ++state.processId;
   let cancel;
@@ -32,9 +38,7 @@ function startWorker(message, transfer, onProgress) {
     cancel = () => {
       if (done) return;
       finish();
-      const error = new Error('Audio processing cancelled.');
-      error.name = 'AbortError';
-      reject(error);
+      reject(abortedError());
     };
     worker.onmessage = (event) => {
       const reply = event.data || {};
@@ -44,7 +48,7 @@ function startWorker(message, transfer, onProgress) {
       } else if (reply.type === 'error') {
         finish();
         reject(new Error(reply.message || 'Audio worker failed.'));
-      } else {
+      } else if (reply.type !== 'done' && reply.type !== 'meter') {
         finish();
         resolve(reply);
       }
@@ -59,31 +63,167 @@ function startWorker(message, transfer, onProgress) {
   return { promise, cancel };
 }
 
-// One render in a dedicated worker, as { promise, cancel }. The result
-// carries the render's loudness and levels (meter.js) as `stats`.
+// The page's worker (W4-01b): one worker, kept between jobs, for the page's
+// renders, the download formats, the meter and the real take's jobs, one
+// job at a time. A job asked for while one runs waits for it; a render goes
+// before the other jobs waiting, and they are started a moment after they
+// are asked for, so a render asked for in the same moment comes first.
+// Cancel asks the worker to stop the render and keeps it (the render ends
+// at its next yield); a worker still busy CANCEL_BOUND_MS after a cancel is
+// ended, as every cancel ended it before W4-01b, and the next job starts a
+// new one. A job's reply settles its promise; the worker's `done` frees it
+// for the next job (a render's meter comes between the two).
+const CANCEL_BOUND_MS = 500;
+const pageWorker = { worker: null, running: null, queue: [], timer: 0 };
+
+function pageWorkerInstance() {
+  if (pageWorker.worker) return pageWorker.worker;
+  const worker = new Worker('audio-worker.js');
+  worker.onmessage = (event) => {
+    if (worker !== pageWorker.worker) return;
+    const reply = event.data || {}, job = pageWorker.running;
+    if (!job || reply.id !== job.id) return;
+    if (reply.type === 'progress') { if (!job.settled && job.onProgress) job.onProgress(reply.value); }
+    else if (reply.type === 'meter') { if (job.onMeter) job.onMeter(reply.stats); }
+    else if (reply.type === 'done') endPageJob(job);
+    else if (reply.type === 'error') {
+      const error = new Error(reply.message || 'Audio worker failed.');
+      if (reply.name === 'AbortError') error.name = 'AbortError';
+      settlePageJob(job, error);
+    } else settlePageJob(job, null, reply);
+  };
+  worker.onerror = (event) => {
+    if (worker !== pageWorker.worker) return;
+    const job = pageWorker.running;
+    dropPageWorker();
+    if (job) {
+      settlePageJob(job, new Error(event.message || 'Audio worker could not start.'));
+      endPageJob(job);
+    }
+  };
+  pageWorker.worker = worker;
+  return worker;
+}
+
+// The worker is ended: a cancelled job that did not stop in time, or one
+// that failed to start or broke. The next job makes a new one.
+function dropPageWorker() {
+  if (pageWorker.worker) pageWorker.worker.terminate();
+  pageWorker.worker = null;
+  pageWorker.held = null;
+}
+
+function settlePageJob(job, error, reply) {
+  if (job.settled) return;
+  job.settled = true;
+  if (error) job.reject(error); else job.resolve(reply);
+}
+
+// The running job is over (its `done`, or its worker ended): the next one starts.
+function endPageJob(job) {
+  if (pageWorker.running !== job) return;
+  clearTimeout(pageWorker.timer);
+  pageWorker.timer = 0;
+  pageWorker.running = null;
+  settlePageJob(job, new Error('Audio worker failed.'));
+  if (job.onEnd) job.onEnd();
+  pumpPageWorker();
+}
+
+function pumpPageWorker() {
+  if (pageWorker.running || !pageWorker.queue.length) return;
+  const job = pageWorker.queue.shift();
+  pageWorker.running = job;
+  try {
+    const worker = pageWorkerInstance();
+    if (job.prepare) job.prepare(worker);
+    worker.postMessage(job.message, job.transfer || []);
+  } catch (error) {
+    dropPageWorker();
+    settlePageJob(job, error);
+    endPageJob(job);
+  }
+}
+
+// A job for the page's worker. Returns { promise, cancel }, as
+// startOwnWorker does. options: { render, onProgress, onMeter, prepare(worker) }.
+function startPageJob(message, transfer, options = {}) {
+  const id = ++state.processId;
+  const job = { id, message: { ...message, id }, transfer, settled: false, ...options };
+  job.promise = new Promise((resolve, reject) => { job.resolve = resolve; job.reject = reject; });
+  job.cancel = () => cancelPageJob(job);
+  if (job.render) {
+    const at = pageWorker.queue.findIndex((other) => !other.render);
+    pageWorker.queue.splice(at < 0 ? pageWorker.queue.length : at, 0, job);
+    pumpPageWorker();
+  } else {
+    pageWorker.queue.push(job);
+    setTimeout(pumpPageWorker, 0);
+  }
+  return { promise: job.promise, cancel: job.cancel };
+}
+
+function cancelPageJob(job) {
+  if (job.settled) return;
+  const queued = pageWorker.queue.indexOf(job);
+  if (queued >= 0) pageWorker.queue.splice(queued, 1);
+  settlePageJob(job, abortedError());
+  if (pageWorker.running !== job) return;
+  pageWorker.worker.postMessage({ type: 'cancel', id: job.id });
+  pageWorker.timer = setTimeout(() => {
+    if (pageWorker.running !== job) return;
+    logLine(`S_StopSound: the render did not stop within ${CANCEL_BOUND_MS} ms; its worker was ended.`, 'warn');
+    dropPageWorker();
+    endPageJob(job);
+  }, CANCEL_BOUND_MS);
+}
+
+// A job in the page's worker (the download formats, the meter, the real
+// take's jobs): { promise, cancel }.
+function startWorker(message, transfer, onProgress) {
+  return startPageJob(message, transfer, { onProgress });
+}
+
+// A render's reply as the page uses it.
+const renderReply = (reply, stats) => ({
+  samples: new Float32Array(reply.samples),
+  sampleRate: reply.sampleRate,
+  blob: reply.blob,
+  realOpus: reply.realOpus,
+  codecInfo: reply.codecInfo,
+  stats
+});
+
+// One render in a worker of its own, as { promise, cancel }: the batch's.
+// The result carries the render's loudness and levels (meter.js) as `stats`.
 function startWorkerJob(source, opts) {
   const mono = source.getChannelData(0).slice();
   const workerOpts = { ...opts };
   delete workerOpts.onProgress;
-  const job = startWorker({ type: 'process', sampleRate: source.sampleRate, samples: mono.buffer, opts: workerOpts, measure: true },
+  const job = startOwnWorker({ type: 'process', sampleRate: source.sampleRate, samples: mono.buffer, opts: workerOpts, measure: true },
     [mono.buffer], opts.onProgress);
-  return {
-    cancel: job.cancel,
-    promise: job.promise.then((reply) => ({
-      samples: new Float32Array(reply.samples),
-      sampleRate: reply.sampleRate,
-      blob: reply.blob,
-      realOpus: reply.realOpus,
-      codecInfo: reply.codecInfo,
-      stats: reply.stats
-    }))
-  };
+  return { cancel: job.cancel, promise: job.promise.then((reply) => renderReply(reply, reply.stats)) };
 }
 
+// The page's render, in the page's worker. The result comes as soon as the
+// worker has it; its loudness and levels follow in a message of their own
+// (stats: a promise of them, which the meter takes when it comes; if the
+// worker ends before, the meter measures the render itself).
 function processInWorker(source, opts) {
-  const job = startWorkerJob(source, opts);
+  const mono = source.getChannelData(0).slice();
+  const workerOpts = { ...opts };
+  delete workerOpts.onProgress;
+  let measured, failed;
+  const stats = new Promise((resolve, reject) => { measured = resolve; failed = reject; });
+  stats.catch(() => {});
+  const job = startPageJob({ type: 'process', sampleRate: source.sampleRate, samples: mono.buffer, opts: workerOpts, meterAfter: true },
+    [mono.buffer], { render: true, onProgress: opts.onProgress, onMeter: (value) => measured(value), onEnd: () => failed(new Error('no meter')) });
   state.cancelProcessing = job.cancel;
-  return job.promise.finally(() => {
+  return job.promise.then((reply) => {
+    const result = renderReply(reply, null);
+    result.stats = stats.catch(() => analyzeCopy(result.samples, result.sampleRate));
+    return result;
+  }).finally(() => {
     if (state.cancelProcessing === job.cancel) state.cancelProcessing = null;
   });
 }
