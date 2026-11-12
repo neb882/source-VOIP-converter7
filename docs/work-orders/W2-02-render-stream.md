@@ -1,5 +1,7 @@
 # W2-02: a render made a piece at a time, equal to `process()`
 
+> **Status 2026-11-12: built and merged** at `860a559` (cache v20, at `43fd35f`, pull request #8). Report: `docs/reports/W2-02-render-stream.md`.
+
 **Branch:** `claude/w2-02-render-stream`, from `main` **after W1-01 has merged** (it changes `audio.js`,
 `opus-codec.mjs` and `constants.js`, and adds the Speex codec this order must stream too). **Worktree:** given in the
 brief. **Agent:** `tf-builder`, then `tf-reviewer`; a `tf-skeptic` on any claim of equality the tests do not cover.

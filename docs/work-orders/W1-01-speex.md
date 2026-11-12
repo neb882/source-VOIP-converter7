@@ -1,5 +1,7 @@
 # W1-01: the `speex` profile runs real Speex
 
+> **Status 2026-11-12: built and merged** at `11d0ab8` (cache v18, pull request #5). Report: `docs/reports/W1-01-speex.md`. **Superseded** in code by W3-12b (`3ff386c`, cache v23): the `speex` profile now runs Speex 1.0.2, the library of the game's module, not Speex 1.2.1.
+
 **Branch:** `claude/w1-01-speex`, from `main`. **Worktree:** given in the brief. **Agent:** `tf-builder`, then
 `tf-reviewer`. May push its branch to run CI. **Time budget:** 4 hours.
 

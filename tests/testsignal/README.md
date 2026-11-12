@@ -53,13 +53,13 @@ Record one take per line, naming each file after its settings:
 
 Some notes on these commands:
 - `net_fakejitter` varies the `net_fakelag` delay, so it only acts together with it.
-- The commands affect all incoming game traffic. On a listen server they may apply in both directions, so the voice loss can exceed the setting. The analysis measures the actual loss, so the exact figure does not matter.
+- The commands affect all incoming game traffic. On a listen server they apply on both crossings (read), so the voice loss exceeds the setting, as above. The analysis measures the actual loss, so the exact figure does not matter.
 - Reset all three to 0 afterwards.
 - A `net_graph 1` screenshot during each take records the loss the game itself reports.
 
 ## Low-tone takes (`tf2_voice_lowtone_v1`)
 
-In the model, the comfort noise that replaces a steady tone below about 60 Hz is nearly DC (finding 18). At default settings the render of a steady 50 Hz tone shifts by up to 40% of full scale. These takes show whether TF2's output keeps that offset or removes it.
+In the model, the comfort noise that replaces a steady tone below about 60 Hz is nearly DC (finding 18). At default settings the model's render of a steady 50 Hz tone shifts by 50 to 85% of the output ceiling (int16 full scale times `volume`, which is full scale at the default `volume` 1). These takes show whether TF2's output keeps that offset or removes it.
 
 The signal (147.5 s) contains:
 - sync beeps at the start and end

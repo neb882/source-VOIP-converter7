@@ -1,5 +1,7 @@
 # W3-03: what the game's own files say about the voice receiver and the legacy codecs
 
+> **Status 2026-11-12: done (investigation)** at `4630e06`. Report: `docs/reports/W3-03-engine-binary.md`.
+
 **Branch:** `claude/w3-03-engine-binary`, from `main`. **Worktree:** given in the brief. **Agent:** an investigator on
 the stronger model (docs/PIPELINE.md, "Which model does what"). It reads and writes; it changes no app code.
 **Time budget:** 4 hours.

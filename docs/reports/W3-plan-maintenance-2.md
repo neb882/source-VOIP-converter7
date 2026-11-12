@@ -2,7 +2,7 @@
 
 Docs only, 2026-11-10, the second maintenance pass of the day (the first is
 `docs/reports/W3-plan-maintenance.md`). Since that pass W3-11a, W3-13, W3-06, W3-12b and W3-17a were merged,
-W3-14, the W3-16 read, W3-15 with its second reads and W3-18 gave results, W3-16 is being built, and the
+W3-14, the W3-16 read, W3-15 with its second reads and W3-18 (the rooms-in-the-takes read, now W3-15b) gave results, W3-16 is being built, and the
 orchestrator changed the order of work. This report gives the new sequence, what was changed in each order
 not yet built, the conflicts found between orders and how each was resolved, what each order will re-record,
 and what is left for the orchestrator. Edited: files under `docs/work-orders/` only. No order already built

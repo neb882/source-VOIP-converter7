@@ -1,5 +1,7 @@
 # W1-03: a plan for renders longer than 10 minutes
 
+> **Status 2026-11-12: done (plan)** at `32ef7f6`: it wrote W2-01 to W2-06. Report: `docs/reports/W1-03-long-renders-plan.md`.
+
 **Branch:** `claude/w1-03-long-renders-plan`, from `main`. **Worktree:** given in the brief. **Agent:** a planner (a
 fresh agent that reads only the repository). It writes work orders; it builds nothing. **Time budget:** 90 minutes.
 

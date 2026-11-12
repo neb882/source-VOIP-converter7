@@ -28,7 +28,8 @@
     { "name": "sender_A", "set": "D", "take": ["user_A_recording.flac"],
       "source": "tests/testsignal/tf2_voice_testsignal_v1.wav", "settings": { "volume": 0.15, "room": { "auto": "set_d_street" } } },
     { "name": "listener_B", "set": "D", "take": ["user_B_recording.flac"],
-      "source": "tests/testsignal/tf2_voice_testsignal_v1.wav", "settings": { "volume": 0.077 } },
+      "source": "tests/testsignal/tf2_voice_testsignal_v1.wav", "settings": { "volume": 0.11, "voiceScale": 0.77 },
+      "note": "volume 0.11 and voice_scale 0.77 are inferred from the recording (REFERENCE finding 15), not read off that PC. Until 2026-11-12 this row ran at volume 0.077, the value first fitted to its levels." },
 
     { "name": "river_artifact", "set": "E", "take": ["artifact_real.wav"],
       "source": "river_clip_unmodified.wav", "settings": { "volume": 0.15 } },

@@ -1,12 +1,19 @@
 # W3-17: the room effects as the engine does them
 
+> **Status 2026-11-12, by part:** every part is built and merged.
+> - W3-17a at `dc0a989` (pull request #17); reports `docs/reports/W3-17a-room-module.md`, `docs/reports/W3-17a-second-read.md`.
+> - W3-17b at `7d25c7d` (pull request #18); reports `docs/reports/W3-17b-automatic-room.md`, `docs/reports/W3-17b-second-read.md`.
+> - W3-17c at `3250128` (cache v28, pull request #22); report `docs/reports/W3-17c-rooms-in-the-render.md`.
+> - W3-17d at `b952114` (cache v31, pull request #26); report `docs/reports/W3-17d-rooms-page.md`.
+> - The reads it was written from: `docs/reports/W3-15-room-dsp.md`, `docs/reports/W3-17-room-dsp-second-read.md`, `docs/reports/W3-17-amp-mdy-second-read.md`. Its recording procedure is also in `docs/owner-runs.md`.
+
 *Written 2026-11-10 from the two reads of the room DSP: `docs/reports/W3-15-room-dsp.md` (the first) and
 `docs/reports/W3-17-room-dsp-second-read.md` (the second, independent; **it wins where they differ**). Revised
 the same day after the plan's review (4 must-fix, 14 should-fix; all answered below) and after the second read
 of the amplifier and the modulating delay, `docs/reports/W3-17-amp-mdy-second-read.md`, which corrects the
 first: the water preset's amplifier does not swing. Below, "R2 a" to "R2 f" are the second read's sections,
 "R1 1" to "R1 6" the first's, and "AM 0" to "AM 5" those of the amplifier's read. **Amended once more after
-`docs/reports/W3-18-rooms-in-the-takes.md` ("RT" below): two of the owner's existing sets carry the room.
+`docs/reports/W3-15b-rooms-in-the-takes.md` ("RT" below): two of the owner's existing sets carry the room.
 Part a was already being built and is unchanged: its arithmetic, files and checks stand as written. The
 amendment touches Decision 1, part b's cases, parts c and d, the owner's procedure and "What moves".***
 *Brought up to date 2026-11-10 for the new order of work (`docs/PROGRESS.json`, decisions;
@@ -1030,6 +1037,8 @@ version up.
 `sw.js`, `tests/browser.verify.js`, `tests/verify.js` (the names it reads), `tests/REFERENCE_2026.md`.
 
 ## The owner's recording (handed over as it is)
+
+*Run on 2026-11-10 (Set K). What is still open of it is in `docs/owner-runs.md`, with the owner's other runs (2026-11-12).*
 
 **What it is for.** Your Set C and Set D takes turned out to carry the game's room effect, and the app's new
 room code fits them (echo times and level). Set B has no room. These steps find out why, and then check the

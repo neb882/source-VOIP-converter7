@@ -1,5 +1,7 @@
 # W2-04: rooms and talk-spurt re-timing in the streaming render
 
+> **Status 2026-11-12: superseded.** The room half by W3-17c (`3250128`, cache v28); the re-timing half goes with W3-02f, which retires the flat rule (not started). Not to be built.
+
 > **Superseded, 2026-11-10 (`docs/reports/W3-plan-maintenance-2.md`). Do not build this order as written.**
 > - **Its room half (spec 1) is replaced by W3-17c** (`docs/work-orders/W3-17-room-effects.md`, part c): the
 >   old processors it streams (`runDspChain`, DFR, RVA, DLY, AMP, MDY, the 4 s tail and its trim) are removed

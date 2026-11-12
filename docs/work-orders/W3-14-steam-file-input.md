@@ -1,5 +1,7 @@
 # W3-14: the Steam path against a known input, when the owner's recording exists
 
+> **Status 2026-11-12: done (investigation)** at `c0a0833` to `919a66c` (no merge commit; on main). Report: `docs/reports/W3-14-steam-file-input.md`. The owner's file-input recording is in (Set J); nothing here waits any more. Its steps are also in `docs/owner-runs.md`.
+
 **Kind:** an investigation on the stronger model, run by the orchestrator. Not a builder's order: its one check
 is whether the evidence is read rightly, and its method had a dead end before it was written. It changes no app
 code. **Starts when** the owner's file-input recording is in the takes folder; until then nothing waits for it.
@@ -22,6 +24,8 @@ The owner will run Steam's `mic_inputfile` with a known 24 kHz clip and the game
 that is known to the sample. That one recording can settle all three.
 
 ## What is known about the recording
+
+*Run on 2026-11-10 (Set J). The re-check after a Steam update in `docs/owner-runs.md` is this run cut to one take (2026-11-12).*
 
 - `voice_decompressed.wav` holds **whole packets as decoded**, taken before the channel drops its one sample
   per packet (W3-03's report, "For the recording session", point 3). There is no drop to model.

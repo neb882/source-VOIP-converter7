@@ -1,5 +1,7 @@
 # W2-06: a video source keeps its file, not a copy of its bytes
 
+> **Status 2026-11-12: held**; after W2-03.
+
 **Branch:** `claude/w2-06-video-from-file`, from `main` **after W2-03 has merged** (it edits `app/source.js`).
 **Worktree:** given in the brief. **Agent:** `tf-builder`, then `tf-reviewer`. May push its branch to run CI.
 **Time budget:** 4 hours. May run beside W2-04 and W2-05.

@@ -1,5 +1,7 @@
 # W3-20a: the Miles voice codec (Voxware VR12) as a module, with the game's wrapper
 
+> **Status 2026-11-12: built and merged** at `69a92bf` (pull request #25). Report: `docs/reports/W3-20a-miles-codec.md`.
+
 Order of 2026-11-11. The codec and its wrapper only: no profile, nothing on the page, no change to
 `audio.js`, `constants.js` or `opus-codec.mjs`. The profile is W3-20b, which waits on what rate an
 engine that accepted the codec gave it (the owner's older engine files).

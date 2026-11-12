@@ -1,5 +1,7 @@
 # W2-05: the visualizer stays quick on long files
 
+> **Status 2026-11-12: held**; after W2-03.
+
 **Branch:** `claude/w2-05-long-views`, from `main` **after W2-03 has merged** (and W1-01, which edits
 `tests/browser.verify.js`). **Worktree:** given in the brief. **Agent:** `tf-builder`, then `tf-reviewer`. May push
 its branch to run CI. **Time budget:** 1 day. May run beside W2-04 and W2-06.

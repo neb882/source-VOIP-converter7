@@ -20,7 +20,9 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # A run takes 12 to 21 minutes and one was cut at 30 while every check so far had
+    # passed (2026-11-12), so the limit leaves room until the suites run as parallel jobs.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

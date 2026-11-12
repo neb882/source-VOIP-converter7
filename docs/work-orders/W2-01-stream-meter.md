@@ -1,5 +1,7 @@
 # W2-01: the meter measures a render a piece at a time
 
+> **Status 2026-11-12: built and merged** at `b4605e6` (pull request #6). Report: `docs/reports/W2-01-stream-meter.md`.
+
 **Branch:** `claude/w2-01-stream-meter`, from `main`. **Worktree:** given in the brief. **Agent:** `tf-builder`, then
 `tf-reviewer`. May push its branch to run CI. **Time budget:** 4 hours. **May start now:** its files overlap no W1
 order and no other W2 order.
