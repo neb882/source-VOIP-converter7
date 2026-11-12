@@ -11,9 +11,9 @@ That depends on the codec. The tests settle it, and [tests/README.md](../tests/R
 
 | Codec | What the tests show |
 | --- | --- |
-| Steam voice (`steam`) | Yes. The live chain runs a render's own stages, fed as the microphone's blocks arrive. Given the same sound it gives the render's samples, one for one, where the voice enters the mix and at the output, at 48000 and at 44100 Hz. This is checked with packet loss, with jitter, with the gate off and with push-to-talk (`tests/verify.js`, section 10b; `tests/output-stage.verify.mjs`, section 14). |
+| Steam voice (`steam`) | Yes. The live chain runs a render's own stages, fed as the microphone's blocks arrive. Given the same sound it gives the render's samples, one for one, where the voice enters the mix, at 24 and 48 kHz, also with packet loss, jitter, the gate off and push-to-talk (`tests/verify.js`, section 10b); and at the output at 48 and 44.1 kHz with the default settings (`tests/output-stage.verify.mjs`, section 14). |
 | `vaudio_speex` | Close, not proven equal. The live output follows a render's in waveform and in level: a correlation above 0.9 and levels within 0.5 dB. With loss it loses the frames the render loses (`tests/speex102.verify.mjs`). |
-| `vaudio_celt`, `vaudio_celt_high` | Not compared as a whole. The gate, the gain and the codec's restart at each talk spurt are each checked in the live chain. No test sets a whole live session beside a render. |
+| `vaudio_celt`, `vaudio_celt_high` | Not compared as a whole. The gate, the gain (with the codec bypassed) and the codec's restart at each talk spurt are each checked in the live chain. No test sets a whole live session beside a render. |
 | Fullband Opus (`steam_48`, not in TF2) | Close, not proven equal: a correlation above 0.9 and levels within 0.5 dB (`tests/verify.js`). |
 | `vaudio_miles` (not in TF2) | The live chain's packets, and its sound after the gain, equal bit for bit a reference the test builds with the same codec from the same frames. With loss it loses the render's frames. Its sound is not compared with a render (`tests/miles.verify.mjs`, section 10). |
 
@@ -38,7 +38,7 @@ Around the chain come half a 20 ms capture block, a 40 ms playback buffer and th
 The panel shows the total while it runs.
 
 On the other codecs the chain holds back its codec's delay and filters. Where the voice gate is on (by default on
-`steam_48` only) it also holds back the gate's 120 ms pre-roll.
+`steam_48`, not in TF2, only) it also holds back the gate's 120 ms pre-roll.
 
 A room or the water adds up to 11.6 ms (the mixer's 512-sample block), and the panel's figure includes it. Once a
 room has faded to none and the water is off, the chain holds nothing back for it again.

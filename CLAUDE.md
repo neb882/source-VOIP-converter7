@@ -92,12 +92,14 @@ These bind every document, report and order.
 - Every figure carries its standing in one word where it first appears: read (from the game's or Steam's files),
   measured (in the owner's recordings), inferred, guessed, or not built yet.
 - A codec that was never in TF2 (`steam_48`, `miles`) is named as not in TF2 wherever it is named.
-- No finding is called new, unknown or the first (the owner, 2026-11-12). Say what was read and what was measured.
-- No count of checks (they move with every order), and no version number but the site's cache number.
+- No finding is called new, unknown or the first (agreed with the owner, 2026-11-12). Say what was read and what was measured.
+- No count of checks (they move with every order). No release or version number but the site's cache number where a
+  version is meant.
 - Nothing that is not built is promised without "not built yet".
 - A figure's evidence lives in `tests/REFERENCE_2026.md` only; other documents state the figure and point to the
   finding by number. A corrected statement there is marked where it stands, not deleted.
 - No em-dash chains and no arrows in prose. Tables for facts with columns, lists for lists, sentences for the rest.
+- Headings that say what the section is.
 - The hard rules above bind every word: from the owner's files and recordings only numbers.
 
 ## How work is run

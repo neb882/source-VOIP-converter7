@@ -14,7 +14,7 @@ sender's hold depends on it (finding 28), and the `volume` and voice settings us
 | The re-check after a Steam update | to run after each Steam update | whether Steam's voice path is still the one the app runs |
 | The key, for W3-11c | not run; W3-11c waits for it | how Steam's push-to-talk key starts and ends a phrase |
 | `vaudio_miles` in an engine of 2006 or 2007 | optional; nobody has run it | whether the `miles` profile (not in TF2) is what such an engine does |
-| A take of the test signal | run for Sets B to F; for any new setting | how the game's output compares with a render, by the real-take check and the accuracy suite |
+| A take of the test signal | run for Sets B, C, D and F; for any new setting | how the game's output compares with a render, by the real-take check and the accuracy suite |
 | Steam with a file as the microphone (W3-14) | run 2026-11-10 (Set J) | done: Steam's packets, 16-bit decode and resampler kernel; it is the base of the re-check |
 | The rooms (W3-17) | run 2026-11-10 (Set K), retaken the same night | done, but for the tail's decay and why Set B is dry |
 
@@ -34,7 +34,8 @@ kind, compared the same way, says whether it did.
 **Steps** (those of W3-14, cut to one take):
 1. Quit Steam completely and start it again, and note the time. Do not open the game's voice options or its
    microphone test first.
-2. In Steam's console set `mic_inputfile` to the known 24 kHz clip used for Set J (16-bit mono, a 44-byte header).
+2. In Steam's console set `@voice_spew_activity_check 1` (one line per chunk, as Set J had) and `mic_inputfile` to
+   the known 24 kHz clip used for Set J (16-bit mono, a 44-byte header).
    The path must be exact: a path that does not load is not retried.
 3. In the game: `voice_loopback 1`, `voice_maxgain 1`, `voice_recordtofile 1`, `voice_showincoming 1`, Steam
    voice as the codec. Load a map.
@@ -43,7 +44,7 @@ kind, compared the same way, says whether it did.
 5. Keep the console log, Steam's console line `loaded voice input file ...`, Steam's version, and the PC's
    processor model.
 
-**How it is compared** (the orchestrator, privately): the clip is run through the app's chain on the run's own
+**How it is compared** (the orchestrator, privately, by hand: no script in the repository does it yet): the clip is run through the app's chain on the run's own
 chunk boundaries, as for Set J (W3-14's method, `docs/reports/W3-14-steam-file-input.md`), and the equal samples are
 counted. On Set J two samples in 524,288 differed, both from one decoded sample one step apart. The same count
 means nothing changed; any other is a finding for `tests/REFERENCE_2026.md` before any code changes.
@@ -130,8 +131,8 @@ recording", and its method in the report of the same name. The re-check above is
 
 ## Done: the rooms (W3-17)
 
-Run on 2026-11-10 (Set K: the console readings, an `adsp_debug 2` walk on 2Fort, the takes R1 to R5 and Q1, Q2), and
-R1 and R3 retaken that night at `volume 0.5` with `voice_overdrive 1000`. What it showed is in the order's
+Run on 2026-11-10 (Set K: the console readings, an `adsp_debug 2` walk on 2Fort, the takes R1, R2, R3, R5, Q1 and Q2 as six lossy screen captures,
+and R1 and R3 again losslessly), and R1 and R3 retaken that night at `volume 0.5` with `voice_overdrive 1000`. What it showed is in the order's
 amendment after Sets K and L and in finding 32. Two things are still open: the room's tail decay cannot be read from
 any take so far (the map's ambience covers it from its first 20 ms), and why Set B has no room is not explained. The
 procedure stays in [work-orders/W3-17-room-effects.md](work-orders/W3-17-room-effects.md), "The owner's recording".

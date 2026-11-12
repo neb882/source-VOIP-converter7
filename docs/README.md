@@ -10,7 +10,7 @@ A session that picks up the work reads [PROGRESS.json](PROGRESS.json) first: whe
 on which branch, what comes next, what is held and what waits on the owner. [PIPELINE.md](PIPELINE.md) says how an
 order runs from brief to merge. Then the order in hand, in `work-orders/`, from its status line down. The
 reports in `reports/` are history: each says what one order or investigation did and found, as of its date, and
-is not corrected later. Where a report and today's code disagree, the code and `tests/REFERENCE_2026.md` win.
+is not corrected later, except a dated note where an order's state changed. Where a report and today's code disagree, the code and `tests/REFERENCE_2026.md` win.
 [PROGRESS-LOG.md](PROGRESS-LOG.md) keeps, dated, every stand and decision that PROGRESS no longer carries.
 
 The other documents in this folder are for someone using the page: [PAGE.md](PAGE.md) (the page's tools),
@@ -88,7 +88,7 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | W3-17d | rooms on the page and live | built and merged | `b952114`, v31, #26 | W3-17d-rooms-page.md | |
 | W3-18 | Speex exact | built and merged | `e4c3d73`, v29, #23 | W3-18-speex-exact.md | |
 | W3-19 | the gain on the decoder's own samples | built and merged | `8a6ee5a`, v30, #24 | W3-19-gain-grid.md | |
-| W3-20a | the Miles (VR12) module | built and merged | `69a92bf`, #25 | W3-20a-miles-codec.md | |
+| W3-20a | the Miles (VR12) module (not in TF2) | built and merged | `69a92bf`, #25 | W3-20a-miles-codec.md | |
 | W3-20b | the `miles` profile (not in TF2) | built and merged | `7534d58`, v32, #27 | W3-20b-miles-profile.md | |
 | W4-01 audit | the page as a user meets it | done | `14b4608` | W4-01-page-audit.md (and the screenshots in `reports/W4-01/`) | |
 | W4-01a, W4-01c | the journey and the defaults; access | built and merged | `b9579a4`, v34, #29 | W4-01ac-page.md | |

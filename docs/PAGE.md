@@ -32,7 +32,8 @@ render back into it (see "Downloads"). A WebM or Matroska video gives its audio 
 
 **TF2 demos.** A SourceTV demo (`.dem`) holds each speaker's voice packets as the server received them, so no
 second encoding happens.
-- Each speaker is found by the SteamID their packets carry, and a menu picks one when there are several.
+- On Steam voice each speaker is found by the SteamID their packets carry; with `vaudio_celt` and `vaudio_celt_high`,
+  by the player's slot. A menu picks one when there are several.
 - The demo's packets are decoded, and the render runs only the receiver's side on them: the gain, the mixer, the
   room and the output. The sender, gate, codec and network settings are not used.
 - That decode is not yet the one a `steam` render uses: a demo's Steam packets are decoded to floats and resampled
@@ -67,7 +68,7 @@ and the page remembers it.
 | --- | --- |
 | WAV | the render itself, every sample written as rendered |
 | FLAC | lossless: it decodes to exactly the WAV's samples |
-| MP3 | LAME 3.100 at `-V 0`, its highest VBR quality. The tests hold its level within 1% of the render's, and its size under a quarter of the WAV's. The LAME tag carries the encoder's delay, so players return exactly the render's length. A rate MP3 cannot carry is resampled to 44.1 or 48 kHz first. |
+| MP3 | LAME 3.100 at `-V 0`, its highest VBR quality. The tests hold its level within 1% of the render's, and its size under a quarter of the WAV's. The LAME tag carries the encoder's delay, so a decoder that reads the tag returns exactly the render's length. A rate MP3 cannot carry is resampled to 44.1 or 48 kHz first. |
 
 FLAC and MP3 are made from the WAV when the file is saved. MP3 is lossy on top of the emulated codec: it is for
 sharing, and WAV or FLAC is for further work. At `volume` 1, the game's default, a loud render fills the whole
@@ -214,7 +215,7 @@ Under the visualizer the meter lists, for the render (RENDER), the source (ORIGI
 
 A Δ row gives the render minus the original, and with a take a "Δ real" row gives the render minus the take. Values
 are measured as one channel; played as dual mono they read 3 dB higher. A cell is flagged where a true peak passes
-0 dBTP, a sample sits at full scale, or the DC offset is over 0.5% of full scale.
+0 dBTP or comes within 1 dB of it, a sample sits at full scale, or the DC offset is over 0.5% of full scale.
 
 **Match loudness**, beside **Hear**, plays every version at the integrated loudness of the quietest, measured over
 the whole file, so that none wins just by being louder.

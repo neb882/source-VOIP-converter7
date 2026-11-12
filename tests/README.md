@@ -79,8 +79,9 @@ as `docs/PROGRESS.json`, `takes`, says.
 
 ## Rebuilding the bundled codecs
 
-Each build needs git, clang with the wasm32 target and wasm-ld. It clones its sources at the pinned commit (or takes
-a checkout and stops if its commit differs) and writes the module into `vendor/`. A build must match its recorded
+Each build needs git, clang with the wasm32 target and wasm-ld, and writes the module into `vendor/`. Each clones its
+sources at the pinned commit (or takes a checkout and stops if its commit differs); LAME takes the release tarball,
+checked by its SHA-256 (curl and tar too), and VR12 the vendored files with musl cloned. A build must match its recorded
 hash; changing one is an order of its own (CLAUDE.md).
 
 | Codec | Command | Checked by |

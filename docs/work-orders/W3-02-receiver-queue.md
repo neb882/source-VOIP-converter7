@@ -577,7 +577,7 @@ service-worker file loads `steam-sender.js` yet (W3-11a does that).
 > section 5 says it stands.** Among what it overrules: the branch is `claude/w3-02c2-timeline-option`; "it sets
 > W3-10's origin to its own" is withdrawn; `spurtStart()` at each channel is withdrawn for renders (decision 10);
 > a refused message is an empty `pcm`, counted in `network.refusedMessages`; the Files list (section 5 forbids
-> `live-worker.js` and adds files); the `agc: false` object does not round; the ignored codecs include `miles`;
+> `live-worker.js` and adds files); the `agc: false` object does not round; the ignored codecs include `miles` (not in TF2);
 > section 10d's ranges and "at most 132 ... at least 100" are replaced by section 5's table and "at most 128 ...
 > at least 40".
 
