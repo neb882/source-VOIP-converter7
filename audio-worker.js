@@ -13,7 +13,7 @@
 
 importScripts('constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'room-presets.js', 'room-dsp.js',
   'engine/dsp.js', 'engine/gain.js', 'engine/mix.js', 'engine/network.js', 'engine/codec.js', 'engine/room.js',
-  'engine/steam.js',
+  'engine/steam.js', 'engine/render.js',
   'audio.js', 'flac.js', 'formats.js', 'zip.js', 'meter.js', 'reference.js');
 
 // The job running now: { id, controller } (its AbortController).
