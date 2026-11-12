@@ -2490,7 +2490,7 @@ async function verifyFirstVisitOffline(browser, base) {
   const requested = [];
   context.on('request', (request) => {
     const url = new URL(request.url());
-    if (/^https?:$/.test(url.protocol) && url.origin === base) requested.push(decodeURIComponent(url.pathname.slice(1)));
+    if (/^https?:$/.test(url.protocol) && url.origin === base) requested.push(decodeURIComponent(url.pathname.slice(1)) + url.search);
   });
   try {
     const page = await context.newPage();
@@ -2499,7 +2499,7 @@ async function verifyFirstVisitOffline(browser, base) {
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`${base}/`, { waitUntil: 'networkidle' });
     const linked = await page.evaluate(() => [...document.querySelectorAll('script[src], link[href]')]
-      .map(e => new URL(e.getAttribute('src') || e.getAttribute('href'), location.href).pathname.slice(1)));
+      .map(e => { const u = new URL(e.getAttribute('src') || e.getAttribute('href'), location.href); return u.pathname.slice(1) + u.search; }));
     const needed = ['', ...SITE_FILES];
     const unread = linked.filter(f => !needed.includes(f));
     check(needed.every(f => !f || fs.existsSync(path.join(root, f))) && assets.every(a => needed.includes(a)) && unread.length === 0,
@@ -2733,8 +2733,8 @@ async function speedCancel(browser, base) {
 }
 
 // A worker that does not answer a cancel is ended once the bound has passed
-// (500 ms and 15 ms a second of source: 1.4 s for 60 s), and no sooner, and
-// replaced; the source is sent to the new worker, and the render after it is
+// (500 ms and 15 ms a second of source: 1.4 s for 60 s), no sooner and not
+// more than a second later, and replaced; the source is sent to the new worker, and the render after it is
 // right and made there (not on the page's own thread). The worker is made
 // not to answer: the page's cancels are dropped, and every reply of the
 // cancelled render but its progress and preview is held back (no result, no
@@ -2778,7 +2778,8 @@ async function speedCancelUnanswered(browser, base) {
     await page.waitForFunction(() => !state.processing, null, { timeout: 30000 });
     // The worker's end; a page that never ends it fails the check below.
     const ended = await page.waitForFunction(() => window.__unanswered.endedAt !== null, null, { timeout: 30000 }).then(() => true, () => false);
-    if (ended) await renderNow(page, 120000);
+    // The render after it; a page that ends the worker but does not replace it fails the check below.
+    const rendered = ended && await renderNow(page, 120000).then(() => true, () => false);
     const lines = await consoleLines(page);
     const replaced = lines.find((t) => /did not stop within \d+ ms of the cancel/.test(t));
     const compatible = lines.filter((t) => /compatibility path/.test(t)).length;
@@ -2787,10 +2788,11 @@ async function speedCancelUnanswered(browser, base) {
     const after = ended && unanswered.cancelAt !== null ? unanswered.endedAt - unanswered.cancelAt : NaN;
     await page.evaluate(() => { window.__dropCancel = false; });
     const sources = await page.evaluate(() => window.__sources);
-    // 1 ms under the bound for the two clocks' resolution (the timer's, performance.now's).
-    check(/within 1400 ms/.test(replaced || '') && after >= 1400 - 1 && await audioWorkers(page) === 2 && sources === 2 && compatible === 0 && late === await freshHash(page),
+    // Ended no sooner than the bound (less 1 ms for the two clocks' resolution, the timer's and
+    // performance.now's) and no later than the bound and 1,000 ms.
+    check(rendered && /within 1400 ms/.test(replaced || '') && after >= 1400 - 1 && after <= 1400 + 1000 && await audioWorkers(page) === 2 && sources === 2 && compatible === 0 && late === await freshHash(page),
       'a worker that does not answer a cancel is ended after the bound (1.4 s for 60 s) and replaced; the source goes to the new worker, and the render there is a fresh render\'s WAV',
-      `${await audioWorkers(page)} workers, ${sources} source messages, ${compatible} on the page's thread; ${Number.isFinite(after) ? `ended ${after.toFixed(0)} ms after the cancel` : 'not ended'}; ${replaced}`);
+      `${await audioWorkers(page)} workers, ${sources} source messages, ${compatible} on the page's thread; ${Number.isFinite(after) ? `ended ${after.toFixed(0)} ms after the cancel` : 'not ended'}; ${rendered ? 'rendered after it' : 'no render after it'}; ${replaced}`);
     check(errors.length === 0, 'an unanswered cancel: no page errors', errors.join('; '));
   } finally { await context.close(); }
 }
