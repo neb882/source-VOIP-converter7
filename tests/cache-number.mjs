@@ -29,6 +29,11 @@ if (rest.length !== 1 || (set && report)) {
 }
 const git = (...a) => execFileSync('git', ['-C', root, ...a], { maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
 let base;
+if (!rest[0].trim() || /^0+$/.test(rest[0])) {
+  // GitHub gives an all-zeros "before" for a push that created the branch, and none for a run started by hand.
+  console.error(`the base is "${rest[0]}", which names no commit: there is no commit before this push to compare with`);
+  process.exit(2);
+}
 try { base = git('rev-parse', '--verify', '--quiet', `${rest[0]}^{commit}`).toString().trim(); } catch {
   console.error(`${rest[0]}: not a commit of this repository (CI needs the history: a checkout with fetch-depth 0)`);
   process.exit(2);

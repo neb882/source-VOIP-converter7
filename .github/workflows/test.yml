@@ -3,7 +3,7 @@ name: tests
 # A commit is tested once, when it is pushed. Pull requests come from this repository's own branches, so the
 # push has already tested their head: a pull_request trigger would run the same suites again. A push that
 # changes nothing outside docs/ runs nothing (the progress file is committed many times a day). A newer push to
-# the same branch cancels the run of the older one.
+# the same branch cancels the run of the older one, except on main.
 on:
   push:
     paths-ignore:
@@ -12,7 +12,8 @@ on:
 
 concurrency:
   group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  # Never on main: each push to main must finish, so its cache-number step runs against the commit before it.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
