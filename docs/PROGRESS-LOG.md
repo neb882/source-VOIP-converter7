@@ -400,3 +400,7 @@ stages 1 and 2 on main; stage 3: S3-03, S3-01a and S3-01b merged; S3-02a next, t
 ### next (W3-02c-2), as it stood until its order was written (2026-11-12)
 
 file: docs/work-orders/W3-02-receiver-queue.md (the amendment, section 5); after: S3-02a (merged 2026-11-12): a planner writes the order against engine/steam.js, engine/render.js, engine/render-stream.js and engine/gain.js
+
+### next (W3-02d), its line until the owner's note of 2026-11-12 on long clips
+
+the page's control, the default and the words; its note of 2026-11-12 lists what W4-01a and W4-01d added.
