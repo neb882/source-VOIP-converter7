@@ -25,6 +25,28 @@ not built on one branch. Part b is small enough to be built by the same builder 
 on a shared machine every suite run goes through the lock, `flock /tmp/tf2ve-heavy.lock <command>`. The browser
 suite needs `CHROMIUM_EXECUTABLE` where the installed Chromium is not the one Playwright pins.
 
+## Rulings of 2026-11-12 (the orchestrator, on the plan's open points)
+
+1. **`TF2Audio.realOpusRoundTrip` goes** (nothing reads it, the suites included), in part b, in its own commit.
+   `TF2Audio.resampleLinear` stays, as W3-10's order has it. The rule "the public surface does not change" binds
+   part a; part b changes it by that one name and says so in its report.
+2. **The check `[Browser 3e]` that reads the meter's rows before the row it wants has arrived** is repaired
+   before this order, in S3-01b (its builder's brief says so): the check waits for the row it reads, its name
+   and its condition unchanged. If S3-01b did not do it, part a does it as its own first commit.
+3. **A fresh worker starting 19 to 39 ms later is accepted.** Since W4-01b the page keeps its worker, so a fresh
+   start is rarer than it was.
+4. **The folder `engine/`**, with the codec module's loader kept in `audio.js`.
+5. **The comments elsewhere that say a moved function is "in audio.js"** are corrected in this order, in one
+   commit that changes comments only.
+6. **The builder adds** the index rows in `docs/README.md` and the dated notes in the unbuilt orders that name
+   `audio.js`, in the documents commit. `docs/PROGRESS.json`, `CLAUDE.md`, `docs/PIPELINE.md` and the agent
+   files stay the orchestrator's; `CLAUDE.md` gets one line on `engine/` from the orchestrator at the merge.
+7. **The small order at the end of this file (invented names in the mock console feed) is taken now** as
+   **S3-03**, on `main`, before S3-01b's rule on the cache number: its builder raises `CACHE` by one as orders
+   did until then.
+8. **Ten pushes each waiting for CI** is the proof the plan asks for, and S3-01b's five jobs make each wait
+   about five minutes: part a starts only when S3-01b is on `main`.
+
 ## Why
 
 `audio.js` is one function of 3,436 lines (`wc -l` at `ce55fa7`) that holds the signal arithmetic, the receiver's
@@ -751,9 +773,9 @@ each.
 - **Splitting `constants.js`**, or `app/render.js`, or the browser suite.
 - **Moving built orders into a folder of their own**: dropped by the orchestrator on 2026-11-12.
 
-## A separate small order: invented names in the page's mock console feed
+## A separate small order: invented names in the page's mock console feed (S3-03)
 
-Not part of S3-02; written here because the brief asked for it. It can be built on `main` today.
+Not part of S3-02; written here because the brief asked for it. It can be built on `main` today. **Taken as S3-03 on 2026-11-12** (ruling 7 above).
 
 `constants.js` holds `TF2_DATA.playerNames` (lines 27 to 58), which `app/core.js:224-270` draws from to print a
 mock server's lines in the page's console, and a list of chat lines after it. Some entries of the first are the
