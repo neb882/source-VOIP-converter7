@@ -27,6 +27,29 @@ certain.
 suite run goes through the lock, `flock /tmp/tf2ve-heavy.lock <command>`. The browser suite needs
 `CHROMIUM_EXECUTABLE` where the installed Chromium is not the one Playwright pins.
 
+## Rulings of 2026-11-12 (the orchestrator, on the plan's open points)
+
+1. **The licence link that `sw.js` does not list** (`index.html:494`, `vendor/swresample/COPYING.LGPLv2.1`):
+   part b carries it as a named allowance ("linked, opened online only") and `sw.js` is not touched for it. The
+   order that splits `audio.js` raises the cache number anyway and adds the file to the list then.
+2. **Appendix B is accepted** with two changes. Where it gives a time for CI ("about five minutes after the
+   push") the builder writes the time measured on the first runs of the five jobs, not the expected one. And
+   `CLAUDE.md`'s commands block and `docs/PIPELINE.md` step 5 changed on 2026-11-12 with the documentation pass
+   (the suite's length as measured, CI's limit of 45 minutes): the builder reads both again on the build's
+   `main` and fits the appendix's sentences to the text that is there, keeping the appendix's meaning.
+3. **Part b's builder edits the rule files** (`CLAUDE.md`, `docs/PIPELINE.md`, the two agent files) with
+   Appendix B's text; the reviewer compares each rule before and after, and no existing hard rule may come out
+   weaker.
+4. **CI checks the number on `main`** (in `units`, against the commit `main` was at before the push): yes.
+5. **Five jobs**, and each job gets its own time limit of 20 minutes in place of the workflow's 45 (set on
+   2026-11-12 as a stopgap after a run was cut at 30 with every check so far passed).
+6. **Part a, then part b.**
+7. **Unbuilt orders that say "`CACHE` up by one"**: that line is void from the day part b merges, and each
+   brief says so.
+8. **`tests/README.md`, `docs/README.md` and the new `README.md`** are on `main` since the documentation pass
+   merged (2026-11-12): both parts update `tests/README.md` (the suites, the commands, the times) and the
+   README's section "Tests"; part b adds this order's row to the index in `docs/README.md` if it is not there.
+
 ## Why
 
 The next order after this one splits `audio.js` into eight files by stage, and every order after that tests
