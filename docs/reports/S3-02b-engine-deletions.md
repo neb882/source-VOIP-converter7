@@ -5,8 +5,8 @@ section S3-02b, with three parts the orchestrator added at S3-02a's merge from i
 `claude/s3-02b-engine-deletions`, from `622673c` (S3-02a merged, ten files under `engine/`, cache v37), which is
 `main` now.
 
-**Status:** built, and a fix round after the review (its section, "The fix round", is at the end and corrects what
-the sections before it got wrong; where they differ, it holds). Nothing stopped the build. No recorded hash,
+**Status:** built, with two fix rounds after the reviews (their sections, "The fix round" and "The second fix
+round", are at the end and correct what the sections before them got wrong; where they differ, the later holds). Nothing stopped the build. No recorded hash,
 `predictions.json`, the `CACHE` line or any file under `engine/` changed.
 
 ## Commits
@@ -27,7 +27,12 @@ the sections before it got wrong; where they differ, it holds). Nothing stopped 
 | `3fc0230` | fix round: two test comments (`mulberry32` is in `engine/dsp.js`) |
 | `411d645` | fix round, B-1: `sw.js` hands the page no-cache copies; `[Browser 4c]` with a warm tab, a reload and an offline load |
 | `b527134` | fix round: the documents |
-| this commit | this report, with the fix round |
+| `1b40b28` | merge of `main` (documents only) |
+| `d7b242d`, `03606ad` | this report, with the fix round |
+| `c2aab47` | second fix round, N-3: harness [12]'s fail-closed scan widened |
+| `31f9bf8` | second fix round, N-1, N-2, item 7, SF-1, SF-2: `sw.js` (204 and 205, a failed copy, the redirect clause); `[Browser 4c]` (the same-worker reload, the module) |
+| `1f13218` | second fix round: the documents |
+| the merge of `main` and this commit | this report, with the second fix round |
 
 C-02, C-03 and C-04 stay, as the order says.
 
@@ -379,13 +384,78 @@ milliseconds, the live chain's frame counts, two correlations, a meter's dBFS, t
 `harness` the lines of the first build plus check [12]'s new name; `meter` and `room-dsp` machine figures.
 `[Browser 4b]`'s request check passed (`226 requests, 62 files`).
 
+## The second fix round
+
+After the verification review: B-1 closed, two things to fix in `[Browser 4c]`, notes.
+
+- **SF-1, a warm reload with no takeover between.** `[Browser 4c]` now has, after line 2 and with the cache number
+  still held, a second change and `page.reload()` with the same worker serving, and a line for it (line 3). The old
+  lines 3 to 5 are now 4 to 6 (change 3 is the reload after the takeover, change 4 the offline case).
+- **SF-2, module scripts.** Each change also appends `export const __change = k;` to `opus-codec.mjs` in the
+  temporary copy; the second visit imports it (so the tab holds it), and after line 1's navigation and line 3's reload
+  the page imports it again and must get change k's.
+- **N-1, 204 and 205.** `askAgain` returns a 204 or 205 as it is. The reviewer's `probe.cjs` with this head's
+  worker: `<script src=s204.js>` and `<script src=s205.js>` each `load`, as with `origin/main`'s worker (before:
+  `net::ERR_FAILED`).
+- **N-2, a throw inside `askAgain`.** The copy is made inside `try`; on a throw the original response goes out. Its
+  body is unread at that point: `cachePut` has taken a `clone()`, and the `Response` constructor checks the status
+  before anything reads the stream; a break that builds the copy with status 204 and the original body
+  (`t-construct`) shows it. Measured with `upd2.cjs` (first visit, change, navigation): with a forced throw inside the
+  copy (`t-inside`) or the constructor's throw (`t-construct`) the page gets the network's new `index.html` and
+  `app/core.js` and starts; with the reviewer's break, a throw outside the helper that reaches the `.catch`
+  (`t-network`), the page gets the cached old `app/core.js` and does not start. With the `catch` taken out and the
+  throw inside (`t-nocatch`), even an unchanged second visit does not start. A copy that fails every time hands out
+  the server's headers, so a tab then keeps its copies as with `4b638f5`'s worker (`t-inside` with a warm tab: page
+  error).
+- **N-3, harness [12].** The scan for forms the check cannot read is now
+  `/[}\]]\s*=\s*[(\s]*E\s*(?:\?\.|\.|\[)/g`. hbreaks3's cases: `= (E.dsp)`, `= E?.dsp`, `= E['dsp']`, `var { ... }`,
+  `...rest`, two patterns in one statement and a later part each fail with file and line; a trailing comma
+  passes (a plain head); the `n1-` cases of check [1] fail as before. Each on `c2aab47`: `= (E.dsp)` and `= E?.dsp` fail with `engine/gain.js:8: takes from a part in a form this
+  check cannot read`; `= E['dsp']` and `var` fail the same way and in check [9]; `...rest` fails as a head item that
+  is not a plain name; a later part fails as before (`takes from E.mix, which no earlier engine file gives`).
+- **Item 7.** The comment at `askAgain` says that a script reached through a redirect keeps the tab's old copy, and
+  that no file of the site is reached through one.
+- **Documents.** `docs/PAGE.md` (a page that does not start if the two versions' markup and scripts do not fit; the
+  newer worker can take over a few seconds later, but need not), `tests/README.md` (the browser row and the offline
+  section, with the standing of `max-age=600` and the reload with the same worker serving), and the comment at
+  `tests/static-server.js:21`.
+- **First-visit bytes.** About 3.53 MB: 3,531,285 B in this round's run, 3,530,782 B in the first fix round's and
+  3,530,918 B in the reviewer's; the figure moves with the size of `sw.js` and the test's copy.
+
+The variants, every line reported (a `622673c`'s worker; i `4b638f5`'s; f, j, k, l from this head's: f `reload` on
+`index.html` only, j no copy for the cache fallback, k copies for classic scripts only, l no redirect clause):
+
+| Variant | 1 navigation (page, script, module) | 2 serving cache | 3 reload, same worker (page, script, module) | 4 newer cache | 5 reload, newer worker | 6 offline, then online |
+| --- | --- | --- | --- | --- | --- | --- |
+| a | fails: all old | fails | fails: page error, module old | fails | fails: page error | fails |
+| f | passes | passes | passes | **fails: `audio-worker.js` old** | passes | passes |
+| i | fails: page error, module old | fails | **fails: page error, module old** | passes | passes | fails |
+| j | passes | passes | passes | passes | passes | **fails** |
+| k | **fails: module old** | passes | **fails: module old** | passes | passes | passes |
+| l | passes | passes | passes | passes | passes | passes |
+| this head, twice | passes | passes | passes | passes | passes | passes |
+
+Every line fails for at least one variant; i fails the new line 3, and k fails lines 1 and 3. l passes everything:
+no file of the test is reached through a redirect, so the redirect clause is not exercised by it.
+
+**For the merge note** (from the reviewer's runs with the real trees, `out/mixes.txt`): between `origin/main` and this
+head `index.html` is the same file, and the scripts that differ only lose code nothing reads or change comments, so
+every pairing of old and new files a visitor can get while the old worker still serves starts without error (six
+pairings loaded, each starts and has `createRender`).
+
+**Whole output.** `node tests/run.mjs harness site browser` under the lock on a copy of `1f13218`: passed. Then
+`node tests/run.mjs all` under the lock on the same copy: all 25 passed (1,044.8 s summed). Every suite that renders,
+and the other suites the first rounds compared, print "before"'s lines with times blanked; `browser` has the base's
+check lines plus `[Browser 4c]`'s heading and six lines (`[Browser 4b]`'s request check: `226 requests, 62 files`);
+`harness`, `meter` and `room-dsp` differ as in the first fix round.
+
 ## The cache number
 
 `node tests/cache-number.mjs origin/main --report` on the branch:
 
 ```
-cached files changed since origin/main (15d8c53): app/core.js, app/visualizer.js, audio.js, opus-codec.mjs, room-dsp.js, steam-sender.js, sw.js
-cache number against origin/main (15d8c53): the number is v37, not above v37: it must rise (node tests/cache-number.mjs origin/main --set)
+cached files changed since origin/main (ab1f3fe): app/core.js, app/visualizer.js, audio.js, opus-codec.mjs, room-dsp.js, steam-sender.js, sw.js
+cache number against origin/main (ab1f3fe): the number is v37, not above v37: it must rise (node tests/cache-number.mjs origin/main --set)
 ```
 
 The `CACHE` line is not touched on the branch.
