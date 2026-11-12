@@ -524,12 +524,15 @@ if (runs(7)) {
       at === -1 && isDeepStrictEqual(got.codecInfo, whole.codecInfo),
       error ? `threw ${error.message}` : at === -1 ? `${whole.samples.length} samples` : `the first difference at ${at}`);
   }
+  // With the gate on, so that the source's pauses bring no message for a second at a time:
+  // there only advance() gives out what became final.
   for (const fps of [300, 66.67]) {
     // How far the samples returned fall behind the source given, both counted at 44.1 kHz.
     let behind = 0;
-    const got = await streamed(960, { ...opts, fps }, (given, returned) => { behind = Math.max(behind, Math.round(given * 44100 / rate) - returned); });
-    const want = fps === 300 ? whole : await A.process(buffer(x, rate), { ...opts, fps });
-    check(`${fps} fps, pieces of 960: the samples returned never fall more than D + 2,048 behind the source given, and are process()'s`,
+    const o = { ...BASE, timeline: 'game', seed: 1, fps };
+    const got = await streamed(960, o, (given, returned) => { behind = Math.max(behind, Math.round(given * 44100 / rate) - returned); });
+    const want = await A.process(buffer(x, rate), o);
+    check(`${fps} fps, the gate on, pieces of 960: the samples returned never fall more than D + 2,048 behind the source given, and are process()'s`,
       behind <= D[fps] + 2048 && firstDiff(got.samples, want.samples) === -1,
       `at most ${behind} behind, D ${D[fps]}: ${behind - D[fps]} over D`);
   }
