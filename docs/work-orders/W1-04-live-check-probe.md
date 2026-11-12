@@ -1,5 +1,7 @@
 # W1-04: the live-recording check stops failing by chance
 
+> **Status 2026-11-12: built and merged** at `4efb870` (pull request #4). Report: `docs/reports/W1-04-live-check-probe.md`.
+
 **Branch:** `claude/w1-04-live-check-probe`, from `main`. **Worktree:** given in the brief. **Agent:** `tf-builder`
 (a small order: effort high), then `tf-reviewer`. May push its branch to run CI. **Time budget:** 2 hours.
 

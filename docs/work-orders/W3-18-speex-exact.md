@@ -1,5 +1,7 @@
 # W3-18: Speex 1.0.2 with the arithmetic of the game's module, equal to the game's recordings
 
+> **Status 2026-11-12: built and merged** at `e4c3d73` (cache v29, pull request #23). Report: `docs/reports/W3-18-speex-exact.md`.
+
 **Depends on:** W3-12 (built), W3-17c merged (it changes `tests/render-stream.verify.mjs` and `sw.js`). **Kind:**
 code. `tf-builder` (effort high), then `tf-reviewer`. **Branch:** `claude/w3-18-speex-exact`, from `main`.
 **Worktree:** given in the brief. **Time budget:** 5 hours. One part.

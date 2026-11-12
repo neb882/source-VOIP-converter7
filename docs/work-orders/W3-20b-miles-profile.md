@@ -1,5 +1,7 @@
 # W3-20b: the `miles` profile: `vaudio_miles` as the Source engines of 2006 and 2007 ran it
 
+> **Status 2026-11-12: built and merged** at `7534d58` (cache v32, pull request #27). Report: `docs/reports/W3-20b-miles-profile.md`. `miles` is not a TF2 codec.
+
 Order of 2026-11-11. Medium: a new profile on the frame path, beside `speex`; no existing render changes.
 **Depends on:** W3-20a (the codec module, `docs/reports/W3-20a-miles-codec.md`) and W3-17d (the settings
 panel) merged. **Branch** `claude/w3-20b-miles-profile` from `main` as it stands then; the worktree is given

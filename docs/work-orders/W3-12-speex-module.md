@@ -1,5 +1,9 @@
 # W3-12: the `speex` profile runs the game's module: Speex 1.0.2 on 11025 Hz sound
 
+> **Status 2026-11-12, by part:**
+> - W3-12a: **built and merged** at `25dc00e` (pull request #10); report `docs/reports/W3-12a-speex-102.md`.
+> - W3-12b: **built and merged** at `3ff386c` (cache v23, pull request #14); report `docs/reports/W3-12b-speex-profile.md`. The module's arithmetic was made the game's by W3-18.
+
 **Depends on:** W3-09's report (`docs/reports/W3-09-steam-voice.md`, section 5, which is written to be built
 from, and section 6). Two parts. **W3-12a** (the build and its checks) adds new files only: it can start now and
 run beside any order. **W3-12b** (the profile) changes `constants.js`, `opus-codec.mjs` and `audio.js`: after

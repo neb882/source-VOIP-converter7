@@ -1,5 +1,7 @@
 # W3-04: a file is decoded at its own sample rate
 
+> **Status 2026-11-12: built and merged** at `f32ba0e` (cache v19, pull request #7). Report: `docs/reports/W3-04-native-rate-decode.md`.
+
 **Branch:** `claude/w3-04-native-rate-decode`, from `main`. **Worktree:** given in the brief. **Agent:** `tf-builder`
 (effort high), then `tf-reviewer`. May push its branch to run CI. **Time budget:** 3 hours.
 

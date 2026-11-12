@@ -1,5 +1,11 @@
 # W4-01: the page: a file to its sound without detours, settings that explain themselves, renders that reuse work
 
+> **Status 2026-11-12, by part:**
+> - The audit: **done** at `14b4608`; report `docs/reports/W4-01-page-audit.md`.
+> - W4-01a and W4-01c: **built and merged** at `b9579a4` (cache v34, pull request #29); report `docs/reports/W4-01ac-page.md`.
+> - W4-01d: **built and merged** at `b952114` (cache v31, pull request #26); report `docs/reports/W4-01d-settings-words.md`.
+> - W4-01b: **in flight** on branch `claude/w4-01b-speed`.
+
 *Written 2026-11-10 from the audit `docs/reports/W4-01-page-audit.md` ("the audit" below; "finding n" is its
 numbered finding, "speed-up n" a row of its table of speed-ups). The owner, on scope: "I agree that the pages
 clarity, defaults, and speed are important too." The sound of a render is not changed by any part of this

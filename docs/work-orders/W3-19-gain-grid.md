@@ -1,5 +1,7 @@
 # W3-19: the receiver gain on the decoder's own samples
 
+> **Status 2026-11-12: built and merged** at `8a6ee5a` (cache v30, pull request #24). Report: `docs/reports/W3-19-gain-grid.md`.
+
 Order of 2026-11-11. Small. To be built after W3-18 is merged (it starts from that `main`).
 
 ## What was measured

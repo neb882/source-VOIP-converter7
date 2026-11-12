@@ -1,5 +1,7 @@
 # W3-10: the mix and output stage as the game's listener gets it
 
+> **Status 2026-11-12: built and merged** at `2a13e2e` (cache v27, pull request #21). Report: `docs/reports/W3-10-output-stage.md` and `docs/reports/W3-10-upsampler-read.md`.
+
 *Rewritten 2026-11-10 for the new order of work (`docs/reports/W3-plan-maintenance-2.md`), then **revised the
 same day after the engine's read of the upsampler** (`docs/reports/W3-10-upsampler-read.md`: "the read" below)
 **and after its plan review** (9 must-fix, 12 should-fix, 9 notes; what was done about each is in the second

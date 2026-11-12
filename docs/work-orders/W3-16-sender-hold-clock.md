@@ -1,5 +1,7 @@
 # W3-16: the sender's hold on Steam's float clock, and the read clock as measured
 
+> **Status 2026-11-12: built and merged** at `d250928` (cache v25, pull request #19). Report: `docs/reports/W3-16-sender-hold-clock.md` and `docs/reports/W3-16-steam-hold-read.md` and `docs/reports/W3-16-second-read.md`.
+
 *Revised 2026-11-10 after the plan's review (6 must-fix, 15 should-fix and 13 notes; what was done about each is
 in the planner's hand-back). The clock's `time` no longer holds `uptime`: the sender adds it. The hash is new.*
 

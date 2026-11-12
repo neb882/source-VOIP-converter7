@@ -1,5 +1,7 @@
 # W2-03: sources past 10 minutes render in the page
 
+> **Status 2026-11-12: held** on the owner's priority; when taken up, after W4-01b (in flight). It blocks W2-05 and W2-06.
+
 > **Held (the owner's priority). Note of 2026-11-10 (`docs/reports/W3-plan-maintenance-2.md`), for when it
 > is taken up:** W2-04 is superseded. Where this order says a room or `voice_retime` is refused by the stream
 > "until W2-04", read: a room until W3-17c, `voice_retime` until W3-02f. A render's output is at the

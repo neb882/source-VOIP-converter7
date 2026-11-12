@@ -1,5 +1,12 @@
 # W3-02: the receiver's voice channel, as the engine runs it
 
+> **Status 2026-11-12, by part:**
+> - W3-02a: **built and merged** at `1ee4968` (pull request #9); report `docs/reports/W3-02a-voice-channel.md`. Nothing loads the module yet.
+> - W3-02b: **built and merged** at `f58d9a7` (pull request #11); report `docs/reports/W3-02b-voice-timeline.md`. Its sender's clock and hold were replaced by W3-16 (`d250928`).
+> - W3-02c: the plan review made it three orders (`abf872f`, `b63cc73`; the amendment below). W3-02c-1: **in flight** on branch `claude/w3-02c1-channel-as-read` (built, in review). W3-02c-2: **not started**; after W3-02c-1 and W4-01b. W3-02c-3: **not started**; after W3-02c-2.
+> - W3-02d: **not started**; after W3-02c-2. W3-02e: **not started**; after W3-02d. W3-02f: **not started**; after W3-02d. W3-02g: **not started**; after W3-02c-2 and W3-02f, and a planner's pass.
+> - The plan: `docs/reports/W3-02-plan.md` (revisions 1 and 2, `96f0983`, `615fb06`).
+
 *Revision 3, 2026-11-10.* **What changed and why:** W3-09 read Steam's sender out of the Steam client
 (`docs/reports/W3-09-steam-voice.md`). So "The sender's packets" and W3-02b no longer fit a model to the logs (a
 56 ms hand-out clock with drawn jitter, a drawn 8-frame opening, a 6-frame pre-roll, a 22-frame hold): they run
@@ -30,6 +37,10 @@ of W3-02c to W3-02g carries a dated note, "Now comes after", with what will have
 rules today's reads gave it. The "Starts after" column of the table below and the sentences that put W3-10
 last are superseded by this paragraph. **W3-02c and W3-02g need a planner's pass before they are built** (their
 notes say on what); W3-02d, W3-02e and W3-02f hold as written, with their notes.*
+
+*2026-11-12: everything the sequence above puts before W3-02c is built. W3-02c is now three orders: W3-02c-1 (built,
+in review), W3-02c-2 (after W3-02c-1 and W4-01b, which now comes before it) and W3-02c-3 (after W3-02c-2); see
+section 1 of the amendment of 2026-11-11 in W3-02c below. The table below still lists W3-02c as one order.*
 
 *Revision 2, 2026-11-10, after the plan's review by a builder (the findings and what was done about each are in
 `docs/reports/W3-02-plan.md`, "The review").* Seven orders, each leaving main working:
@@ -135,6 +146,10 @@ the clock asks for 513 on the first block after a start and plays the last 512**
 the queue, is not heard). In a replay of a log the demand is whatever the log shows, 513 included, and `pull` is
 given it as it is.
 
+*Overruled by the amendment of 2026-11-11, section 4 (built in W3-02c-1, in review): the first block plays the
+first 512 and keeps the last; D is `512 x round(44100 x zero / 512)`, where zero is `latency` plus the mean arrival
+time.*
+
 **The clock** that drives the channel in a render: tick `k` is at time `1323 k`, mixer block `b` at `1024 b`.
 Events run in time order; a block that starts before a tick runs before it, one that starts on it runs after it.
 A packet with arrival tick `k` is added on tick `k`, before the tick's pass. Block `b` is output samples
@@ -142,6 +157,10 @@ A packet with arrival tick `k` is added on tick `k`, before the tick's pass. Blo
 `latency(bufferMs, fps) = min(0.5, (waitTicks - 1) x 0.015 + 0.16)`: the delay at which a restarted spurt plays
 (0.25 s at 67 fps, 0.295 s at 100, 0.5 s at 235 and above), taken out so that a restarted spurt sits where the
 source has it. Output before sample 0 or past the render's length is dropped.
+
+*Overruled by the amendment of 2026-11-11, section 4 (built in W3-02c-1, in review): the first block plays the
+first 512 and keeps the last; D is `512 x round(44100 x zero / 512)`, where zero is `latency` plus the mean arrival
+time.*
 
 **Exact, and approximated.**
 
@@ -160,6 +179,11 @@ source has it. Output before sample 0 or past the render's length is dropped.
 | Five channels, other speakers | not modelled | one speaker |
 
 ## The sender's packets
+
+> **Superseded for the clock and the hold by W3-16 (`d250928`, cache v25).** The rule (gate, states, pre-roll,
+> frames) stands. The clock, the hold's arithmetic and the reference schedule are
+> `docs/work-orders/W3-16-sender-hold-clock.md` and `STEAM_SENDER` in `steam-sender.js`. The figures below were
+> measured on the old clock.
 
 *Rewritten in revision 3 from W3-09 (`docs/reports/W3-09-steam-voice.md`, sections 1, 2 and (a)).* A source file
 has no packets, so the render makes them as Steam does: it reads the sound in chunks, gates each chunk, and sends
@@ -547,6 +571,15 @@ service-worker file loads `steam-sender.js` yet (W3-11a does that).
 - If the reference schedule cannot be met with the rule as written (give the first message that differs).
 
 ## W3-02c: the render and the stream run the channel, behind an option
+
+> **Since 2026-11-11 this is three orders: W3-02c-1 (built, in review), W3-02c-2 and W3-02c-3 (not started).
+> Build W3-02c-2 from the amendment below, section 5; the text from here to the amendment holds only where
+> section 5 says it stands.** Among what it overrules: the branch is `claude/w3-02c2-timeline-option`; "it sets
+> W3-10's origin to its own" is withdrawn; `spurtStart()` at each channel is withdrawn for renders (decision 10);
+> a refused message is an empty `pcm`, counted in `network.refusedMessages`; the Files list (section 5 forbids
+> `live-worker.js` and adds files); the `agc: false` object does not round; the ignored codecs include `miles`;
+> section 10d's ranges and "at most 132 ... at least 100" are replaced by section 5's table and "at most 128 ...
+> at least 40".
 
 **Branch:** `claude/w3-02c-timeline-option`, from `main` **after W2-02, W3-05, W3-06, W3-02b, W3-13, W3-11a and
 W3-11b have merged** (W3-05 leaves the gain as an object with `reset()`; W3-11a leaves the `steam` render making
@@ -983,10 +1016,10 @@ ms: inside the band "go on, and say so in PROGRESS". Above 130 ms c-2 is held.
 **Files.** May touch: `audio.js` (`steamTimeline`, `process()`, `createRender()`; `gainRule` and `createGain`,
 only for `reset` taking the settings; the two comments named in section 2; W4-01b's list of options read after
 its second kept place), `tests/gain.verify.mjs` (that argument only), `index.html` (the script, after
-`steam-sender.js` at line 465), `sw.js` (`ASSETS` at 17; `CACHE` at 16 raised by one from main's), `audio-worker.js`
+the `steam-sender.js` script tag), `sw.js` (`ASSETS` at 17; `CACHE` at 16 raised by one from main's), `audio-worker.js`
 (`importScripts`, line 6), `tests/verify.js` (the loader at 35; the new section 10d), `tests/render-stream.verify.mjs`
 (the script list at 33; new cases added to `GOLDEN`, none changed), `tests/stages.verify.mjs` (W4-01b's suite: one
-case), `tests/browser.verify.js` (the check of loaded scripts at 2109), `tests/predictions/PREDICTIONS.md`.
+case), `tests/browser.verify.js` (the check "the page and the live monitor's worker load steam-sender.js"), `tests/predictions/PREDICTIONS.md`.
 `audio.js` finds the module as `steamModules()` finds the sender (`audio.js:1291`).
 May not touch: `voice-channel.js` and its suite (c-1 built them), `steam-sender.js`, `opus-codec.mjs`,
 `room-dsp.js`, `constants.js`, `reference.js`, `app/`, `live-worker.js` (c-3 loads the script there),
@@ -1278,7 +1311,7 @@ BC-3's build is folded into c-2 and BC-4 stays an order of its own after it, as 
   `'game'` the page's default every row of the accuracy table would move: d pins `timeline: 'source'` in that
   suite, or the suite first learns to track a render on the game's timeline. The live monitor is handed the
   page's options too (`live-worker.js:121`): until c-3 the chain ignores `timeline`. The page's `retime` control
-  (`index.html:277`, `voice_retime` in `app/console.js:308`) and `'game'` together are a `RangeError`: the page
+  (`id="retime"` in `index.html`, `voice_retime` in `app/console.js`) and `'game'` together are a `RangeError`: the page
   must not send both. `opts.fps` is the frame rate reached (section 7).
 - **W3-02e** reads `codecInfo.frameLog` (played) and `codecInfo.sent` (sent) as point 4 leaves them.
 - **W3-02f** removes `retimeSpurts` (`audio.js:941`) and its three call sites (1767, 1805, 2730).
@@ -1305,6 +1338,18 @@ the flat rule is retired (W3-02f removes its code).
 >   option. The brief says which presets on `steam` with a room take `game`.
 > - A render may now carry a room's tail and `codecInfo.room`; the console line of spec 4 and the A/B note of
 >   spec 5 are unaffected.
+
+> **Also since W4-01a and W4-01d (2026-11-12, `docs/README.md`):**
+> - (a) Each new control goes into one of W4-01a's lists, `PRESET_SET_FIELDS` or `KEPT_ACROSS_PRESETS`
+>   (`app/core.js`), and into the browser suite's `CONTROLS_GAME`, `CONTROLS_PCS` or `CONTROLS_EXTRAS`
+>   (`tests/browser.verify.js`). `retime` is in `PRESET_SET_FIELDS` and in `CONTROLS_EXTRAS` today.
+> - (b) A saved `retime` also lives in the remembered settings and the user presets (`tf2ve_settings`,
+>   `tf2ve_presets`: `app/console.js`, `app/boot.js`). The alias of spec 1 must read both.
+> - (c) Every new control gets a help sentence (`class="control-help"`) and passes W4-01d's walk over the help.
+> - (d) Section 13 of the amendment says d pins `timeline: 'source'` in `tests/accuracy.mjs`, but the Files below
+>   do not allow that file. Add `tests/accuracy.mjs` (its `renderOptions()` merges).
+> - (e) The A/B switch is now "Hear (B): Rendered | Original" (`index.html`, decision 23). Spec 5's note goes
+>   beside that group.
 
 ### Files
 
