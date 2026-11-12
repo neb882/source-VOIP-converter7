@@ -4,16 +4,11 @@
   "live": {
     "url": "https://neb882.github.io/source-VOIP-converter7/",
     "serves": "main (GitHub Pages from the branch root)",
-    "main": "34c36b8",
+    "main": "9e0abd0",
     "cache": 34,
-    "last_merge": "W4-01a and W4-01c (b9579a4, cache v34, pull request #29): the page's journey and its access; docs/reports/W4-01ac-page.md. Since then main has had documents, the progress file and the CI workflow only."
+    "last_merge": "W3-02c-1 (a2b7dc9, pull request #30, 2026-11-12): voice-channel.js as read; no cache change, since no page loads the module; docs/reports/W3-02c1-channel-as-read.md. The last merge that changed the site: W4-01a and W4-01c (b9579a4, cache v34, pull request #29)."
   },
   "in_flight": [
-    {
-      "order": "W3-02c-1",
-      "state": "built; in review",
-      "note": "Built on claude/w3-02c1-channel-as-read (head ebde6a0, CI green): all five items, the interpolator's blend and the fade as TF2's routines compute them; the named arrival constant measured at 50.5 ms. The orchestrator's private runs, 2026-11-12: the Set G replay matches the game's log on every tick of all six sections with each fault mismatching somewhere, as tabled; tests/retiming.mjs --engine on the speech take reads 47% of transitions and a start error of 122 ms (129 before; the plan expected about 117; between 110 and 130 the work goes on and says so here). An independent reader is on it. No cache change."
-    },
     {
       "order": "W4-01b",
       "state": "building",
@@ -21,15 +16,15 @@
     },
     {
       "order": "The documentation and structure pass",
-      "state": "stage 2: rewriting (two writers, then a reader against the site)",
-      "note": "Asked by the owner on 2026-11-12: a full pass over all documentation, rewriting freely. Stage 1, read-only, two auditors: A reads README.md, CLAUDE.md, docs/PIPELINE.md, the tests' and vendor READMEs and tests/REFERENCE_2026.md against the code, the suites and the page, and outlines a new README; B establishes each order's state from the log and the code, hands back an index, lists what merged orders made untrue in the orders still to build, and proposes a layout for docs/ and a shape for this file. Stage 2, after W4-01b merges: a builder rewrites from the two lists; a reader checks the result against the site. Widened by the owner the same day to the structure and operation of the whole project: a third auditor, C, maps the code, lists what of the first era (fits and guesses from before the game's files were read) is still on the sound's path, dead and duplicated code, whether the large files should be split with no build step and no recorded hash moved, the tests and CI's time, the build and the cache list, and how work has actually been run this month; it hands back a ranked proposal. The orchestrator decides from the three hand-backs what is built and in which order."
+      "state": "writing",
+      "note": "Asked by the owner on 2026-11-12, who allowed the documents and the project's structure to be rewritten freely. Stage 1 is done: three read-only audits (the documents a reader meets; the orders, reports and this file; the code, tests, CI and how work is run). Applied at once: CI tests a commit once and skips pushes that touch only docs/ (34c36b8). Stage 2, writing now on two branches: claude/docs-w1-readme-findings (a new README, docs/FINDINGS.md, docs/ACCURACY.md, docs/VOICE-PATH.md) and claude/docs-w2-guides (docs/LIVE.md, docs/PAGE.md, tests/README.md, docs/README.md as the index of orders with a status line on each, docs/owner-runs.md, every existing document corrected, this file reshaped into a short file and docs/PROGRESS-LOG.md); a reader then checks every stated fact against the code. Stage 3, after W4-01b merges and before W3-02c-2: a test-harness order (verify.js loads the engine in its own realm, a runner in place of the && chain, parallel CI jobs, a check that derives the cache list, the cache number set only at the merge, one shared test loader), then audio.js split by stage into eight files with no recorded hash moved, with built orders moved to a done folder in the same order. Later: one staged renderer (decided after BC-4); exact live-against-render checks for the older codecs (alongside W3-02c-3)."
     }
   ],
   "next": [
     {
       "order": "W3-02c-2",
       "file": "docs/work-orders/W3-02-receiver-queue.md (the amendment, section 5)",
-      "after": "W3-02c-1 and W4-01b",
+      "after": "W4-01b (W3-02c-1 is merged)",
       "line": "process() and createRender() run the receiver's channel behind opts.timeline (default 'source', so no recorded hash moves); a lost message is not pushed, which is BC-3's build."
     },
     {
@@ -71,7 +66,7 @@
     {
       "order": "research track",
       "file": "",
-      "after": "the tool's finish line (decision 26)",
+      "after": "the tool's finish line (finish_line)",
       "line": "the exact Miles decoder (the plug-in's two transforms), and a recording of an engine of 2006 or 2007 with sv_voicecodec vaudio_miles should the owner make one (docs/owner-runs.md)."
     }
   ],
@@ -90,7 +85,6 @@
     }
   ],
   "waiting_on_the_owner": [
-    "A Miles run in HL2DM's 32-bit game (steps given 2026-11-11): whether bin holds vaudio_miles.dll and the mss files; if so two recordings as for Set M with sv_voicecodec vaudio_miles, the console log, and the module files.",
     "The run sheet of 2026-11-11 (private repository; given to the owner): blocks 1 and 2 bad connections on one PC (35 min), 3 Steam's voice settings (20), 4 speakers and Sound quality (15), 5 two talkers and 6 one-way loss with the second PC (55); with the Miles run (the older engine files arrived 2026-11-11).",
     "Not urgent (it holds nothing before W3-02c-3): when the live monitor can run the game's own voice queue, it adds the game's wait before each phrase (about 90 ms on a 67 fps listener, about 435 ms at 300 fps) to the monitor's delay. Should that be on by default in the live monitor, or a setting that is off until chosen? The orchestrator's default if unanswered: a setting, off in the monitor, on in renders once W3-02d makes it the page's default.",
     "Optional, for the receiver's queue: one take of several minutes of steady sound (no pauses) at fps_max 67 with the channel's log on, to see whether a long unbroken phrase really reaches the queue's fade and underruns as the read rules predict (after 1.3 to 2.8 minutes at 67 fps).",
@@ -101,8 +95,10 @@
     "The device stage's last unit: a single-precision read position and a loss of up to one unit toward zero before the last rounding (the retake R1-3). Cheaper than a read of the XAudio2 module: the same take at volume 1 with a voice that stays off the clamp.",
     "Speex beyond the game's setting: only engine quality 3 (20-byte frames) was read and run with care; the other qualities use other codebooks and quantisers. The lost-frame and sub-mode 0 paths draw noise from the C runtime's rand() of the game's thread and cannot be reproduced from packets.",
     "Set D, PC A with set_d_street: the render's echo at 68.02 ms is 36% above the take's (0.0304 against 0.0224, 3.6 scatters), the other two within 10%. Random taps, the ambience, or the room's measures: not looked into.",
+    "2026-11-12, from the structure audit: the capture's roll-off filter (captureEq, a 255-tap fit to one PC's measured roll-off) and the app's own resampler in front of Steam's sender are the last fitted stages on the modern preset's path, and no order replaces them. By the finish line they need a measurement (what Windows hands Steam at 24 kHz) or a stated reason.",
+    "2026-11-12, from the accuracy run on all 18 takes with main's model: the two low-tone takes (Set F) are the weakest plain takes (lowtone_default -0.7 dB and 0.797; lowtone_maxgain_1 -2.2 dB, 0.584 and -15.5 dB at 11 to 12 kHz), and take1_default and listener_B are 2.7 and 3.2 dB high at 10 to 12 kHz. Whether the record already explains each (the low-tone and comfort-noise findings; the capture's roll-off) is to be checked when docs/ACCURACY.md is reviewed.",
     "The wet retake R3-3 placed to the sample (the fully wet room take fits the module with a residual 37 to 43 dB under it in its best seconds).",
-    "When phrases start: the speech take reads 47% of transitions right and a start error of 122 ms (W3-02c-1's private run); part of it cannot be closed, since the sender's clock phase at the moment of speaking is not in a recording.",
+    "When phrases start: the speech take reads 47% of transitions right and a start error of 122 ms (the orchestrator's private run on W3-02c-1); part of it cannot be closed, since the sender's clock phase at the moment of speaking is not in a recording.",
     "The gain at 44.1 kHz on Steam voice has no sample-exact check against the game (Set J was made at voice_maxgain 1, where the gain is unity).",
     "Steam's 16-bit decode past full scale (nothing in Set J passed it) and libopus 1.1.4 against 1.1.5 are not told apart.",
     "On a 44100 Hz listener's device there is no roll-off (inferred from the read, no take).",
@@ -119,7 +115,7 @@
     "sender": "steam: Steam's sender as read (the chunk rule, 2400 samples of pre-roll, the 0.4 s hold on a 32-bit float clock of Steam's uptime, 9 days by default); when Steam reads its microphone is a seeded model fitted to its packets. steam_48 (not in TF2): the 20 ms frame gate, a fit. The engine codecs: no gate unless voice_vad 1.",
     "codec": "steam: libopus 1.1.5 at Steam's settings, the 16-bit decode, at most 10 frames concealed; Steam's recording in 524,286 of 524,288 samples (Set J). celt_22, celt_44: the game's CELT 0.11 build, Set H's recordings but for 1 and 75 samples one step off. speex: Speex 1.0.2 with the module's arithmetic, equal to Sets M and O. miles (not in TF2): VR12, not checked against any recording of a running engine.",
     "network": "steam: a lost packet takes its whole message (BC-1, v33). Jitter on every profile is the earlier fit (3.2% of frames late at 50 ms); the game makes no frame late, and BC-4 is not built. The frame profiles: loss in bursts, the earlier fit.",
-    "receiver": "steam: FFmpeg's resampler as ported, the fma3 kernel. The gain is the engine's rule, sample for sample on Set H, on the decoder's own stream for the engine codecs since W3-19 (v30). The voice channel is not in a render: a render keeps the source's timeline (W3-02c-1 in review).",
+    "receiver": "steam: FFmpeg's resampler as ported, the fma3 kernel. The gain is the engine's rule, sample for sample on Set H, on the decoder's own stream for the engine codecs since W3-19 (v30). The voice channel is not in a render: a render keeps the source's timeline. The channel module is built as read (W3-02c-1, merged 2026-11-12) and no render runs it yet.",
     "mixer_output": "The engine's mixer and output stage as read, in integers (W3-10); the device stage to 48000 Hz a measured model; volume 1, the game's own.",
     "rooms": "The rooms are the engine's, in the render (W3-17c, v28), on the page and in the live chain (W3-17d, v31); the default is no room.",
     "live": "steam's live chain is the render sample for sample (W3-11b); push-to-talk is the app's stand-in until W3-11c."

@@ -56,8 +56,8 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | W3-02a | the channel as a module, the log replay | built and merged (nothing loads it) | `1ee4968`, #9 | W3-02a-voice-channel.md | |
 | W3-02b | `steam-sender.js`, `createTimeline` | built and merged | `f58d9a7`, #11 | W3-02b-voice-timeline.md | its sender's clock and hold since replaced by W3-16 |
 | W3-02c | the plan review: one order became three | done (the amendment and the rulings are in the order) | `abf872f`, `b63cc73` | none (the amendment is in the order) | |
-| W3-02c-1 | the module as read (the first pull, D on blocks, the zero, the interpolator) | in flight: built, in review | branch `claude/w3-02c1-channel-as-read` | W3-02c1-channel-as-read.md (on the branch) | blocks W3-02c-2 |
-| W3-02c-2 | the render behind `opts.timeline`; BC-3's build | not started | | | after W3-02c-1 and W4-01b |
+| W3-02c-1 | the module as read (the first pull, D on blocks, the zero, the interpolator) | built and merged (no render runs it yet) | `a2b7dc9`, #30 (no cache change) | W3-02c1-channel-as-read.md | W3-02c-2 builds on it |
+| W3-02c-2 | the render behind `opts.timeline`; BC-3's build | not started | | | after W4-01b |
 | W3-02c-3 | the live chain runs the channel | not started | | | after W3-02c-2; an owner's question is open |
 | W3-02d | the page: controls, the default, the words | not started | | | after W3-02c-2 |
 | W3-02e | the codec lane's marks, the real-take check | not started | | | after W3-02d |
@@ -109,12 +109,8 @@ and `reports/W4-01/` those of `W4-01-page-audit.md`.
 
 ## Owed
 
-Changes to the orders that wait for something:
-- **At W3-02c-1's merge** (they describe the order as built): in `work-orders/W3-02-receiver-queue.md`, decision 3
-  of the amendment gets "Settled 2026-11-11: TF2's own routine agrees (`docs/PROGRESS-LOG.md`, `stands.receiver_interp`); c-1 builds
-  item 4"; the sentence on `===` in section 5 becomes "the interpolator is in: `===` becomes equal to c-1's
-  blend"; and the line in section 12 on the rounding "in TF2's own file" becomes "settled: truncated toward zero,
-  single precision". Also at that merge: `tests/voicequeue/reference-channel.mjs`, `tests/voicequeue/README.md`,
-  a comment in `tests/voicequeue/synthetic-results.mjs` and W3-02a's report still describe the channel's old
-  arithmetic; that branch's report says what each should say.
+- **Left stale by W3-02c-1 and owed to a later order:** `tests/voicequeue/reference-channel.mjs` still carries the
+  channel's old arithmetic (the unblended copy and the old fade; its header says so, and the suite adapts around
+  it), and W3-02a's report and `tests/voicequeue/README.md` describe that old arithmetic. The amendment's "As built:
+  W3-02c-1" in `work-orders/W3-02-receiver-queue.md` says what the channel computes now.
 - **At W4-01b's merge:** W2-03's worker protocol is re-read, and W4-01's step 3 is marked built.

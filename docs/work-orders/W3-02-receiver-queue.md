@@ -3,7 +3,7 @@
 > **Status 2026-11-12, by part:**
 > - W3-02a: **built and merged** at `1ee4968` (pull request #9); report `docs/reports/W3-02a-voice-channel.md`. Nothing loads the module yet.
 > - W3-02b: **built and merged** at `f58d9a7` (pull request #11); report `docs/reports/W3-02b-voice-timeline.md`. Its sender's clock and hold were replaced by W3-16 (`d250928`).
-> - W3-02c: the plan review made it three orders (`abf872f`, `b63cc73`; the amendment below). W3-02c-1: **in flight** on branch `claude/w3-02c1-channel-as-read` (built, in review). W3-02c-2: **not started**; after W3-02c-1 and W4-01b. W3-02c-3: **not started**; after W3-02c-2.
+> - W3-02c: the plan review made it three orders (`abf872f`, `b63cc73`; the amendment below). W3-02c-1: **built and merged** at `a2b7dc9` (pull request #30; no cache change); report `docs/reports/W3-02c1-channel-as-read.md`. W3-02c-2: **not started**; after W3-02c-1 and W4-01b. W3-02c-3: **not started**; after W3-02c-2.
 > - W3-02d: **not started**; after W3-02c-2. W3-02e: **not started**; after W3-02d. W3-02f: **not started**; after W3-02d. W3-02g: **not started**; after W3-02c-2 and W3-02f, and a planner's pass.
 > - The plan: `docs/reports/W3-02-plan.md` (revisions 1 and 2, `96f0983`, `615fb06`).
 
@@ -38,8 +38,8 @@ rules today's reads gave it. The "Starts after" column of the table below and th
 last are superseded by this paragraph. **W3-02c and W3-02g need a planner's pass before they are built** (their
 notes say on what); W3-02d, W3-02e and W3-02f hold as written, with their notes.*
 
-*2026-11-12: everything the sequence above puts before W3-02c is built. W3-02c is now three orders: W3-02c-1 (built,
-in review), W3-02c-2 (after W3-02c-1 and W4-01b, which now comes before it) and W3-02c-3 (after W3-02c-2); see
+*2026-11-12: everything the sequence above puts before W3-02c is built. W3-02c is now three orders: W3-02c-1 (built
+and merged 2026-11-12, `a2b7dc9`), W3-02c-2 (after W3-02c-1 and W4-01b, which now comes before it) and W3-02c-3 (after W3-02c-2); see
 section 1 of the amendment of 2026-11-11 in W3-02c below. The table below still lists W3-02c as one order.*
 
 *Revision 2, 2026-11-10, after the plan's review by a builder (the findings and what was done about each are in
@@ -146,7 +146,7 @@ the clock asks for 513 on the first block after a start and plays the last 512**
 the queue, is not heard). In a replay of a log the demand is whatever the log shows, 513 included, and `pull` is
 given it as it is.
 
-*Overruled by the amendment of 2026-11-11, section 4 (built in W3-02c-1, in review): the first block plays the
+*Overruled by the amendment of 2026-11-11, section 4 (built in W3-02c-1, merged 2026-11-12, `a2b7dc9`): the first block plays the
 first 512 and keeps the last; D is `512 x round(44100 x zero / 512)`, where zero is `latency` plus the mean arrival
 time.*
 
@@ -158,7 +158,7 @@ A packet with arrival tick `k` is added on tick `k`, before the tick's pass. Blo
 (0.25 s at 67 fps, 0.295 s at 100, 0.5 s at 235 and above), taken out so that a restarted spurt sits where the
 source has it. Output before sample 0 or past the render's length is dropped.
 
-*Overruled by the amendment of 2026-11-11, section 4 (built in W3-02c-1, in review): the first block plays the
+*Overruled by the amendment of 2026-11-11, section 4 (built in W3-02c-1, merged 2026-11-12, `a2b7dc9`): the first block plays the
 first 512 and keeps the last; D is `512 x round(44100 x zero / 512)`, where zero is `latency` plus the mean arrival
 time.*
 
@@ -167,13 +167,15 @@ time.*
 | Part | In the model | Why |
 | --- | --- | --- |
 | Ring size, overflow dropping the oldest | exact | read; every logged add |
-| One sample dropped per packet | exact in count; the kept samples are the packet's samples 1..n-1 | the engine blends each with 0.001 of its neighbour (an interpolator at fraction 0.999): under the 16-bit step |
+| One sample dropped per packet, and the interpolator | exact: n - 1 samples written, the k-th `trunc(s[k] + (s[k+1] - s[k]) x f)`, the fraction 0.999 at assignment and carried from packet to packet; in 16-bit units *(corrected 2026-11-12, W3-02c-1: this row said the blend was under the 16-bit step, which was wrong)* | run: TF2's own routine, both builds, 1,944,423 of 1,944,423 written samples per build and 9,369,073 of 9,369,073 over 6,000 packets; the 0.999 at assignment read (W3-03); a step other than 1.0 not run |
 | The countdown | exact for a steady frame rate | the game's frame times vary and a hitch shortens the wait; the input is one number |
 | Append, with the one-tick grace; freed when found empty | exact | read; one grace case and 34 opens in the logs |
-| The fade | the law as read; the product is not rounded to 16 bits | the render carries floats; no log can show it |
-| Underrun padding | the law as read | not seen in a log (it changes samples, not counts) |
+| The fade | exact: `trunc(f(f(1 - f(j x f(1 / (fade - 1)))) x s))`, `j = fade - 1 - r`, `fade = max(2, trunc(f(44100 x f(voice_fadeouttime))))`, `f` a single-precision round *(W3-02c-1)* | run: TF2's own routine, both builds, 885,240 of 885,240 pulled samples |
+| Underrun padding | exact: the last samples read, after the fade, once more, then zeros *(W3-02c-1)* | run: as the fade |
 | The gain, and its reset when a channel is assigned | exact | W3-05; verified sample for sample on Set H |
-| The extra sample at a start | counted; dropped unheard | its use was not read |
+| The extra sample at a start | exact: the mixer's look-ahead; the first block plays the first 512 of 513, every later block the kept sample and 511 new ones; nothing dropped *(W3-02c-1)* | read: W3-10's upsampler read, section 3 (the voice source's side of the pull not re-read; the kept sample of a freed channel is 0 and is not modelled) |
+| A read of more than 1024, a padded pull of more than 2048 | not modelled: `pull(n)` takes `n` | the routine's caps; the mixer's blocks ask 512 or 513, larger requests not seen from the mixer. Wrong for a single engine call over 1024 or a replay with real samples whose tick ends in an underrun |
+| The zero `D` (the model's own, to line a render up with its source) | `D = 512 x round(44100 x (latency + 0.0505 + codecDelay) / 512)`: 13312, 15360, 24064 samples at 66.67, 100, 300 fps with no codec delay; 13312, 15360, 24576 with the Opus codec's 156 samples at 24 kHz | the game has no such figure. `latency`: the wait and the opening burst (read); 0.0505 s: the mean arrival after the message's first captured sample, measured on the model over 455 spurts; `codecDelay`: what the caller took off each source for its codec; on whole blocks so that the channel's blocks are the mixer's (read: W3-07, W3-10). At 66.67 fps the sum sits 0.6 ms under the edge where `D` becomes 13568 |
 | When the mixer pulls | approximated: a block every 512 samples | in the game the pulls follow the frames (a tick sees 0, 1 or 2 blocks, 7% see none); it matters by at most a block (11.6 ms) at a full or a nearly empty ring |
 | Ticks | approximated below 67 fps: evenly spaced | there several ticks run in one frame |
 | Five channels, other speakers | not modelled | one speaker |
@@ -572,12 +574,12 @@ service-worker file loads `steam-sender.js` yet (W3-11a does that).
 
 ## W3-02c: the render and the stream run the channel, behind an option
 
-> **Since 2026-11-11 this is three orders: W3-02c-1 (built, in review), W3-02c-2 and W3-02c-3 (not started).
+> **Since 2026-11-11 this is three orders: W3-02c-1 (built and merged 2026-11-12, `a2b7dc9`), W3-02c-2 and W3-02c-3 (not started).
 > Build W3-02c-2 from the amendment below, section 5; the text from here to the amendment holds only where
 > section 5 says it stands.** Among what it overrules: the branch is `claude/w3-02c2-timeline-option`; "it sets
 > W3-10's origin to its own" is withdrawn; `spurtStart()` at each channel is withdrawn for renders (decision 10);
 > a refused message is an empty `pcm`, counted in `network.refusedMessages`; the Files list (section 5 forbids
-> `live-worker.js` and adds files); the `agc: false` object does not round; the ignored codecs include `miles` (not in TF2);
+> `live-worker.js` and adds files); the `agc: false` object rounds to whole 16-bit values before `push` (section 5, as of 2026-11-12); the ignored codecs include `miles` (not in TF2);
 > section 10d's ranges and "at most 132 ... at least 100" are replaced by section 5's table and "at most 128 ...
 > at least 40".
 
@@ -1036,8 +1038,11 @@ or `GAIN_GOLDEN`.
   - The resampler: stands (one per render, `audio.js:1753` and 2781).
   - The gain: stands. Today `gainRule`'s `reset()` takes nothing and the three settings are fixed when the rule
     is made (`audio.js:789` to 797; `createGain` at 861). Either form the order allows is acceptable. With
-    `agc: false` the object multiplies by `voice_scale` and clips as `audio.js:1814` to 1817 do; it does not
-    round (the mix entry does: `mixSample`, `audio.js:356`).
+    `agc: false` the object multiplies by `voice_scale`, **rounds to the nearest whole 16-bit value (ties to
+    even, as `mixSample` does, `audio.js:356`) and clips, before `push`** *(the orchestrator, 2026-11-12, from
+    W3-02c-1's review: the channel works in whole 16-bit units and truncates in its blend, so an unrounded value
+    would come out one unit lower under `'game'` than under `'source'`, where the mix entry rounds it: 1.5 units
+    gave 1 against 2)*.
   - A late frame: stands; it is the rule of `audio.js:1481` to 1491, moved into the object.
   - "The timeline's output replaces the auto-gain's (stage 4)": it replaces `steamVoice` (`audio.js:1762`).
     With the gate off: stands; section 6 has the figures.
@@ -1067,7 +1072,7 @@ or `GAIN_GOLDEN`.
     Re-measured at `fps: 150`: the queue stays between 224 and 394 ms after the first 2 s (seeds 1 to 10), with
     no fade, no overflow and one open, and 356 to 360 packets have ticks between 10 and 30 s (17.90 a second):
     the order's 340 to 375 stands. If the interpolator is in (decision 3), `===` becomes "equal to c-1's blend
-    of the two neighbours".
+    of the two neighbours". *2026-11-12: the interpolator is in: `===` becomes equal to c-1's blend.*
   - **The wiring is the module's**: stands, with `source` as section 3 and three lines added: the packets the
     hook receives are the `'source'` render's `onResampled` packets over 32768, in order, a refused one
     replaced by an empty one and a lost message absent; `codecInfo.sent.frameLog` and `frameBytes` equal the
@@ -1245,7 +1250,7 @@ Each with the recommendation and what it rests on.
    seeds. The other way: leave the zero, and take the mean out in the private check only. Rests on: measured
    on the model (the figures above; PROGRESS has the merged sender's messages about 32 ms later than the old
    one's); the zero is no rule of the game.
-3. **The interpolator's arithmetic.** As built the ring keeps samples 1 to n-1 unblended, on the ground that the
+3. *Settled 2026-11-11: TF2's own routine agrees; W3-02c-1 built item 4 (see "As built").* **The interpolator's arithmetic.** As built the ring keeps samples 1 to n-1 unblended, on the ground that the
    blend is "under the 16-bit step" ("The model", the table). A private run of 2026-11-11 of the 2006 and 2007
    engines' own routine in an emulator gives each written sample as `s[k] + (s[k+1] - s[k]) x fraction`,
    truncated toward zero, the fraction starting at 0.999 and carried on *(measured: 3,590 of 3,590 and 7,190 of
@@ -1294,6 +1299,30 @@ Each with the recommendation and what it rests on.
 
 BC-3's build is folded into c-2 and BC-4 stays an order of its own after it, as section 10 says.
 
+**As built: W3-02c-1, merged 2026-11-12** (`docs/reports/W3-02c1-channel-as-read.md`). What c-2 builds on:
+
+- All five items of section 4 are in. Decision 3 is settled: TF2's own routine, run on both builds, blends and
+  truncates as the 2006 and 2007 engines do, so the interpolator is built (item 4), and the fade's arithmetic is
+  known (decision 4): single precision, truncated toward zero. "The model"'s table has the rows as built.
+- `createChannel` works in whole 16-bit units. `createTimeline` multiplies its gain's output by 32768 going in
+  and divides by 32768 coming out, so c-2's contract (the resampler's Int16 over 32768) is unchanged; whatever
+  is handed to the channel that is not whole is truncated in the blend.
+- **The zero has two parts, kept apart.** `ARRIVAL_SECONDS` is 50.5 ms: the mean arrival after the message's
+  first captured sample (the sender's `start`), measured over 455 spurts. `createTimeline` takes `codecDelay` in
+  seconds (default 0): what the caller has already taken off each `source` for its codec. **c-2 passes
+  `codecDelay: lookahead / codecRate` (156 / 24000)**, since it pushes `source = round((start - lookahead) x
+  44100 / 24000)`; then `D` is 13312, 15360 and 24576 samples at 66.67, 100 and 300 fps. Without the option a
+  render at 300 fps would sit 11.8 ms late (the review's blocking finding).
+- The offsets of section 5's table move with `D`: by -51.86, -53.29 and -45.67 ms at 66.67, 100 and 300 fps
+  against the old `D`, and by one more block at 300 fps with the codec's delay. c-2's planner re-derives its
+  ranges from the suite's measured values, not from the table as written.
+- The orchestrator's private runs on the merged module: the Set G replay matches the game on every tick of six
+  sections; `tests/retiming.mjs --engine` on the speech take reads 47% of transitions and a start error of
+  122 ms (129 before; between 110 and 130 the work goes on).
+- Left stale by this order and owed to a later one: `tests/voicequeue/reference-channel.mjs` still carries the
+  unblended copy and the old fade (the suite adapts around it; its header says so), and W3-02a's report
+  describes the old arithmetic.
+
 #### 12. Not settled here
 
 - The monitor's delay (decision 1): the owner's.
@@ -1302,7 +1331,7 @@ BC-3's build is folded into c-2 and BC-4 stays an order of its own after it, as 
   several minutes of steady sound at `fps_max 67` with the channel's log on. It is not on the run sheet.
 - How a `'game'` render of the speech take scores (the private run after c-2), and whether the 60 to 220 ms
   drops of the crude copy of the queue survive in the real channel.
-- The rounding to 16 bits of the blend and of the fade in TF2's own file (decisions 3 and 4).
+- ~~The rounding to 16 bits of the blend and of the fade in TF2's own file (decisions 3 and 4).~~ Settled: truncated toward zero, single precision (see "The model").
 - The broken senders of the order's list were not run again on the merged sender (section 5).
 
 #### 13. For the orders after this one
