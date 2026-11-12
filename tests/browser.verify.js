@@ -619,6 +619,11 @@ async function verifyAverageAndRealTake(page) {
   await page.locator('#reference summary').click();
   await page.locator('#reference-file').setInputFiles({ name: 'take.wav', mimeType: 'audio/wav', buffer: Buffer.from(wav) });
   await page.waitForFunction(() => document.querySelector('#reference-report table'), null, { timeout: 60000 });
+  // The meter's "Δ real" row comes once the take's own meter job (a worker's)
+  // has answered, after the report's table: wait for it, and let the check
+  // below say so if it never comes.
+  await page.waitForFunction(() => [...document.querySelectorAll('#meter-rows tr th')].some((th) => th.textContent === 'Δ real'),
+    null, { timeout: 60000 }).catch(() => {});
   const take = await page.evaluate(() => ({ segments: state.realTake.timeline.segments.length,
     delay: state.realTake.timeline.segments[0].a, ppm: state.realTake.timeline.segments[0].clockPpm,
     status: document.getElementById('reference-status').textContent,
@@ -2720,30 +2725,65 @@ async function speedCancel(browser, base) {
   } finally { await context.close(); }
 }
 
-// A worker that does not answer a cancel (the page's cancels dropped) is
-// ended once the bound has passed (500 ms and 15 ms a second of source:
-// 1.4 s for 60 s) and replaced; the source is sent to the new worker, and
-// the render after it is right and made there (not on the page's own
-// thread). The render cancelled runs from the start (its first), so that it
-// is still busy then.
+// A worker that does not answer a cancel is ended once the bound has passed
+// (500 ms and 15 ms a second of source: 1.4 s for 60 s), and no sooner, and
+// replaced; the source is sent to the new worker, and the render after it is
+// right and made there (not on the page's own thread). The worker is made
+// not to answer: the page's cancels are dropped, and every reply of the
+// cancelled render but its progress and preview is held back (no result, no
+// meter, no `done`), so it is busy at the bound however fast it renders. The
+// check waits for the worker's end, not for the clock. [It used to count on
+// the render being still busy 1.4 s after the press. On the build machine
+// the press came 0.9 s after the button showed 5% and the render ended 1.6 to
+// 2.3 s after the press; CI's runner once ended it within the bound, and the
+// page kept the worker, as it should.]
 async function speedCancelUnanswered(browser, base) {
   const { context, page, errors } = await speedPage(browser, base);
   try {
-    await page.evaluate(() => { window.__dropCancel = true; });
+    await page.evaluate(() => {
+      window.__dropCancel = true;
+      // The first render: its id, when its cancel was posted, when its worker was ended.
+      const unanswered = window.__unanswered = { id: null, cancelAt: null, endedAt: null };
+      const Counted = window.Worker;
+      window.Worker = class extends Counted {
+        constructor(url, options) {
+          super(url, options);
+          // Registered before the page's onmessage, so it runs first and can stop it.
+          this.addEventListener('message', (event) => {
+            const data = event.data || {};
+            if (unanswered.id !== null && data.id === unanswered.id && data.type !== 'progress' && data.type !== 'preview') event.stopImmediatePropagation();
+          });
+        }
+        postMessage(message, transfer) {
+          if (message && message.type === 'process' && unanswered.id === null) { unanswered.id = message.id; this.__unanswered = true; }
+          if (message && message.type === 'cancel' && message.id === unanswered.id) unanswered.cancelAt = performance.now();
+          return super.postMessage(message, transfer);
+        }
+        terminate() {
+          if (this.__unanswered && unanswered.endedAt === null) unanswered.endedAt = performance.now();
+          return super.terminate();
+        }
+      };
+    });
     await page.locator('#file').setInputFiles({ name: 'unanswered.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) });
     await page.waitForFunction(() => state.processing && Number((els.process.textContent.match(/(\d+)%/) || [])[1]) >= 5, null, { timeout: 30000 });
     await page.locator('#cancel-process').click();
     await page.waitForFunction(() => !state.processing, null, { timeout: 30000 });
-    await renderNow(page, 120000);
+    // The worker's end; a page that never ends it fails the check below.
+    const ended = await page.waitForFunction(() => window.__unanswered.endedAt !== null, null, { timeout: 30000 }).then(() => true, () => false);
+    if (ended) await renderNow(page, 120000);
     const lines = await consoleLines(page);
     const replaced = lines.find((t) => /did not stop within \d+ ms of the cancel/.test(t));
     const compatible = lines.filter((t) => /compatibility path/.test(t)).length;
     const late = await wavHash(page);
+    const unanswered = await page.evaluate(() => window.__unanswered);
+    const after = ended && unanswered.cancelAt !== null ? unanswered.endedAt - unanswered.cancelAt : NaN;
     await page.evaluate(() => { window.__dropCancel = false; });
     const sources = await page.evaluate(() => window.__sources);
-    check(/within 1400 ms/.test(replaced || '') && await audioWorkers(page) === 2 && sources === 2 && compatible === 0 && late === await freshHash(page),
+    // 1 ms under the bound for the two clocks' resolution (the timer's, performance.now's).
+    check(/within 1400 ms/.test(replaced || '') && after >= 1400 - 1 && await audioWorkers(page) === 2 && sources === 2 && compatible === 0 && late === await freshHash(page),
       'a worker that does not answer a cancel is ended after the bound (1.4 s for 60 s) and replaced; the source goes to the new worker, and the render there is a fresh render\'s WAV',
-      `${await audioWorkers(page)} workers, ${sources} source messages, ${compatible} on the page's thread; ${replaced}`);
+      `${await audioWorkers(page)} workers, ${sources} source messages, ${compatible} on the page's thread; ${Number.isFinite(after) ? `ended ${after.toFixed(0)} ms after the cancel` : 'not ended'}; ${replaced}`);
     check(errors.length === 0, 'an unanswered cancel: no page errors', errors.join('; '));
   } finally { await context.close(); }
 }
