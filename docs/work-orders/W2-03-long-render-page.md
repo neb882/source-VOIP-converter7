@@ -2,6 +2,8 @@
 
 > **Status 2026-11-12: held** on the owner's priority; W4-01b has merged (v35), so its steps need a planner's pass before a build (the note below). It blocks W2-05 and W2-06.
 
+> **Note, 2026-11-12:** `audio.js` was split by S3-02; the function this document names is in the file `README.md`'s table of files gives for it. Where this order says it may not touch `audio.js`, the rule covers `engine/` too. The rest of this document is as written.
+
 > **Re-read 2026-11-12 at W4-01b's merge (`2a98439`), by the orchestrator.** What this order assumes and no longer holds: the
 > page now keeps one worker for its renders, downloads, the meter and the real take's jobs, one job at a time, each
 > with an id; the source goes to it once, in a `source` message, and stays there with two kept stages of the last

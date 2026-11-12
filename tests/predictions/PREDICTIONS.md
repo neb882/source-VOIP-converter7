@@ -181,6 +181,8 @@ Changed after registration, 2026-11-12, before any predicted take existed: `audi
 
 Changed after registration, 2026-11-12, before any predicted take existed: `constants.js` changed for S3-03. Its two lists `TF2_DATA.playerNames` and `TF2_DATA.chat` changed: the player names are now invented ones, and one chat line was reworded so that it names nobody. No render reads either list: outside `constants.js` the only file that names them is `app/core.js`, which prints the page's mock server lines in its console. No other part of `constants.js` changed, so no render a prediction rests on changes. The predictions are scored as registered.
 
+Changed after registration, 2026-11-12, before any predicted take existed: `audio.js` changed for S3-02 and ten files were added to the hashed model files. The engine's code was moved, unedited, out of `audio.js` into `engine/dsp.js`, `engine/gain.js`, `engine/mix.js`, `engine/network.js`, `engine/codec.js`, `engine/room.js`, `engine/steam.js`, `engine/render.js`, `engine/render-stream.js` and `engine/live-chain.js`, which the page and both workers load before it. `audio.js` keeps the codec module's loader and builds `TF2Audio` from them, with the same members. `tests/accuracy.mjs` now hashes those ten files with the others (`MODEL_FILES`); `predictions.json` does not list them, so the scorer names them as changed. `constants.js` changed in comments only. No render changed: every recorded hash of `tests/render-stream.verify.mjs` (`GOLDEN`, `GAIN_GOLDEN`) and of `tests/stages.verify.mjs` is unchanged, and each engine suite's whole output is the same before and after (`docs/reports/S3-02a-engine-split.md`). The predictions were not rendered again.
+
 ## Results
 
 Not recorded yet.

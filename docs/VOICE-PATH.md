@@ -10,14 +10,14 @@ This is the path of the `steam` profile, which the Modern preset uses. The other
 
 | Stage | What it does to the sound | Where it runs | Standing |
 | --- | --- | --- | --- |
-| 1. The capture | one channel, clipped to 16 bits, brought to 24000 Hz, the top of the band rolled off | `audio.js` | the app's own; the roll-off is a fit to one PC |
+| 1. The capture | one channel, clipped to 16 bits, brought to 24000 Hz, the top of the band rolled off | `engine/steam.js` | the app's own; the roll-off is a fit to one PC |
 | 2. Steam's sender | cuts the sound into chunks and sends only the loud ones, with 100 ms before and about 0.4 s after | `steam-sender.js` | the rule read; the times of Steam's reads drawn |
 | 3. The codec | Opus at 24 kHz and 32 kbit/s; comfort noise in pauses and under steady tones | `opus-codec.mjs`, `vendor/libopus-1.1/` | read and measured |
-| 4. The network | takes out whole messages; marks some frames late | `audio.js` | loss read; late frames a fit |
+| 4. The network | takes out whole messages; marks some frames late | `engine/network.js` | loss read; late frames a fit |
 | 5. Steam's decoder | 16-bit decoding, at most ten filled frames, 24000 to 44100 Hz | `opus-codec.mjs`, `vendor/swresample/` | read and measured |
-| 6. The receiver's gain | turns the voice up to ten times and clips it | `audio.js` | read and measured |
+| 6. The receiver's gain | turns the voice up to ten times and clips it | `engine/gain.js` | read and measured |
 | 7. The voice channel | queues the voice and can start a phrase early | `voice-channel.js` | read; not in a render yet |
-| 8. The mixer and the output | 255/256, the room, the clip, `volume`, the device's rate | `audio.js`, `room-dsp.js` | read; the device's conversion measured |
+| 8. The mixer and the output | 255/256, the room, the clip, `volume`, the device's rate | `engine/mix.js`, `room-dsp.js` | read; the device's conversion measured |
 
 ## The path, stage by stage
 
@@ -81,7 +81,7 @@ The page has a stand-in, "Talk-spurt timing", off by default. Set to "Some phras
 
 ### 8. The mixer and the output
 
-These stages are the game's as read (`audio.js`; [FINDINGS.md, entry 8](FINDINGS.md#8-the-mixer-and-the-output)).
+These stages are the game's as read (`engine/mix.js`; [FINDINGS.md, entry 8](FINDINGS.md#8-the-mixer-and-the-output)).
 
 1. The voice enters the 44100 Hz mix at 255/256 of its level, cut toward zero.
 2. With a room, part of the voice goes through the room's reverb and is added back ([Rooms](#rooms)).

@@ -4,6 +4,8 @@ A plan, 2026-11-11. No app code changed. It gathers what the earlier reads and t
 reordered and bunched voice packets, adds what was read from the engine for this plan, re-reads Set C against it,
 and proposes orders and one recording session.
 
+> **Note, 2026-11-12:** `audio.js` was split by S3-02; the function this document names is in the file `README.md`'s table of files gives for it. The rest of this document is as written.
+
 Every statement is marked **read** (from a file of the owner's install, with where), **measured** (from a take or a
 run, with the count) or **inferred**. Addresses are virtual addresses in `bin/x64/engine.dll` (SHA-256 `4802a74c…`,
 the file W3-03 read) and in Steam's `steamclient64.dll` (SHA-256 `e9045710…`, the file W3-09 read). Function names

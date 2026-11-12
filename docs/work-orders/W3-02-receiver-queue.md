@@ -7,6 +7,8 @@
 > - W3-02d: **not started**; after W3-02c-2. W3-02e: **not started**; after W3-02d. W3-02f: **not started**; after W3-02d. W3-02g: **not started**; after W3-02c-2 and W3-02f, and a planner's pass.
 > - The plan: `docs/reports/W3-02-plan.md` (revisions 1 and 2, `96f0983`, `615fb06`).
 
+> **Note, 2026-11-12:** `audio.js` was split by S3-02; the function this document names is in the file `README.md`'s table of files gives for it. W3-02c-2 is to be written as a short order against the files (`docs/work-orders/S3-02-engine-split.md`, "What comes right after"), not built from this amendment's line numbers. The rest of this document is as written.
+
 *Revision 3, 2026-11-10.* **What changed and why:** W3-09 read Steam's sender out of the Steam client
 (`docs/reports/W3-09-steam-voice.md`). So "The sender's packets" and W3-02b no longer fit a model to the logs (a
 56 ms hand-out clock with drawn jitter, a drawn 8-frame opening, a 6-frame pre-roll, a 22-frame hold): they run
