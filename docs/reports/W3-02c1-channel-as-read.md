@@ -235,15 +235,16 @@ S1 (the `agc: false` gain object rounds before `push`) is the orchestrator's tex
 
 ## The last run
 
-`pnpm test` on `1c317e0` (the code of this branch; the report added after), exit 0, its last lines:
+`pnpm test` on `141fa4e` (the review round), exit 0, its last lines (the first round's run on `1c317e0` and on the
+merge `ebde6a0` passed too, with 138 voice channel checks; CI passed on `ebde6a0`):
 
 ```
 553 render-stream checks passed, 0 failed
 103 output-stage checks passed, 0 failed
-138 voice channel checks passed
+141 voice channel checks passed
 109 steam sender checks passed
 43 swresample checks passed
-215 room checks passed (10.9 s)
+215 room checks passed (10.8 s)
 ```
 
 CI: the `tests` workflow on the pushed head, as the hand-back says.
