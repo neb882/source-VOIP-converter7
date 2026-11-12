@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { chromium } = require('playwright');
 const { createStaticServer } = require('./static-server');
+const { siteFiles } = require('./lib/site-files.cjs');
 
 let passed = 0;
 // The app shell cache sw.js populates, e.g. tf2ve-v13.
@@ -2467,16 +2468,10 @@ async function activateServiceWorker(page, scriptPath) {
 }
 
 // The files the page needs to start and work offline, found without reading
-// sw.js: the page itself, what its markup links (scripts, style, icon,
-// manifest), the manifest's icons, and what the code loads at run time
-// (workers, audio worklets and the codec modules they import).
-const RUNTIME_FILES = ['audio-worker.js', 'mic-capture.js', 'live-worker.js', 'live-worklet.js', 'opus-codec.mjs',
-  'vendor/libopus/index.mjs', 'vendor/libopus/generated/libopus.generated.mjs',
-  'vendor/libopus-1.1/index.mjs', 'vendor/libopus-1.1/libopus-1.1.5.wasm.mjs',
-  'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs',
-  'vendor/speex-1.0.2/index.mjs', 'vendor/speex-1.0.2/speex-1.0.2.wasm.mjs',
-  'vendor/voxware-vr12/index.mjs', 'vendor/voxware-vr12/voxware-vr12.wasm.mjs',
-  'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs'];
+// sw.js: derived from the shipped files' own text (tests/lib/site-files.cjs:
+// the page, what its markup links, the manifest's icons, and what the code
+// loads at run time). tests/site.verify.mjs holds sw.js to the same list.
+const SITE_FILES = siteFiles(path.join(__dirname, '..')).files;
 
 // A first visit: the service worker installs and takes control while the
 // page is open, and the page is not reloaded under it. Every file the page
@@ -2486,10 +2481,17 @@ const RUNTIME_FILES = ['audio-worker.js', 'mic-capture.js', 'live-worker.js', 'l
 async function verifyFirstVisitOffline(browser, base) {
   console.log('\n[Browser 4b] A first visit leaves everything needed offline in the cache');
   const root = path.join(__dirname, '..');
-  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.webmanifest'), 'utf8'));
   const assets = [...fs.readFileSync(path.join(root, 'sw.js'), 'utf8').match(/const ASSETS = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+)'/g)]
     .map(m => m[1].replace(/^\.\//, ''));
   const context = await browser.newContext({ serviceWorkers: 'allow' });
+  // Every request to the test server, from the page, its workers and the
+  // service worker, from before the first visit to the end of the offline
+  // render (blob: URLs made on the page are not requests to the server).
+  const requested = [];
+  context.on('request', (request) => {
+    const url = new URL(request.url());
+    if (/^https?:$/.test(url.protocol) && url.origin === base) requested.push(decodeURIComponent(url.pathname.slice(1)));
+  });
   try {
     const page = await context.newPage();
     page.setDefaultTimeout(30000);
@@ -2498,9 +2500,10 @@ async function verifyFirstVisitOffline(browser, base) {
     await page.goto(`${base}/`, { waitUntil: 'networkidle' });
     const linked = await page.evaluate(() => [...document.querySelectorAll('script[src], link[href]')]
       .map(e => new URL(e.getAttribute('src') || e.getAttribute('href'), location.href).pathname.slice(1)));
-    const needed = [...new Set(['', 'index.html', ...linked, ...manifest.icons.map(i => i.src), ...RUNTIME_FILES])];
-    check(needed.every(f => !f || fs.existsSync(path.join(root, f))) && assets.every(a => needed.includes(a)),
-      'the files the page needs exist, and sw.js lists nothing else', `${needed.length} files`);
+    const needed = ['', ...SITE_FILES];
+    const unread = linked.filter(f => !needed.includes(f));
+    check(needed.every(f => !f || fs.existsSync(path.join(root, f))) && assets.every(a => needed.includes(a)) && unread.length === 0,
+      'the files the page needs exist, and sw.js lists nothing else', unread.length ? `tags the static reading missed: ${unread.join(', ')}` : `${needed.length} files`);
     const missing = await page.evaluate(async ({ needed, shell }) => {
       await navigator.serviceWorker.register('sw.js');
       await navigator.serviceWorker.ready;
@@ -2519,6 +2522,10 @@ async function verifyFirstVisitOffline(browser, base) {
     const done = await page.evaluate(() => ({ status: document.getElementById('render-status').textContent, log: document.getElementById('console-out').textContent }));
     check(done.status.startsWith('Rendered in') && done.log.includes('libopus 1.1.5'), 'and renders by itself with the bundled codec', done.status);
     check(errors.length === 0, 'the first visit and the offline reload have no page errors', errors.join('; '));
+    // sw.js is the service worker's own script: registered, and not in its own cache.
+    const outside = [...new Set(requested.filter(f => !needed.includes(f) && f !== 'sw.js'))];
+    check(requested.length > 0 && outside.length === 0, 'every request of the first visit and the offline render is for a file of the list',
+      outside.length ? `outside the list: ${outside.join(', ')}` : `${requested.length} requests, ${new Set(requested).size} files`);
   } finally {
     await context.setOffline(false).catch(() => {});
     await context.close();
@@ -3587,13 +3594,10 @@ async function main() {
     }, SHELL_CACHE);
     check(fresh.worker === 'analyzed' && fresh.worklet === 'fresh', 'workers and audio worklets load their scripts network-first, like the page',
       `worker ${fresh.worker}, worklet ${fresh.worklet}`);
-    check(await page.evaluate(async (name) => {
+    check(await page.evaluate(async ({ name, needed }) => {
       const cache = await caches.open(name);
-      const needed = ['batch.js', 'formats.js', 'flac.js', 'zip.js', 'meter.js', 'reference.js', 'video.js', 'filerate.js', 'demo.js', 'live.js', 'live-worker.js', 'live-worklet.js',
-        'vendor/lame/index.mjs', 'vendor/lame/lame-3.100.wasm.mjs', 'vendor/celt-0.11/index.mjs', 'vendor/celt-0.11/celt-0.11.wasm.mjs',
-        'vendor/speex-1.0.2/index.mjs', 'vendor/speex-1.0.2/speex-1.0.2.wasm.mjs', 'vendor/voxware-vr12/index.mjs', 'vendor/voxware-vr12/voxware-vr12.wasm.mjs'];
       return (await Promise.all(needed.map(path => cache.match(new URL(path, location.href).href)))).every(Boolean);
-    }, SHELL_CACHE), 'batch, format, meter, reference, video, file-rate, demo, live-monitor, CELT, Speex, VR12 and MP3 encoder files are cached for offline use');
+    }, { name: SHELL_CACHE, needed: SITE_FILES }), 'batch, format, meter, reference, video, file-rate, demo, live-monitor, CELT, Speex, VR12 and MP3 encoder files are cached for offline use');
     // Restore the normal registration while still online. Otherwise reloading
     // registers sw.js again and races another replacement against file loading.
     await activateServiceWorker(page, 'sw.js');
