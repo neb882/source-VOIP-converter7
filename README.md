@@ -141,7 +141,7 @@ pnpm exec playwright install chromium   # once, for the browser suite
 pnpm test:all                           # the vendored files, the sound path and the page in a browser
 ```
 
-The suites hold each stage to the rule as read and to numbers taken from the recordings, and hold the live chain to a render. The owner's recordings are private, so the checks that need them are run privately and reported as numbers. CI runs `pnpm test:all` on every push that changes more than `docs/`; a run takes 12 to 20 minutes (measured on CI in November 2026). [tests/README.md](tests/README.md) lists the suites.
+The suites hold each stage to the rule as read and to numbers taken from the recordings, and hold the live chain to a render. The owner's recordings are private, so the checks that need them are run privately and reported as numbers. CI runs `pnpm test:all` on every push that changes more than `docs/`; a run takes 12 to 21 minutes (measured on CI on 2026-11-12). [tests/README.md](tests/README.md) lists the suites.
 
 ## Files and licences
 
