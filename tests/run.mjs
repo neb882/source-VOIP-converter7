@@ -55,6 +55,7 @@ export const SUITES = [
   ['room-dsp', 'units', ['tests/room-dsp.verify.mjs']],
   ['verify', 'engine', ['tests/verify.js']],
   ['steam', 'engine', ['tests/steam.verify.js']],
+  ['render-channel', 'engine', ['tests/render-channel.verify.mjs']],
   ['render-stream', 'render', ['tests/render-stream.verify.mjs']],
   ['stages', 'stages', ['tests/stages.verify.mjs']],
   ['browser', 'browser', ['tests/browser.verify.js']]
