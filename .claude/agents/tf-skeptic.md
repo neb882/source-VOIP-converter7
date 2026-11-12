@@ -1,7 +1,7 @@
 ---
 name: tf-skeptic
 description: Tries to refute one major review finding by reproducing it independently. Cannot edit files. Use for each major finding before anyone fixes it.
-effort: xhigh
+effort: high
 maxTurns: 100
 disallowedTools: Edit, Write, NotebookEdit
 color: purple

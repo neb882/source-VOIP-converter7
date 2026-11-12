@@ -1,5 +1,7 @@
 # W3-07: from the voice channel to the speakers, as the engine does it
 
+> **Status 2026-11-12: done (investigation)** at `0367808`. Report: `docs/reports/W3-07-mixer-output.md`.
+
 **Branch:** `claude/w3-07-mixer-output`, from `main`. **Worktree:** given in the brief. **Agent:** an investigator on
 the stronger model. It reads the owner's own game files and writes; it changes no app code. **Time budget:** 3 hours.
 

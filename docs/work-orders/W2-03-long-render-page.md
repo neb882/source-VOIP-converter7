@@ -1,11 +1,18 @@
 # W2-03: sources past 10 minutes render in the page
 
+> **Status 2026-11-12: held** on the owner's priority; when taken up, after W4-01b (in flight). It blocks W2-05 and W2-06.
+
 > **Held (the owner's priority). Note of 2026-11-10 (`docs/reports/W3-plan-maintenance-2.md`), for when it
 > is taken up:** W2-04 is superseded. Where this order says a room or `voice_retime` is refused by the stream
 > "until W2-04", read: a room until W3-17c, `voice_retime` until W3-02f. A render's output is at the
 > listener's device rate after W3-10 (48000 Hz by default), not at the source's rate, and can end in a
 > room's tail after W3-17c: the worker's output buffer of `outputLength` needs the tail's cap
 > (`maxTail`). W2-05 and W2-06 say they may run beside W2-04; there is no such order to run beside.
+
+> **Open, 2026-11-12:** since W4-01a a new source of any length renders by itself; only a changed setting waits
+> above `AUTO_RENDER_SECONDS`. Whether a source longer than that should still render by itself when it is loaded
+> is a question for the owner, not settled here. This order's worker protocol (the `process` message, cancel
+> terminating the worker) will not hold once W4-01b merges; re-read the order then.
 
 **Branch:** `claude/w2-03-long-render-page`, from `main` **after W1-01, W2-01 and W2-02 have merged**. **Worktree:**
 given in the brief. **Agent:** `tf-builder`, then `tf-reviewer`. May push its branch to run CI. **Time budget:**
@@ -48,8 +55,8 @@ May not touch: `audio.js`, `meter.js` (W2-01/02 own them; ask if they need a cha
    `TF2Audio.toInt16` (the conversion `encodeWav` uses, so the bytes are the same as `encodeWav` would give).
    Progress and cancellation work as today; cancel terminates the worker.
 3. **An option the stream does not take.** `createRender` rejects what it cannot stream with an error that names
-   the option (a room or `voice_retime`, until W2-04). The page shows that message as it shows any render error, and
-   Process stays usable for other settings. No check of its own for those options: when W2-04 merges, the page
+   the option (`voice_retime`; since W3-17c `createRender` streams a room). The page shows that message as it shows
+   any render error, and Render (called Process until W4-01a) stays usable for other settings. No check of its own for those options: when W2-04 merges, the page
    needs no change.
 4. **The limits** (`app/core.js`), with the reasons in the report:
    - audio files: 100 MB as now; decoded length at most 30 minutes at 48 kHz, as a sample budget per channel
@@ -91,7 +98,7 @@ Each with its command; the browser suite under `flock /tmp/tf2ve-heavy.lock`.
     and its first minute equals the first minute of a `process()` render of the same first 70 s (the stream's
     prefix property)
   - with `navigator.deviceMemory` overridden to 4, an 11-minute source is refused with the small-device message
-  - a long source with a room set shows the engine's message and leaves Process usable
+  - a long source with `voice_retime 1` shows the engine's message and leaves Render usable
   - a 31-minute source is refused with the message; nothing is mounted and the previous source stays loaded
   - cancel during a streaming render stops it and keeps the source
   - a long demo is not cut at 10 minutes (build a synthetic demo with voice at 0 s and at 11 min, as

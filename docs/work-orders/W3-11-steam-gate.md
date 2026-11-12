@@ -1,5 +1,11 @@
 # W3-11: the `steam` profile sends and decodes as Steam does
 
+> **Status 2026-11-12, by part:**
+> - W3-11a: **built and merged** at `603d3d9` (cache v24, pull request #16); report `docs/reports/W3-11a-steam-render.md`.
+> - W3-11b: **built and merged** at `f03e431` (cache v26, pull request #20); report `docs/reports/W3-11b-live-chain.md`.
+> - W3-11c: **held** on the owner's microphone run (`docs/owner-runs.md`), then a planner's spec.
+> - The plan: `docs/reports/W3-11-plan.md` (`56b927f`).
+
 *Rewritten 2026-11-10 after the plan's review (findings 7 to 18 and its note on size;
 `docs/reports/W3-11-plan.md`, "The review"): split in two; for the `steam` profile only; the 16-bit decode is
 the library's own; the gate off is a sender setting; the checks that a correct build would have failed are
@@ -10,8 +16,8 @@ are spelled out; the tool for the owner's file-input recording and its private c
 | Part | What | Starts after | Budget |
 | --- | --- | --- | --- |
 | **W3-11a** | the render and `createRender`: the sender, the decoder's rules, 16 bits, the resampler, `codecInfo`, the golden hashes | **built and merged 2026-11-10** (`docs/reports/W3-11a-steam-render.md`); its section below is left as it was built from | 2 days |
-| **W3-11b** | the live chain on the render's own stages, with the key held; the app's stand-in for push-to-talk; the threshold control and its default; the page's texts, README | **W3-16 merged**; no other `audio.js` order open | 1 day |
-| **W3-11c** | the key as Steam has it: the two tails, a press's resets, the empty packet, messages made and not collected | **not to be built yet**: after W3-17d, and only once the owner's microphone run is in and a planner has specified five points against it | to be set then |
+| **W3-11b** | the live chain on the render's own stages, with the key held; the app's stand-in for push-to-talk; the threshold control and its default; the page's texts, README | **built and merged 2026-11-10** (`f03e431`, cache v26; `docs/reports/W3-11b-live-chain.md`) | 1 day |
+| **W3-11c** | the key as Steam has it: the two tails, a press's resets, the empty packet, messages made and not collected | **held**: the owner's microphone run (`docs/owner-runs.md`), then a planner's spec of five points against it; W3-17d is merged | to be set then |
 
 **The order of work since 2026-11-10** (`docs/PROGRESS.json`, decisions; `docs/reports/W3-plan-maintenance-2.md`
 and its addendum): W3-16, then W3-11b, then W3-10, W3-17c and W3-17d, then W3-11c and W3-02c to W3-02g.
@@ -22,7 +28,7 @@ changes how a render is computed; parts b and c: they decide what the live monit
 *Maintenance, 2026-11-10 (`docs/reports/W3-plan-maintenance.md`): brought up to date with what the builds of
 W3-02b, W3-05 and W3-13 learnt (the sender's messages as built, the gain fed only decoded samples and its
 settings read at a reset, a resampler that lives as long as the speaker's decoder, the footer's credit).
-**W3-13 is built and reviewed but its merge waits for the owner's word on its licence. W3-11a may be built
+**Void: W3-13 merged 2026-11-10 (`7327327`).** **W3-13 is built and reviewed but its merge waits for the owner's word on its licence. W3-11a may be built
 meanwhile on a branch that has merged `origin/claude/w3-13-steam-resampler` in; it is merged to main only after
 W3-13 is.** It uses nothing of the module but `createResampler().packet()`, so if the owner's answer changes how
 the resampler is shipped, this order's code stands and only its golden hashes may move.*
@@ -739,6 +745,8 @@ words would be "Steam keeps sending for 0.5 s after the release (read from Steam
 
 ### The run (for the owner; a real microphone path, Steam's console and the game's)
 
+*Also in `docs/owner-runs.md`, with the owner's other runs (2026-11-12).*
+
 What it must contain, so that the planner can specify the part against it:
 
 - **Steam's uptime, noted**: when Steam was last started, to the hour, and the PC's. If it is easy, the run
@@ -838,14 +846,15 @@ point, which is the app's own (below).
   section 3). With the key, numbers can run on over frames never collected. A chunk is at most the sender's
   longest, so a message after such a gap is at most 10 concealed and 6 decoded: the 17-frame cut is out of
   reach (given N4). The game's refusal of a message over 12 frames is not: at a long uptime the float tail
-  runs up to 250 ms past the exact one. The refusal is the receiver's (W3-02c); the live chain would play
-  such a message and count it.
+  runs up to 250 ms past the exact one. The game's refusal of a message over 12 frames is built on both
+  timelines and in the live chain since BC-1 (`steamFits` in `audio.js`); at a long uptime the float tail can
+  reach it, and the live chain refuses such a message and counts it.
 
 ## Not in this order
 
 The game's timeline (W3-02c), and with it the channel a message opens, the gain's reset at a channel's
-assignment and the game's refusal of a message over 12 frames. The decoder's 17-frame cut (W3-02g). TF2's
+assignment and the game's refusal of a message over 12 frames (built by BC-1). The decoder's 17-frame cut (W3-02g). TF2's
 open-microphone mode (`voice_vox`), which was not read. Steam's `voice_preprocess`. The capture roll-off,
 which W3-09 found to be Windows's resampler and stays as measured. A 48 kHz sender for `steam_48`. Loss that
-falls on whole messages (`docs/reports/W3-11-plan.md`, "Open"). The tie between Steam's reads and the game's
+falls on whole messages (`docs/reports/W3-11-plan.md`, "Open"; built by BC-1). The tie between Steam's reads and the game's
 tick (measured in Set J, not explained). The live chain's stages after the mix point (W3-10, W3-17d).

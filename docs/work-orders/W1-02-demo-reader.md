@@ -1,5 +1,7 @@
 # W1-02: one demo reader; a talk spurt whose end marker was lost starts at its tick
 
+> **Status 2026-11-12: built and merged** at `800059b` (pull request #3). Report: `docs/reports/W1-02-demo-reader.md`.
+
 **Branch:** `claude/w1-02-demo-reader`, from `main`. **Worktree:** given in the brief. **Agent:** `tf-builder`, then
 `tf-reviewer`. May push its branch to run CI. **Time budget:** 2 hours.
 

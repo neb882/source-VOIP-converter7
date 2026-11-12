@@ -1,5 +1,7 @@
 # BC-1: loss takes whole messages (the `steam` render and live chain)
 
+> **Status 2026-11-12: built and merged** at `a0f1cd0` (cache v33, pull request #28). Report: `docs/reports/BC-1-loss-per-message.md`.
+
 Order of 2026-11-11, from `docs/reports/bad-connections-plan.md`. Medium: it changes how a `steam` render
 with loss is computed. Branch `claude/bc-1-loss-per-message` from `main` as it stands when the build
 starts; the worktree is given in the brief. Budget: 12 hours of building, then stop and report where you

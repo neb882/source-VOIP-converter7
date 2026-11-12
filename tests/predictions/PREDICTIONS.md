@@ -1,6 +1,6 @@
 # Pre-registered predictions
 
-The model in this app was fitted to recordings (Sets A–F in [REFERENCE_2026.md](../REFERENCE_2026.md)). A model fitted to data is expected to reproduce that data; the test is whether it predicts recordings it has never seen. This folder holds such predictions, for six takes that had not been recorded when the predictions were made:
+The model in this app was fitted to recordings (Sets A–F in [REFERENCE_2026.md](../REFERENCE_2026.md)). Since then most of it has been replaced by rules read from the game's files; the notes under "Registration" say when. A model fitted to data is expected to reproduce that data; the test is whether it predicts recordings it has never seen. This folder holds such predictions, for six takes that had not been recorded when the predictions were made:
 
 - **P1** `sv_voicecodec vaudio_celt`: the legacy engine codec.
 - **P2** `sv_voicecodec vaudio_celt_high`.

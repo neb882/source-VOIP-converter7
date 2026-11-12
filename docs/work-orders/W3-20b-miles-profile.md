@@ -1,5 +1,7 @@
 # W3-20b: the `miles` profile: `vaudio_miles` as the Source engines of 2006 and 2007 ran it
 
+> **Status 2026-11-12: built and merged** at `7534d58` (cache v32, pull request #27). Report: `docs/reports/W3-20b-miles-profile.md`. `miles` is not a TF2 codec.
+
 Order of 2026-11-11. Medium: a new profile on the frame path, beside `speex`; no existing render changes.
 **Depends on:** W3-20a (the codec module, `docs/reports/W3-20a-miles-codec.md`) and W3-17d (the settings
 panel) merged. **Branch** `claude/w3-20b-miles-profile` from `main` as it stands then; the worktree is given
@@ -411,6 +413,8 @@ each place by its text.
 - `git diff origin/main...HEAD` and the commit messages were scanned for what CLAUDE.md's hard rules forbid.
 
 ## One day: what a recording could settle (the owner's choice; optional; unverified)
+
+*Also in `docs/owner-runs.md`, with the owner's other runs (2026-11-12).*
 
 Nobody has run this. The variables below are registered in both engines with default 0 (read); what they
 do there was not run, and the file names are TF2's of today (W3-03's report), not read for these builds.

@@ -167,6 +167,11 @@ What this is evidence of:
 
 ## Proposed orders, smallest audible gain first
 
+*2026-11-12: BC-1 is built (cache v33). BC-2 is done (documents only). BC-3's build is part of W3-02c-2 (the
+amendment in `docs/work-orders/W3-02-receiver-queue.md`, section 10); only its check against block 1 and the log
+tool's change remain. BC-4 to BC-6 have no order yet. BC-5 covers `miles` too (not in TF2), which also plays a lost
+frame as zeros.*
+
 **BC-1. Loss takes whole messages (the `steam` render and live chain).** Draw loss per network packet, one
 message to a packet, each packet with its own draw, instead of per frame in bursts; keep the decoder path as it
 is; add the 12-frame refusal. Rests on: reads 1, 2 and 7, the decoder's rule, finding 28's message sizes. Checked

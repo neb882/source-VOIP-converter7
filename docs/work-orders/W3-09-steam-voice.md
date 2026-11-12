@@ -1,5 +1,7 @@
 # W3-09: Steam's side of voice, from public files and public writing
 
+> **Status 2026-11-12: done (investigation)** at `a5f8ba2`. Report: `docs/reports/W3-09-steam-voice.md`.
+
 **Branch:** `claude/w3-09-steam-voice`, from `main`. **Worktree:** given in the brief. **Agent:** an investigator on
 the stronger model. It researches, downloads public files, reads them and writes; it changes no app code.
 **Time budget:** 4 hours.

@@ -1,5 +1,7 @@
 # W3-05: the receiver's gain, as the engine computes it
 
+> **Status 2026-11-12: built and merged** at `c00dff8` (cache v21, pull request #12). Report: `docs/reports/W3-05-receiver-gain.md`.
+
 *Revised 2026-11-10 after the plan's review and after Set H (the findings and what was done about each are in
 `docs/reports/W3-02-plan.md`, "The review").*
 

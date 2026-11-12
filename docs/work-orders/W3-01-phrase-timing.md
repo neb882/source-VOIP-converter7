@@ -1,5 +1,7 @@
 # W3-01: when phrases start (an investigation, then an order)
 
+> **Status 2026-11-12: done (investigation)** at `41aa2d7`. Report: `docs/reports/W3-01-phrase-timing.md`. Its draft order was replaced by W3-02.
+
 **Branch:** `claude/w3-01-phrase-timing`, from `main`. **Worktree:** given in the brief. **Agent:** an investigator on
 the stronger model (docs/PIPELINE.md, "Which model does what"). It measures and writes; it changes no app code.
 **Time budget:** 3 hours.

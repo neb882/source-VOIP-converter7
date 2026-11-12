@@ -84,6 +84,9 @@ What it equals:
 - **The game's recording (Set M)**, in the orchestrator's private run on this build: the decoded voice of HL2DM's
   32-bit game on its own captured input, 145,920 of 145,920 samples at `voice_maxgain 1`, and 146,080 of 146,080 at 10
   after the app's gain run on the whole decoded stream (`tests/REFERENCE_2026.md`).
+- **A second game's recording (Set O)**: TF2's own 32-bit game (started with `-force32bit`), Set M's method and input.
+  The app's whole render gives both its recordings, at `voice_maxgain 1` and 10, in 145,966 of 145,966 samples (the
+  orchestrator's private run; `tests/REFERENCE_2026.md`).
 
 Only the engine's quality 3 (Speex quality 4, 20-byte frames) is claimed exact: the other qualities were not checked.
 Not reproduced: a sub-mode 0 frame and a lost frame draw noise from the C runtime's `rand()`, which belongs to the

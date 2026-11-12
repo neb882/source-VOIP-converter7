@@ -1,8 +1,9 @@
 # TF2 Voice Emulator
 
 A static, client-side web app, served from GitHub Pages, that makes audio, video or a TF2 demo's voice sound as it
-does through Team Fortress 2 voice chat. It is a measured model of the real chain, not an effect: README.md describes
-it for users, and `tests/REFERENCE_2026.md` holds the evidence behind every constant.
+does through Team Fortress 2 voice chat. It is a model of the real chain, not an effect: most of it is read from the
+game's and Steam's own files and checked against the owner's recordings. README.md describes it for users (its
+files table is the map of the code), and `tests/REFERENCE_2026.md` holds the evidence behind every constant.
 
 ## Start here
 
@@ -11,30 +12,35 @@ it for users, and `tests/REFERENCE_2026.md` holds the evidence behind every cons
   lands.
 - `docs/PIPELINE.md`: how work is run (roles, an order's path from brief to merge, the gates). Read it before starting
   agents.
-- `docs/work-orders/`: one file per job. `docs/reports/`: each merged order's report.
+- `docs/work-orders/`: one file per job, each with a status line under its title. `docs/reports/`: each order's
+  report. `docs/README.md` indexes every order with its state.
 - `tests/REFERENCE_2026.md`: the recordings, the findings and what remains unverified.
+- `tests/README.md`: what each suite proves and how long it runs, the tools that need the owner's recordings, and how
+  each bundled codec is rebuilt.
 
 ## Commands
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm test                 # the Node suites, about a minute
+pnpm test                 # the Node suites, about 17 minutes on CI
 pnpm test:vendor          # the bundled codec builds match their recorded hashes
 CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux*/chrome | head -1) node tests/browser.verify.js
 pnpm dev                  # the app on a local server
 ```
 
-`pnpm test:all` is what CI runs (vendor check, Node suites, browser suite). The `CHROMIUM_EXECUTABLE` line is for a
+`pnpm test:all` is what CI runs (vendor check, Node suites, browser suite), about 20 minutes of CI's 30. Most of
+`pnpm test` is `tests/verify.js` and `tests/render-stream.verify.mjs`: run the suite a change touches on its own
+first (`node tests/<suite>`). The `CHROMIUM_EXECUTABLE` line is for a
 machine whose installed Chromium is not the one Playwright pins; elsewhere `pnpm test:browser` is enough.
 `tests/accuracy.mjs` and `tests/retiming.mjs` need the owner's recordings, which are not in this repository: they are
-in a private one a session can attach (`docs/PROGRESS.json`, `stands.takes`, says how to point the tests at it).
+in a private one a session can attach (`docs/PROGRESS.json`, `takes`, says how to point the tests at it).
 Nothing from it is ever copied here.
 
 There is no build step: the files in the repository are the site.
 
 ## Hard rules
 
-Each rule's reason is in brackets, so a rule can be dropped once its reason no longer holds. Say so in PROGRESS's
+Most rules give their reason in brackets, so a rule can be dropped once its reason no longer holds. Say so in PROGRESS's
 `retired_rules` when one goes.
 
 - Never commit the owner's recordings, demos, packet dumps, speech or music. Only synthetic signals and fixtures made
@@ -72,11 +78,29 @@ Each rule's reason is in brackets, so a rule can be dropped once its reason no l
   registered predictions depend on it.]
 - The bundled codecs are pinned: a build must match its recorded hash, and changing one is an order of its own.
   [Steam's packets match libopus 1.1.x bit for bit; a different build silently unfits the model.]
-- A measured constant changes only with its evidence, written into `tests/REFERENCE_2026.md`. [The model is fitted to
-  takes; a tidy-up without a take is a regression nobody can see.]
+- A measured constant changes only with its evidence, written into `tests/REFERENCE_2026.md`. [The model rests on
+  takes and on reads of the game's files; a tidy-up without either is a regression nobody can see.]
 - `tests/predictions/predictions.json` is never edited. A change to a hashed model file after registration is noted
   in `PREDICTIONS.md`. [Its hash is registered; the takes are scored against it as it stands.]
 - Every fix comes with a test that fails without it.
+
+## Writing the documents
+
+These bind every document, report and order.
+
+- Plain words. Say what a thing does to the sound. One statement a sentence.
+- Every figure carries its standing in one word where it first appears: read (from the game's or Steam's files),
+  measured (in the owner's recordings), inferred, guessed, or not built yet.
+- A codec that was never in TF2 (`steam_48`, `miles`) is named as not in TF2 wherever it is named.
+- No finding is called new, unknown or the first (agreed with the owner, 2026-11-12). Say what was read and what was measured.
+- No count of checks (they move with every order). No release or version number but the site's cache number where a
+  version is meant.
+- Nothing that is not built is promised without "not built yet".
+- A figure's evidence lives in `tests/REFERENCE_2026.md` only; other documents state the figure and point to the
+  finding by number. A corrected statement there is marked where it stands, not deleted.
+- No em-dash chains and no arrows in prose. Tables for facts with columns, lists for lists, sentences for the rest.
+- Headings that say what the section is.
+- The hard rules above bind every word: from the owner's files and recordings only numbers.
 
 ## How work is run
 

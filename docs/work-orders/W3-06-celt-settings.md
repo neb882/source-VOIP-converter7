@@ -1,5 +1,7 @@
 # W3-06: the engine codecs' settings, as the game's own module has them
 
+> **Status 2026-11-12: built and merged** at `28069d4` (cache v22, pull request #13). Report: `docs/reports/W3-06-celt-settings.md`.
+
 *Revised 2026-11-10 after the plan's review and after Set H (the findings and what was done about each are in
 `docs/reports/W3-02-plan.md`, "The review").*
 

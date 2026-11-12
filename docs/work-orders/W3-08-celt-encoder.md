@@ -1,5 +1,7 @@
 # W3-08: why the app's CELT does not give the game's samples
 
+> **Status 2026-11-12: done (investigation)** at `8451e59`. Report: `docs/reports/W3-08-celt-encoder.md`.
+
 **Branch:** `claude/w3-08-celt-encoder`, from `main`. **Worktree:** given in the brief. **Agent:** an investigator on
 the stronger model. It may build codec variants in scratch; it changes no app code. **Time budget:** 3 hours.
 

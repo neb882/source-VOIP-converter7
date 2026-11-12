@@ -1,5 +1,7 @@
 # W3-13: the receiver's 24000 to 44100 Hz step, as Steam's decoder does it
 
+> **Status 2026-11-12: built and merged** at `7327327` (pull request #15). Report: `docs/reports/W3-13-steam-resampler.md`.
+
 *Rewritten 2026-11-10 after the plan's review (findings 1 to 6; `docs/reports/W3-11-plan.md`, "The review"). The
 first version described 16-bit integer arithmetic, which the library does not use for a rate change: it was
 wrong, and its own reference hashes could not be met by it. Revised again the same day after the second read
