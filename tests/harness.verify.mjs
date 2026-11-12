@@ -280,8 +280,9 @@ console.log('\n[12] What a file takes from a part, an earlier file gives');
       }
     }
     // Fail closed: every pattern that takes from a part (} = E.<name>, or
-    // ] = E.<name>) must be a head read above.
-    for (const t of stripped.matchAll(/[}\]]\s*=\s*E\s*\.\s*[A-Za-z_$]/g)) {
+    // ] = E.<name>, with or without brackets, ?. or [ ]) must be a head read
+    // above.
+    for (const t of stripped.matchAll(/[}\]]\s*=\s*[(\s]*E\s*(?:\?\.|\.|\[)/g)) {
       if (!headEnds.has(t.index)) problems.push(`${file}:${lineAt(stripped, t.index)}: takes from a part in a form this check cannot read`);
     }
   }
