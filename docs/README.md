@@ -111,7 +111,7 @@ and `reports/W4-01/` those of `W4-01-page-audit.md`.
 
 Changes to the orders that wait for something:
 - **At W3-02c-1's merge** (they describe the order as built): in `work-orders/W3-02-receiver-queue.md`, decision 3
-  of the amendment gets "Settled 2026-11-11: TF2's own routine agrees (PROGRESS, `receiver_interp`); c-1 builds
+  of the amendment gets "Settled 2026-11-11: TF2's own routine agrees (`docs/PROGRESS-LOG.md`, `stands.receiver_interp`); c-1 builds
   item 4"; the sentence on `===` in section 5 becomes "the interpolator is in: `===` becomes equal to c-1's
   blend"; and the line in section 12 on the rounding "in TF2's own file" becomes "settled: truncated toward zero,
   single precision". Also at that merge: `tests/voicequeue/reference-channel.mjs`, `tests/voicequeue/README.md`,
