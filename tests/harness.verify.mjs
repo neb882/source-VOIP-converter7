@@ -14,13 +14,24 @@
 // 7. A load leaves no engine name on Node's global object but the two it is
 //    known to leave.
 // 8. An engine file that uses one of Node's globals does not load.
+// 9. to 14. The engine's own files (PART_FILES, under engine/), whose code
+//    was moved out of audio.js unedited (S3-02): TF2Audio keeps its members
+//    in their order; each file is one function that adds its own part to
+//    TF2Engine and nothing at its top level; every name a file takes from a
+//    part is there and comes from an earlier file; a load has one frozen part
+//    for each file, and the folder holds exactly those files; the files load
+//    nothing, and TF2Engine is named only where it should be; two loads have
+//    parts of their own, and neither is left on Node's global object. Text is
+//    read, not parsed. With no file under engine/ they hold at once.
+//    Check 3 also refuses a quoted engine/<name>.js under tests/.
 // TF2_DIR points the page's files and the loads at a copy of the sources.
 // Every signal is synthetic, made here.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { ENGINE_FILES, HANDED, TABLES, loadEngine, sourceRoot } from './lib/engine.cjs';
+import { ENGINE_FILES, PART_DIR, PART_FILES, HANDED, TABLES, loadEngine, sourceRoot } from './lib/engine.cjs';
+import { siteFiles, stripComments } from './lib/site-files.cjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = sourceRoot();
@@ -92,6 +103,17 @@ console.log('\n[3] No suite holds its own list of the engine\'s files');
   }
   check(`no file under tests/ but the ${allowed.length} allowed names audio.js or constants.js in a quoted string`,
     files.length > 20 && found.length === 0, found.join('; ') || `${files.length} files read`);
+  // The engine's own files are named in the helper only (PART_FILES).
+  const parts = [];
+  for (const file of files) {
+    const rel = path.relative(here, file);
+    if (rel === path.join('lib', 'engine.cjs')) continue;
+    fs.readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+      for (const m of line.matchAll(/(['"`])((?:[^'"`\n]*\/)?engine\/[^'"`\n\/]+\.js)\1/g)) parts.push(`${rel}:${i + 1} ${m[0]}`);
+    });
+  }
+  check('no file under tests/ but the helper names a file of engine/ in a quoted string', files.length > 20 && parts.length === 0,
+    parts.join('; ') || `${files.length} files read`);
 }
 
 // A short render through `steam`, the codec module given.
@@ -174,6 +196,156 @@ console.log('\n[8] An engine file that uses one of Node\'s globals does not load
     check(`a copy whose ${last} calls Buffer.from at its top level does not load`, error !== null, error ? error.message : 'it loaded');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+
+// ---- The engine's own files (S3-02): engine/<name>.js gives the part <name>, in camel case.
+const partOf = (file) => path.basename(file, '.js').replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+const lineAt = (text, index) => text.slice(0, index).split('\n').length;
+const loaded = loadEngine({ root });
+
+console.log('\n[9] TF2Audio keeps its members, in their order');
+{
+  // Recorded when audio.js was split (S3-02a): the split changes none of them.
+  const MEMBERS = ['process', 'stagesHold', 'stageKeys', 'STAGE_OPTIONS', 'previewAllowed', 'encodeWav', 'toInt16',
+    'bufferToMono', 'resampleSinc', 'resampleLinear', 'firwin2', 'applyFirZeroPhase', 'hardClip', 'receiverAutoGain',
+    'createGain', 'decodedFromFrames', 'biquadCoefs', 'applyBiquad', 'mulberry32', 'buildLossMask', 'realOpusRoundTrip',
+    'createLiveChain', 'createRender', 'roomPreset', 'streamResampleSinc', 'streamFir', 'streamAutoGain', 'streamLossMask',
+    'steamGiveOut', 'steamMessageLoss', 'steamFits', 'mixEntry', 'mixUpsample2', 'mixOut', 'mixClip', 'mixDevicePosition',
+    'createDeviceStage', 'createOutputStage'];
+  const keys = Object.keys(loaded.audio || {});
+  check(`TF2Audio's members are the ${MEMBERS.length} recorded, in order`, same(keys, MEMBERS),
+    same(keys, MEMBERS) ? `${keys.length} members` : `missing: ${MEMBERS.filter((k) => !keys.includes(k)).join(', ') || 'none'}; `
+      + `not recorded: ${keys.filter((k) => !MEMBERS.includes(k)).join(', ') || 'none'}; order: ${keys.join(', ')}`);
+  const stageOptions = Object.keys((loaded.audio && loaded.audio.STAGE_OPTIONS) || {});
+  check('STAGE_OPTIONS has afterB, afterA, observers and read, in order', same(stageOptions, ['afterB', 'afterA', 'observers', 'read']),
+    stageOptions.join(', '));
+}
+
+console.log('\n[10] Each engine file is one function that adds its own part, and nothing at its top level');
+{
+  const OPEN = ['(function (root) {', '  \'use strict\';'];
+  const CLOSE = '})((typeof window !== \'undefined\' ? window : typeof self !== \'undefined\' ? self : globalThis));';
+  const problems = [];
+  PART_FILES.forEach((file, n) => {
+    const text = read(file), part = partOf(file);
+    // After the head comment, the function and nothing else.
+    const code = text.replace(/^\/\*[\s\S]*?\*\/\n/, '').replace(/\n$/, '');
+    const lines = code.split('\n');
+    const own = n === 0 ? '  const E = root.TF2Engine = {};' : '  const E = root.TF2Engine;';
+    if (lines[0] !== OPEN[0] || lines[1] !== OPEN[1]) problems.push(`${file}: does not open with "${OPEN[0]}" and "${OPEN[1].trim()}" after its head comment`);
+    if (lines[2] !== own) problems.push(`${file}: its third line is not "${own.trim()}"`);
+    if (lines[lines.length - 1] !== CLOSE) problems.push(`${file}: its last line is not the call that attaches it to window, else self, else globalThis`);
+    lines.slice(1, -1).forEach((l, i) => {
+      if (l.trim() && !l.startsWith('  ')) problems.push(`${file}: a line outside the function, after its head comment: ${i + 2}: ${l.slice(0, 80)}`);
+      if (/^ {2}(let|var) /.test(l)) problems.push(`${file}: a ${l.trim().split(' ')[0]} at the function's top, after its head comment: ${i + 2}`);
+    });
+    const stripped = stripComments(text);
+    const sets = [...stripped.matchAll(/\bE\s*\.\s*([A-Za-z_$][\w$]*)\s*=(?!=)/g)].map((m) => m[1]);
+    if (sets.length !== 1 || sets[0] !== part) problems.push(`${file}: sets ${sets.length ? sets.map((s) => `E.${s}`).join(', ') : 'no part'}, not E.${part} once`);
+    if (!stripped.includes(`\n  E.${part} = Object.freeze({`)) problems.push(`${file}: does not set E.${part} = Object.freeze({ ... })`);
+    const engines = [...stripped.matchAll(/\bTF2Engine\s*=(?!=)/g)].length;
+    if (engines !== (n === 0 ? 1 : 0)) problems.push(`${file}: assigns TF2Engine ${engines} times; the first file does once, the others never`);
+    if (/\bE\s*\[/.test(stripped)) problems.push(`${file}: reaches into TF2Engine by a computed name`);
+  });
+  check('each engine file opens with (function (root) { and \'use strict\', sets its own part once, sets no other, and has no let or var at its top',
+    problems.length === 0, problems.join('; ') || `${PART_FILES.length} files: ${PART_FILES.join(', ') || 'none yet'}`);
+}
+
+console.log('\n[11] What a file takes from a part, an earlier file gives');
+{
+  const problems = [];
+  let taken = 0;
+  for (const file of [...PART_FILES, 'audio.js']) {
+    const stripped = stripComments(read(file));
+    for (const m of stripped.matchAll(/\bconst\s*\{([^}]*)\}\s*=\s*E\s*\.\s*([A-Za-z_$][\w$]*)\s*;/g)) {
+      const giver = m[2], from = PART_FILES.find((f) => partOf(f) === giver);
+      const at = `${file}:${lineAt(stripped, m.index)}`;
+      if (!from || ENGINE_FILES.indexOf(from) >= ENGINE_FILES.indexOf(file)) problems.push(`${at}: takes from E.${giver}, which no earlier engine file gives`);
+      const part = loaded.parts && loaded.parts[giver];
+      for (const name of m[1].split(',').map((x) => x.split(':')[0].trim()).filter(Boolean)) {
+        taken++;
+        if (!part || !Object.prototype.hasOwnProperty.call(part, name)) problems.push(`${at}: ${name} is not in E.${giver} of a loaded engine`);
+      }
+    }
+  }
+  check('every const { ... } = E.<part>; in the engine files and audio.js names an earlier file\'s part, and each name is an own key of it',
+    problems.length === 0, problems.join('; ') || `${taken} names taken`);
+}
+
+console.log('\n[12] A load has one frozen part for each engine file, and the folder holds the engine files');
+{
+  if (!PART_FILES.length) {
+    check('with no engine file listed, a load has no parts', loaded.parts === undefined, String(loaded.parts));
+  } else {
+    // audio.js gives a part too (the codec module's loader) when an engine file calls into it.
+    const callsAudio = PART_FILES.some((f) => /\bE\s*\.\s*audio\b/.test(stripComments(read(f))));
+    const expected = [...PART_FILES.map(partOf), ...(callsAudio ? ['audio'] : [])].sort();
+    const have = Object.keys(loaded.parts || {}).sort();
+    const thawed = have.filter((p) => !Object.isFrozen(loaded.parts[p]));
+    check(`the parts are one for each engine file${callsAudio ? ', and audio' : ''}, each frozen`, same(have, expected) && thawed.length === 0,
+      `${have.join(', ')}${thawed.length ? `; not frozen: ${thawed.join(', ')}` : ''}${same(have, expected) ? '' : `; expected ${expected.join(', ')}`}`);
+  }
+  const inFolder = [];
+  const walk = (dir) => {
+    if (!fs.existsSync(path.join(root, dir))) return;
+    for (const entry of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) walk(rel); else inFolder.push(rel);
+    }
+  };
+  walk(PART_DIR);
+  check(`the folder ${PART_DIR}/ holds exactly the engine files`, same([...inFolder].sort(), [...PART_FILES].sort()),
+    `${PART_DIR}/: ${inFolder.join(', ') || 'nothing'}`);
+}
+
+console.log('\n[13] The engine files load nothing and touch no page; TF2Engine is named only where it should be');
+{
+  const FORMS = [['import(', /\bimport\s*\(/], ['importScripts', /\bimportScripts\b/], ['new Worker', /\bnew\s+Worker\b/],
+    ['new URL(', /\bnew\s+URL\s*\(/], ['fetch(', /\bfetch\s*\(/], ['require(', /\brequire\s*\(/], ['document', /\bdocument\b/]];
+  const found = [];
+  for (const file of PART_FILES) {
+    stripComments(read(file)).split('\n').forEach((line, i) => {
+      for (const [name, re] of FORMS) if (re.test(line)) found.push(`${file}:${i + 1}: ${name}`);
+    });
+  }
+  check('no engine file holds import(, importScripts, new Worker, new URL(, fetch(, require( or document, its comments taken out',
+    found.length === 0, found.join('; ') || `${PART_FILES.length} files read`);
+  const shipped = siteFiles(root).files.filter((f) => !f.startsWith(`${PART_DIR}/`) && f !== 'audio.js');
+  const named = shipped.filter((f) => fs.readFileSync(path.join(root, f)).includes('TF2Engine'));
+  check(`no shipped file outside ${PART_DIR}/ and audio.js names TF2Engine`, shipped.length > 20 && named.length === 0,
+    named.join(', ') || `${shipped.length} files read`);
+  const tests = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) { if (entry.name !== 'node_modules') walk(p); } else if (/\.(c|m)?js$/.test(entry.name)) tests.push(p);
+    }
+  };
+  walk(here);
+  const own = [path.join('lib', 'engine.cjs'), path.basename(fileURLToPath(import.meta.url))];
+  const inTests = tests.map((f) => path.relative(here, f)).filter((f) => !own.includes(f) && fs.readFileSync(path.join(here, f), 'utf8').includes('TF2Engine'));
+  check('no file under tests/ but the helper and this suite names TF2Engine', tests.length > 20 && inTests.length === 0,
+    inTests.join(', ') || `${tests.length} files read`);
+}
+
+console.log('\n[14] Two loads have parts of their own, and neither is left on Node\'s global object');
+{
+  const moduleA = { ...opus }, moduleB = { ...opus };
+  const a = loadEngine({ root, codec: moduleA }), b = loadEngine({ root, codec: moduleB });
+  if (!PART_FILES.length) {
+    check('with no engine file listed, neither load has parts', a.parts === undefined && b.parts === undefined);
+  } else {
+    const shared = Object.keys(a.parts || {}).filter((p) => b.parts && a.parts[p] === b.parts[p]);
+    check('two loads have different TF2Engine objects and share no part', !!a.parts && !!b.parts && a.parts !== b.parts && shared.length === 0,
+      shared.length ? `shared: ${shared.join(', ')}` : Object.keys(a.parts || {}).join(', '));
+  }
+  check('after both loads the process has no global TF2Engine', !('TF2Engine' in globalThis));
+  if (a.parts && a.parts.codec) {
+    const [ma, mb] = [await a.parts.codec.loadOpusModule(), await b.parts.codec.loadOpusModule()];
+    check('each load\'s parts.codec.loadOpusModule() gives the module that load was given', ma === moduleA && mb === moduleB,
+      `${ma === moduleA ? 'a: its own' : 'a: another'}; ${mb === moduleB ? 'b: its own' : 'b: another'}`);
   }
 }
 

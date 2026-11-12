@@ -24,6 +24,10 @@
  * files find one another by global name, and these two do so as the page's do.
  * Two engines in one process therefore share those two objects, and nothing
  * else: each load has its own tables, its own TF2Audio and its own codec module.
+ * The engine's own files (PART_FILES, under engine/) find one another through
+ * TF2Engine on the load's window, so two engines share none of them; a load
+ * returns that object as `parts`. steam-sender.js and the resampler still
+ * attach to Node's global object.
  */
 'use strict';
 
@@ -37,6 +41,12 @@ const REPO = path.join(__dirname, '..', '..');
 // importScripts, and the head of audio-worker.js's.
 const ENGINE_FILES = ['constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'room-presets.js',
   'room-dsp.js', 'audio.js'];
+
+// The engine's own files, each one part of TF2Engine: the entries of
+// ENGINE_FILES in the folder PART_DIR, in load order. The folder is named here
+// and nowhere else in the tests.
+const PART_DIR = 'engine';
+const PART_FILES = ENGINE_FILES.filter((f) => f.startsWith(`${PART_DIR}/`));
 
 // The files loaded as Node loads a module and handed to the engine under their
 // global's name instead of being joined into its text: the two a suite wraps
@@ -78,7 +88,11 @@ function engineSource(root = REPO) {
 // next loadOpusModule() takes m, and a render already running keeps the module
 // it took. Unset, the engine sees no TF2Opus. `options.TF2Room` and
 // `options.TF2_ROOM_PRESETS` are what it sees under those names: left out, the
-// modules as Node loads them from root; null, absent.
+// modules as Node loads them from root; null, absent. The returned `parts` is
+// the load's TF2Engine (undefined while PART_FILES is empty): a suite can call
+// what a part gives and cannot replace it, since each part is frozen and every
+// caller took its functions at the load. To break one internal function, load
+// a copy of the files with that line changed (`root`).
 function loadEngine(options = {}) {
   const dir = folder(options.root || REPO);
   const handedNames = Object.values(HANDED);
@@ -93,9 +107,9 @@ function loadEngine(options = {}) {
     'setCodec: function (m) { TF2Opus = m; } };';
   const made = new Function('window', 'TF2Opus', ...handedNames, ...HIDDEN, body)(
     window, options.codec, ...handed, ...HIDDEN.map(() => undefined));
-  const engine = { audio: window.TF2Audio, ...made.tables };
+  const engine = { audio: window.TF2Audio, parts: window.TF2Engine, ...made.tables };
   Object.defineProperty(engine, 'codec', { enumerable: true, get: made.getCodec, set: made.setCodec });
   return engine;
 }
 
-module.exports = { ENGINE_FILES, HANDED, TABLES, loadEngine, engineSource, sourceRoot };
+module.exports = { ENGINE_FILES, PART_DIR, PART_FILES, HANDED, TABLES, loadEngine, engineSource, sourceRoot };
