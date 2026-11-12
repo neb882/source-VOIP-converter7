@@ -79,13 +79,10 @@ const ALLOWED = [
 ];
 
 // Files the page links that are opened online only, not kept offline.
-// (The orchestrator's ruling 1 of 2026-11-12: a named allowance; sw.js is
-// not changed for it. Offline, the link shows the app again: sw.js answers
-// a navigation it has no copy of with index.html.)
-const ONLINE_ONLY = [
-  { from: 'index.html', file: 'vendor/swresample/COPYING.LGPLv2.1',
-    why: 'linked, opened online only: the resampler\'s licence, linked from the footer' }
-];
+// (Empty since S3-02a: its one entry, the resampler's licence, linked from
+// the footer under the orchestrator's ruling 1 of 2026-11-12, is in sw.js's
+// list. A file named here is a link the site check excuses from ASSETS.)
+const ONLINE_ONLY = [];
 
 // Words that load something. What is left of a script once the forms above
 // are taken out must hold none of them. The order's list, and after it a few
