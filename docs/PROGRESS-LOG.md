@@ -364,3 +364,21 @@ a: one engine loader in each suite's own realm (tests/verify.js 142 s where it t
 ### in_flight (the documentation and structure pass), its state until this merge
 
 stages 1 and 2 on main; stage 3: S3-03 merged, S3-01a built and under review, then S3-01b, S3-02a, S3-02b
+
+## 2026-11-12 (appended at S3-01b's merge)
+
+### live.last_merge, as it stood until this merge
+
+S3-01a (7a94dc8, pull request #34, 2026-11-12; tests and documents only, no cache change): the Node suites load the engine through one helper, tests/lib/engine.cjs, in the suite's own realm, and tests/verify.js's three steam sections are tests/steam.verify.js; every converted suite prints what it printed before (the builder's runs and a reviewer's own), and the split's check lines are the unsplit suite's. tests/verify.js takes about 10 s where it took 460 to 490 on the build machine; pnpm test on CI 11 min 36 s where it took 17 min 34 s on runners of equal speed; docs/reports/S3-01a-engine-loader.md. Before it: S3-03 (11f430f, cache v36, pull request #33, 2026-11-12): invented handles in the page's mock console feed; the last merge that changed the site. Earlier merges: the index, docs/README.md.
+
+### next (S3-01b), as it stood until the order was built
+
+a runner in place of the && chain, a check that derives the cache list, the cache number set only at the merge, CI in five jobs with 20 minutes each. Its first commit repairs two browser checks that fail by timing ([Browser 3e] the meter's row read too early; [Browser 10] the cancel bound, seen once on CI). The orchestrator's rulings of 2026-11-12 are in the order. After: S3-01a (merged 2026-11-12): can start.
+
+### ci, as it stood until this merge
+
+Since 2026-11-12 (34c36b8) a commit is tested once, on its push: a push that changes nothing outside docs/ runs nothing, and a newer push to a branch cancels the older run; the workflow can be started by hand. Until 2026-11-09 one browser check (the live recording's lag) failed by chance about once in thirty runs; W1-04 removed the cause, so a red run is a real failure. A branch made before W1-04 still has the old check until it merges main. On 2026-11-11 from 13:56 UTC every run stopped before any test: Ubuntu's package mirrors could not be reached from the runners while Playwright fetched extra fonts. Since 5a8ca56 the workflow installs the browser from Playwright's servers first and gives the system packages three minutes; if the mirrors do not answer the suite runs on the runner image's own libraries and says so in a warning. A missing library would fail the browser suite at launch, not pass it. The workflow's limit is 45 minutes since 2026-11-12: a run on a documentation branch was cut at 30 inside tests/verify.js with every check so far passed. Two browser checks are known to fail by timing and are repaired in S3-01b's first commit: [Browser 3e] (the meter's row read before it arrives; seen once in two runs on a planner's prototype) and [Browser 10] (a worker that does not answer a cancel; seen once on CI on 2026-11-12 and passed on the re-run). Since S3-01a (2026-11-12) a run takes 16 to 18 minutes.
+
+### in_flight (the documentation and structure pass), its state until this merge
+
+stages 1 and 2 on main; stage 3: S3-03 and S3-01a merged, S3-01b next, then S3-02a and S3-02b

@@ -1,6 +1,6 @@
 # S3-01: the test harness: one loader, a runner, a derived cache list, CI in parallel jobs
 
-Status: S3-01a built and merged 2026-11-12 (`7a94dc8`, `docs/reports/S3-01a-engine-loader.md`); S3-01b planned, not built
+Status: built and merged 2026-11-12. S3-01a: `7a94dc8`, `docs/reports/S3-01a-engine-loader.md`. S3-01b: `087f653`, `docs/reports/S3-01b-runner-cache-ci.md`; at its merge the orchestrator made each push to `main` a concurrency group of its own in the workflow
 
 *Written 2026-11-12 from the structure audit of the same day (its items C-10 to C-19 and its proposals P1 to P4
 and P10; "the audit" below), checked against `main` at `9e0abd0` and against the branch `claude/w4-01b-speed` at
