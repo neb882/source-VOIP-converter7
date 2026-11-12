@@ -9,10 +9,14 @@
  *     network fails (offline), and each successful fetch refreshes that copy.
  *     The network is asked with cache: 'no-cache': the browser's own HTTP
  *     cache may hold a copy that is still fresh by its headers (GitHub Pages
- *     lets it keep every file ten minutes), and 'no-cache' has the browser
- *     check that copy with the server before using it. Without it a visit
- *     after an update could get the old page, or a page whose markup and
- *     scripts are of two versions, which cannot start.
+ *     sends index.html with max-age=600, measured on the live site on
+ *     2026-11-12, and the other files so too, inferred), and 'no-cache' has
+ *     the browser check that copy with the server before using it. Without
+ *     it a visit after an update could get the old page, or a page whose
+ *     markup and scripts are of two versions, which cannot start.
+ *     What this branch hands the page for anything but a navigation, from
+ *     the network or the cache, says Cache-Control: no-cache, so the page's
+ *     own memory cache asks this worker again instead of reusing a script.
  *
  *   - Everything else (icons, manifest, favicon): CACHE-FIRST for speed. These
  *     rarely change; when they do, bump CACHE below to evict the old generation.
@@ -116,6 +120,18 @@ function cachePut(request, response) {
   return Promise.resolve();
 }
 
+// A copy of a response for the page that says Cache-Control: no-cache (the
+// network's or the cache's; the cache keeps the server's headers). Only a
+// whole same-origin response is copied; a navigation's, an opaque redirect,
+// an error, or one reached through a redirect (whose address the copy, with
+// no URL of its own, would lose) goes out as it is.
+function askAgain(request, response) {
+  if (request.mode === 'navigate' || !response || !response.ok || response.type !== 'basic' || response.redirected) return response;
+  const headers = new Headers(response.headers);
+  headers.set('Cache-Control', 'no-cache');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -140,8 +156,9 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(
       fetch(req, { cache: 'no-cache' })
         .then(keep)
+        .then((resp) => askAgain(req, resp))
         .catch(() => caches.match(req).then((hit) => {
-          if (hit) return hit;
+          if (hit) return askAgain(req, hit);
           return req.mode === 'navigate' ? caches.match('./index.html') : Response.error();
         }))
     );
