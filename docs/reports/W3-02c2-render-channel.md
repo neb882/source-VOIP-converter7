@@ -112,12 +112,18 @@ channel's path no harder than a guard in `lay`.
    Checked over all 65,536 16-bit inputs at voice_scale 0.1, 0.3, 0.5, 0.7, 1, 1.3, 2 and 3: equal on every one. A clip
    to -32768..32767 with a product in double (the prototype's) differs on 1 value at 1, 592 at 0.7 (ties the double
    breaks the other way), 7,563 at 1.3 and 16,385 at 2 (the negative extreme). If the orchestrator meant -32768, it is
-   a one-line change; no check of this order depends on that value.
+   a one-line change; no check of this order depends on that value. *Ruled in the fix round: the built rule is right;
+   the orchestrator corrects the order's sentence. A check now holds it against the 'source' render ("The fix
+   round").*
 3. **"The module's blend of two neighbours, `trunc(a + (b - a) x 0.999)`".** The module carries its fraction from
    packet to packet, and it is 0.999 only to a few parts in 10^13 (`tests/voice-channel.verify.mjs` pins
-   0.9989999999997963). That moves the truncation where `b - a` is a multiple of 1000: on the fade check's noise the
-   formula with 0.999 missed 17,252 of the samples a follower walked over, each by one unit. The checks (3 and 6) take
-   either side of the truncation there. With that, the fade is exact on 4,410 of 4,410 samples.
+   0.9989999999997963). That moves the truncation where `b - a` is a non-zero multiple of 1000, and the checks (3 and
+   6) take either side of it there. *Corrected in the fix round:* the figure first given here, 17,252 missed samples,
+   was wrong. It came from a debugging follower that ran from 8 s on through the fade, the silence and the next
+   channel (another shift), and counted all of those. Measured again: in check 3, 10 to 30 s, 417 of 882,000 followed
+   samples take the other side of the truncation, at each of seeds 1, 2 and 3; in check 6's fade line, 27 of the
+   37,551 samples followed from 9 s to the fade. Without the allowance check 3 still passes and the fade line fails.
+   With it the fade is exact on 4,410 of 4,410 samples.
 
 Also not as the order writes it, and harmless: the order's figure for the stream's holdback was counted inside the
 engine; counted from outside (check 7) it is 108 samples under `D` at 300 and at 66.67 fps (24,468 against 24,576;
@@ -222,9 +228,36 @@ its `take()` are.
 
 ## Other figures
 
-- **How much of a source's head and tail a `'game'` render loses** (the amendment's ruling 2 of 2026-11-11), a scratch
-  measure on 10 s of noise that starts and ends with the source, `agc` off, seeds 1 to 10: at 300 fps the head 0 to
-  16.5 ms, the tail 0; at 66.67 fps the head 0 to 44.4 ms, the tail 0 to 21.2 ms.
+- **How much of a source's head and tail a `'game'` render loses** (the amendment's ruling 2 of 2026-11-11). All
+  measured on the model, with scratch scripts, on noise that starts and ends with the source, `agc` off:
+  - seeds 1 to 10, 10 s: at 300 fps the head 0 to 16.5 ms, the tail 0; at 66.67 fps the head 0 to 44.4 ms, the tail
+    0 to 21.2 ms;
+  - the worst head, from the second reader: when the opening message falls on tick 3 (21 of seeds 1 to 2,000; seeds
+    133 and 172 rendered), 56.1 ms at 66.67 and 100 fps and 11.4 ms at 300 fps;
+  - the worst tail, the opening on tick 9 (64 of the 2,000 seeds; 28 and 55 rendered) and on tick 10 (1 of them, seed
+    1925), on 3 s of noise: 35.7 ms (tick 9) and 47.3 ms (tick 10) at 66.67 and at 100 fps, 0 at 300 fps (there the
+    overflow at the opening takes the time back).
+  The opening ticks of seeds 1 to 2,000: tick 3 in 21, 4 in 236, 5 in 514, 6 in 446, 7 in 433, 8 in 285, 9 in 64,
+  10 in 1.
+- **A lost silence record joins two spurts in `info.spurts`** (the amendment's section 3): with `opts.loseMessage`
+  losing the first of four silence records of an 8 s source (seed 1, 300 fps), `info.spurts` has 3 spurts in place of
+  4, the first running from -0.11 s to 4.38 s where there were two, -0.11 to 1.87 and 2.46 to 4.38;
+  `network.lostMessages` is 1. No sample depends on it; it is left as built.
+
+## The fix round
+
+After the review and the second read (no blocker from either), the orchestrator asked for these:
+
+| Item | Done | The break, and what failed |
+| --- | --- | --- |
+| SF-1: no check held the `agc: false` rule against the `'source'` render | beside check 3: loud noise (0.9), `agc` off, voice_scale 0.7 and 2, 150 fps; over 1,000 samples one shift makes the `'game'` voice the blend of the `'source'` render's voice made into whole values as the mix entry makes them (ties to even, the 16-bit clamp). Passes: of those 1,000 source samples, 120 on a half at 0.7, 100 at the clip at 2 | the order's literal rule (double product, clip to -32768..32767; the reviewer's x02): both scales fail. A double product with the ±32767 clip: 0.7 fails. `Math.round` for ties to even: 0.7 fails. "no shift fits" in each |
+| SF-2: check 7's hold-back line only on a 24 kHz source | also on a 48 kHz source at 300 and 66.67 fps: 26 samples under `D` at both, and `process()`'s samples | the bound counting `given` at the source's rate (the reviewer's m12): both 48 kHz lines fail, 35,416 over `D` |
+| SF-3: check 8 tried one wrong value | rows `''`, `0`, `false`, `'GAME'`: each a `RangeError` naming `timeline` from both renderers | falsy values taken as `'source'` and `'GAME'` as `'game'` (x07): those 4 rows fail |
+| `blends()` one case too wide | the two values only where `b - a` is a non-zero multiple of 1000 | (the checks pass as before) |
+| the "17,252" figure | measured again and corrected (item 3 above) | |
+| a loud contract breach | `process()` under `'game'` throws an `Error` when the channel's output is not `voiceLength` samples; `createRender`'s `flush` the same, from a count of what its pushes gave out (one addition a push) | the channel made one sample short: `process()` throws "the voice channel gave 352799 samples for a voice of 352800", the stream "... gave 88199 samples for a voice of 88200" |
+| documents | `docs/VOICE-PATH.md` (the gain's reset: once in the page's render, at each open in a `'game'` render), `docs/ACCURACY.md` (the row "no timing model"), `tests/README.md` (the suite's row); the figures above under "Other figures" | |
+| x08, the late spans with `floor` | passes because a sound packet of `F` frames is exactly 882 F samples (480 x 147 / 80, the resampler's contract, `engine/steam.js`), so `round` and `floor` of `j n / F` agree. Over 30 scratch renders (loss, jitter, the gate off; 4,673 sound packets, 70 with a late frame) none was not; a silence record's length is not a multiple of 882, but it has no frames and takes no span. I did not see the reviewer's 7 of 539 and take them to be silence records or end markers | |
 
 ## CI and the cache number
 
@@ -254,6 +287,7 @@ SteamIDs and model names: none, apart from the attribution trailers.
 - The rounding to -32768 (item 2 above) is a reading of the order that the orchestrator may want otherwise.
 - The fade check runs at one seed and one gap; the 0.26 s gap check at one seed, at the first gap after 10 s whose
   next message is refused.
+- The `Error` a `'game'` render throws when `voice-channel.js` is not loaded is not checked by any suite.
 
 ## For the reviewer and the second reader
 

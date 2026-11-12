@@ -15,7 +15,7 @@ Several stages of the modern path equal the game's sound sample for sample. Thos
   | the game's queue as read (`voice-channel.js`; a render runs it when `opts.timeline` is `'game'`; the page does not offer it) | 47% | 122 ms |
   | the earlier queue model | 41% | 100 ms |
   | the flat rule (the page's "Talk-spurt timing") | 31% | 134 ms |
-  | no timing model (a render today) | 11% | 150 ms |
+  | no timing model (the page's render today; a render with `opts.timeline` `'game'` runs the queue, not scored here) | 11% | 150 ms |
 
   Part of this cannot be closed. Which pause closes depends on where Steam's reads fell while the talker spoke, and that is not in a recording.
 - **The receiver's queue.** Replayed over the game's logged packets, with the mixer's demand taken from the log, the module gives the logged queue on every tick (measured, Set G). When the mixer pulls is therefore not tested. A render runs the module when `opts.timeline` is `'game'`; the page does not offer that option (W3-02d, not built yet). So the page's render has no early starts, does not drop one sample from every packet, and has no fade at the end of the queue.
