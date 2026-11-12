@@ -31,13 +31,18 @@
   "in_flight": [
     {
       "order": "W3-02c-1",
-      "state": "building",
-      "note": "docs/work-orders/W3-02-receiver-queue.md, the amendment of 2026-11-11, section 4: voice-channel.js and its suite only. The mixer's first pull as read (513 asked, 512 mixed, one kept: nothing dropped), the channel's delay on whole 512-sample blocks, the zero with the mean arrival time added; the interpolator's blend if TF2's own routine, run privately first, agrees with the 2006/2007 engines'. Branch claude/w3-02c1-channel-as-read. Touches no file the page orders touch."
+      "state": "built; in review",
+      "note": "Built on claude/w3-02c1-channel-as-read (head ebde6a0, CI green): all five items, the interpolator's blend and the fade as TF2's routines compute them; the named arrival constant measured at 50.5 ms. The orchestrator's private runs, 2026-11-12: the Set G replay matches the game's log on every tick of all six sections with each fault mismatching somewhere, as tabled; tests/retiming.mjs --engine on the speech take reads 47% of transitions and a start error of 122 ms (129 before; the plan expected about 117; between 110 and 130 the work goes on and says so here). An independent reader is on it. No cache change."
     },
     {
       "order": "W4-01b",
       "state": "building",
       "note": "docs/work-orders/W4-01-page.md, section W4-01b, with the orchestrator's plan review of 2026-11-11 against today's code: the worker is kept between renders, no timer yields in the worker, the result before the meter, the capture signal and the codec stage's result reused when the changed setting comes after them (keys safe by default: a function-valued option that is not a pure observer of later stages reuses nothing), Cancel stops the render and keeps the worker and its stages, the first seconds of a long clip playable while the rest renders. No recorded hash may move. Branch claude/w4-01b-speed. Two independent readers follow the build."
+    },
+    {
+      "order": "The documentation pass",
+      "state": "auditing",
+      "note": "Asked by the owner on 2026-11-12: a full pass over all documentation, rewriting freely. Stage 1, read-only, two auditors: A reads README.md, CLAUDE.md, docs/PIPELINE.md, the tests' and vendor READMEs and tests/REFERENCE_2026.md against the code, the suites and the page, and outlines a new README; B establishes each order's state from the log and the code, hands back an index, lists what merged orders made untrue in the orders still to build, and proposes a layout for docs/ and a shape for this file. Stage 2, after W4-01b merges: a builder rewrites from the two lists; a reader checks the result against the site."
     }
   ],
   "next": [
@@ -181,7 +186,8 @@
     "2026-11-11, the owner on usage (67% of the week at 11:30 UTC): 'Spend faster if you'd like. I have 1 more fable reset.' So more than one agent at a time again; usage is still read before each new agent.",
     "2026-11-11, W3-20b's eight open points (the Miles questions are the orchestrator's by the owner's delegation): the order's recommendations taken as written; each is the owner's to reverse. The profile is listed under 'Not in Team Fortress 2' on the page, per the owner's instruction that Miles be marked as not a TF2 codec.",
     "2026-11-11, the owner on usage (91% of the week at 22:25 UTC, after the orchestrator proposed to hold the costly speed order until the weekly reset): 'Keep going. I'll use the reset at 98%'. So nothing is held for usage; the main session runs on the stronger model at high effort (the owner's choice the same evening), builders and reviewers as before.",
-    "2026-11-11, the owner on the render's name. Asked whether the switch beside the player would say 'TF2 voice' for a render made with vaudio_miles, the owner chose one neutral label for every codec ('Yeah I think a neutral label might be better'). So the page says 'Hear: Rendered | Original', 'RENDER' and 'ORIGINAL' on the views and the loudness table, and 'the render' in sentences; the codec's own name, with 'not in TF2' or 'not in the game' where that holds, is in the status line under the player."
+    "2026-11-11, the owner on the render's name. Asked whether the switch beside the player would say 'TF2 voice' for a render made with vaudio_miles, the owner chose one neutral label for every codec ('Yeah I think a neutral label might be better'). So the page says 'Hear: Rendered | Original', 'RENDER' and 'ORIGINAL' on the views and the loudness table, and 'the render' in sentences; the codec's own name, with 'not in TF2' or 'not in the game' where that holds, is in the status line under the player.",
+    "2026-11-12, the owner on the documents: \"yeah lets do a full pass of all documentation/readme stuff\" and \"feel free to fully rewrite whatever you feel is best, with whatever scope. the documentation and readme has been carried over for probably about half a year or so now, and a lot of work has been done since\"."
   ],
   "done": [
     "W2-02 render-stream: merged 2026-11-10 (pull request 8, main 43fd35f, cache v20). TF2Audio.createRender gives process()'s render a chunk at a time; 47 cases, 145 checks; review 20,656 differential runs with no mismatch.",
