@@ -87,7 +87,7 @@ The research beside the tool has no finish line: the older codecs beyond TF2's, 
 
 - **What the app runs.** The game's law in 128-sample blocks, with the ramp in whole steps and `voice_scale` entering twice.
 - **How it was checked.** Applied to the game's recording at `voice_maxgain 1`, the rule gives its recording at 10 with no sample different in 291,840 (Set H, finding 26).
-- **What differs.** That check ran under `vaudio_celt`. Under Steam voice the game's recording of its decoded voice was made with the gain at one, so the gain is checked there only by level and by the share of clipped samples (the table below).
+- **What differs.** That check ran under `vaudio_celt`. Under Steam voice the game's recording of its decoded voice was made with the gain at one, so the gain is checked there only by level and by the share of clipped samples (the table below). The game sets the gain back to 1.0 whenever a channel is assigned (read); the app does so once, at the render's start, until the voice channel is in a render.
 - **Not built yet.** Nothing.
 
 ### The voice channel

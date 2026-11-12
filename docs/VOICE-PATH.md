@@ -64,7 +64,7 @@ The decoder is Steam's as read (`opus-codec.mjs`; [FINDINGS.md, entry 5](FINDING
 
 ### 6. The receiver's gain
 
-The game's automatic gain runs on the decoded messages in blocks of 128 samples ([FINDINGS.md, entry 6](FINDINGS.md#6-the-receivers-gain)). The page's `voice_maxgain`, `voice_avggain` and `voice_scale` are the game's variables with the game's defaults: 10, 0.5 and 1 (read). The gain can be switched off for comparison, which the game cannot do.
+The game's automatic gain runs on the decoded messages in blocks of 128 samples ([FINDINGS.md, entry 6](FINDINGS.md#6-the-receivers-gain)). The page's `voice_maxgain`, `voice_avggain` and `voice_scale` are the game's variables with the game's defaults: 10, 0.5 and 1 (read). The gain can be switched off for comparison, which the game cannot do. The game sets the gain back to 1.0 whenever a channel is assigned (read); a render does so once, at its start.
 
 ### 7. The voice channel: what the game does, and what a render does not run yet
 
