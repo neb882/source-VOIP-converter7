@@ -281,18 +281,20 @@ if (runs(1, 2)) {
 // written sample of a packet being sample k + 1 pulled 0.1% toward sample k,
 // trunc(a + (b - a) x 0.999). The module carries its fraction from packet to packet, and
 // it drifts from 0.999 by a few parts in 10^13 (tests/voice-channel.verify.mjs pins it):
-// that moves the truncation only where b - a is a whole multiple of 1000 and the sum is
-// whole, and there either side is the module's. blends(S, m): the one or two values.
+// that moves the truncation only where b - a is a whole multiple of 1000 other than 0 (the
+// sum is then whole), and there either side is the module's. blends(S, m): the one value,
+// or those two.
 const blends = (S, m) => {
-  const v = S[m] + (S[m + 1] - S[m]) * 0.999;
-  return [Math.trunc(v - 1e-7) + 0, Math.trunc(v + 1e-7) + 0];
+  const a = S[m], b = S[m + 1], v = a + (b - a) * 0.999;
+  if (b !== a && (b - a) % 1000 === 0) return [Math.trunc(v - 1e-7) + 0, Math.trunc(v + 1e-7) + 0];
+  return [Math.trunc(v) + 0];
 };
-const blendIs = (g, S, m) => { const [a, b] = blends(S, m); return g === a || g === b; };
+const blendIs = (g, S, m) => blends(S, m).includes(g);
 // A single shift d with G[n + i] the blend of S at n + i + d for i = 0..width - 1, at the first
 // of the windows n, n + 300, ... that holds no packet's edge (the dropped sample breaks a
 // single d), or null.
-function shiftAt(G, S, n, width = 200, reach = 44100) {
-  for (let q = 0; q < 10; q++) {
+function shiftAt(G, S, n, width = 200, reach = 44100, tries = 10) {
+  for (let q = 0; q < tries; q++) {
     const at = n + 300 * q;
     for (let d = -reach; d <= reach; d++) {
       if (at + d < 0 || at + d + width + 1 > S.length) continue;
@@ -320,6 +322,27 @@ if (runs(3)) {
     check(`seed ${seed}: away from a packet's edge one shift makes the 'game' voice the module's blend of the 'source' voice, at 10 s and at 30 s; it grows by the packets between, within 2, and by 340 to 375`,
       grew !== null && Math.abs(grew - packets) <= 2 && grew >= 340 && grew <= 375 && game.r.codecInfo.channel.opens === 1,
       `d ${a ? a.d : 'none'} at 10 s, ${b ? b.d : 'none'} at 30 s: ${grew} against ${packets} packets with ticks between; ${game.r.codecInfo.channel.opens} open`);
+  }
+  // With the auto-gain off the channel is given, for each sample, the whole 16-bit value the
+  // source's timeline brings to the mix entry: here that value is made from the 'source'
+  // render's voice at the mix point as the entry makes it (nearest, ties to even, clamped to
+  // 16 bits), and the 'game' voice is its blend. Loud noise, so that the clip and the ties
+  // are met: at voice_scale 0.7 products fall on halves, at 2 most samples clip.
+  const mixValue = (v) => Math.max(-32768, Math.min(32767, roundEven(v * 32768)));
+  const loud = noise(12, rate, 17, 0.9);
+  for (const voiceScale of [0.7, 2]) {
+    const src = await sourceRender(loud, rate, { agc: false, voiceScale, seed: 1 });
+    const game = await gameRender(loud, rate, { agc: false, voiceScale, seed: 1, fps: 150 });
+    const S = Int32Array.from(src.voice, mixValue), G = units(game.voice);
+    const at = shiftAt(G, S, 6 * rate, 1000, 44100, 30);
+    let clipped = 0, ties = 0;
+    for (let i = at ? at.at + at.d : 0; at && i < at.at + at.d + 1000; i++) {
+      if (Math.abs(S[i]) === 32767) clipped++;
+      const p = src.voice[i] * 32768;
+      if (Math.abs(p - Math.trunc(p)) === 0.5) ties++;
+    }
+    check(`voice_scale ${voiceScale}, agc off, loud noise: over 1,000 samples one shift makes the 'game' voice the module's blend of the 'source' render's voice as the mix entry rounds it`,
+      at !== null, at ? `d ${at.d} at ${(at.at / rate).toFixed(3)} s; of the 1,000 source samples ${clipped} at the clip, ${ties} on a half` : 'no shift fits');
   }
   console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
 }
@@ -525,15 +548,25 @@ if (runs(7)) {
       error ? `threw ${error.message}` : at === -1 ? `${whole.samples.length} samples` : `the first difference at ${at}`);
   }
   // With the gate on, so that the source's pauses bring no message for a second at a time:
-  // there only advance() gives out what became final.
-  for (const fps of [300, 66.67]) {
+  // there only advance() gives out what became final. On the 24 kHz source and on a 48 kHz
+  // one (the bound counts the sender's 24 kHz samples, not the source's).
+  const x48 = talk(6, 48000, 21);
+  for (const [srcRate, src, fps] of [[rate, x, 300], [rate, x, 66.67], [48000, x48, 300], [48000, x48, 66.67]]) {
     // How far the samples returned fall behind the source given, both counted at 44.1 kHz.
     let behind = 0;
     const o = { ...BASE, timeline: 'game', seed: 1, fps };
-    const got = await streamed(960, o, (given, returned) => { behind = Math.max(behind, Math.round(given * 44100 / rate) - returned); });
-    const want = await A.process(buffer(x, rate), o);
-    check(`${fps} fps, the gate on, pieces of 960: the samples returned never fall more than D + 2,048 behind the source given, and are process()'s`,
-      behind <= D[fps] + 2048 && firstDiff(got.samples, want.samples) === -1,
+    const r = await A.createRender({ sampleRate: srcRate, length: src.length, numberOfChannels: 1 }, o), out = [];
+    let returned = 0;
+    for (let at = 0; at < src.length; at += 960) {
+      const y = await r.push(src.subarray(at, Math.min(src.length, at + 960)));
+      out.push(y);
+      returned += y.length;
+      behind = Math.max(behind, Math.round(Math.min(src.length, at + 960) * 44100 / srcRate) - returned);
+    }
+    out.push((await r.finish()).samples);
+    const want = await A.process(buffer(src, srcRate), o);
+    check(`${fps} fps, the gate on, a ${srcRate / 1000} kHz source, pieces of 960: the samples returned never fall more than D + 2,048 behind the source given, and are process()'s`,
+      behind <= D[fps] + 2048 && firstDiff(join(out), want.samples) === -1,
       `at most ${behind} behind, D ${D[fps]}: ${behind - D[fps]} over D`);
   }
   console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
@@ -549,7 +582,8 @@ if (runs(8)) {
     ['celt_22', { codec: 'celt_22' }], ['celt_44', { codec: 'celt_44' }], ['speex', { codec: 'speex' }],
     ['steam_48 (not in TF2)', { codec: 'steam_48' }], ['miles (not in TF2)', { codec: 'miles' }],
     ['the codec bypassed', { enableWarble: false }], ['a demo\'s received voice', { received }], ['retime on', { retime: true }],
-    ['timeline \'gmae\'', { timeline: 'gmae' }]
+    ['timeline \'gmae\'', { timeline: 'gmae' }], ['timeline \'\'', { timeline: '' }], ['timeline 0', { timeline: 0 }],
+    ['timeline false', { timeline: false }], ['timeline \'GAME\'', { timeline: 'GAME' }]
   ];
   const thrown = async (run) => { try { await run(); return null; } catch (e) { return e; } };
   for (const [name, change] of ROWS) {
