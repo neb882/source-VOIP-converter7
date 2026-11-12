@@ -18,8 +18,9 @@ const MIME = {
 
 // Every file is sent with Cache-Control: no-cache, so a browser asks again
 // before it uses a copy. With { maxAge: seconds } it is sent with max-age
-// instead, as GitHub Pages sends every file (max-age=600): a browser then
-// uses its own copy for that long without asking.
+// instead, as GitHub Pages sends index.html (max-age=600, measured on the
+// live site on 2026-11-12; the other files are inferred to be sent so too):
+// a browser then uses its own copy for that long without asking.
 function createStaticServer(root, port = 0, { maxAge = null } = {}) {
   if (maxAge !== null && !(Number.isInteger(maxAge) && maxAge >= 0)) throw new RangeError(`maxAge is a whole number of seconds, not ${maxAge}`);
   const cacheControl = maxAge === null ? 'no-cache' : `max-age=${maxAge}`;

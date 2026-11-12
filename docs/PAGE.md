@@ -159,8 +159,9 @@ the new version whole. GitHub Pages sends `index.html` with `max-age=600` (measu
 the other files are inferred to be sent so too), which would let the browser use its own copies for ten minutes
 without asking. This holds from the version that brings it (S3-02b) on. The first visit after that version ships is
 still answered by the worker the visitor already has: on a navigation within those ten minutes it can show the
-previous version, and on a reload a page that does not start. The newer worker takes over a few seconds later, and
-the next navigation or reload is whole (measured in the browser suite's Chromium).
+previous version, and on a reload a page that does not start if the two versions' markup and scripts do not fit.
+The newer worker can take over a few seconds later, but need not (a review saw none across four loads in a row);
+once it has, the next navigation or reload is whole (measured in the browser suite's Chromium).
 
 ## The console
 
