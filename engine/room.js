@@ -16,7 +16,8 @@
   /* W3-17, parts a and b). This file reads them as globals, loaded     */
   /* before it (index.html, the workers' importScripts), and only for a */
   /* render with a room or under water; without them such a render     */
-  /* stops and names them. The mix stage is createRoomMix, above.       */
+  /* stops and names them. The mix stage is createRoomMix, in           */
+  /* `engine/mix.js`.                                                   */
   /* ------------------------------------------------------------------ */
 
   function roomModule() {

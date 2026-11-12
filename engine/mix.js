@@ -424,7 +424,7 @@
   }
 
   // The mix from the gain's output: the entry and the upsampling, or with a
-  // room (a resolved room, below) createRoomMix.
+  // room (a resolved room, `engine/room.js`) createRoomMix.
   const createMixStage = (voiceRate, room) => (room ? createRoomMix(voiceRate, room) : createMixEntry(voiceRate));
   // From the mix's sum to the device: the blocks, mixOut, the device stage.
   const createOutStage = (volume, deviceRate, onMixBlock) =>

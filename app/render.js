@@ -238,7 +238,7 @@ function workerSourceId(source, channel) {
 // The page's render, in the page's worker, of the captured source
 // `captured` known by `sourceId`: its samples go to the worker once, before
 // its first render there, and the worker keeps the stages of its renders
-// (A and B, audio.js) for the next. The result comes as soon as the worker
+// (A and B, engine/render.js) for the next. The result comes as soon as the worker
 // has it; its loudness and levels follow in a message of their own (stats:
 // a promise of them, which the meter takes when it comes; if the worker ends
 // before, the meter measures the render itself).
@@ -327,7 +327,7 @@ function renderOptions() {
     // so the key a render is cached and batched by does not change at a
     // default; a number otherwise (W3-11b).
     // A blank control (or one that holds no number) is the profile's own too,
-    // as the engine reads it (gateThresholdDb() in audio.js), not 0 dBFS.
+    // as the engine reads it (gateThresholdDb() in engine/codec.js), not 0 dBFS.
     gateThresholdDb: typedGateDb() === null || typedGateDb() === gateDefaultDb(els.codec.value) ? undefined : typedGateDb(),
     // How long the sender's Steam had been running (W3-16): its float clock
     // sets the hold's real length. `steam` only; left out for other profiles.

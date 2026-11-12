@@ -370,7 +370,8 @@
   }
 
   // round(s x 32768), ties to even, clamped: a render's samples are whole
-  // 16-bit values over 32768, so each is written as itself (audio.js toInt16).
+  // 16-bit values over 32768, so each is written as itself (engine/dsp.js
+  // toInt16).
   function pcm16(s) {
     const v = s * 32768;
     let r = Math.round(v);
