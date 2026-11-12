@@ -3122,6 +3122,15 @@ async function main() {
     await page.locator('#console-input').press('Enter');
     check(await page.locator('#console-out img').count() === 0, 'console treats entered HTML as text');
     check(await page.evaluate(() => !window.__consoleXss), 'console input cannot execute markup');
+    // S3-03: the mock server's player names and chat lines are pinned, so that a
+    // change to either is a decision someone made. No check can judge a name; the
+    // hash is of JSON.stringify([TF2_DATA.playerNames, TF2_DATA.chat]) as UTF-8.
+    const mockListsHash = await page.evaluate(async () => {
+      const bytes = new TextEncoder().encode(JSON.stringify([TF2_DATA.playerNames, TF2_DATA.chat]));
+      return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    });
+    check(mockListsHash === 'e6d5eaf66ce0d6034aaaa09e19f73df37e4e37fcdd164cf4d9c569aa19797ba8',
+      'the mock console\'s player names and chat lines are the lists recorded in S3-03', mockListsHash);
 
     console.log('\n[Browser 3] Worker render and cancellation');
     // The chosen file renders by itself (W4-01a).
