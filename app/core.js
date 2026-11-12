@@ -35,7 +35,6 @@ const els = {
   demoSpeaker: document.getElementById('demo-speaker'),
   progress:  document.getElementById('process-progress'),
   advancedToggle: document.getElementById('advanced-toggle'),
-  consoleDetails: document.getElementById('console-details'),
   audio:     document.getElementById('preview'),
   audioDry:  document.getElementById('preview-dry'),
   vizWave:   document.getElementById('viz-wave'),
