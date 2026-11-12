@@ -57,7 +57,7 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | W3-02b | `steam-sender.js`, `createTimeline` | built and merged | `f58d9a7`, #11 | W3-02b-voice-timeline.md | its sender's clock and hold since replaced by W3-16 |
 | W3-02c | the plan review: one order became three | done (the amendment and the rulings are in the order) | `abf872f`, `b63cc73` | none (the amendment is in the order) | |
 | W3-02c-1 | the module as read (the first pull, D on blocks, the zero, the interpolator) | built and merged (no render runs it yet) | `a2b7dc9`, #30 (no cache change) | W3-02c1-channel-as-read.md | W3-02c-2 builds on it |
-| W3-02c-2 | the render behind `opts.timeline`; BC-3's build | planned 2026-11-12, not built: the order is [W3-02c2-render-channel.md](work-orders/W3-02c2-render-channel.md) | | | after W3-02c-1, W4-01b and S3-02a (merged); blocks W3-02c-3, W3-02d |
+| W3-02c-2 | the render behind `opts.timeline`; BC-3's build | planned and ruled 2026-11-12, being built: the order is [W3-02c2-render-channel.md](work-orders/W3-02c2-render-channel.md) | | | after W3-02c-1, W4-01b and S3-02a (merged); blocks W3-02c-3, W3-02d |
 | W3-02c-3 | the live chain runs the channel | not started | | | after W3-02c-2; an owner's question is open |
 | W3-02d | the page: controls, the default, the words | not started | | | after W3-02c-2 |
 | W3-02e | the codec lane's marks, the real-take check | not started | | | after W3-02d |

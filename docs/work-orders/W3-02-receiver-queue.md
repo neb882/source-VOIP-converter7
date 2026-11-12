@@ -3,11 +3,11 @@
 > **Status 2026-11-12, by part:**
 > - W3-02a: **built and merged** at `1ee4968` (pull request #9); report `docs/reports/W3-02a-voice-channel.md`. Nothing loads the module yet.
 > - W3-02b: **built and merged** at `f58d9a7` (pull request #11); report `docs/reports/W3-02b-voice-timeline.md`. Its sender's clock and hold were replaced by W3-16 (`d250928`).
-> - W3-02c: the plan review made it three orders (`abf872f`, `b63cc73`; the amendment below). W3-02c-1: **built and merged** at `a2b7dc9` (pull request #30; no cache change); report `docs/reports/W3-02c1-channel-as-read.md`. W3-02c-2: **not started**; after W3-02c-1 and W4-01b. W3-02c-3: **not started**; after W3-02c-2.
+> - W3-02c: the plan review made it three orders (`abf872f`, `b63cc73`; the amendment below). W3-02c-1: **built and merged** at `a2b7dc9` (pull request #30; no cache change); report `docs/reports/W3-02c1-channel-as-read.md`. W3-02c-2: **planned and ruled 2026-11-12, not built**; its order is [W3-02c2-render-channel.md](W3-02c2-render-channel.md), which takes the place of the amendment's section 5. W3-02c-3: **not started**; after W3-02c-2.
 > - W3-02d: **not started**; after W3-02c-2. W3-02e: **not started**; after W3-02d. W3-02f: **not started**; after W3-02d. W3-02g: **not started**; after W3-02c-2 and W3-02f, and a planner's pass.
 > - The plan: `docs/reports/W3-02-plan.md` (revisions 1 and 2, `96f0983`, `615fb06`).
 
-> **Note, 2026-11-12:** `audio.js` was split by S3-02; the function this document names is in the file `README.md`'s table of files gives for it. W3-02c-2 is to be written as a short order against the files (`docs/work-orders/S3-02-engine-split.md`, "What comes right after"), not built from this amendment's line numbers. The rest of this document is as written.
+> **Note, 2026-11-12:** `audio.js` was split by S3-02; the function this document names is in the file `README.md`'s table of files gives for it. W3-02c-2 is built from its own order, [W3-02c2-render-channel.md](W3-02c2-render-channel.md), written against those files, not from this amendment's line numbers. The rest of this document is as written.
 
 *Revision 3, 2026-11-10.* **What changed and why:** W3-09 read Steam's sender out of the Steam client
 (`docs/reports/W3-09-steam-voice.md`). So "The sender's packets" and W3-02b no longer fit a model to the logs (a
@@ -577,8 +577,8 @@ service-worker file loads `steam-sender.js` yet (W3-11a does that).
 ## W3-02c: the render and the stream run the channel, behind an option
 
 > **Since 2026-11-11 this is three orders: W3-02c-1 (built and merged 2026-11-12, `a2b7dc9`), W3-02c-2 and W3-02c-3 (not started).
-> Build W3-02c-2 from the amendment below, section 5; the text from here to the amendment holds only where
-> section 5 says it stands.** Among what it overrules: the branch is `claude/w3-02c2-timeline-option`; "it sets
+> Build W3-02c-2 from [W3-02c2-render-channel.md](W3-02c2-render-channel.md) (since 2026-11-12; it takes the place of
+> the amendment's section 5); the text from here to the amendment holds only where that order says it stands.** Among what section 5 overruled: the branch is `claude/w3-02c2-timeline-option`; "it sets
 > W3-10's origin to its own" is withdrawn; `spurtStart()` at each channel is withdrawn for renders (decision 10);
 > a refused message is an empty `pcm`, counted in `network.refusedMessages`; the Files list (section 5 forbids
 > `live-worker.js` and adds files); the `agc: false` object rounds to whole 16-bit values before `push` (section 5, as of 2026-11-12); the ignored codecs include `miles` (not in TF2);

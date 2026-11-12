@@ -1,6 +1,6 @@
 # W3-02c-2: a render runs the receiver's voice channel, behind an option
 
-**Status 2026-11-12: not started**; after W3-02c-1, W4-01b and S3-02a, all merged.
+**Status 2026-11-12: planned and ruled, not built**; after W3-02c-1, W4-01b and S3-02a, all merged.
 
 *Written 2026-11-12 by a planner's pass on `main` at `622673c` (cache v37). This is the order a builder builds
 from. It takes the place of section 5 of the "Amendment of 2026-11-11" in
@@ -21,6 +21,31 @@ figure again and the report gives the builder's.*
 
 **Commands** (CLAUDE.md has them). A suite or a group runs by name, `node tests/run.mjs <name>`. On a shared
 machine every suite run goes through the lock, `flock /tmp/tf2ve-heavy.lock <command>`.
+
+## Rulings of 2026-11-12 (the orchestrator)
+
+These settle what the planner left open. They win over the text below where the two differ.
+
+1. **The value is `'game'`.** The module's `info.timeline`, the amendment and W3-02d's text say it; the plan's
+   brief wrote `'channel'` loosely.
+2. **Refused, never ignored**, on every row of section 2's table. `TF2Audio` gains no member in this order: how
+   the page learns where the option is offered is W3-02d's.
+3. **An unknown value of `timeline` throws.**
+4. **The three names join `AFTER_B_OPTIONS`.**
+5. **No `opts.onMessage`.**
+6. **`live-worker.js` gains the name now.** The live monitor's worker loads the module and never calls it;
+   check 10 holds that.
+7. **The new suite `render-channel`, in the group `engine`**, and the recorded `'game'` cases in `render-stream`.
+8. **`previewAllowed` is not changed here.** W3-02d decides again when the page offers the option.
+9. **`voice-channel.js` does not join `MODEL_FILES` of `tests/accuracy.mjs` here.** The order that first scores a
+   `'game'` render adds it.
+10. **The stop lines stand**: more than 6 s added to a ten-minute render, or a peak more than 100 MB above the
+    `'source'` render's.
+11. **S3-02b is being built at the same time.** It changes `tests/harness.verify.mjs` (two refusals in the
+    checks of the split), the code of `sw.js` (not `ASSETS`), `tests/static-server.js`, `tests/browser.verify.js`
+    (a new check beside the service worker's), `tests/README.md` and `tests/predictions/PREDICTIONS.md` (a dated
+    paragraph). The builder of this order starts from `main` as it is, merges `origin/main` before the hand-back
+    and keeps both sides' lines; a conflict that is more than two added lines side by side is a stop.
 
 ## Intent
 
@@ -78,8 +103,7 @@ same way.
 | `fps` | the listener's frames a second; handed to the module as read, which takes its own default and range | 300, the module's (read) |
 | `bufferMs` | `voice_buffer_ms`; handed on the same way | 100, the module's (read) |
 
-**The value is `'game'`,** as the amendment, the module's `info.timeline` and W3-02d's text have it. The brief
-for this plan wrote `'channel'`; the orchestrator confirms the name before the build.
+**The value is `'game'`,** as the amendment, the module's `info.timeline` and W3-02d's text have it (ruling 1).
 
 **The keys.** The channel runs after the kept stage B: it takes B's messages and decoded packets and changes
 nothing in them. So the three names join `AFTER_B_OPTIONS`, which puts them in neither key and in
@@ -443,12 +467,10 @@ Figures from the recordings stay private; the public record has these:
   with drops of 60 to 220 ms that the takes lack (measured, the amendment's section 5). If the real channel
   shows those drops, that is BC-3's first question for block 1.
 
-## Left open, for the orchestrator
+## Left open
 
-- **The value's name**, `'game'` or `'channel'` (section 1).
-- **Refuse or ignore** on the other codecs (section 2). This order refuses.
-- **`voice-channel.js` in `tests/accuracy.mjs`'s `MODEL_FILES`.** Not added here: the amendment forbids the
-  file, and no prediction asks for `'game'`. It belongs to the order that first scores a `'game'` render.
+The value's name, refusing on the other codecs and `MODEL_FILES` are ruled above (rulings 1, 2 and 9). Still open:
+
 - **`codecInfo.channel.source`** crosses to the page with `codecInfo` once the page offers the option. Whether
   the page should receive 106 MB for ten minutes is W3-02d's to settle.
 - **What a refused message does to a channel**, and the 60 to 220 ms drops under loss, are measured by the
