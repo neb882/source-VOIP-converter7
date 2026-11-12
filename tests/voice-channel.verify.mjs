@@ -144,7 +144,7 @@ function report(rows) {
 // ---------------------------------------------------------------------------------------
 // A console log in the game's format, from a seeded run of the channel itself.
 
-function mulberry32(seed) {   // as in audio.js
+function mulberry32(seed) {   // as in engine/dsp.js
   let a = seed >>> 0;
   return function () {
     a |= 0; a = (a + 0x6D2B79F5) | 0;

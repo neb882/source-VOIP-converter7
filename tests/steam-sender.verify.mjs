@@ -28,7 +28,7 @@ const f32 = Math.fround;
 // ---------------------------------------------------------------------------------------
 // The orders' text, a second time: the clock and the sender with plain arrays.
 
-function mulberry32(seed) {   // as in audio.js
+function mulberry32(seed) {   // as in engine/dsp.js
   let a = seed >>> 0;
   return function () {
     a |= 0; a = (a + 0x6D2B79F5) | 0;
