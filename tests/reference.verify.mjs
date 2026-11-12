@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { fft, findMatch, consistentTimeline, sampleTimeline, describePair, rmsDb, clipSignature, levelTracking, audioEngine } from './reference.compare.mjs';
+import { fft, findMatch, consistentTimeline, sampleTimeline, describePair, rmsDb, clipSignature, levelTracking } from './reference.compare.mjs';
+import { loadEngine } from './lib/engine.cjs';
 import { createRequire } from 'node:module';
 const TF2Reference = createRequire(import.meta.url)('../reference.js');
 
@@ -66,8 +67,8 @@ check('Level tracking rejects unequal lengths', true);
 // little noise, must be found and lined up with the source to a few
 // microseconds, and then compare as identical.
 {
-  const { audio, sandbox } = audioEngine();
-  sandbox.TF2Opus = await import('../opus-codec.mjs');
+  const engine = loadEngine(), audio = engine.audio;
+  engine.codec = await import('../opus-codec.mjs');
   globalThis.TF2Audio = audio;
   const sr = 48000, seconds = 20;
   let seed = 7;

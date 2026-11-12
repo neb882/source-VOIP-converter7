@@ -9,10 +9,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import vm from 'node:vm';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { MPEGDecoder } from 'mpg123-decoder';
+import { loadEngine } from './lib/engine.cjs';
 
 // The shared measures (also used by the page's real-take comparison).
 const TF2Reference = createRequire(import.meta.url)('../reference.js');
@@ -27,17 +27,6 @@ export async function decodeFile(filename) {
     if (!result.samplesDecoded || result.errors.length) throw new Error(`Could not cleanly decode ${path.basename(filename)}.`);
     return { channels: result.channelData, rate: result.sampleRate, length: result.samplesDecoded };
   } finally { decoder.free(); }
-}
-
-export function audioEngine() {
-  const sandbox = { window: {}, Blob, console };
-  vm.createContext(sandbox);
-  for (const file of ['../steam-sender.js', '../vendor/swresample/swresample.js']) {
-    vm.runInContext(fs.readFileSync(new URL(file, import.meta.url), 'utf8'), sandbox);
-  }
-  vm.runInContext(fs.readFileSync(new URL('../constants.js', import.meta.url), 'utf8') + '\n' +
-    fs.readFileSync(new URL('../audio.js', import.meta.url), 'utf8'), sandbox);
-  return { audio: sandbox.window.TF2Audio, sandbox };
 }
 
 export function mono(decoded, channel = 'mix') {
@@ -61,9 +50,9 @@ async function main() {
   const compact = process.argv.includes('--compact');
   const [referencePath, ...sourcePaths] = process.argv.slice(2).filter(x => x !== '--compact');
   if (!referencePath || !sourcePaths.length) throw new Error('Usage: node tests/reference.compare.mjs <recorded.mp3> <source.mp3> [...]');
-  const { audio, sandbox } = audioEngine();
-  sandbox.TF2Opus = await import('../opus-codec.mjs');
-  const preset = vm.runInContext('PRESETS.modern', sandbox);
+  const engine = loadEngine(), audio = engine.audio;
+  engine.codec = await import('../opus-codec.mjs');
+  const preset = engine.PRESETS.modern;
   const reference = await decodeFile(referencePath);
   const searchRate = 2000, rate = 48000;
   const narrow = (samples, sr) => audio.applyBiquad(audio.resampleSinc(samples, sr, searchRate),

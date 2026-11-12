@@ -17,6 +17,7 @@
 import fs from 'node:fs';
 import * as opus from '../opus-codec.mjs';
 import * as VR12 from '../vendor/voxware-vr12/index.mjs';
+import { loadEngine } from './lib/engine.cjs';
 
 let passed = 0;
 const failed = [];
@@ -29,7 +30,6 @@ const measure = (line) => console.log(`  ..    ${line}`);
 const NB = 11025, SIZE = 360, BYTES = 12, DELAY = 305;
 const root = new URL('..', import.meta.url);
 const read = (f) => fs.readFileSync(new URL(f, root), 'utf8');
-const engineCode = ['constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'audio.js'].map(read).join('\n');
 
 // audio.js on an opus-codec.mjs whose VR12 calls are watched: each round trip
 // (its 11025 Hz input, packets, output, head and info) and each frame-by-frame
@@ -60,10 +60,8 @@ function watchedEngine() {
         conceal() { s.conceals++; return stream.conceal(); },
         free() { stream.free(); } };
     } };
-  const window = {};
-  const tables = new Function('window', 'TF2Opus', 'setTimeout', 'self', 'module',
-    `${engineCode}\nreturn { CODEC_PROFILES, PRESETS, VOICE_ENGINE };`)(window, watched, undefined, undefined, undefined);
-  return { A: window.TF2Audio, log, ...tables };
+  const { audio, CODEC_PROFILES, PRESETS, VOICE_ENGINE } = loadEngine({ root, codec: watched });
+  return { A: audio, log, CODEC_PROFILES, PRESETS, VOICE_ENGINE };
 }
 const { A, CODEC_PROFILES, PRESETS } = watchedEngine();
 const { FRAME } = opus;

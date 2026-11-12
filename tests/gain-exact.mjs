@@ -24,12 +24,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { loadEngine as loadShared, sourceRoot } from './lib/engine.cjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const root = process.env.TF2_DIR || path.join(here, '..');
+const root = sourceRoot();
 
 // The engine's rule as docs/work-orders/W3-05-receiver-gain.md writes it
 // (from docs/reports/W3-03-engine-binary.md, section 2; the script that
@@ -74,11 +73,7 @@ export function engineGain(xs, settings, notDecoded = null) {
 }
 
 function loadEngine() {
-  const code = ['constants.js', 'audio.js'].map(f => fs.readFileSync(path.join(root, f), 'utf8')).join('\n');
-  const sandbox = { window: {}, Blob: globalThis.Blob, console };
-  vm.createContext(sandbox);
-  vm.runInContext(code, sandbox);
-  return sandbox.window.TF2Audio;
+  return loadShared({ root }).audio;
 }
 
 // A 16-bit mono PCM WAV: its rate and samples (Int16Array).

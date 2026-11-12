@@ -6,22 +6,17 @@
 //   node tests/formats.verify.mjs
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { MPEGDecoder } from 'mpg123-decoder';
 import { encodeMp3, lameVersion } from '../vendor/lame/index.mjs';
 import wasmBase64 from '../vendor/lame/lame-3.100.wasm.mjs';
+import { loadEngine } from './lib/engine.cjs';
 
 const require = createRequire(import.meta.url);
 let passed = 0;
 function check(name, ok) { assert.ok(ok, name); passed++; console.log(`  ok    ${name}`); }
 
-const sandbox = { window: {}, Blob, console };
-vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync(new URL('../constants.js', import.meta.url), 'utf8') + '\n' +
-  fs.readFileSync(new URL('../audio.js', import.meta.url), 'utf8'), sandbox);
-const A = sandbox.window.TF2Audio;
+const A = loadEngine().audio;
 globalThis.TF2Audio = A;
 globalThis.TF2Flac = require('../flac.js');
 const TF2Formats = require('../formats.js');

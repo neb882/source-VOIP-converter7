@@ -15,13 +15,13 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import * as opus from '../vendor/libopus-1.1/index.mjs';
 import { createCodec } from '../vendor/celt-0.11/index.mjs';
-import { audioEngine } from './reference.compare.mjs';
+import { loadEngine } from './lib/engine.cjs';
 
 const require = createRequire(import.meta.url);
 const D = require('../demo.js');
-const engine = audioEngine(), A = engine.audio;
-// The sandbox has no import loader; the full chain gets the codec module injected.
-engine.sandbox.TF2Opus = await import('../opus-codec.mjs');
+const engine = loadEngine(), A = engine.audio;
+// The full chain gets the codec module injected.
+engine.codec = await import('../opus-codec.mjs');
 let passed = 0;
 function check(name, ok, detail = '') { assert.ok(ok, `${name} ${detail}`); passed++; console.log(`  ok    ${name}${detail ? `   [${detail}]` : ''}`); }
 

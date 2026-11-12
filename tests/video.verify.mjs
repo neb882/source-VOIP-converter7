@@ -10,10 +10,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { createDecoder } from '../vendor/libopus/index.mjs';
-import { audioEngine } from './reference.compare.mjs';
+import { loadEngine } from './lib/engine.cjs';
 
 const require = createRequire(import.meta.url);
-globalThis.TF2Audio = audioEngine().audio;
+globalThis.TF2Audio = loadEngine().audio;
 const V = require('../video.js');
 let passed = 0;
 function check(name, ok, detail = '') { assert.ok(ok, `${name} ${detail}`); passed++; console.log(`  ok    ${name}${detail ? `   [${detail}]` : ''}`); }

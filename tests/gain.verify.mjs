@@ -10,19 +10,17 @@
 // whole and in pieces; then each detail that Set H or the review showed to
 // matter, with the order's numbers; then the reset; then the gate's
 // silences through process(). Every signal is synthetic, made here.
-import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { engineGain } from './gain-exact.mjs';
+import { loadEngine } from './lib/engine.cjs';
 
 const root = process.env.TF2_DIR ? pathToFileURL(path.resolve(process.env.TF2_DIR) + '/') : new URL('..', import.meta.url);
-const engineCode = ['constants.js', 'steam-sender.js', 'vendor/swresample/swresample.js', 'audio.js'].map(f => fs.readFileSync(new URL(f, root), 'utf8')).join('\n');
 const TF2Opus = await import(new URL('opus-codec.mjs', root).href);
-// As tests/render-stream.verify.mjs loads it: one function in this realm.
-const window = {};
-const { CODEC_PROFILES, VOICE_ENGINE } = new Function('window', 'TF2Opus', 'setTimeout', 'self', 'module',
-  `${engineCode}\nreturn { CODEC_PROFILES, VOICE_ENGINE };`)(window, TF2Opus, undefined, undefined, undefined);
-const A = window.TF2Audio;
+// From the tests' one loader (tests/lib/engine.cjs): one function in this realm.
+const engine = loadEngine({ root, codec: TF2Opus });
+const { CODEC_PROFILES, VOICE_ENGINE } = engine;
+const A = engine.audio;
 
 let passed = 0, failed = 0;
 function check(name, ok, detail = '') {
