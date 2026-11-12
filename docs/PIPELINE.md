@@ -101,8 +101,9 @@ figures are the vendor's own. Re-read this section when either model changes.]
 
 ## Long runs
 
-- **Heavy jobs** (the browser suite, a codec build) run one at a time: `flock /tmp/tf2ve-heavy.lock <command>`. [The
-  browser suite times a live microphone chain; two at once on four cores make it flaky.]
+- **Heavy jobs** (`pnpm test`, the browser suite, a codec build) run one at a time: `flock /tmp/tf2ve-heavy.lock
+  <command>`. [The browser suite times a live microphone chain; two at once on four cores make it flaky. `pnpm test`
+  is the longest job, about 17 minutes on CI.]
 - **Parallel builds** only for orders whose files don't overlap, each in its own worktree, and at most two at once.
   Reviewers, skeptics and planners don't count.
 - **A pushed branch is never rebased or force-pushed**: bring main in with a merge.
