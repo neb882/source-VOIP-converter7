@@ -46,7 +46,8 @@ export function engineRun({ loud, seconds, fps, bufferMs, seed, uptime }) {
 }
 
 // spans: [[start, end)] in source seconds. For each, the offset in ms (output less source,
-// latency taken out) at the first 20 ms slot that plays a sample at least 0.2 s into the span
+// the timeline's zero D taken out: latency, the mean arrival and the codec's delay, on whole
+// blocks; voice-channel.js, createTimeline) at the first 20 ms slot that plays a sample at least 0.2 s into the span
 // (or its first slot, if none does), and at its last slot; null where nothing of it played.
 // The timeline's info.source gives the source position at each slot's centre, so the offset
 // there is exact.

@@ -27,6 +27,7 @@ import { engineRun, syntheticResults } from './voicequeue/synthetic-results.mjs'
 
 const require = createRequire(import.meta.url);
 const V = require('../voice-channel.js');
+const { createSender } = require('../steam-sender.js');
 const { VOICE_CHANNEL, waitTicks, latency, createChannel, createTimeline } = V;
 const TOOL = fileURLToPath(new URL('./voicequeue/log-to-fixture.mjs', import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
@@ -730,6 +731,14 @@ function publicChecks() {
       const o = fadeOut(0, 5, 5);
       check('F. fadeTime 0 fades max(2, 0) = 2 samples: 5 of 32767 give 32767 four times, then 0', list(o) === '32767,32767,32767,32767,0', list(o));
     }
+    // F2: where single precision and floor(44100 x fadeTime) part: 0.00111111111 gives
+    // trunc(f(44100 x f(0.00111111111))) = 49 samples, not floor(48.99999995) = 48. With 49, the
+    // sample with 47 behind it is faded by one step of 1/48; with 48 it would be whole.
+    {
+      const o = fadeOut(0.00111111111, 49, 49);
+      check('F2. fadeTime 0.00111111111 fades 49 samples, not floor(44100 x fadeTime) = 48: of 49 of 32767, sample 1 is 32767 less a step of 1/48',
+        fadeLength(0.00111111111) === 49 && Math.floor(44100 * 0.00111111111) === 48 && o[0] === 32767 && o[1] === faded(32767, 47, 49) && o[1] < 32767, `${o[0]}, ${o[1]}`);
+    }
     // G: the fade window's edge: 4408 left after a read is under the fade.
     {
       const o = fadeOut(0.1, 4410, 2);
@@ -1011,7 +1020,10 @@ function publicChecks() {
 // 50.5 ms as measured over this suite's layouts P and Q (docs/reports/W3-02c1-channel-as-read.md),
 // on whole 512-sample blocks (item 2). Read again here from the order, not from the module.
 const ARRIVAL_MS = 50.5;
-const zeroOf = (bufferMs, fps) => 512 * Math.round(44100 * (latency(bufferMs, fps) + ARRIVAL_MS / 1000) / 512);
+// codecDelay: seconds the caller took off each source for its codec (createTimeline's option).
+const zeroOf = (bufferMs, fps, codecDelay = 0) => 512 * Math.round(44100 * (latency(bufferMs, fps) + ARRIVAL_MS / 1000 + codecDelay) / 512);
+// The Opus codec's look-ahead, 156 samples at 24 kHz: what W3-02c-2 takes off each source.
+const OPUS_DELAY = 156 / 24000;
 
 // A second reading of the clock, driven by blocks: before block b every tick k with
 // 1323 k <= 1024 b runs (its messages first); a block pulls 512, or 513 on the first block
@@ -1215,23 +1227,36 @@ function timelineChecks() {
     // W3-02c-1, item 2: the channel's blocks are the mixer's. Every block starts on a multiple
     // of 512 from the output's start, so what push() and advance() return ends on one (or at the
     // output's end), and so does the start of the sound; D, read off a return as
-    // 512 ceil(1323 tick / 1024) - samples returned, is the zero on whole blocks.
-    const want = { 66.67: 13312, 100: 15360, 300: 24064 };
-    const seen = [];
-    let ok = true;
-    for (const fps of [66.67, 100, 300]) {
-      const messages = [];
-      for (let t = 40; t <= 200; t += 4) messages.push({ tick: t, pcm: new Float32Array(t === 40 ? 7056 : 2646).fill(0.5), source: 2646 * t });
-      const length = 44100 * 4 + 37, returns = [];
-      const { samples } = timelineRun(messages, { fps, length }, { advanceEvery: 1, onReturn: (tick, total) => returns.push([tick, total]) });
-      const inside = returns.filter(([, total]) => total > 0 && total < length);
-      const D = inside.length ? 512 * Math.ceil(1323 * inside[0][0] / 1024) - inside[0][1] : NaN;
-      const start = samples.findIndex((v) => v !== 0);
-      const offGrid = returns.filter(([, total]) => total % 512 !== 0 && total !== length).length;
-      seen.push(`${fps} fps: D ${D}, sound from ${start}, ${offGrid} of ${returns.length} returns off the grid`);
-      ok = ok && inside.length > 100 && offGrid === 0 && start > 0 && start % 512 === 0 && D === want[fps] && D === zeroOf(100, fps);
-    }
-    check('every block\'s first output sample is a multiple of 512 from the output\'s start at 67, 100 and 300 fps: D is 13312, 15360 and 24064 samples', ok, seen.join('; '));
+    // 512 ceil(1323 tick / 1024) - samples returned, is the zero on whole blocks. With
+    // codecDelay, the codec's 6.5 ms are added before the rounding.
+    const gridRun = (codecDelay, want) => {
+      const seen = [];
+      let ok = true;
+      for (const fps of [66.67, 100, 300]) {
+        const messages = [];
+        for (let t = 40; t <= 200; t += 4) messages.push({ tick: t, pcm: new Float32Array(t === 40 ? 7056 : 2646).fill(0.5), source: 2646 * t });
+        const length = 44100 * 4 + 37, returns = [];
+        const opts = codecDelay === undefined ? { fps, length } : { fps, length, codecDelay };
+        const { samples, info } = timelineRun(messages, opts, { advanceEvery: 1, onReturn: (tick, total) => returns.push([tick, total]) });
+        const inside = returns.filter(([, total]) => total > 0 && total < length);
+        const D = inside.length ? 512 * Math.ceil(1323 * inside[0][0] / 1024) - inside[0][1] : NaN;
+        const start = samples.findIndex((v) => v !== 0);
+        const offGrid = returns.filter(([, total]) => total % 512 !== 0 && total !== length).length;
+        seen.push(`${fps} fps: D ${D}, sound from ${start}, ${offGrid} of ${returns.length} returns off the grid`);
+        ok = ok && inside.length > 100 && offGrid === 0 && start > 0 && start % 512 === 0 && D === want[fps] && D === zeroOf(100, fps, codecDelay || 0)
+          && info.codecDelay === (codecDelay || 0);
+      }
+      return { ok, seen: seen.join('; ') };
+    };
+    const plain = gridRun(undefined, { 66.67: 13312, 100: 15360, 300: 24064 });
+    check('every block\'s first output sample is a multiple of 512 from the output\'s start at 67, 100 and 300 fps: D is 13312, 15360 and 24064 samples', plain.ok, plain.seen);
+    // At 66.67 fps latency + arrival + codecDelay is 307.0 ms, 0.6 ms under the edge where D
+    // becomes 13568 (307.66 ms): a re-measured arrival could move that D by a block.
+    const opus = gridRun(OPUS_DELAY, { 66.67: 13312, 100: 15360, 300: 24576 });
+    let refused = 0;
+    for (const bad of [-0.001, NaN, Infinity, '0.0065', null]) { try { createTimeline({ length: 10, codecDelay: bad }); } catch (e) { if (e instanceof RangeError) refused++; } }
+    check('with codecDelay 156 / 24000 (the codec\'s look-ahead) D is 13312, 15360 and 24576 samples, still on the grid; info.codecDelay says it; a codecDelay below 0 or not a finite number is refused',
+      opus.ok && refused === 5, `${opus.seen}; ${refused} of 5 refused`);
   }
   {
     // Drops are placed where the skip is heard. A ramp at 300 fps: an opening of 7056 and 2646
@@ -1341,8 +1366,11 @@ function timelineChecks() {
   // W3-02c-1 moved every offset by (D before - D after) / 44.1 ms, D before being
   // round(44100 x latency) and after the zero on whole blocks: (22050 - 24064) / 44.1 = -45.67 ms
   // at 300 fps and (11025 - 13312) / 44.1 = -51.86 ms at 66.67 (and one sample, +0.02 ms, for the
-  // first pull as read). The offset ranges below are W3-02b's, as re-derived for W3-16's clock,
-  // moved by that and rounded outward to the millisecond; the counts did not move.
+  // first pull as read). The counts did not move. Three offset ranges are the measured ones
+  // with about 20 ms to spare, in steps of 5 ms (300 fps, the first spurt: -23.8 to 28.7; 67
+  // fps, every opened spurt: -40.9 to 36.8; 67 fps, the spurt after 900 ms: -35.9 to 25.8), so
+  // that a spurt opening 100 ms early fails; the other two are W3-02b's, as re-derived for
+  // W3-16's clock, moved by D's shift and rounded outward to the millisecond.
   console.log('The timeline: spurts of 2 s with 300, 500 and 1200 ms of silence (seeds 1 to 50)');
   const opened = { 300: [], 66.67: [] };   // offsetStartMs of every opened spurt, layouts P and Q
   const collect = (runs, fps) => { for (const r of runs) for (const s of r.info.spurts) if (s.opened) opened[fps].push(s.offsetStartMs); };
@@ -1351,7 +1379,7 @@ function timelineChecks() {
     collect(runs, 300);
     check('300 fps: the 300 ms silence never ends the sender\'s spurt (its hold is about 0.4 s): the first two are one spurt', runs.every((r) => r.sp[0].i === 0 && r.sp[1].i === 0));
     const first = runs.map((r) => r.sp[0]);
-    check('300 fps: the first spurt opens a channel, its offsetStartMs between -66 and +45 (W3-02b: -20 and +90)', first.every((s) => s.opened && s.offsetStartMs >= -66 && s.offsetStartMs <= 45),
+    check('300 fps: the first spurt opens a channel, its offsetStartMs between -45 and +50', first.every((s) => s.opened && s.offsetStartMs >= -45 && s.offsetStartMs <= 50),
       `${range(first.map((s) => s.offsetStartMs))} ms; dropped ${range(first.map((s) => s.droppedMs))} ms`);
     const own = runs.map((r) => r.sp[2]).filter((s) => s.own);
     // 42 of these 50 seeds: in the other 8 the chunk after the final one is active (the ENDED
@@ -1366,10 +1394,9 @@ function timelineChecks() {
     const slow = sweep([0.3, 0.5, 1.2], 66.67);
     collect(slow, 66.67);
     const own67 = slow.flatMap((r) => r.sp.filter((s) => s.own && s.opened)), app = slow.flatMap((r) => r.sp.filter((s) => s.own && !s.opened));
-    // Within 100 ms since W3-16's clock (80 before); moved by W3-02c-1's zero.
-    check('67 fps: every spurt but the one after 500 ms opens a channel, each opened one -152 to +49 ms from the source (W3-02b: within 100 ms), nothing dropped',
+    check('67 fps: every spurt but the one after 500 ms opens a channel, each opened one -60 to +60 ms from the source, nothing dropped',
       slow.every((r) => r.sp[0].opened && r.sp[3].own && r.sp[3].opened && (!r.sp[2].own || !r.sp[2].opened) && r.info.droppedSamples === 0 && r.info.drops.length === 0)
-      && own67.every((s) => s.offsetStartMs >= -152 && s.offsetStartMs <= 49), `opened ${range(own67.map((s) => s.offsetStartMs))} ms; appended ${range(app.map((s) => s.offsetStartMs))} ms`);
+      && own67.every((s) => s.offsetStartMs >= -60 && s.offsetStartMs <= 60), `opened ${range(own67.map((s) => s.offsetStartMs))} ms; appended ${range(app.map((s) => s.offsetStartMs))} ms`);
   }
   console.log('The timeline: an early start (900, 600 and 1200 ms of silence; seeds 1 to 50)');
   {
@@ -1381,8 +1408,8 @@ function timelineChecks() {
       after.every((s) => s.own) && app.length >= 45 && app.every((s) => s.offsetStartMs >= -356 && s.offsetStartMs <= -205), `${app.length} of 50; ${range(app.map((s) => s.offsetStartMs))} ms`);
     const slow = sweep([0.9, 0.6, 1.2], 66.67);
     collect(slow, 66.67);
-    check('67 fps: the same spurt opens a channel (the queue holds only 0.25 s), starting -132 to +29 ms from the source (W3-02b: within 80 ms)',
-      slow.every((r) => r.sp[1].opened && r.sp[1].offsetStartMs >= -132 && r.sp[1].offsetStartMs <= 29), range(slow.map((r) => r.sp[1].offsetStartMs)));
+    check('67 fps: the same spurt opens a channel (the queue holds only 0.25 s), starting -60 to +50 ms from the source',
+      slow.every((r) => r.sp[1].opened && r.sp[1].offsetStartMs >= -60 && r.sp[1].offsetStartMs <= 50), range(slow.map((r) => r.sp[1].offsetStartMs)));
   }
   console.log('The timeline: the zero (W3-02c-1)');
   {
@@ -1397,6 +1424,27 @@ function timelineChecks() {
     check('an opened spurt\'s offsetStartMs averages within 5.8 ms of 0 at 300 and at 67 fps (layouts P and Q, seeds 1 to 50), and to within 0.1 ms with the block grid taken out',
       opened[300].length === 205 && opened[66.67].length === 250 && Math.abs(m300) <= 5.8 && Math.abs(m67) <= 5.8 && Math.abs(pooled) <= 0.1,
       `300 fps ${m300.toFixed(2)} ms over ${opened[300].length}, 67 fps ${m67.toFixed(2)} ms over ${opened[66.67].length}; the grid moves them ${grid(300).toFixed(2)} and ${grid(66.67).toFixed(2)}; both, grid out: ${pooled.toFixed(3)} ms`);
+    // The same spurts in W3-02c-2's frame: each source the position of its first captured
+    // sample less the codec's look-ahead, round((start - 156) x 44100 / 24000) (engineRun's
+    // messages, pushed again here with that source), and the timeline told so by codecDelay.
+    const shifted = (lay, fps, seed) => {
+      const { messages } = engineRun({ ...lay, fps, seed });
+      const tl = createTimeline({ fps, length: Math.round(lay.seconds * 44100), codecDelay: OPUS_DELAY });
+      for (const m of messages) {
+        tl.push(m.silence !== undefined
+          ? { tick: m.tick, pcm: new Float32Array(Math.round(m.silence * 44100 / 24000)), source: -1 }
+          : { tick: m.tick, pcm: new Float32Array(882 * (m.last - m.first + 1)), source: Math.round((m.start - 156) * 44100 / 24000) });
+      }
+      return tl.finish().info.spurts.filter((x) => x.opened).map((x) => x.offsetStartMs);
+    };
+    const inFrame = { 300: [], 66.67: [] };
+    for (const fps of [300, 66.67]) for (const lay of [layout([0.3, 0.5, 1.2]), layout([0.9, 0.6, 1.2])]) for (let seed = 1; seed <= 50; seed++) inFrame[fps].push(...shifted(lay, fps, seed));
+    const gridC = (fps) => (zeroOf(100, fps, OPUS_DELAY) - 44100 * (latency(100, fps) + ARRIVAL_MS / 1000 + OPUS_DELAY)) / 44.1;
+    const c300 = mean(inFrame[300]), c67 = mean(inFrame[66.67]);
+    const pooledC = mean([...inFrame[300].map((x) => x + gridC(300)), ...inFrame[66.67].map((x) => x + gridC(66.67))]);
+    check('with sources earlier by the codec\'s 156 samples and codecDelay 156 / 24000, the same spurts average within 5.8 ms of 0 at 300 and 67 fps, and to within 0.1 ms with the grid taken out',
+      inFrame[300].length === 205 && inFrame[66.67].length === 250 && Math.abs(c300) <= 5.8 && Math.abs(c67) <= 5.8 && Math.abs(pooledC) <= 0.1,
+      `300 fps ${c300.toFixed(2)} ms, 67 fps ${c67.toFixed(2)} ms; the grid moves them ${gridC(300).toFixed(2)} and ${gridC(66.67).toFixed(2)}; both, grid out: ${pooledC.toFixed(3)} ms`);
   }
   console.log('The timeline: the 400 ppm (one 60 s spurt, seeds 1 to 10)');
   {
@@ -1430,10 +1478,20 @@ function timelineChecks() {
       check('--engine --uptime: the sender runs with that uptime (36 days gives other engine columns than the default; 777600 the default\'s), and the Engine line names it',
         r5 && rm && rn && r5.engine.join() !== rm.engine.join() && r5.engine.join() === rn.engine.join()
         && /up 3110400 s/.test(month.stdout) && /up the default 777600 s/.test(dflt.stdout), `default ${r5 && r5.engine.join(', ')}; 3110400 ${rm && rm.engine.join(', ')}`);
-      // --uptime 0 is a value, not "left out": it reaches the sender as 0.
-      const zero = runIt('--engine', '--seeds', '5', '--uptime', '0'), r0 = row(zero);
-      check('--engine --uptime 0 reaches the sender as 0, not as the default (other engine columns), and the Engine line names it',
-        r0 && r5 && r0.engine.join() !== r5.engine.join() && /up 0 s/.test(zero.stdout), `0: ${r0 && r0.engine.join(', ')}; default ${r5 && r5.engine.join(', ')}`);
+      // --uptime 0 is a value, not "left out": the Engine line reads it as 0, and 0 is a value
+      // the sender takes as 0 (shown on exact data: the sender's own record and the messages'
+      // ticks, not the rounded columns, which a change of D can make equal).
+      const zero = runIt('--engine', '--seeds', '5', '--uptime', '0');
+      const key = (m) => [m.tick, m.spurt, m.first, m.last, m.start, m.end].join();
+      let differ = 0, ticks = 0, all = 0;
+      for (let seed = 1; seed <= 5; seed++) {
+        const L0 = { loud: [[0.5, 2.5], [3, 5], [5.9, 8]], seconds: 9, fps: 300, seed };
+        const a = engineRun({ ...L0, uptime: 0 }).messages, d = engineRun(L0).messages;
+        for (let i = 0; i < Math.max(a.length, d.length); i++) { all++; if (!a[i] || !d[i] || key(a[i]) !== key(d[i])) differ++; if (a[i] && d[i] && a[i].tick !== d[i].tick) ticks++; }
+      }
+      check('--engine --uptime 0 is read as 0 (the Engine line names it), and a sender given uptime 0 runs with 0, not the default: its record says 0 and its messages differ (seeds 1 to 5)',
+        zero.status === 0 && /up 0 s/.test(zero.stdout) && createSender({ seed: 3, uptime: 0 }).info().uptime === 0 && createSender({ seed: 3 }).info().uptime === 777600
+        && differ > 100 && ticks > 40, `${differ} of ${all} messages differ, ${ticks} in their tick`);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

@@ -79,10 +79,14 @@
   // first log and 16 of its 17 restarts (W3-03, "Checked against the owner's console log").
   const OPENING_SECONDS = 0.16;
 
-  // The mean time from the last sample of a spurt's opening packet to the packet's arrival,
-  // with Steam's sender (steam-sender.js): the model's figure, not the game's. Measured
-  // (W3-02c-1, docs/reports/W3-02c1-channel-as-read.md): offsetStartMs of every opened spurt of
-  // the suite's layouts P and Q (tests/voice-channel.verify.mjs: 2 s spurts after 300, 500 and
+  // How much later than latency() a restarted spurt plays, in the mean, with Steam's sender
+  // (steam-sender.js), in the sender's frame: a message's source is the position of the first
+  // sample of it that was captured (the sender's `start`, at 44.1 kHz), before any codec. It
+  // is the time the opening packet takes to arrive after its last sample was captured, the
+  // model's figure, not the game's. A caller whose sources are earlier than that by a codec's
+  // delay says so with createTimeline's codecDelay, which is added to it. Measured (W3-02c-1,
+  // docs/reports/W3-02c1-channel-as-read.md): offsetStartMs of every opened spurt of the
+  // suite's layouts P and Q (tests/voice-channel.verify.mjs: 2 s spurts after 300, 500 and
   // 1200 ms, and after 900, 600 and 1200 ms), seeds 1 to 50, at 300 and 66.67 fps, with only
   // latency() taken out: 455 spurts, mean 50.5 ms (50.9 at 300 fps, 50.2 at 66.67; 8.5 to 88.7,
   // sd 14.1; means of ten seeds at a time 45.7 to 58.0).
@@ -205,7 +209,11 @@
     }
 
     // The mixer wants n samples; returns exactly n, with the tag of the packet each came
-    // from (-1 for padding and silence).
+    // from (-1 for padding and silence). TF2's routine caps a read at 1024 samples and a
+    // padded pull at 2048; that is not modelled, which is right for a caller that asks 512 or
+    // 513 a call (the mixer's blocks, createTimeline) and for a replay's demand of a whole tick
+    // on zeros (counts only). It would be wrong for a single engine call of more than 1024, or
+    // for a replay with real samples whose tick ends in an underrun.
     function pull(n) {
       if (!Number.isInteger(n) || n < 0) throw new RangeError('pull() takes a whole number of samples');
       const samples = new Float32Array(n), from = new Float64Array(n).fill(-1);
@@ -260,9 +268,11 @@
   // on tick k, before the tick's pass. Block b is output samples 512 b - D to 512 b - D + 511.
   // D, the zero, is taken out so that a restarted spurt sits where the source has it, in the
   // mean: the delay at which a restarted spurt plays (latency) plus the mean time its opening
-  // packet takes to arrive after its last sample (ARRIVAL_SECONDS), on whole blocks so that
-  // the channel's blocks are the mixer's: D = 512 x round(44100 x (latency + arrival) / 512),
-  // 13312 samples at 66.67 fps, 15360 at 100, 24064 at 300. The game has no such figure: it is
+  // packet takes to arrive after its last sample (ARRIVAL_SECONDS) plus what the caller took
+  // off each source for its codec (codecDelay), on whole blocks so that the channel's blocks
+  // are the mixer's: D = 512 x round(44100 x (latency + arrival + codecDelay) / 512). With no
+  // codecDelay, 13312 samples at 66.67 fps, 15360 at 100, 24064 at 300; with the Opus codec's
+  // 156 samples at 24 kHz (6.5 ms), 13312, 15360 and 24576. The game has no such figure: it is
   // the model's, for lining a render up with its source. Output before sample 0 or past length
   // is dropped. The mixer runs one sample ahead of what it plays (W3-10's upsampler read, section
   // 3): the first block after each start asks the channel for 513 samples, plays the first 512
@@ -270,7 +280,9 @@
   // 512 it asks for, and keeps the last. So every sample pulled is heard, in order.
   //
   // opts: fps, bufferMs, fadeTime (as createChannel), gain (as createChannel: reset when a
-  // channel opens, run on every message whole), length (output samples, required).
+  // channel opens, run on every message whole), length (output samples, required), codecDelay
+  // (seconds, default 0: how much earlier than the sender's frame the caller's sources are,
+  // the codec's look-ahead, e.g. 156 / 24000; a finite number >= 0).
   //
   // Scale: push's pcm, the gain and the output are at 1/32768 of the channel's 16-bit units
   // (1.0 is 32768 units). The boundary is here: the gain's output is multiplied by 32768 as it
@@ -285,7 +297,7 @@
   // that everything returned is length samples. The timeline calls no sender, codec or
   // resampler: its caller does.
   //
-  // info: { timeline: 'game', fps, bufferMs, waitTicks, latency, packets, opens, appended,
+  // info: { timeline: 'game', fps, bufferMs, codecDelay, waitTicks, latency, packets, opens, appended,
   // gainResets, droppedSamples, drops: [{ time, ms }], spurts: [{ start, end, opened,
   // offsetStartMs, offsetEndMs, droppedMs }], source: Int32Array }.
   //   - latency: the channel's own figure, latency(bufferMs, fps), not D.
@@ -310,6 +322,8 @@
     const length = o.length;
     if (!Number.isInteger(length) || length < 0) throw new RangeError('createTimeline needs length, the output\'s whole number of samples');
     const fps = finiteOr(o.fps, VOICE_CHANNEL.fps), bufferMs = finiteOr(o.bufferMs, VOICE_CHANNEL.bufferMs);
+    const codecDelay = o.codecDelay === undefined ? 0 : o.codecDelay;
+    if (typeof codecDelay !== 'number' || !Number.isFinite(codecDelay) || codecDelay < 0) throw new RangeError('createTimeline\'s codecDelay is a finite number of seconds, 0 or more');
     const user = o.gain || null;
     let gainResets = 0;
     const UNIT = VOICE_CHANNEL.unit;
@@ -319,7 +333,7 @@
     };
     const ch = createChannel({ fps, bufferMs, fadeTime: o.fadeTime, gain });
     const lat = latency(bufferMs, fps);
-    const D = VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (lat + ARRIVAL_SECONDS) / VOICE_CHANNEL.mixBlock);
+    const D = VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (lat + ARRIVAL_SECONDS + codecDelay) / VOICE_CHANNEL.mixBlock);
     const TICK = Math.round(2 * VOICE_CHANNEL.rate * VOICE_CHANNEL.tick);      // 1323 half samples
     const N = VOICE_CHANNEL.mixBlock, BLOCK = 2 * N;                          // 512 samples; 1024
     const PER_MS = VOICE_CHANNEL.rate / 1000;
@@ -478,7 +492,7 @@
       }
       for (const d of unheard) d.time = (N * nextBlock - D) / VOICE_CHANNEL.rate;   // never heard: after the end
       const info = {
-        timeline: 'game', fps, bufferMs, waitTicks: ch.waitTicks, latency: lat,
+        timeline: 'game', fps, bufferMs, codecDelay, waitTicks: ch.waitTicks, latency: lat,
         packets: pSource.length, opens: ch.opens, appended: spurts.filter((s) => !s.opened).length, gainResets,
         droppedSamples: ch.dropped, drops,
         spurts: spurts.map((s) => ({

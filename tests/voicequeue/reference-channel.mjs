@@ -12,6 +12,13 @@
 // is -1; pulled counts every sample a pull returned; an overflow's drops are runs of one tag,
 // the old queue's samples and the packet's own counted apart (so a packet longer than the
 // ring is an entry of its own).
+//
+// Since W3-02c-1 (the interpolator's blend and the fade as TF2's routines compute them, in
+// 16-bit units), this model supplies only the state, the tags and the drops to the suite's
+// 320-case comparison, through the suite's adapter (arithmeticReference in
+// tests/voice-channel.verify.mjs), which carries the written values and fades them itself.
+// The sample values this model writes (the packet's samples 1..n-1, unblended) and its fade
+// (a double r / (fade - 1)) predate the blend and are not used.
 export function referenceWaitTicks(bufferMs, fps) {
   const b = Math.min(5000, Math.max(1, bufferMs));
   const f = Math.min(1000, Math.max(10, fps));
