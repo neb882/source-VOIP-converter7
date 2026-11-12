@@ -1585,6 +1585,163 @@
     return info;
   }
 
+  /* ------------------------------------------------------------------ */
+  /* The stages a render keeps (W4-01b)                                 */
+  /*                                                                    */
+  /* process() can keep two results in an object its caller holds for   */
+  /* one source (opts.stages), named by opts.sourceKey, a value the      */
+  /* caller changes whenever the source's samples change:               */
+  /*   A, the capture signal at the codec's rate (after stage 2);       */
+  /*   B, the codec stage's result (after stage 3): for `steam` the     */
+  /*      sender's messages, their decoded packets and what codecInfo   */
+  /*      is made from; for the other profiles the decoded samples at   */
+  /*      the codec's rate (after the decoder's filter, where a profile */
+  /*      has one), the samples the delay's trim dropped, and their     */
+  /*      codecInfo.                                                    */
+  /* Each is taken when its key is the render's. A's key is the source  */
+  /* and every option not on AFTER_A_OPTIONS; B's is A's and every      */
+  /* option not on AFTER_B_OPTIONS. So an option nobody has listed is   */
+  /* in both keys: forgetting one costs a reuse, never a stale render.  */
+  /* Nothing taken is written to: the stages after a place copy what    */
+  /* they change. One A and one B are held; a render that makes another */
+  /* replaces it.                                                       */
+  /* ------------------------------------------------------------------ */
+
+  // The options process() reads only after B, each first read after the
+  // codec stage (the receiver's gain, re-timing, the room, volume, the
+  // device). An option read at or before B must not be on this list.
+  const AFTER_B_OPTIONS = ['voiceScale', 'agc', 'avgGain', 'maxGain', 'retime', 'volume',
+    'room', 'underwater', 'listenerPos', 'dspRoom', 'customEnv', 'deviceRate'];
+  // The options read only after A: those, and the sender's and the
+  // network's, first read in the codec stage. An option read at or before A
+  // (the codec, the capture's channel, gain and filters, the codec switch,
+  // a demo's received voice) must not be on this list.
+  const AFTER_A_OPTIONS = [...AFTER_B_OPTIONS, 'gate', 'gateThresholdDb', 'steamUptime', 'bits', 'lossPct', 'jitterMs',
+    'frameMs', 'seed'];
+  // Function-valued options that only observe, and observe nothing at or
+  // before B: progress, the gain's output, the mixer's blocks. Any other
+  // option whose value is a function (onDecoded and onResampled watch the
+  // decoded packets, loseMessage decides which are lost) makes the render
+  // keep and take nothing, so a caller that watches or steers an early
+  // stage has that stage run.
+  const STAGE_OBSERVERS = ['onProgress', 'onGain', 'onMixBlock'];
+  // The keeping's own options, in neither key.
+  const STAGE_CONTROLS = ['stages', 'sourceKey', 'signal'];
+
+  // A value as text for a key: two values give the same text only when they
+  // are the same value. Each part starts with its type; a number is as
+  // String() writes it (NaN, Infinity and -0 apart), a string quoted, a
+  // typed array by its type and its elements, an array or a plain object by
+  // its own keys in order (so a hole, an undefined member and an absent one
+  // differ). null for anything else (a function, a symbol, a DataView, an
+  // instance of a class, a cycle): the render then keeps nothing.
+  function keyText(value, open = new Set()) {
+    if (value === undefined) return 'u';
+    if (value === null) return 'n';
+    switch (typeof value) {
+      case 'boolean': return value ? 'T' : 'F';
+      case 'number': return Object.is(value, -0) ? 'd-0' : `d${value}`;
+      case 'bigint': return `i${value}`;
+      case 'string': return `s${JSON.stringify(value)}`;
+      case 'object': break;
+      default: return null;
+    }
+    const tag = Object.prototype.toString.call(value);
+    if (ArrayBuffer.isView(value)) {
+      if (tag === '[object DataView]') return null;
+      const parts = new Array(value.length);
+      for (let i = 0; i < value.length; i++) parts[i] = keyText(value[i]);
+      return `t${tag.slice(8, -1)}[${parts.join(',')}]`;
+    }
+    const proto = Object.getPrototypeOf(value);
+    const array = Array.isArray(value);
+    if (open.has(value) || !(array || (tag === '[object Object]' && (proto === null || Object.getPrototypeOf(proto) === null)))) return null;
+    open.add(value);
+    const parts = [];
+    for (const name of Object.keys(value).sort()) {
+      const text = keyText(value[name], open);
+      if (text === null) return null;
+      parts.push(`${JSON.stringify(name)}:${text}`);
+    }
+    open.delete(value);
+    return `${array ? `a${value.length}` : 'o'}{${parts.join(',')}}`;
+  }
+
+  // The keys of a render's two places, { a, b }, or null when it may keep
+  // nothing (no sourceKey, a function that is not an observer, a value with
+  // no key). A's names the source by sourceKey and its shape.
+  function stageKeys(audioBuffer, opts) {
+    const source = opts.sourceKey == null ? null : keyText(opts.sourceKey);
+    if (source === null) return null;
+    let a = `source ${source} ${audioBuffer.sampleRate} Hz ${audioBuffer.length} x ${audioBuffer.numberOfChannels}`, b = '';
+    const names = [];
+    for (const name in opts) names.push(name);
+    for (const name of names.sort()) {
+      if (STAGE_CONTROLS.includes(name)) continue;
+      const value = opts[name];
+      if (typeof value === 'function') {
+        if (STAGE_OBSERVERS.includes(name)) continue;
+        return null;
+      }
+      const text = keyText(value);
+      if (text === null) return null;
+      if (!AFTER_A_OPTIONS.includes(name)) a += `; ${JSON.stringify(name)} ${text}`;
+      else if (!AFTER_B_OPTIONS.includes(name)) b += `; ${JSON.stringify(name)} ${text}`;
+    }
+    return { a, b: `${a} |${b}` };
+  }
+
+  // What a render takes from opts.stages and keeps there: { take(place),
+  // keep(place, value) } for place 'a' or 'b', or null when it may keep
+  // nothing. take() gives the value held for this render's key, or null,
+  // and lets go of one held for another key (the render is about to make
+  // its own). stages.counts: { a: { kept, reused }, b: { kept, reused } },
+  // how often each place was kept and taken (the tests read it).
+  function stagePlan(audioBuffer, opts) {
+    const stages = opts.stages;
+    if (!stages || typeof stages !== 'object') return null;
+    const keys = stageKeys(audioBuffer, opts);
+    if (!keys) return null;
+    const counts = stages.counts || (stages.counts = { a: { kept: 0, reused: 0 }, b: { kept: 0, reused: 0 } });
+    return {
+      take(place) {
+        const held = stages[place];
+        if (held && held.key === keys[place]) { counts[place].reused++; return held.value; }
+        if (held) delete stages[place];
+        return null;
+      },
+      keep(place, value) {
+        stages[place] = { key: keys[place], value };
+        counts[place].kept++;
+      }
+    };
+  }
+
+  // TF2Audio.stagesHold(source, opts): which place of opts.stages a render
+  // with these options would start from, 'b', 'a' or null, without
+  // rendering (the worker leaves out the first seconds when B is held).
+  function stagesHold(audioBuffer, opts = {}) {
+    const stages = opts.stages, keys = stages && typeof stages === 'object' ? stageKeys(audioBuffer, opts) : null;
+    if (!keys) return null;
+    const received = opts.received && opts.received.frameLog;
+    if (opts.enableWarble !== false && !received && stages.b && stages.b.key === keys.b) return 'b';
+    return stages.a && stages.a.key === keys.a ? 'a' : null;
+  }
+
+  // A copy of a codecInfo held in B, for each render made from it: its
+  // arrays and objects are the render's own (re-timing writes into the frame
+  // log, and a caller may write into what it is given).
+  function copyInfo(value) {
+    if (ArrayBuffer.isView(value)) return value.slice();
+    if (Array.isArray(value)) return value.map(copyInfo);
+    if (value && typeof value === 'object') {
+      const out = {};
+      for (const name of Object.keys(value)) out[name] = copyInfo(value[name]);
+      return out;
+    }
+    return value;
+  }
+
   // A render stopped by its caller ends with this error (opts.signal).
   function abortError() {
     const error = new Error('The render was cancelled.');
@@ -1668,6 +1825,16 @@
    *                 demo.js): { frameLog, frameBytes, frameMs, spurts,
    *                 concealed, version }. Only the receiver runs; sender,
    *                 gate, codec and network settings are ignored.      [null]
+   *   stages:       W4-01b: an object the caller keeps between renders of
+   *                 one source. The render keeps A (the capture at the
+   *                 codec's rate) and B (the codec stage's result) in it,
+   *                 and starts from either when the options read before it
+   *                 are the same (stagePlan; the key lists AFTER_A_OPTIONS
+   *                 and AFTER_B_OPTIONS). The samples are the same as
+   *                 without it                                       [none]
+   *   sourceKey:    with stages: a value the caller changes whenever the
+   *                 source's samples change; with none nothing is kept
+   *                                                                  [none]
    *   signal:       { aborted } (the worker's AbortSignal): looked at at
    *                 each of the render's yields; once true, the render ends
    *                 with an error named AbortError                   [none]
@@ -1693,93 +1860,163 @@
     const codecKey = Object.hasOwn(CODEC_PROFILES, opts.codec) ? opts.codec : 'steam';
     const codec = CODEC_PROFILES[codecKey];
     const engine = VOICE_ENGINE;
-    // The room, made for the render's first sample (null: none, nothing of
-    // it runs).
-    const room = resolveRoom(opts, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
-
-    const codecRate    = codec.codecRate;
-    const micGain      = clamp(finiteOr(opts.micGain, 1), 0, 20);
-    const hp           = clamp(finiteOr(opts.hp, 0), 0, codecRate * 0.45);
-    const lp           = clamp(finiteOr(opts.lp, codecRate / 2), 100, codecRate / 2);
-    const bits         = clamp(finiteOr(opts.bits, 16), 2, 32);
-    const lossPct      = clamp(finiteOr(opts.lossPct, 0), 0, 100);
-    const jitterMs     = clamp(finiteOr(opts.jitterMs, 0), 0, 500);
-    const enableCodec  = opts.enableWarble !== false;
-    const autoGain     = opts.agc !== false;
-    const captureChannel = ['left', 'right', 'mix'].includes(opts.captureChannel) ? opts.captureChannel : 'left';
-    const gateSpec     = codec.senderGate || DEFAULT_SENDER_GATE;
-    const gateOn       = opts.gate == null ? !!codec.senderGate : !!opts.gate;
-    const gateDb       = gateThresholdDb(opts.gateThresholdDb, gateSpec.thresholdDb);
-    const avgGain      = clamp(finiteOr(opts.avgGain, engine.autoGain.avgGain), 0, 2);
-    const maxGain      = clamp(finiteOr(opts.maxGain, engine.autoGain.maxGain), 1, 100);
-    const voiceScale   = clamp(finiteOr(opts.voiceScale, 1), 0, 4);
-    const volume       = clamp(finiteOr(opts.volume, engine.volume), 0, 1);
-    const rand         = mulberry32(finiteOr(opts.seed, 0xC0FFEE) >>> 0);
-    const received     = opts.received && opts.received.frameLog ? opts.received : null;
-
-    const srcRate = audioBuffer.sampleRate;
-    const deviceRate = deviceRateOf(opts.deviceRate);
-    const frameMs = 20;
-    const framesPerPacket = clamp(Math.round(finiteOr(opts.frameMs, frameMs) / frameMs), 1, 10);
     const report = (f) => { if (typeof opts.onProgress === 'function') opts.onProgress(f); };
     const pause = pauseFor(opts.signal);
+    // What the caller's stages hold for this render and where it keeps what
+    // it makes (W4-01b; null: it keeps and takes nothing).
+    const kept = stagePlan(audioBuffer, opts);
 
-    /* ---- 1) Sender capture: downmix, capture gain, int16 clip ---- */
-    let samples = bufferToMono(audioBuffer, captureChannel);
-    if (!samples.every(Number.isFinite)) throw new TypeError('Source PCM contains a non-finite sample.');
-    // The output's length: the source's duration at the device's rate.
-    const playbackLength = Math.round(samples.length * deviceRate / srcRate);
-    if (micGain !== 1 && !received) {
-      for (let i = 0; i < samples.length; i++) samples[i] *= micGain;
-    }
-    samples = hardClip(samples, INT16_FULL_SCALE);
-    report(0.05);
-    await pause();
-
-    /* ---- 2) Resample to the codec rate; optional capture filters ---- */
-    samples = resampleSinc(samples, srcRate, codecRate);
-    if (hp > 10 && !received) samples = applyBiquad(samples, biquadCoefs('highpass', codecRate, hp, 0.707));
-    if (lp < codecRate * 0.45 && !received) {
-      samples = applyBiquad(samples, biquadCoefs('lowpass', codecRate, lp, 0.707));
-      samples = applyBiquad(samples, biquadCoefs('lowpass', codecRate, lp, 0.707));
-    }
-    const captureEq = enableCodec && !received ? profileEq(codec, 'captureEq') : null;
-    if (captureEq) samples = applyFirZeroPhase(samples, captureEq);
-    report(0.2);
-    await pause();
-
-    /* ---- 3) Encode -> lose packets -> decode / conceal ---- */
-    let codecInfo = { backend: 'bypass', sampleRate: codecRate, frameMs };
+    // Read at or before A: the codec, the codec switch, a demo's voice; the
+    // capture's settings in stages 1 and 2.
+    const codecRate    = codec.codecRate;
+    const enableCodec  = opts.enableWarble !== false;
+    const received     = opts.received && opts.received.frameLog ? opts.received : null;
+    const srcRate      = audioBuffer.sampleRate;
+    const frameMs      = 20;
     // The `steam` profile: Steam's sender and decoder, through to the voice
     // rate (stage 4's gain included), on the source's timeline.
     const steamPath = enableCodec && !received && codec.senderGate?.rule === 'steam';
-    let steamVoice = null, lead = null;
-    if (received) codecInfo = receivedCodecInfo(received, codecRate);
-    else if (steamPath) {
-      const { sender: SteamSender, swr } = steamModules();
-      if (codecRate !== STEAM_RATE || codec.voiceRate !== STEAM_VOICE_RATE || codec.decoderEq) {
-        throw new Error('The steam rule runs at 24000 Hz into a 44100 Hz voice rate, with no decoder EQ.');
+    // B is kept where a codec runs: not for a demo's voice, not with the
+    // codec skipped.
+    const coded = enableCodec && !received;
+
+    // B, when the stages hold it for these settings: stages 1 to 3 are done.
+    let b = kept && coded ? kept.take('b') : null;
+    if (b) report(steamPath ? 0.6 : 0.72);
+    else {
+      let samples, sourceLength;
+      const a = kept ? kept.take('a') : null;
+      if (a) ({ samples, sourceLength } = a);
+      else {
+        /* ---- 1) Sender capture: downmix, capture gain, int16 clip ---- */
+        const micGain = clamp(finiteOr(opts.micGain, 1), 0, 20);
+        const captureChannel = ['left', 'right', 'mix'].includes(opts.captureChannel) ? opts.captureChannel : 'left';
+        samples = bufferToMono(audioBuffer, captureChannel);
+        if (!samples.every(Number.isFinite)) throw new TypeError('Source PCM contains a non-finite sample.');
+        // The source's length, for the output's (the source's duration at
+        // the device's rate).
+        sourceLength = samples.length;
+        if (micGain !== 1 && !received) {
+          for (let i = 0; i < samples.length; i++) samples[i] *= micGain;
+        }
+        samples = hardClip(samples, INT16_FULL_SCALE);
+        report(0.05);
+        await pause();
+
+        /* ---- 2) Resample to the codec rate; optional capture filters ---- */
+        const hp = clamp(finiteOr(opts.hp, 0), 0, codecRate * 0.45);
+        const lp = clamp(finiteOr(opts.lp, codecRate / 2), 100, codecRate / 2);
+        samples = resampleSinc(samples, srcRate, codecRate);
+        if (hp > 10 && !received) samples = applyBiquad(samples, biquadCoefs('highpass', codecRate, hp, 0.707));
+        if (lp < codecRate * 0.45 && !received) {
+          samples = applyBiquad(samples, biquadCoefs('lowpass', codecRate, lp, 0.707));
+          samples = applyBiquad(samples, biquadCoefs('lowpass', codecRate, lp, 0.707));
+        }
+        const captureEq = enableCodec && !received ? profileEq(codec, 'captureEq') : null;
+        if (captureEq) samples = applyFirZeroPhase(samples, captureEq);
+        // KEPT PLACE A (W4-01b): the capture signal at the codec's rate and
+        // the source's length. Every option read above is in A's key: none
+        // of them may be put on AFTER_A_OPTIONS. Nothing below writes into
+        // these samples (the codec stages read them; stage 4 resamples them
+        // into a new array).
+        if (kept) kept.keep('a', { samples, sourceLength });
       }
-      const opus = await loadOpusModule();
-      const bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
-      const settings = steamSenderOptions(opts, gateOn, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
-      const sender = SteamSender.createSender(settings.sender);
-      const messages = sender.push(steamCapture(samples));
-      for (const m of sender.finish()) messages.push(m);
-      // Loss takes whole messages (BC-1), one draw each; the per-frame mask
-      // keeps only the late frames (jitter), drawn as before with a loss of 0.
-      const loser = steamLoser(opts, lossPct, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
-      const trip = await opus.steamRoundTrip(messages, bitrate, {
-        application: codec.application, signal: codec.signal, runtime: codec.encoder?.runtime,
-        complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx,
-        makeLossMask: count => buildLossMask(count, framesPerPacket, 0, rand, jitterMs),
-        lose: loser.lose,
-        yieldControl: pause,
-        onProgress: f => report(0.2 + 0.4 * f)
-      });
+      report(0.2);
+      await pause();
+
+      /* ---- 3) Encode -> lose packets -> decode / conceal ---- */
+      // Read from here on: the sender's and the network's settings
+      // (AFTER_A_OPTIONS less AFTER_B_OPTIONS).
+      const bits         = clamp(finiteOr(opts.bits, 16), 2, 32);
+      const lossPct      = clamp(finiteOr(opts.lossPct, 0), 0, 100);
+      const jitterMs     = clamp(finiteOr(opts.jitterMs, 0), 0, 500);
+      const gateSpec     = codec.senderGate || DEFAULT_SENDER_GATE;
+      const gateOn       = opts.gate == null ? !!codec.senderGate : !!opts.gate;
+      const gateDb       = gateThresholdDb(opts.gateThresholdDb, gateSpec.thresholdDb);
+      const rand         = mulberry32(finiteOr(opts.seed, 0xC0FFEE) >>> 0);
+      const framesPerPacket = clamp(Math.round(finiteOr(opts.frameMs, frameMs) / frameMs), 1, 10);
+      if (received) b = { kind: 'received', info: receivedCodecInfo(received, codecRate), samples, sourceLength };
+      else if (steamPath) {
+        const { sender: SteamSender } = steamModules();
+        if (codecRate !== STEAM_RATE || codec.voiceRate !== STEAM_VOICE_RATE || codec.decoderEq) {
+          throw new Error('The steam rule runs at 24000 Hz into a 44100 Hz voice rate, with no decoder EQ.');
+        }
+        const opus = await loadOpusModule();
+        const bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
+        const settings = steamSenderOptions(opts, gateOn, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
+        const sender = SteamSender.createSender(settings.sender);
+        const messages = sender.push(steamCapture(samples));
+        for (const m of sender.finish()) messages.push(m);
+        // Loss takes whole messages (BC-1), one draw each; the per-frame mask
+        // keeps only the late frames (jitter), drawn as before with a loss of 0.
+        const loser = steamLoser(opts, lossPct, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
+        const trip = await opus.steamRoundTrip(messages, bitrate, {
+          application: codec.application, signal: codec.signal, runtime: codec.encoder?.runtime,
+          complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx,
+          makeLossMask: count => buildLossMask(count, framesPerPacket, 0, rand, jitterMs),
+          lose: loser.lose,
+          yieldControl: pause,
+          onProgress: f => report(0.2 + 0.4 * f)
+        });
+        b = { kind: 'steam', messages, trip, sender, settings, bitrate, lossSet: loser.set, framesPerPacket,
+          codecLength: samples.length, sourceLength };
+      } else if (enableCodec) {
+        const opus = await loadOpusModule();
+        const bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
+        // The codec's own frame length: 20 ms for Opus, frameSize for CELT, Speex and VR12.
+        const codecFrameMs = codec.frameSize ? 1000 * codec.frameSize / codecRate : frameMs;
+        const common = {
+          gate: gateOn ? { thresholdDb: gateDb, prerollFrames: Math.round(gateSpec.prerollMs / codecFrameMs),
+            holdFrames: Math.round(gateSpec.holdMs / codecFrameMs) } : null,
+          makeLossMask: count => buildLossMask(count, framesPerPacket, lossPct, rand, jitterMs),
+          yieldControl: pause,
+          onProgress: f => report(0.2 + 0.5 * f)
+        };
+        const result = codec.engine === 'celt011'
+          ? await opus.celtRoundTrip(samples, codecRate, { ...common, frameSize: codec.frameSize, complexity: codec.complexity,
+            packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)), ...celtModeRate(codec) })
+          : codec.engine === 'speex'
+          ? await opus.speexRoundTrip(samples, codecRate, common)
+          : codec.engine === 'vr12'
+          ? await opus.vr12RoundTrip(samples, codecRate, common)
+          : await opus.roundTrip(samples, codecRate, bitrate, { ...common,
+            application: codec.application, signal: codec.signal,
+            runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
+        const eq = profileEq(codec);
+        // `head`: the engine codecs' decoded samples the delay's trim dropped,
+        // for the gain to run on first (gainLead, after B).
+        b = { kind: 'frames', samples: eq ? applyFirZeroPhase(result.samples, eq) : result.samples,
+          info: { ...result.info, framesPerPacket }, head: result.head, gateOn, sourceLength };
+      } else b = { kind: 'bypass', info: { backend: 'bypass', sampleRate: codecRate, frameMs }, samples, sourceLength };
+      // KEPT PLACE B (W4-01b): the codec stage's result. For `steam` the
+      // sender's messages (their ticks among them), the decoded packets and
+      // what codecInfo is made from (the stream's lookahead and version, the
+      // sender, its settings, the bitrate, whether loss was set); for the
+      // frame path the decoded samples after the decoder's filter, the head
+      // and the codecInfo. Loss and jitter are drawn above it. Every option
+      // read above is in B's key: none of them may be put on
+      // AFTER_B_OPTIONS. Below, the decoded packets and their blocks are
+      // read only, the frame log is a new array, and the frame path's
+      // samples and codecInfo are copied before re-timing writes into them.
+      if (kept && coded) kept.keep('b', b);
+      if (!steamPath) report(0.72);
+    }
+
+    /* ---- after B: read from here on, the receiver's settings ---- */
+    const autoGain     = opts.agc !== false;
+    const avgGain      = clamp(finiteOr(opts.avgGain, engine.autoGain.avgGain), 0, 2);
+    const maxGain      = clamp(finiteOr(opts.maxGain, engine.autoGain.maxGain), 1, 100);
+    const voiceScale   = clamp(finiteOr(opts.voiceScale, 1), 0, 4);
+    let samples, codecInfo, steamVoice = null, lead = null;
+    if (steamPath) {
+      // Steam's resampler, the 12-frame refusal, the gain and the laying,
+      // from B's messages and decoded packets (steamTimeline), on the
+      // source's timeline.
+      const { swr } = steamModules();
+      const { messages, trip, sender, settings, bitrate, lossSet, framesPerPacket, codecLength } = b;
       const resampler = opts.swrKernel !== undefined ? swr.createResampler({ kernel: opts.swrKernel }) : swr.createResampler();
-      const voiceLength = sincLength(samples.length, STEAM_RATE, STEAM_VOICE_RATE);
-      const timeline = steamTimeline({ voiceLength, codecLength: samples.length, lookahead: trip.lookahead, resampler,
+      const voiceLength = sincLength(codecLength, STEAM_RATE, STEAM_VOICE_RATE);
+      const timeline = steamTimeline({ voiceLength, codecLength, lookahead: trip.lookahead, resampler,
         gain: autoGain ? createGain({ avgGain, maxGain, scale: voiceScale }) : null, capacity: voiceLength,
         onDecoded: opts.onDecoded, onResampled: opts.onResampled });
       // Progress once per 64 messages, from 60% to 72%.
@@ -1791,7 +2028,7 @@
         }
       }
       steamVoice = timeline.take(voiceLength);
-      codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate, loser.set), framesPerPacket };
+      codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate, lossSet), framesPerPacket };
       // The receiver's re-timing (finding 19), on the voice-rate timeline: the
       // laid spurts, moved earlier as the frame path moves its decoded sound;
       // the slots of 480 codec samples are 882 here.
@@ -1801,41 +2038,24 @@
           spans: timeline.spans() },
         STEAM_VOICE_RATE, mulberry32((finiteOr(opts.seed, 0xC0FFEE) ^ 0x9E3779B9) >>> 0));
       }
-    } else if (enableCodec) {
-      const opus = await loadOpusModule();
-      const bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
-      // The codec's own frame length: 20 ms for Opus, frameSize for CELT, Speex and VR12.
-      const codecFrameMs = codec.frameSize ? 1000 * codec.frameSize / codecRate : frameMs;
-      const common = {
-        gate: gateOn ? { thresholdDb: gateDb, prerollFrames: Math.round(gateSpec.prerollMs / codecFrameMs),
-          holdFrames: Math.round(gateSpec.holdMs / codecFrameMs) } : null,
-        makeLossMask: count => buildLossMask(count, framesPerPacket, lossPct, rand, jitterMs),
-        yieldControl: pause,
-        onProgress: f => report(0.2 + 0.5 * f)
-      };
-      const result = codec.engine === 'celt011'
-        ? await opus.celtRoundTrip(samples, codecRate, { ...common, frameSize: codec.frameSize, complexity: codec.complexity,
-          packetBytes: Math.max(8, Math.round(codec.packetBytes * bits / 16)), ...celtModeRate(codec) })
-        : codec.engine === 'speex'
-        ? await opus.speexRoundTrip(samples, codecRate, common)
-        : codec.engine === 'vr12'
-        ? await opus.vr12RoundTrip(samples, codecRate, common)
-        : await opus.roundTrip(samples, codecRate, bitrate, { ...common,
-          application: codec.application, signal: codec.signal,
-          runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
-      samples = result.samples;
-      codecInfo = { ...result.info, framesPerPacket };
+      report(0.72);
+    } else if (b.kind === 'frames') {
+      // Re-timing moves samples and the frame log in place: it is given
+      // copies of B's.
+      samples = opts.retime ? b.samples.slice() : b.samples;
+      codecInfo = copyInfo(b.info);
       // The engine codecs: the decoded samples the delay's trim dropped, for
       // the gain to run on first (gainLead).
-      if (autoGain && gainLead(codec, codecInfo.lookahead)) lead = result.head;
-      const eq = profileEq(codec);
-      if (eq) samples = applyFirZeroPhase(samples, eq);
+      if (autoGain && gainLead(codec, codecInfo.lookahead)) lead = b.head;
       // The receiver's re-timing, from its own seed so loss patterns stay put.
       // It never moves the first spurt, so the samples in `lead` stay where
       // they are.
       if (opts.retime) codecInfo.retimed = retimeSpurts(samples, codecInfo, codecRate, mulberry32((finiteOr(opts.seed, 0xC0FFEE) ^ 0x9E3779B9) >>> 0));
+    } else {
+      // A demo's voice, or the codec skipped: stage 4 runs on A's samples.
+      samples = b.samples;
+      codecInfo = b.info;
     }
-    report(0.72);
     await pause();
 
     /* ---- 4) Receiver voice channel: auto-gain + int16 clamp ---- */
@@ -1855,7 +2075,7 @@
       // no gate (or the codec bypassed) every block was. On the decoder's
       // stream a block's first sample is in frame floor(m / frameSamples):
       // no shift.
-      const decoded = received || (enableCodec && gateOn)
+      const decoded = received || (b.kind === 'frames' && b.gateOn)
         ? decodedFromFrames(codecInfo.frameLog, codecInfo.frameSamples, ahead ? 0 : codecInfo.lookahead || 0, codecRate, codec.voiceRate) : undefined;
       samples = receiverAutoGain(samples, { avgGain, maxGain, scale: voiceScale, decoded });
       if (ahead) samples = samples.slice(ahead);
@@ -1872,7 +2092,9 @@
     // The same stages as createRender and the live chain run, here given
     // the whole voice and ended. With a room (createRoomMix) the voice is
     // entered twice and the room path gives the sum before the clip, its
-    // tail after the voice's end.
+    // tail after the voice's end. The room, made for the render's first
+    // sample (null: none, nothing of it runs).
+    const room = resolveRoom(opts, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
     const whole = (stage, x) => joinInts([stage.push(x), stage.flush()]);
     const mixStage = createMixStage(codec.voiceRate, room);
     const mix = whole(mixStage, samples);
@@ -1886,6 +2108,9 @@
     // The blocks, the clip, volume and the 16-bit rounding, then the device
     // stage. The output keeps the source's duration at the device's rate,
     // cut or padded with zeros, plus the room's tail at that rate.
+    const volume = clamp(finiteOr(opts.volume, engine.volume), 0, 1);
+    const deviceRate = deviceRateOf(opts.deviceRate);
+    const playbackLength = Math.round(b.sourceLength * deviceRate / srcRate);
     const atDevice = whole(createOutStage(volume, deviceRate, opts.onMixBlock), mix);
     const outLength = playbackLength + tailAtDevice(tail, deviceRate);
     samples = new Float32Array(outLength);
@@ -3038,6 +3263,12 @@
 
   const TF2Audio = {
     process,
+    // the stages a render keeps (W4-01b): which place a render would start
+    // from, the keys, and the lists the keys are made by
+    stagesHold,
+    stageKeys,
+    STAGE_OPTIONS: Object.freeze({ afterB: Object.freeze([...AFTER_B_OPTIONS]), afterA: Object.freeze([...AFTER_A_OPTIONS]),
+      observers: Object.freeze([...STAGE_OBSERVERS]) }),
     encodeWav,
     toInt16,
     bufferToMono,

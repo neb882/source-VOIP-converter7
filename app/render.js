@@ -65,16 +65,19 @@ function startOwnWorker(message, transfer, onProgress) {
 
 // The page's worker (W4-01b): one worker, kept between jobs, for the page's
 // renders, the download formats, the meter and the real take's jobs, one
-// job at a time. A job asked for while one runs waits for it; a render goes
-// before the other jobs waiting, and they are started a moment after they
-// are asked for, so a render asked for in the same moment comes first.
-// Cancel asks the worker to stop the render and keeps it (the render ends
-// at its next yield); a worker still busy CANCEL_BOUND_MS after a cancel is
-// ended, as every cancel ended it before W4-01b, and the next job starts a
-// new one. A job's reply settles its promise; the worker's `done` frees it
-// for the next job (a render's meter comes between the two).
+// job at a time. A render asked for while it is busy waits for it (its
+// stages are there), before any other job waiting. Another job is started a
+// moment after it is asked for (so a render asked for in the same moment
+// comes first) and waits too while the worker renders; while the worker
+// runs a job that is not a render, it goes to a worker of its own, as every
+// job did before W4-01b. Cancel asks the worker to stop the render and keeps
+// it (the render ends at its next yield); a worker still busy
+// CANCEL_BOUND_MS after a cancel is ended, as every cancel ended it before,
+// and the next job starts a new one. A job's reply settles its promise; the
+// worker's `done` frees it for the next job (a render's meter comes between
+// the two).
 const CANCEL_BOUND_MS = 500;
-const pageWorker = { worker: null, running: null, queue: [], timer: 0 };
+const pageWorker = { worker: null, running: null, queue: [], timer: 0, held: null };
 
 function pageWorkerInstance() {
   if (pageWorker.worker) return pageWorker.worker;
@@ -157,14 +160,24 @@ function startPageJob(message, transfer, options = {}) {
     pageWorker.queue.splice(at < 0 ? pageWorker.queue.length : at, 0, job);
     pumpPageWorker();
   } else {
-    pageWorker.queue.push(job);
-    setTimeout(pumpPageWorker, 0);
+    setTimeout(() => {
+      if (job.settled) return;
+      const busy = pageWorker.running;
+      if (busy && !busy.render) {
+        job.own = startOwnWorker(message, transfer, job.onProgress);
+        job.own.promise.then((reply) => settlePageJob(job, null, reply), (error) => settlePageJob(job, error));
+      } else {
+        pageWorker.queue.push(job);
+        pumpPageWorker();
+      }
+    }, 0);
   }
   return { promise: job.promise, cancel: job.cancel };
 }
 
 function cancelPageJob(job) {
   if (job.settled) return;
+  if (job.own) { job.own.cancel(); return; }
   const queued = pageWorker.queue.indexOf(job);
   if (queued >= 0) pageWorker.queue.splice(queued, 1);
   settlePageJob(job, abortedError());
@@ -205,19 +218,38 @@ function startWorkerJob(source, opts) {
   return { cancel: job.cancel, promise: job.promise.then((reply) => renderReply(reply, reply.stats)) };
 }
 
-// The page's render, in the page's worker. The result comes as soon as the
-// worker has it; its loudness and levels follow in a message of their own
-// (stats: a promise of them, which the meter takes when it comes; if the
-// worker ends before, the meter measures the render itself).
-function processInWorker(source, opts) {
-  const mono = source.getChannelData(0).slice();
+// The id the page's worker holds a source by (W4-01b): the source on the
+// page (a new one for every file, recording and demo speaker) and the
+// channel the render captures from it (captureSource).
+const sourceNumbers = new WeakMap();
+let sourceCount = 0;
+function workerSourceId(source, channel) {
+  if (!sourceNumbers.has(source)) sourceNumbers.set(source, ++sourceCount);
+  const used = !source.left || channel === 'mix' ? 'mix' : channel === 'right' ? 'right' : 'left';
+  return `${sourceNumbers.get(source)}:${used}`;
+}
+
+// The page's render, in the page's worker, of the captured source
+// `captured` known by `sourceId`: its samples go to the worker once, before
+// its first render there, and the worker keeps the stages of its renders
+// (A and B, audio.js) for the next. The result comes as soon as the worker
+// has it; its loudness and levels follow in a message of their own (stats:
+// a promise of them, which the meter takes when it comes; if the worker ends
+// before, the meter measures the render itself).
+function processInWorker(captured, opts, sourceId) {
   const workerOpts = { ...opts };
   delete workerOpts.onProgress;
   let measured, failed;
   const stats = new Promise((resolve, reject) => { measured = resolve; failed = reject; });
   stats.catch(() => {});
-  const job = startPageJob({ type: 'process', sampleRate: source.sampleRate, samples: mono.buffer, opts: workerOpts, meterAfter: true },
-    [mono.buffer], { render: true, onProgress: opts.onProgress, onMeter: (value) => measured(value), onEnd: () => failed(new Error('no meter')) });
+  const prepare = (worker) => {
+    if (pageWorker.held === sourceId) return;
+    const mono = captured.getChannelData(0).slice();
+    worker.postMessage({ type: 'source', sourceId, sampleRate: captured.sampleRate, samples: mono.buffer }, [mono.buffer]);
+    pageWorker.held = sourceId;
+  };
+  const job = startPageJob({ type: 'process', sourceId, opts: workerOpts, meterAfter: true }, [],
+    { render: true, prepare, onProgress: opts.onProgress, onMeter: (value) => measured(value), onEnd: () => failed(new Error('no meter')) });
   state.cancelProcessing = job.cancel;
   return job.promise.then((reply) => {
     const result = renderReply(reply, null);
@@ -303,10 +335,11 @@ function renderOptions() {
 }
 
 async function runAudioProcess(source, opts) {
+  const sourceId = workerSourceId(source, opts.captureChannel);
   source = captureSource(source, opts.captureChannel);
   if (canUseWorker()) {
     try {
-      return await processInWorker(source, opts);
+      return await processInWorker(source, opts, sourceId);
     } catch (error) {
       if (error.name === 'AbortError') throw error;
       logLine(`Audio worker unavailable; using compatibility path (${error.message})`, 'warn');

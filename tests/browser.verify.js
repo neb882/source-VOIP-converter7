@@ -2523,10 +2523,14 @@ async function speedPage(browser, base) {
         });
       }
       postMessage(message, transfer) {
+        if (message && message.type === 'source') window.__sources = (window.__sources || 0) + 1;
         if (window.__dropCancel && message && message.type === 'cancel') return;
         return transfer === undefined ? super.postMessage(message) : super.postMessage(message, transfer);
       }
     };
+    // Each render's start and end on the page (runRender's tf2:busy events).
+    window.__busy = [];
+    document.addEventListener('tf2:busy', () => window.__busy.push([performance.now(), state.processing]));
     // Let the held `meter` messages through, in order.
     window.__release = () => {
       for (const { worker, data } of window.__held.splice(0)) worker.dispatchEvent(new MessageEvent('message', { data }));
@@ -2543,154 +2547,232 @@ async function speedPage(browser, base) {
 // settings, made afresh on the page's own thread (TF2Audio.process, no
 // worker and nothing kept), as hex.
 const freshHash = (page) => page.evaluate(async () => {
-  const opts = renderOptions();
+  const demo = state.sourceDemo;
+  const opts = { ...renderOptions(), ...(demo ? { codec: demo.codecKey, received: demo.received } : {}) };
   const result = await TF2Audio.process(captureSource(state.decodedSource, opts.captureChannel), opts);
   const bytes = await result.blob.arrayBuffer();
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
 });
+// The last render's time on the page, from its start to its end, in ms.
+const lastRenderMs = (page) => page.evaluate(() => {
+  const b = window.__busy, end = b.length - 1;
+  let start = end - 1;
+  while (start >= 0 && !b[start][1]) start--;
+  return b[end][0] - b[start][0];
+});
 const audioWorkers = (page) => page.evaluate(() => window.__workers.filter((url) => /audio-worker\.js$/.test(url)).length);
+
+// Two renders of one source, the meter of each and of the original:
+// one worker. The result is posted before the meter, and the table holds
+// TF2Meter.analyze of the render, number for number.
+async function speedOneWorker(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await chooseFile(page, { name: 'two.wav', mimeType: 'audio/wav', buffer: wavSpeech(10) });
+    const r1 = await page.evaluate(() => state.renderId);
+    await setControl(page, 'voice_scale', '0.5');
+    await page.waitForFunction((r) => state.renderId === r + 1 && renderIdle(), r1, { timeout: 60000 });
+    await page.waitForFunction(() => !!(state.meterStats && state.meterStats.wet && state.meterStats.dry), null, { timeout: 30000 });
+    const made = await audioWorkers(page);
+    check(made === 1, 'two renders of one source, their meters and the original\'s, construct one worker', `${made} constructed`);
+    const order = await page.evaluate(() => {
+      const result = window.__posted.filter((m) => m.type === 'result').at(-1);
+      const of = (type) => window.__posted.findIndex((m) => m.type === type && m.id === result.id);
+      return { result: of('result'), meter: of('meter'), done: of('done') };
+    });
+    check(order.result >= 0 && order.meter > order.result && order.done > order.meter,
+      'the render\'s result is posted before its meter, and the worker is free after both', JSON.stringify(order));
+    const same = await page.evaluate(() => {
+      // Every number Object.is-equal, through the history's arrays.
+      const equal = (a, b) => {
+        if (a && typeof a === 'object') {
+          if (!b || typeof b !== 'object') return false;
+          const ka = Object.keys(a), kb = Object.keys(b);
+          return ka.length === kb.length && ka.every((k) => equal(a[k], b[k]));
+        }
+        return Object.is(a, b);
+      };
+      const fresh = TF2Meter.analyze(state.processedBuffer, state.processedRate), shown = state.meterStats.wet;
+      const tr = [...document.querySelectorAll('#meter-rows tr')].find((r) => r.querySelector('th').textContent === 'RENDER');
+      const texts = tr ? [...tr.querySelectorAll('td')].map((td) => td.textContent) : [];
+      return { keys: Object.keys(fresh).length, equal: equal(fresh, shown),
+        cells: texts.length === METER_COLUMNS.length && texts.every((t, i) => t === meterCell(METER_COLUMNS[i][0], fresh[METER_COLUMNS[i][0]])) };
+    });
+    check(same.equal && same.cells, 'the table\'s numbers are Object.is-equal to TF2Meter.analyze of the render, and its cells are those numbers',
+      `${same.keys} members`);
+    check(errors.length === 0, 'the kept worker: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// A late meter of a render no longer on screen does not fill the
+// table: the first render's meter is held back until the second render
+// and its meter are on screen.
+async function speedLateMeter(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.evaluate(() => { window.__holdMeter = true; });
+    await chooseFile(page, { name: 'late.wav', mimeType: 'audio/wav', buffer: wavSpeech(6) });
+    await page.waitForFunction(() => window.__held.length === 1, null, { timeout: 30000 });
+    const held = await page.evaluate(() => window.__held[0].data.id);
+    await page.evaluate(() => { window.__holdMeter = false; });
+    const r1 = await page.evaluate(() => state.renderId);
+    await setControl(page, 'voice_scale', '0.6');
+    await page.waitForFunction((r) => state.renderId === r + 1 && renderIdle(), r1, { timeout: 60000 });
+    await page.waitForFunction(() => !!(state.meterStats && state.meterStats.wet), null, { timeout: 30000 });
+    const row = () => page.evaluate(() => {
+      const tr = [...document.querySelectorAll('#meter-rows tr')].find((r) => r.querySelector('th').textContent === 'RENDER');
+      return tr ? tr.textContent : null;
+    });
+    const before = await row();
+    await page.evaluate(() => window.__release());
+    await page.waitForTimeout(300);
+    const after = await row(), match = await page.evaluate(() => {
+      const equal = (a, b) => (a && typeof a === 'object' ? !!b && typeof b === 'object' && Object.keys(a).length === Object.keys(b).length
+        && Object.keys(a).every((k) => equal(a[k], b[k])) : Object.is(a, b));
+      return equal(TF2Meter.analyze(state.processedBuffer, state.processedRate), state.meterStats.wet);
+    });
+    check(after === before && match, 'a meter that comes late for a render no longer on screen leaves the table to the render on screen',
+      `held the meter of job ${held}`);
+    check(errors.length === 0, 'the late meter: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// Cancel stops the render and keeps the worker; a render after it gives
+// a result. A setting changed while a 20 s source renders gives the WAV of
+// a fresh render of the new settings, from the same worker. A worker that
+// does not answer the cancel is ended and replaced, and the render is
+// still right.
+async function speedCancel(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await chooseFile(page, { name: 'cancel.wav', mimeType: 'audio/wav', buffer: wavSpeech(20) });
+    await page.locator('#process').click();
+    await page.waitForFunction(() => state.processing && Number((els.process.textContent.match(/(\d+)%/) || [])[1]) >= 25, null, { timeout: 30000 });
+    const t0 = Date.now();
+    await page.locator('#cancel-process').click();
+    await page.waitForFunction(() => !state.processing && els.renderStatus.textContent.includes('cancelled'), null, { timeout: 30000 });
+    await page.waitForFunction(() => !pageWorker.running, null, { timeout: 5000 });
+    const stopped = Date.now() - t0;
+    const r = await page.evaluate(() => state.renderId);
+    await renderNow(page);
+    check(await page.evaluate((r) => state.renderId === r + 1, r) && await audioWorkers(page) === 1,
+      'Cancel stops a render within a moment and keeps the worker; a render after it gives a result', `the worker free ${stopped} ms after Cancel; 1 worker`);
+
+    await setControl(page, 'voice_scale', '0.6');
+    await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
+    await setControl(page, 'voice_scale', '0.7');
+    await waitRendered(page);
+    const shown = await wavHash(page), again = await freshHash(page);
+    check(shown === again && await audioWorkers(page) === 1,
+      'a 20 s source: a setting changed while it renders gives the WAV of a fresh render of the new settings, and no second worker',
+      `${shown.slice(0, 12)} / ${again.slice(0, 12)}; ${await audioWorkers(page)} worker`);
+
+    // A change read before the capture's place (the mic gain), so that the
+    // render runs from the start and is still busy 500 ms after the cancel.
+    await page.evaluate(() => { window.__dropCancel = true; });
+    await setControl(page, 'gain', '1.5');
+    await page.waitForFunction(() => state.processing && Number((els.process.textContent.match(/(\d+)%/) || [])[1]) >= 5, null, { timeout: 30000 });
+    await page.locator('#cancel-process').click();
+    await page.waitForFunction(() => !state.processing, null, { timeout: 30000 });
+    await renderNow(page);
+    const replaced = await page.evaluate(() => [...document.getElementById('console-out').children].some((e) => e.textContent.includes('did not stop within 500 ms')));
+    const late = await wavHash(page);
+    await page.evaluate(() => { window.__dropCancel = false; });
+    check(replaced && await audioWorkers(page) === 2 && late === await freshHash(page),
+      'a worker that does not answer a cancel within 500 ms is ended and replaced, and the render after it is a fresh render\'s WAV',
+      `${await audioWorkers(page)} workers`);
+    check(errors.length === 0, 'Cancel and the kept worker: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// Progress that moves: in a 60 s steam render the button shows at least
+// five percentages from 60 to 72 (Steam's resampler, the gain, the laying).
+async function speedProgress(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.evaluate(() => {
+      window.__percents = [];
+      new MutationObserver(() => {
+        const m = els.process.textContent.match(/(\d+)%/);
+        if (m) window.__percents.push(Number(m[1]));
+      }).observe(els.process, { childList: true, characterData: true, subtree: true });
+    });
+    await chooseFile(page, { name: 'sixty.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) }, 120000);
+    const percents = await page.evaluate(() => [...new Set(window.__percents.filter((p) => p >= 60 && p <= 72))]);
+    check(percents.length >= 5, 'a 60 s steam render shows at least five percentages from 60 to 72 on the button', percents.join(', '));
+    check(errors.length === 0, 'progress: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// Step 2, the stages before a changed setting. The option names the
+// Node suite changes one by one are the page's.
+async function speedStages(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    const text = fs.readFileSync(path.join(__dirname, 'stages.verify.mjs'), 'utf8');
+    const listed = JSON.parse(/const RENDER_OPTION_NAMES = (\[[^\]]*\]);/.exec(text)[1].replace(/'/g, '"'));
+    const sent = await page.evaluate(() => Object.keys(renderOptions()));
+    check(listed.length === sent.length && [...listed].sort().join() === [...sent].sort().join(),
+      'tests/stages.verify.mjs changes every option the page sends, and no other', `${listed.length} names`);
+    // A 60 s source, then voice_scale 0.5: the render from B takes under
+    // half the first's time and gives a fresh page's WAV. The source goes
+    // to the worker once.
+    await chooseFile(page, { name: 'reuse.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) }, 120000);
+    const first = await lastRenderMs(page);
+    await setControl(page, 'voice_scale', '0.5');
+    await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
+    await waitRendered(page, 120000);
+    const second = await lastRenderMs(page), reused = await wavHash(page);
+    await setControl(page, 'loss', '5');
+    await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
+    await waitRendered(page, 120000);
+    const third = await lastRenderMs(page), lossy = await wavHash(page), lossyFresh = await freshHash(page);
+    const sources = await page.evaluate(() => window.__sources);
+    const fresh = await speedPage(browser, base);
+    let freshHashValue = null;
+    try {
+      await setControl(fresh.page, 'voice_scale', '0.5');
+      await chooseFile(fresh.page, { name: 'reuse.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) }, 120000);
+      freshHashValue = await wavHash(fresh.page);
+    } finally { await fresh.context.close(); }
+    check(second < first / 2 && reused === freshHashValue,
+      'a 60 s source, then voice_scale 0.5: the render takes under half the first\'s time and gives a fresh page\'s WAV',
+      `${Math.round(first)} ms, then ${Math.round(second)} ms; ${reused.slice(0, 12)} / ${freshHashValue && freshHashValue.slice(0, 12)}`);
+    check(lossy === lossyFresh && third < first && sources === 1,
+      'then Packets lost % at 5: a fresh render\'s WAV, from A; the source went to the worker once for the three renders',
+      `${Math.round(third)} ms; ${sources} source message`);
+    check(errors.length === 0, 'the stages: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
+// A demo's voice: a new speaker is a new source for the worker (its
+// samples sent again, nothing of the other speaker's taken), and each
+// render is a fresh render's.
+async function speedDemoSource(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.locator('#file').setInputFiles(path.join(__dirname, 'demo', 'synthetic.dem'));
+    await waitRendered(page);
+    const one = { sources: await page.evaluate(() => window.__sources), wav: await wavHash(page), fresh: await freshHash(page) };
+    await page.locator('#demo-speaker').selectOption('4503603922337794');
+    await page.waitForFunction(() => state.sourceDemo && state.sourceDemo.speaker.id === '4503603922337794');
+    await waitRendered(page);
+    const two = { sources: await page.evaluate(() => window.__sources), wav: await wavHash(page), fresh: await freshHash(page) };
+    const r2 = await page.evaluate(() => state.renderId);
+    await page.evaluate(() => execCommand('voice_scale 0.5'));
+    await page.waitForFunction((r) => state.renderId > r && renderIdle(), r2, { timeout: 30000 });
+    const three = { sources: await page.evaluate(() => window.__sources), wav: await wavHash(page), fresh: await freshHash(page) };
+    check(one.sources === 1 && two.sources === 2 && three.sources === 2 && one.wav === one.fresh && two.wav === two.fresh
+      && three.wav === three.fresh && one.wav !== two.wav,
+      'a demo: another speaker sends the worker a new source, and each render (voice_scale changed too) is a fresh render\'s WAV',
+      `${one.sources}, ${two.sources}, ${three.sources} source messages`);
+    check(errors.length === 0, 'a demo\'s speakers: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
 
 async function verifySpeed(browser, base) {
   console.log('\n[Browser 9] Speed with the same samples (W4-01b): the kept worker, Cancel, the meter after the result, progress');
-  // 1. Two renders of one source, the meter of each and of the original:
-  // one worker. The result is posted before the meter, and the table holds
-  // TF2Meter.analyze of the render, number for number.
-  {
-    const { context, page, errors } = await speedPage(browser, base);
-    try {
-      await chooseFile(page, { name: 'two.wav', mimeType: 'audio/wav', buffer: wavSpeech(10) });
-      const r1 = await page.evaluate(() => state.renderId);
-      await setControl(page, 'voice_scale', '0.5');
-      await page.waitForFunction((r) => state.renderId === r + 1 && renderIdle(), r1, { timeout: 60000 });
-      await page.waitForFunction(() => !!(state.meterStats && state.meterStats.wet && state.meterStats.dry), null, { timeout: 30000 });
-      const made = await audioWorkers(page);
-      check(made === 1, 'two renders of one source, their meters and the original\'s, construct one worker', `${made} constructed`);
-      const order = await page.evaluate(() => {
-        const result = window.__posted.filter((m) => m.type === 'result').at(-1);
-        const of = (type) => window.__posted.findIndex((m) => m.type === type && m.id === result.id);
-        return { result: of('result'), meter: of('meter'), done: of('done') };
-      });
-      check(order.result >= 0 && order.meter > order.result && order.done > order.meter,
-        'the render\'s result is posted before its meter, and the worker is free after both', JSON.stringify(order));
-      const same = await page.evaluate(() => {
-        // Every number Object.is-equal, through the history's arrays.
-        const equal = (a, b) => {
-          if (a && typeof a === 'object') {
-            if (!b || typeof b !== 'object') return false;
-            const ka = Object.keys(a), kb = Object.keys(b);
-            return ka.length === kb.length && ka.every((k) => equal(a[k], b[k]));
-          }
-          return Object.is(a, b);
-        };
-        const fresh = TF2Meter.analyze(state.processedBuffer, state.processedRate), shown = state.meterStats.wet;
-        const tr = [...document.querySelectorAll('#meter-rows tr')].find((r) => r.querySelector('th').textContent === 'RENDER');
-        const texts = tr ? [...tr.querySelectorAll('td')].map((td) => td.textContent) : [];
-        return { keys: Object.keys(fresh).length, equal: equal(fresh, shown),
-          cells: texts.length === METER_COLUMNS.length && texts.every((t, i) => t === meterCell(METER_COLUMNS[i][0], fresh[METER_COLUMNS[i][0]])) };
-      });
-      check(same.equal && same.cells, 'the table\'s numbers are Object.is-equal to TF2Meter.analyze of the render, and its cells are those numbers',
-        `${same.keys} members`);
-      check(errors.length === 0, 'the kept worker: no page errors', errors.join('; '));
-    } finally { await context.close(); }
-  }
-
-  // 2. A late meter of a render no longer on screen does not fill the
-  // table: the first render's meter is held back until the second render
-  // and its meter are on screen.
-  {
-    const { context, page, errors } = await speedPage(browser, base);
-    try {
-      await page.evaluate(() => { window.__holdMeter = true; });
-      await chooseFile(page, { name: 'late.wav', mimeType: 'audio/wav', buffer: wavSpeech(6) });
-      await page.waitForFunction(() => window.__held.length === 1, null, { timeout: 30000 });
-      const held = await page.evaluate(() => window.__held[0].data.id);
-      await page.evaluate(() => { window.__holdMeter = false; });
-      const r1 = await page.evaluate(() => state.renderId);
-      await setControl(page, 'voice_scale', '0.6');
-      await page.waitForFunction((r) => state.renderId === r + 1 && renderIdle(), r1, { timeout: 60000 });
-      await page.waitForFunction(() => !!(state.meterStats && state.meterStats.wet), null, { timeout: 30000 });
-      const row = () => page.evaluate(() => {
-        const tr = [...document.querySelectorAll('#meter-rows tr')].find((r) => r.querySelector('th').textContent === 'RENDER');
-        return tr ? tr.textContent : null;
-      });
-      const before = await row();
-      await page.evaluate(() => window.__release());
-      await page.waitForTimeout(300);
-      const after = await row(), match = await page.evaluate(() => {
-        const equal = (a, b) => (a && typeof a === 'object' ? !!b && typeof b === 'object' && Object.keys(a).length === Object.keys(b).length
-          && Object.keys(a).every((k) => equal(a[k], b[k])) : Object.is(a, b));
-        return equal(TF2Meter.analyze(state.processedBuffer, state.processedRate), state.meterStats.wet);
-      });
-      check(after === before && match, 'a meter that comes late for a render no longer on screen leaves the table to the render on screen',
-        `held the meter of job ${held}`);
-      check(errors.length === 0, 'the late meter: no page errors', errors.join('; '));
-    } finally { await context.close(); }
-  }
-
-  // 3. Cancel stops the render and keeps the worker; a render after it gives
-  // a result. A setting changed while a 20 s source renders gives the WAV of
-  // a fresh render of the new settings, from the same worker. A worker that
-  // does not answer the cancel is ended and replaced, and the render is
-  // still right.
-  {
-    const { context, page, errors } = await speedPage(browser, base);
-    try {
-      await chooseFile(page, { name: 'cancel.wav', mimeType: 'audio/wav', buffer: wavSpeech(20) });
-      await page.locator('#process').click();
-      await page.waitForFunction(() => state.processing && Number((els.process.textContent.match(/(\d+)%/) || [])[1]) >= 25, null, { timeout: 30000 });
-      const t0 = Date.now();
-      await page.locator('#cancel-process').click();
-      await page.waitForFunction(() => !state.processing && els.renderStatus.textContent.includes('cancelled'), null, { timeout: 30000 });
-      await page.waitForFunction(() => !pageWorker.running, null, { timeout: 5000 });
-      const stopped = Date.now() - t0;
-      const r = await page.evaluate(() => state.renderId);
-      await renderNow(page);
-      check(await page.evaluate((r) => state.renderId === r + 1, r) && await audioWorkers(page) === 1,
-        'Cancel stops a render within a moment and keeps the worker; a render after it gives a result', `the worker free ${stopped} ms after Cancel; 1 worker`);
-
-      await setControl(page, 'voice_scale', '0.6');
-      await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
-      await setControl(page, 'voice_scale', '0.7');
-      await waitRendered(page);
-      const shown = await wavHash(page), again = await freshHash(page);
-      check(shown === again && await audioWorkers(page) === 1,
-        'a 20 s source: a setting changed while it renders gives the WAV of a fresh render of the new settings, and no second worker',
-        `${shown.slice(0, 12)} / ${again.slice(0, 12)}; ${await audioWorkers(page)} worker`);
-
-      await page.evaluate(() => { window.__dropCancel = true; });
-      await setControl(page, 'voice_scale', '0.8');
-      await page.waitForFunction(() => state.processing && Number((els.process.textContent.match(/(\d+)%/) || [])[1]) >= 5, null, { timeout: 30000 });
-      await page.locator('#cancel-process').click();
-      await page.waitForFunction(() => !state.processing, null, { timeout: 30000 });
-      await renderNow(page);
-      const replaced = await page.evaluate(() => [...document.getElementById('console-out').children].some((e) => e.textContent.includes('did not stop within 500 ms')));
-      const late = await wavHash(page);
-      await page.evaluate(() => { window.__dropCancel = false; });
-      check(replaced && await audioWorkers(page) === 2 && late === await freshHash(page),
-        'a worker that does not answer a cancel within 500 ms is ended and replaced, and the render after it is a fresh render\'s WAV',
-        `${await audioWorkers(page)} workers`);
-      check(errors.length === 0, 'Cancel and the kept worker: no page errors', errors.join('; '));
-    } finally { await context.close(); }
-  }
-
-  // 4. Progress that moves: in a 60 s steam render the button shows at least
-  // five percentages from 60 to 72 (Steam's resampler, the gain, the laying).
-  {
-    const { context, page, errors } = await speedPage(browser, base);
-    try {
-      await page.evaluate(() => {
-        window.__percents = [];
-        new MutationObserver(() => {
-          const m = els.process.textContent.match(/(\d+)%/);
-          if (m) window.__percents.push(Number(m[1]));
-        }).observe(els.process, { childList: true, characterData: true, subtree: true });
-      });
-      await chooseFile(page, { name: 'sixty.wav', mimeType: 'audio/wav', buffer: wavSpeech(60) }, 120000);
-      const percents = await page.evaluate(() => [...new Set(window.__percents.filter((p) => p >= 60 && p <= 72))]);
-      check(percents.length >= 5, 'a 60 s steam render shows at least five percentages from 60 to 72 on the button', percents.join(', '));
-      check(errors.length === 0, 'progress: no page errors', errors.join('; '));
-    } finally { await context.close(); }
-  }
+  for (const part of [speedOneWorker, speedLateMeter, speedCancel, speedProgress, speedStages, speedDemoSource]) await part(browser, base);
 }
 
 async function main() {
