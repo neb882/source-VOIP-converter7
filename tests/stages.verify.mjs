@@ -12,8 +12,9 @@
 //      for the same source with voiceScale 0.5, and with stages first used
 //      with lossPct 5, gives its recorded WAV and codecInfo hashes;
 //   2. each option the page sends (RENDER_OPTION_NAMES; the browser suite
-//      checks the list against the page's renderOptions()), changed alone
-//      and rendered with warm stages, gives a fresh render's hashes, starting
+//      checks the list against the page's renderOptions()) and each other
+//      option process() reads (ENGINE_OPTION_NAMES), changed alone and
+//      rendered with warm stages, gives a fresh render's hashes, starting
 //      from the place its lists say; then the first settings again give
 //      theirs (nothing kept was written to);
 //   3. the keys: an option the engine does not know, a changed sourceKey,
@@ -83,7 +84,7 @@ const sameSamples = (x, y) => x.length === y.length && Buffer.compare(Buffer.fro
 const streamText = fs.readFileSync(new URL('tests/render-stream.verify.mjs', root), 'utf8');
 const from = streamText.indexOf('/* ---------------- signals ---------------- */');
 const to = streamText.indexOf('/* ---------------- helpers ---------------- */');
-const { CASES, GOLDEN, voice } = new Function('engine', 'roomModule', 'roomTable', `${streamText.slice(from, to)}\nreturn { CASES, GOLDEN, voice };`)(
+const { CASES, GOLDEN, voice, receivedVoice } = new Function('engine', 'roomModule', 'roomTable', `${streamText.slice(from, to)}\nreturn { CASES, GOLDEN, voice, receivedVoice };`)(
   engine, roomModule, roomTable);
 
 console.log('\n[1] Every recorded render, made with stages first used for other settings of the same source');
@@ -109,14 +110,14 @@ console.log(`  (${((performance.now() - t1) / 1000).toFixed(1)} s)`);
 
 // The option names app/render.js's renderOptions() sends (the browser suite
 // checks this list against the page's), with the page's defaults, and a
-// changed value for each (two for some).
+// changed value for each (two for some), each changed alone.
 const RENDER_OPTION_NAMES = ['codec', 'room', 'underwater', 'captureChannel', 'micGain', 'voiceScale', 'hp', 'lp', 'bits', 'agc', 'retime',
   'maxGain', 'avgGain', 'gate', 'gateThresholdDb', 'steamUptime', 'volume', 'deviceRate', 'lossPct', 'frameMs', 'enableWarble', 'jitterMs'];
 const PAGE_DEFAULTS = { codec: 'steam', room: null, underwater: false, captureChannel: 'left', micGain: 1, voiceScale: 1, hp: 0, lp: 20000,
   bits: 16, agc: true, retime: false, maxGain: 10, avgGain: 0.5, gate: null, gateThresholdDb: undefined, steamUptime: 777600, volume: 1,
   deviceRate: 48000, lossPct: 0, frameMs: 20, enableWarble: true, jitterMs: 0 };
 const CHANGES = {
-  codec: [{ codec: 'celt_22', steamUptime: undefined }, { codec: 'miles', steamUptime: undefined }],
+  codec: [{ codec: 'celt_22' }, { codec: 'miles' }],
   room: [{ room: { preset: 6 } }, { room: { custom: { duration: 1, decay: 2, mix: 0.3 } } }],
   underwater: [{ underwater: true }],
   captureChannel: [{ captureChannel: 'right' }, { captureChannel: 'mix' }],
@@ -135,12 +136,32 @@ const CHANGES = {
   volume: [{ volume: 0.5 }],
   deviceRate: [{ deviceRate: 44100 }],
   lossPct: [{ lossPct: 15 }],
-  frameMs: [{ frameMs: 60, lossPct: 15 }],
+  frameMs: [{ frameMs: 60 }],
   enableWarble: [{ enableWarble: false }],
   jitterMs: [{ jitterMs: 100 }]
 };
-// A later order's case: [name, base options, changed options] (W3-02c-2
-// adds its timeline here).
+// The other options process() reads, and options whose effect shows only
+// on a base of their own (net_split with jitter, the seed with loss), each
+// changed alone: [name, base options, changed options, source?] (the
+// source a demo's voice where it is one). With the page's cases these change
+// every name process() reads (the check below).
+const ENGINE_OPTION_NAMES = ['listenerPos', 'dspRoom', 'customEnv', 'seed', 'received', 'swrKernel'];
+const CELT_BASE = { ...PAGE_DEFAULTS, codec: 'celt_22', steamUptime: undefined };
+const demoVoice = receivedVoice(5, 23);
+const ENGINE_OPTION_CASES = [
+  ['steam, jitter 50 ms: {"frameMs":60}', { ...PAGE_DEFAULTS, jitterMs: 50 }, { frameMs: 60 }],
+  ['celt_22, jitter 50 ms: {"frameMs":60}', { ...CELT_BASE, jitterMs: 50 }, { frameMs: 60 }],
+  ['steam, loss 15%: {"seed":2}', { ...PAGE_DEFAULTS, lossPct: 15 }, { seed: 2 }],
+  ['celt_22, loss 15%: {"seed":2}', { ...CELT_BASE, lossPct: 15 }, { seed: 2 }],
+  ['steam, the older room options: {"dspRoom":6}', { ...PAGE_DEFAULTS, room: undefined }, { dspRoom: 6 }],
+  ['steam, the older room options: {"listenerPos":"auto_closet"}', { ...PAGE_DEFAULTS, room: undefined }, { listenerPos: 'auto_closet' }],
+  ['steam, dspRoom 99: {"customEnv":{"duration":1,"decay":2,"mix":0.5}}', { ...PAGE_DEFAULTS, room: undefined, dspRoom: 99,
+    customEnv: { duration: 1, decay: 2, mix: 0.3 } }, { customEnv: { duration: 1, decay: 2, mix: 0.5 } }],
+  ['steam: {"swrKernel":"c"}', { ...PAGE_DEFAULTS }, { swrKernel: 'c' }],
+  ['steam, a demo\'s samples: {"received":…}', { ...PAGE_DEFAULTS, micGain: 2 }, { received: demoVoice.received },
+    buffer(demoVoice.samples, 24000)]
+];
+// A later order's case, in the same form (W3-02c-2 adds its timeline here).
 const EXTRA_OPTION_CASES = [];
 // Where a render with `change` should start from, by the lists: B when every
 // option changed is read only after B, A when only after A, else neither.
@@ -152,28 +173,37 @@ const startsFrom = (base, change) => {
   return changed.every((k) => afterA.includes(k)) ? 'a' : null;
 };
 
-console.log('\n[2] Each option the page sends, changed alone, rendered with warm stages, against a fresh render');
+console.log('\n[2] Each option process() reads, changed alone, rendered with warm stages, against a fresh render');
 check('every option the page sends has a changed value here, and every name the lists hold is one the page sends or the engine\'s own',
   RENDER_OPTION_NAMES.every((k) => CHANGES[k] && Object.hasOwn(PAGE_DEFAULTS, k)) && Object.keys(CHANGES).length === RENDER_OPTION_NAMES.length
-  && afterA.every((k) => RENDER_OPTION_NAMES.includes(k) || ['listenerPos', 'dspRoom', 'customEnv', 'seed'].includes(k)),
+  && afterA.every((k) => RENDER_OPTION_NAMES.includes(k) || ENGINE_OPTION_NAMES.includes(k)),
   `${RENDER_OPTION_NAMES.length} names; after A: ${afterA.length}, after B: ${afterB.length}`);
 {
   const t2 = performance.now();
   // A stereo source, so that the capture channel matters: speech-like talk
   // on the left, other talk on the right.
   const left = voice(5, 48000, 21), right = voice(5, 48000, 22);
-  const source = stereo(left, right, 48000);
+  const stereoSource = stereo(left, right, 48000);
   const cases = [];
   for (const baseCodec of ['steam', 'celt_22']) {
-    const base = baseCodec === 'steam' ? { ...PAGE_DEFAULTS } : { ...PAGE_DEFAULTS, codec: 'celt_22', steamUptime: undefined };
+    const base = baseCodec === 'steam' ? { ...PAGE_DEFAULTS } : { ...CELT_BASE };
     for (const name of RENDER_OPTION_NAMES) {
       for (const change of CHANGES[name]) {
-        const c = name === 'codec' && baseCodec !== 'steam' ? { codec: 'steam', steamUptime: 777600 } : change;
+        const c = name === 'codec' && baseCodec !== 'steam' ? { codec: 'steam' } : change;
         cases.push([`${baseCodec}: ${JSON.stringify(c)}`, base, c]);
       }
     }
   }
-  for (const [name, base, change] of [...cases, ...EXTRA_OPTION_CASES]) {
+  const all = [...cases, ...ENGINE_OPTION_CASES, ...EXTRA_OPTION_CASES];
+  // Each name process() reads (the page's, the engine's own, and every name
+  // on the two lists) is the one option changed in at least one case.
+  const alone = new Set(all.map(([, base, change]) => Object.keys(change).filter((k) => !Object.is(change[k], base[k])))
+    .filter((names) => names.length === 1).map(([k]) => k));
+  const names = [...new Set([...RENDER_OPTION_NAMES, ...ENGINE_OPTION_NAMES, ...afterA])];
+  check('each option process() reads, and each name on the two lists, is changed alone in a case below',
+    names.every((k) => alone.has(k)), `missing: ${names.filter((k) => !alone.has(k)).join(', ') || 'none'}`);
+  for (const [name, base, change, own] of all) {
+    const source = own || stereoSource;
     const stages = {}, key = `stereo ${name}`;
     const first = await A.process(source, { ...base, stages, sourceKey: key });
     const opts = { ...base, ...change };

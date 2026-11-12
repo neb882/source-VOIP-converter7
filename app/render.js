@@ -375,12 +375,15 @@ function currentFormat() {
 }
 
 // The file for `format` made from a rendered WAV blob, as { blob, crc }
-// (crc: CRC-32 for ZIP archives). Runs in a worker when it can.
-async function exportWav(wavBlob, format) {
+// (crc: CRC-32 for ZIP archives). Runs in a worker when it can: the page's
+// (startWorker), or with `own` one of its own, as the batch's files are made
+// (W4-01b: the batch keeps its own lanes, so a page render never waits
+// behind them and they never wait behind a page render).
+async function exportWav(wavBlob, format, { own = false } = {}) {
   const { mime } = TF2Formats.FORMATS[format];
   const wav = await wavBlob.arrayBuffer();
   if (canUseWorker()) {
-    const reply = await startWorker({ type: 'export', wav, format }, [wav]).promise;
+    const reply = await (own ? startOwnWorker : startWorker)({ type: 'export', wav, format }, [wav]).promise;
     return { blob: new Blob([reply.bytes], { type: mime }), crc: reply.crc };
   }
   const bytes = await TF2Formats.fromWav(new Uint8Array(wav), format);
@@ -388,9 +391,9 @@ async function exportWav(wavBlob, format) {
 }
 
 // exportWav with the result kept per format in `cache`; a failure is not kept.
-function cachedExport(cache, wavBlob, format) {
+function cachedExport(cache, wavBlob, format, options = {}) {
   if (!cache[format]) {
-    cache[format] = exportWav(wavBlob, format);
+    cache[format] = exportWav(wavBlob, format, options);
     cache[format].catch(() => { delete cache[format]; });
   }
   return cache[format];
