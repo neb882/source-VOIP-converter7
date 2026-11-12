@@ -34,7 +34,7 @@ In the order `pnpm test` runs them. Times are CI's at `131a319`, on the slower o
 
 | Suite | What it proves | Time on CI |
 | --- | --- | --- |
-| `harness.verify.mjs` | The tests' one engine loader (`tests/lib/engine.cjs`): its list of the engine's files is the page's and both workers', its tables are `constants.js`'s, and no other suite holds a list of its own; each load has its own codec module, which the next render takes once it is set; a load without the room module stops a render with a room as the page would; an engine file that uses one of Node's globals does not load. | under 1 s |
+| `harness.verify.mjs` | The tests' one engine loader (`tests/lib/engine.cjs`): its list of the engine's files is the page's and both workers', in order, and its tables are `constants.js`'s. No other suite names `audio.js` or `constants.js` in a quoted string; a name built from parts, or a suite that runs `engineSource()` in a context of its own, gets past that check. Each load has its own codec module, which the next render takes once it is set; a load without the room module stops a render with a room as the page would; an engine file that uses `Buffer` at its top level does not load. | under 1 s |
 | `verify.js` | The engine as a whole under Node: the resamplers, the capture filter, the receiver's gain law, the frame gate, stereo capture, each profile's codec modes, the room presets, loss and jitter on the frame path, and robustness to odd options. On the frame path: each streaming stage equal to its offline counterpart. | 9 s |
 | `steam.verify.js` | The `steam` profile, Steam's sender and decoder, in sections moved from `verify.js` with their labels: the render's sender, gate and decoder ([5c]); loss by whole messages against a reference built from the sender, the codec and the resampler ([5d]); and the live chain equal to the render sample for sample ([10b], `steam`). | 2 min 18 s |
 | `gain.verify.mjs` | The receiver's gain is the engine's rule, against a transcription written apart from `audio.js`, whole and in pieces, on the decoder's stream of the engine codecs, through the gate's silences and in the live chain. | 10 s |
@@ -65,9 +65,12 @@ The three long suites, `render-stream.verify.mjs`, `stages.verify.mjs` and `stea
 `audio.js`, the page's order) and loads them as one function in the suite's own realm: `loadEngine({ root, codec })`
 returns `TF2Audio` as `audio`, every table of `constants.js`, and `codec`, the module the engine sees as `TF2Opus`,
 which a suite may set between renders. The room module and its table are handed in by name, so a suite can wrap or
-withhold them; Node's own globals are hidden from the engine, so a file that came to use one fails at the load.
-`harness.verify.mjs` holds the list to `index.html` and both workers and fails on a suite that reads `audio.js` or
-`constants.js` itself: a file added to the engine is added to that list and nowhere else in the tests.
+withhold them. Node's own globals (`Buffer`, `process` and the rest) are undefined by name inside the engine: an engine
+file that uses one at its top level fails at the load, and one that uses it inside a function fails when that function
+is called. A use behind a `typeof` guard takes the browser's branch without a failure, and one through `globalThis`
+(`globalThis.process`, `globalThis.Buffer`) is not caught. `harness.verify.mjs` holds the list to `index.html` and both
+workers and fails on a suite that names `audio.js` or `constants.js` in a quoted string: a file added to the engine is
+added to that list and nowhere else in the tests.
 `tests/lib/signals.cjs` holds the six signals and measures that `verify.js` and `steam.verify.js` share.
 
 **Suites that read documents.** `miles.verify.mjs` checks that `README.md`, `tests/LEGACY_CODECS.md`,

@@ -4,9 +4,9 @@ The builder's report. The order is `docs/work-orders/S3-01-test-harness.md`: its
 "What is true today", "Decisions" and section S3-01a. Branch `claude/s3-01a-engine-loader`, from `ce55fa7` (W4-01b
 merged, cache v35), which is `main` now; merging `origin/main` was a no-op.
 
-**Status:** built. Every converted suite prints the same check lines before and after; the six `vm` loaders and five
-of the one-function loaders print the same output byte for byte, and `render-stream` and `stages` differ only in the
-seconds their details print. The steam sections moved unedited. No file the site ships changed, no recorded value
+**Status:** built. Every converted suite prints the same check lines before and after. The suites of the six `vm`
+loaders and three of the five one-function loaders (`gain`, `miles`, `output-stage`) print the same output byte for
+byte; `render-stream` and `stages` print the same output once the seconds their details print are blanked. The steam sections moved unedited. No file the site ships changed, no recorded value
 moved, and no check's name, condition or detail changed.
 
 ## What was built
@@ -185,3 +185,26 @@ timing check of W4-01b's; I did not change it.
   signals section at lines 88-92 (83-87); `browser.verify.js` reads `RENDER_OPTION_NAMES` at 2776 (2723-2724).
 - `stages.verify.mjs` prints 331 checks at `ce55fa7`, not 297.
 - "What is true today", the times: `pnpm test` here was 20 min 56 s at `ce55fa7`, against the order's 19.
+
+## After the review
+
+The review found no blocker and five small points; each was probed by the reviewer.
+
+1. **What hiding Node's globals catches.** `tests/lib/engine.cjs`'s head comment and `tests/README.md` said an engine
+   file that came to use one of Node's globals fails at the load. That holds for a use at a file's top level only. Both
+   now say: a use inside a function fails when that function is called; a use behind a `typeof` guard takes the
+   browser's branch without a failure; a use through `globalThis` (`globalThis.process`, `globalThis.Buffer`) is not
+   caught. The loader's code did not change.
+2. **`harness.verify.mjs` [1] fails closed.** It read only tags written `<script src="...">`, so a tag written
+   `<script src='x.js'>` or `<script defer src="x.js">` before `audio.js` got past it (shown: the old check passed a
+   copy with the second form). It now finds every `<script ...>` tag that has a `src` loosely and fails, naming the
+   tag, on any it cannot read. Shown in a copy through `TF2_DIR`: each of the two forms put before `audio.js` fails it
+   (`script tags this check cannot read: <script src='x.js'>`, and the same for the `defer` form); the worktree
+   passes, 18 checks. The label is unchanged.
+3. **What check [3] proves.** `tests/README.md`'s row said no other suite holds a list of its own. It now says what
+   the check holds (no other suite names `audio.js` or `constants.js` in a quoted string) and what gets past it (a
+   name built from parts, or a suite that runs `engineSource()` in a context of its own). The check was not widened.
+4. **CI's whole time.** `CLAUDE.md` and the README gave `pnpm test:all` as 12 to 22 minutes; the 22 was a run at
+   `ce55fa7`. Both, and `tests/README.md`, now give the range of this branch's own runs: CI_RANGE.
+5. **This report's status line** said five one-function loaders print the same output byte for byte; three do (`gain`,
+   `miles`, `output-stage`), and `render-stream` and `stages` are the same once times are blanked. Corrected.

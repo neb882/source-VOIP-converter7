@@ -11,9 +11,13 @@
  * tests/verify.js three times over). The function's parameters stand for the
  * globals the page gives (window) and hide those it does not (self, module,
  * setTimeout, and Node's Buffer, global, setImmediate, clearImmediate, require
- * and process), so an engine file that comes to use one of Node's fails at the
- * load, as it did in a vm context. With no setTimeout a render's yields resolve
- * at once, as in every loader before this one.
+ * and process): each of those names is undefined inside the engine. An engine
+ * file that comes to use one of Node's at its top level therefore fails at the
+ * load; a use inside a function fails only when that function is called; a use
+ * behind a typeof guard quietly takes the browser's branch; and
+ * globalThis.process and globalThis.Buffer stay reachable, so a use through
+ * globalThis is not caught at all. With no setTimeout a render's yields
+ * resolve at once, as in every loader before this one.
  *
  * steam-sender.js and the resampler attach themselves to Node's global object
  * (TF2SteamSender, TF2Swresample), and audio.js finds them there: the engine's

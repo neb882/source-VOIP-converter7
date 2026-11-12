@@ -36,9 +36,14 @@ const quoted = (text) => [...text.matchAll(/'([^'\n]*)'/g)].map((m) => m[1]);
 
 console.log('\n[1] The list of the engine\'s files is the page\'s and the workers\'');
 {
-  const tags = [...read('index.html').matchAll(/<script\s+src="([^"]+)"/g)].map((m) => m[1]);
-  check('index.html\'s first script tags are the list, in order', same(tags.slice(0, ENGINE_FILES.length), ENGINE_FILES),
-    tags.slice(0, ENGINE_FILES.length).join(', '));
+  // Every script tag that has a src, found loosely, must be one this check
+  // reads (<script src="...">): a tag in another form fails here, named,
+  // rather than being skipped.
+  const withSrc = [...read('index.html').matchAll(/<script\b[^>]*>/gi)].map((m) => m[0]).filter((t) => /\ssrc\s*=/i.test(t));
+  const tags = withSrc.map((t) => (t.match(/^<script\s+src="([^"]+)"/) || [])[1]);
+  const unread = withSrc.filter((t, i) => tags[i] === undefined);
+  check('index.html\'s first script tags are the list, in order', unread.length === 0 && same(tags.slice(0, ENGINE_FILES.length), ENGINE_FILES),
+    unread.length ? `script tags this check cannot read: ${unread.join(' ')}` : tags.slice(0, ENGINE_FILES.length).join(', '));
   const imports = (file) => {
     const m = read(file).match(/importScripts\(([^)]*)\)/);
     return m ? quoted(m[1]) : [];
