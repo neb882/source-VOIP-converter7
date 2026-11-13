@@ -175,8 +175,8 @@ How to read each column:
 | `net_baseline` | C | 13 | 19 | 1.739 to 2.071 | 1 | 17 | +416 | 0.79 | 0.39 / 2.1 | 0.996 | −0.2 dB at 80 to 120 Hz | 1.1 / 1.1 | +0.0 |
 | `net_loss5` (random) | C | 13 | 18 | 1.475 to 1.812 | 0 | 17 | +441 | 0.69 | 3.16 / 17.0 | 0.782 | +1.7 dB at 2 to 3 kHz | 0.9 / 1.0 | +0.4 |
 | `net_loss15` (random) | C | 13 | 11 | 1.599 to 1.952 | 0 | 10 | +927 | 0.62 | 4.59 / 17.0 | 0.508 | +0.9 dB at 300 to 500 Hz | 0.6 / 0.6 | +0.0 |
-| `net_jitter` (random) | C | 13 | 16 | 1.830 to 2.188 | 0 | 15 | +726 | 0.81 | 0.78 / 3.8 | 0.982 | −0.6 dB at 3 to 5 kHz | 1.1 / 1.1 | −0.1 |
-| `net_combined` (random) | C | 13 | 15 | 1.866 to 2.630 | 0 | 14 | +2792 | 0.65 | 5.28 / 21.7 | 0.441 | −1.0 dB at 8 to 10 kHz | 0.8 / 0.8 | +0.3 |
+| `net_jitter` (random) | C | 13 | 16 | 1.830 to 2.177 | 0 | 15 | +726 | 0.81 | 0.62 / 3.8 | 0.990 | +0.3 dB at 300 to 500 Hz | 1.1 / 1.1 | +0.1 |
+| `net_combined` (random) | C | 13 | 15 | 1.866 to 2.630 | 0 | 14 | +2490 | 0.65 | 5.06 / 20.8 | 0.505 | +1.2 dB at 200 to 300 Hz | 0.8 / 0.8 | +0.2 |
 | `speech_loss10` (random) | C | 10 | 27 | 1.674 to 2.033 | 1 | 25 | +280 | 0.70 | 5.89 / 25.2 | 0.579 | −0.8 dB at 11 to 12 kHz | 0.9 / 0.9 | +0.4 |
 | `sender_A` | D | 17 | 23 | 1.560 to 1.894 | 1 | 22 | +405 | 0.76 | 0.12 / 0.5 | 0.997 | +2.1 dB at 11 to 12 kHz | 7.6 / 9.3 | +0.1 |
 | `listener_B` | D | 17 | 20 | 4.792 to 4.946 | 0 | 19 | +403 | 0.78 | 0.41 / 2.0 | 0.959 | +2.4 dB at 11 to 12 kHz | 1.2 / 1.9 | +0.5 |
@@ -187,6 +187,8 @@ How to read each column:
 | `music_take_it_off` | A | 1 | 2 | −1.436 to −1.417 | 0 | 1 | +408 | 0.78 | 0.08 / 0.3 | 0.997 | +0.2 dB at 11 to 12 kHz | 12.6 / 18.5 | +0.2 |
 
 *Note 2026-11-13 (BC-4a): the renders of the `net_jitter` and `net_combined` rows held late frames when they were measured. The accuracy suite renders on the file's own timing, where since BC-4a jitter does nothing on Steam voice, so those two rows' renders now have no jitter at all, and the rows above are as measured then. The orchestrator measures them again on the game's voice queue and replaces them.*
+
+*Measured again 2026-11-13 after BC-4a's merge (measured, private; the takes stay private). The two rows above are now the suite as it stands: it renders on the file's own timing, where jitter does nothing on Steam voice, so they compare each take with a render without jitter. The rows as measured before, with late frames: `net_jitter` level 0.78 / 3.8 dB, r 0.982, worst band −0.6 dB at 3 to 5 kHz, level −0.1; `net_combined` clock +2792, level 5.28 / 21.7, r 0.441, worst band −1.0 dB at 8 to 10 kHz, level +0.3. The same takes rendered on the game's voice queue (a scratch copy of the manifest, not committed: timeline 'game', voice_buffer_ms 100, 336 frames a second for jitter and combined and 295 for the baseline, the photographs' rates): `net_baseline` clock +0 ppm against +413, timeline r 0.86 against 0.79, level 0.24 / 1.2 dB against 0.39 / 2.1; `net_jitter` clock +18 against +726, r 0.87, level 1.62 / 7.7 dB (the render's skips fall at other places than the take's), level +0.0 dB; `net_combined` clock −1348 against +2490, r 0.65, level 5.60 / 20.2 dB, level −0.3 dB. On the queue the clock the suite reads on these takes is gone: it was the queue's skips. Moving the suite's rows onto the game's queue is for a later order.*
 
 How the takes were rendered: every take at `volume 0.15` except `listener_B`, at `volume 0.11` and `voice_scale 0.77`; the Set C takes with the automatic room that set carries, and `sender_A` with its street room; the takes marked "random" with the loss the rule gives for their `net_fakeloss` (21.7%, 49.8% and 37.0% of messages) and, when these figures were measured, the jitter fit at 50 ms (see the note of 2026-11-13 under the table).
 
