@@ -408,8 +408,8 @@ here). A first run, before the merge, changed two of the checks: the order's sec
 ### The checks gate and queue (2026-11-13)
 
 Added 2026-11-13 by RP-01b (`docs/work-orders/RP-01b-gate-hold-queue.md`). The checks `gate` and `queue` of
-`tests/reproduce.mjs` are built and have not been run on a log of the game (not built yet: the orchestrator's
-private run). This entry holds the 24 kHz clip, the orchestrator's private look at the logs for the order (counts and
+`tests/reproduce.mjs` are built. They were run on the owner's private logs on 2026-11-13, as first built and as
+merged (the two bullets on those runs below). This entry holds the 24 kHz clip, the orchestrator's private look at the logs for the order (counts and
 layouts only, nothing of the files), and what the suite `reproduce` computes on the model.
 
 **The 24 kHz clip.** `node tests/reproduce.mjs inputs <folder>` writes `steam_mic_24000.wav` beside the two clips
@@ -485,6 +485,15 @@ times, never the 9th" counts all 37.
   the first part, logged at 300, judged at `--fps 100`, and the 66.67 part judged at 60, both say "as expected"; the
   100 part judged at 300 differs. That is why the check has a second figure, Q2 (the order's section "After the
   build, the private run and the review").
+- **Both checks as merged, run on the private logs** (the branch at `e3a7168`; the orchestrator, 2026-11-13, added
+  at the merge; measured, private, counts only). `gate` on the console text alone says "as expected" on the four
+  texts (789, 590, 1,979 and 2,706 chunk lines). With the two clips the owner had played into Steam, G4 and G5 hold
+  on every walked line: 392 and 396 lines of Set J's copied text, 392 and 996 of the log file, which holds the second
+  clip's evening run too; the first clip gives 0.9998% as the highest exact mean that failed and 1.0315% as the
+  lowest that passed. `queue` says "as expected" on each of the six parts with its frame rate, Q1 on 9,808 ticks and
+  Q2 in every part. Given a wrong frame rate on purpose: the first part, logged at 300, differs on Q2 when judged at
+  100 and at 280; the 66.67 part judged at 60 still says "as expected" (a wait one tick short); the 100 part judged
+  at 300 differs. The generated 24 kHz clip was not played into Steam, so `gate` with that clip has no run on a log.
 
 **On the model** (computed by the suite `reproduce`, `tests/reproduce.verify.mjs`, on stand-ins it writes; not the
 game):

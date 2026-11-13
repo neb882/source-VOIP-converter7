@@ -15,7 +15,7 @@ statement: the record does not give the default, and [FINDINGS.md, entry
 
 **Steam voice has two checks that need the game and Steam alone** ("With Steam's console and the game's log"):
 `gate` reads Steam's sender gate from the text Steam's own console prints, and `queue` reads the receiver's queue
-from the log the game's console writes. **Neither has been run on a log of the game yet.** The hold after speech
+from the log the game's console writes. **Both were run on the owner's logs of the game on 2026-11-13** (measured, private; the counts are in the two sections). `gate` with the generated clip was not: that clip has not been played into Steam. The hold after speech
 has steps by hand and no script yet ("The hold and Steam's clock").
 
 Three more checks need more than the game. `ceiling` and `clock` need a recording of what the PC plays: a
@@ -260,7 +260,13 @@ owner could run"). Type each command on a line of its own and press Enter: two c
 
 ## gate
 
-**Not yet run on a log of the game.**
+**Run on the game's logs on 2026-11-13** (measured, private; the record's entry "The checks gate and queue").
+On the text of Steam's console alone the check said "as expected" on four texts of the owner's, of 789, 590, 1,979
+and 2,706 chunk lines, the later ones holding the earlier: G1 to G3 held on every line, with the one line of one
+sample and the one line that prints 1.00 counted apart. With the two clips the owner had played into Steam, G4 and
+G5 held on every walked line (392 and 396 lines of the copied text; 392 and 996 of the log file), and the first clip
+gave 0.9998% and 1.0315% on the two sides of the gate, the record's figures. The generated clip
+`steam_mic_24000.wav` has not been played into Steam, so `gate` with that clip is not yet run on a log of the game.
 
 **The claim.** Steam judges each chunk of the capture whole: a chunk is sent when the mean of its absolute samples
 is at least 1.0% of 32767, or when one sample reaches 4915 (read; finding 28, with finding 5). With
@@ -389,7 +395,12 @@ there shows that the check agrees with the app's sender, not that Steam prints t
 
 ## queue
 
-**Not yet run on a log of the game.**
+**Run on the game's logs on 2026-11-13** (measured, private; the record's entry "The checks gate and queue").
+On the six parts of the owner's logs, each with its frame rate, the check said "as expected": Q1 on every tick,
+9,808 in all, and Q2 in every part (the queues first fell on line 30 in 19 channels, 31 in 8 and 32 in 1 at 300
+frames a second; on line 7 in 2 at 66.67; on line 10 in 4 at 100). Given a wrong frame rate on purpose, the part
+logged at 300 said "differs" on Q2 when judged at 100 and at 280; the 66.67 part judged at 60 said "as expected",
+which is the wait one tick short that Q2 lets through; the 100 part judged at 300 said "differs".
 
 **The claim.** Each speaker's voice waits in a ring of 22050 samples, 0.5 s at 44100 Hz (read, finding 22). A
 packet for a speaker with no channel opens one, and the channel waits `ceil(0.1 × frames a second)` ticks of 15 ms
