@@ -637,3 +637,95 @@ No render is computed differently, no constant changes and no finding's text is 
 record say what a clip is and what the suite measures on the model. The orchestrator reads the diff. What the
 private run then adds to the record is the orchestrator's entry. The plan itself is read by a different model
 before the build, as `docs/PIPELINE.md` asks.
+
+## The orchestrator's private look and rulings (2026-11-13)
+
+The planner's questions (the planning report, "For the orchestrator's private look"), answered from the owner's
+private logs. Counts and layouts only; every value shown in a layout is invented. Where this section differs
+from the text above, this section holds.
+
+### Steam's console text (measured, private)
+
+Four files were read: the text copied from Steam's console in Set J (789 chunk lines), the text copied in Set
+L's run with a real microphone (590), Steam's `console_log.txt` as saved after Set L (1,979) and the same file
+as saved later (2,706).
+
+- **The files overlap.** Every chunk line of the two copied texts is in the first log, in order, and the first
+  log is the beginning of the second. So the record's "3,358 of 3,358 chunk lines in three files" counts 1,379
+  lines twice: those three files hold 1,979 different chunk lines, and the later log 2,706. The correction goes
+  into the record beside that sentence in the change that merges this order's build.
+- **The pattern.** One pattern, held from the optional stamp to the line's end, fits every chunk line of the
+  four files. No chunk line carries text after its count, and nothing stands between the stamp and the first
+  bracket.
+- **The marks against the printed numbers,** on all 2,706 lines: the first mark is set exactly when the second
+  or the third is; the third exactly when the count of high samples is above 0, and exactly when the printed
+  peak is 14.999 or more; no line with a printed mean of 1.01 or more lacks the second mark and none of 0.99 or
+  less carries it. The brackets seen: `[   ]` 1,158, `[+++]` 1,261, `[++ ]` 277, `[+ +]` 10. The lowest printed
+  mean with the second mark is 1.01 and the highest without it 1.00; the lowest printed peak with the third
+  mark is 15.005 and the highest without it 14.984.
+- **A printed mean of exactly 1.00:** one line in 2,706, without the second mark.
+- **Lines of 0.04 ms:** one in 2,706 (Set J's), with a printed mean of 0.00, no mark and no high sample.
+- **The run with a real microphone** was judged by the printed numbers: the counts above hold on all 590 of its
+  lines. Their lengths are 62.50 ms on 441 lines, 31.25 on 142 and 93.75 on 7, and no other.
+- **The `loaded` and `looped` lines** read as the order has them: `loaded voice input file <path>, 123456
+  samples (5.1 seconds)` and `voice input file <path> looped`. N is a whole number and S has one decimal. In
+  the log file each begins with the stamp; in the copied text neither does.
+- **Other lines that carry the path.** The copied text also holds the typed command, after `] `, and the
+  console's answer, `"mic_inputfile" = "<path>"`. The log file holds the answer with its stamp. The reader keeps
+  none of them, as it keeps no other line.
+- **Typing.** The path was typed bare, with no quotes, and had no space. It was set back with
+  `mic_inputfile ""`, and the console answered `"mic_inputfile" = ""`. Each command was typed on a line of its
+  own; two on one line was not tried.
+- **Encoding.** All four files are plain ASCII with no byte-order mark. The copied texts end every line with a
+  carriage return and a line feed. The log file does too, but for some lines that end with a line feed alone
+  (433 of 10,711 in the first log).
+
+### The game's console log (measured, private)
+
+- **Encoding:** plain ASCII, no byte-order mark, every line ending in a carriage return and a line feed (two
+  logs).
+- **The folder** `con_logfile` writes in is not in any file the owner sent. The page says the `tf` folder
+  inside the game's folder, marked inferred.
+- **The six parts of Set G, replayed with the repository's code as it stands** (the fixture made from the logs
+  earlier, through `tests/voice-channel.verify.mjs --fixture`): mismatching ticks.
+
+  | Part (packets, ticks, opens) | fps | wait | rule | ring + 1 | ring − 1 | wait + 1 | wait − 1 | sample kept | no grace |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 1 (1520, 6267, 20) | 300 | 30 | 0 | 4933 | 4933 | 1549 | 708 | 5781 | 181 |
+  | 2 (126, 511, 2) | 66.67 | 7 | 0 | 0 | 0 | 496 | 498 | 510 | 0 |
+  | 3 (141, 598, 4) | 100 | 10 | 0 | 0 | 0 | 555 | 559 | 595 | 0 |
+  | 4 (130, 581, 3) | 300 | 30 | 0 | 504 | 504 | 13 | 4 | 494 | 0 |
+  | 5 (223, 917, 3) | 300 | 30 | 0 | 839 | 839 | 63 | 18 | 877 | 0 |
+  | 6 (235, 934, 2) | 300 | 30 | 0 | 882 | 882 | 0 | 19 | 865 | 0 |
+
+  The ticks sum to 9,808, the record's count. At 67 and 100 the ring's two faults and "no grace" show nowhere;
+  at 300 "no grace" shows in one part of four and "wait + 1" is missing from one. So the pass line "no
+  mismatching tick, the faults as information" is the right one, and the page may give this table (the faults'
+  counts with their frame rates, no part's name) with the standing measured.
+- **`logToFixture` on the logs as saved:** the two logs that hold one run each read without a stop at
+  `--fps 300`, with no pull off the 512-sample blocks. The third log holds marked parts and was read by
+  `--section` when the fixture was made; it was not read again today.
+
+### The questions on `hold`
+
+Not answered now. They are asked again when `hold` is ordered.
+
+### Rulings
+
+1. `gate` and `queue` are built; `hold` is not, and stays a steps-only entry. It is ordered after the owner's
+   run with both consoles at two uptimes, against those pairs of logs, not in the reduced form.
+2. `queue` is built first.
+3. `gate` takes any 24 kHz clip as file 2, and the 24 kHz clip stands as designed.
+4. The resampler's packet counts are left out.
+5. The floors of 50 chunk lines and 100 tick lines and the one-digit tolerance stand as choices, marked so; the
+   private run of the built checks may move them.
+6. The builder corrects `docs/FINDINGS.md` entry 2 as the order says.
+7. The page's steps use what was measured above: the path typed bare from a folder with no space;
+   `mic_inputfile ""` to set it back (measured), with "or restart Steam" kept beside it; each of Steam's
+   commands on a line of its own (two on a line: not tried).
+8. The reader takes a line feed alone and a carriage return with a line feed in one file. Reading UTF-16 stays,
+   as a choice for a text an editor saved again; the owner's files were ASCII.
+9. The check's information lines may print the bracket counts and the chunk lengths, as above. They are
+   numbers the lines carry.
+10. A plan reviewer reads this order before a builder starts (`docs/PIPELINE.md`).
+
