@@ -81,3 +81,31 @@ May not touch: any code that runs (a comment is not code that runs; `git diff` o
 
 A place that pins the old sentence and is not listed; a figure wanted that entry 11 does not give; anything that
 would change what the profile renders.
+
+## Rulings of 2026-11-13, after the builder's stop
+
+The builder found the old sentence, or a statement it carried, in seven places the order did not list, and
+stopped as the order asks. Ruled, place by place:
+
+1. `docs/VOICE-PATH.md`, the `miles` paragraph: the old sentence gives way to the new one, word for word.
+2. `tests/README.md`, "Suites that read documents": it says what the suite `miles` checks now.
+3. `tests/predictions/PREDICTIONS.md`: left as it is. It is a dated note of 2026-11-11 and true of that day, and
+   no builder edits that folder. Done-means 2's search leaves `tests/predictions/` out.
+4. `docs/PAGE.md`: the description of the note follows the note: it says the codec is not a TF2 codec, that its
+   codec was checked against one recording of a 2006 engine, and that the rest of the profile was not.
+5. `docs/owner-runs.md`, "`vaudio_miles` in an engine of 2006 or 2007": the old sentence gives way to the new one,
+   and "Nobody has run this." to what was run: one sitting of Source SDK Base 2006 on 2026-11-13, a file as the
+   microphone at `voice_maxgain` 1 and 10 and a shorter one of speech, with what it settled by reference to
+   `docs/FINDINGS.md`, entry 11, and what it did not (the 2007 engine, a second player, a lost packet). The steps
+   gain one line only if they lack it: one press a file, since the game writes its two files again at every
+   release of the key (the record's entry "The file-input runs, measured again").
+6. `opus-codec.mjs`, the comment above `VR12_RATE`: its last sentence gives way to the new one. Comment lines
+   only; the file is one the site loads, and the cache number rises at this merge in any case.
+7. `app/render.js`, the console line printed when `vaudio_miles` is chosen, and its pin in
+   `tests/browser.verify.js`: the line's second half becomes "its codec was checked against one recording of a
+   2006 engine; the rest of the profile was not". This is a string the page's console shows, not a render: no
+   sample and no recorded hash moves, and the order's "no render change" stands.
+
+The builder's edits to two further lines of `README.md` that said no recording of a running engine exists are
+kept. After these, done-means 2's search finds the old sentence only in the suite's own test data, the record's
+kept and corrected text, `tests/predictions/`, and the earlier reports, logs and orders.
