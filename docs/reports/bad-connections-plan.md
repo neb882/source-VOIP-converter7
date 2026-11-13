@@ -203,6 +203,7 @@ queue: bunches overflow the ring (a skip) and gaps run it dry (a fade, then a re
 milliseconds; a lag spike can be a second one. Before it is built, one private check on Set C's jitter take: its
 events should sit on downward steps of the delay, not on concealed sound. Checked by: block 2's log replayed.
 Must stop claiming: late frames, concealed or silent. Until then the jitter control is labelled as a fit.
+*2026-11-13: the order is written, in two parts, at `docs/work-orders/BC-4-jitter-arrivals.md`; its planning report is `docs/reports/BC-4-plan.md`.*
 
 **BC-5. The engine codecs under loss.** A lost message queues nothing: no concealment for CELT, no zeros for
 Speex; the sound closes up. Rests on W3-03's read alone, so block 1's optional take comes first. Small.
