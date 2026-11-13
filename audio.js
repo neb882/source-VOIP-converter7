@@ -39,8 +39,8 @@
  *   the clip, 16-bit rounding and the WAV, each whole and a piece at a time.
  * - engine/gain.js: the receiver's gain.
  * - engine/mix.js: the mixer and the output stage.
- * - engine/network.js: loss and late frames: the retiming, the loss masks,
- *   the steam profile's loss by message.
+ * - engine/network.js: loss and jitter: the retiming, the loss masks, the
+ *   steam profile's loss by message and its arrival times (BC-4).
  * - engine/codec.js: what the renderers share about a profile and its codec:
  *   the gate's defaults and threshold, the profile's filters, the frame
  *   codes, a demo's frame statistics, the call to the loader.

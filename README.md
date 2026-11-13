@@ -90,7 +90,7 @@ The same document says what rests on one PC and what others had published before
 - **The start and the end.** On the game's queue a sound that opens the channel loses pieces of its first seconds. At 300 frames a second a half-second tone is as long as the source and sounds from 35 ms: the first 12 ms of the source never play, and 32.7 ms more are cut out in four places. A 3 s tone has three cuts in its first 1.4 s, and 60 s of unbroken sound nine, the last at 17.3 s. At 66.67 frames a second there is no cut, and the sound starts 31 ms late (39 ms on speech). These are the page's own draw, which is the same in every page render, measured on the model. Over seeds 1 to 10 a render at 300 frames a second loses 0 to 16.5 ms of the source's head, 11.4 ms in the worst case rendered, and at 66.67 and 100 frames a second up to 56 ms; at those two rates it can lose up to 47 ms of its end (measured on the model; [the W3-02c-2 report](docs/reports/W3-02c2-render-channel.md)). The game's side: at 300 frames a second the ring was full when it started to play in 24 of 28 channels, and each of 16 restarts dropped 55 to 136 ms of what was queued, Steam's pre-roll first and then the onset (measured, Set G's logs, finding 23); the takes show skips of any size after a restart (findings 22 and 23). So the cuts are the game's behaviour as read and as logged; where each piece falls inside the sound is the model's.
 - **Long unbroken sound at a low frame rate.** At 66.67 frames a second the level first dips after 0.4 to 3.2 minutes (median 2.2) and is first more than 3 dB down after 2.4 to 4.8 minutes; at 100, 144 and 200 the first dip comes at 2.5 to 4.9, 5.1 to 8.0 and 8.7 to 9.9 minutes (9 of 20 seeds). At 300 ten minutes play with no fade and no underrun in 26 seeds, with the cuts to overflow of the first seconds above (measured on the model; the rules are read; no take shows it).
 - **Loss on the game's timeline.** At 15% loss the render at 300 frames a second is silent 16.4% of the time against 10.1% in the one take (measured, private). The check against the game's log (BC-3) is not built yet.
-- **Jitter.** The jitter setting is a fit to one recording. The game's own behaviour, whole messages delayed and bunched (BC-4), is not built yet.
+- **Jitter.** On Steam voice on the game's voice queue the jitter setting delays and bunches whole messages by the game's own lists, as read, with how often each side looks at them chosen (BC-4a, finding 9). A render at jitter 50 plays about 70 ms later than its source at 300 frames a second (measured on the model). On the file's own timing it does nothing on Steam voice, and on the other codecs it is still a fit to one recording: single frames marked late.
 - **The codec lane and the real-take panel** were made for the file's own timing; their order for the game's (W3-02e) is not built yet.
 - **The one codec in the menu that comes from older Source engines** and was never in TF2. Its codec stage was checked against one recording of a 2006 engine; the profile as the app runs it was not.
 
@@ -100,8 +100,9 @@ The same document says what rests on one PC and what others had published before
 
 - **Equal to the game's own recordings:** Steam's sender rule (every verdict and message of the checked runs), the codec with the decoder and its resampler (all but 2 of 524,288 samples), and the receiver's gain (every sample, checked under `vaudio_celt`).
 - **Read from the game's files, not yet seen in a recording:** the fade at the end of the queue (in the page's render on the game's voice queue) and the voice's level with two speakers in place of headphones.
-- **Fitted to recordings, with no rule read:** the capture's roll-off above 11 kHz, the times of Steam's reads, and the jitter.
-- **Not built yet:** the voice channel in the live monitor (W3-02c-3, not built yet), jitter as the game does it, and Steam's own push-to-talk rules.
+- **Fitted to recordings, with no rule read:** the capture's roll-off above 11 kHz and the times of Steam's reads.
+- **Read, with two of its timings chosen:** jitter on the game's voice queue. The game's lists are read; how often the server and the listener look at them is chosen, and the lag is taken as twice the jitter (finding 9).
+- **Not built yet:** the voice channel in the live monitor (W3-02c-3, not built yet), and with it jitter in the monitor, and Steam's own push-to-talk rules.
 
 **The figures.** Against the owner's 18 takes, on 2026-11-12, the overall level of the plain takes is within about 0.1 to 0.2 dB of the render's, and their levels rise and fall alike (a correlation of 0.98 to 1.00). Three plain takes are weaker: the default take (0.951) and the two takes of low tones (0.797 and 0.584, with the overall level 0.7 and 2.2 dB low). The second PC's take, rendered at settings inferred from its recording, reads 0.959 and is 0.5 dB off in overall level, the one other plain take outside 0.2 dB. Takes with packet loss can be compared only as statistics.
 
@@ -111,7 +112,7 @@ The same document says what rests on one PC and what others had published before
 
 **Live** plays your microphone through the voice path as you speak. Use headphones: speakers feed the output back into the microphone. On Steam voice the path holds back about 0.2 s, which is Steam's own: its longest chunk and the 100 ms it sends before a phrase (computed from the sender's rule).
 
-Whether the live monitor equals a render depends on the codec. On Steam voice it gives a render's samples exactly, with loss and jitter included. On `vaudio_speex` and Fullband Opus (not in TF2) it follows a render in waveform and level. On the two CELT profiles the whole chain is not compared with a render, and `vaudio_miles` (not in TF2) is checked at its packets and its gain only. Push-to-talk is the app's stand-in: Steam's own key rules are not built yet. [docs/LIVE.md](docs/LIVE.md) has the detail.
+Whether the live monitor equals a render depends on the codec. On Steam voice it gives a render's samples exactly, with loss included; jitter does nothing there on Steam voice, since the monitor keeps the file's own timing. On `vaudio_speex` and Fullband Opus (not in TF2) it follows a render in waveform and level. On the two CELT profiles the whole chain is not compared with a render, and `vaudio_miles` (not in TF2) is checked at its packets and its gain only. Push-to-talk is the app's stand-in: Steam's own key rules are not built yet. [docs/LIVE.md](docs/LIVE.md) has the detail.
 
 ## Rooms
 
@@ -157,7 +158,7 @@ The suites hold each stage to the rule as read and to numbers taken from the rec
 | `engine/dsp.js` | signal arithmetic with nothing of the game in it: the seeded draw, the yield, the FFT, the downmix, the resampler, the filters, the clip, 16-bit rounding and the WAV, each whole and a piece at a time |
 | `engine/gain.js` | the receiver's gain |
 | `engine/mix.js` | the mixer and the output stage |
-| `engine/network.js` | loss and late frames: the retiming, the loss masks, the steam profile's loss by message |
+| `engine/network.js` | loss and jitter: the retiming, the loss masks, the steam profile's loss by message and its arrival times |
 | `engine/codec.js` | what the renderers share about a profile and its codec: the gate's defaults and threshold, the profile's filters, the frame codes, a demo's frame statistics, the call to the loader |
 | `engine/room.js` | the room's settings and what the mix is told |
 | `engine/steam.js` | the steam profile: its constants, its capture, its sender's options, its timeline, the voice channel on the game's timeline, its codec information |
