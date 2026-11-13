@@ -26,6 +26,20 @@ export const EXPECTED = {
 // The game's reader skips the first two samples of the file (finding 27).
 export const SKIP = 2;
 
+// Each clip written against its expected figures: one line on the file, one
+// with its SHA-256 and the verdict. Returns whether every clip is as
+// expected. `expected` is EXPECTED but for the suite, which gives a wrong
+// one to show the verdict "differs".
+export function verdicts(made, report, expected = EXPECTED) {
+  let ok = true;
+  for (const { rate, name, bytes } of made) {
+    const want = expected[rate], sha = crypto.createHash('sha256').update(bytes).digest('hex');
+    report.line(`${name}: ${rate} Hz, 16-bit mono, ${fmt((bytes.length - 44) / 2)} samples, ${fmt(bytes.length)} bytes`);
+    ok = report.figure(`SHA-256 ${sha}, expected ${want.sha256}`, sha === want.sha256 && bytes.length === want.bytes) && ok;
+  }
+  return ok;
+}
+
 function write(folder, report) {
   let made;
   try {
@@ -33,12 +47,7 @@ function write(folder, report) {
   } catch {
     throw cannot('the clips cannot be written into the folder given (argument 1)');
   }
-  let ok = true;
-  for (const { rate, name, bytes } of made) {
-    const want = EXPECTED[rate], sha = crypto.createHash('sha256').update(bytes).digest('hex');
-    report.line(`${name}: ${rate} Hz, 16-bit mono, ${fmt((bytes.length - 44) / 2)} samples, ${fmt(bytes.length)} bytes`);
-    ok = report.figure(`SHA-256 ${sha}, expected ${want.sha256}`, sha === want.sha256 && bytes.length === want.bytes) && ok;
-  }
+  const ok = verdicts(made, report);
   report.line('Copy the one your codec needs into the game\'s folder as voice_input.wav: 22050 Hz for vaudio_celt and vaudio_celt_high, 11025 Hz for vaudio_speex.');
   if (!ok) throw differs('a clip\'s SHA-256 is not the one the game was fed; this Node computes the clip differently, and the other checks would compare with another input');
 }

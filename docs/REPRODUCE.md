@@ -6,9 +6,11 @@ from this repository. This page gives the steps and what to expect. Every figure
 are not (a tolerance and a map) say so.
 
 **Start with `celt`, `gain` and `speex`.** They need the game and nothing else, depend on no clock and no frame
-rate, and should give the same result on any PC. They check the engine's older codecs and the receiver's gain.
-They say nothing about Steam voice, the codec TF2 runs unless `sv_voicecodec` is changed (read;
-[FINDINGS.md, entry 10](FINDINGS.md#10-the-older-engine-codecs)): the checks of Steam's side (`hold`, `gate`,
+rate, and should give the same result on any PC (inferred: measured with two Source games on one PC, Sets H, I, M
+and O). They check the engine's older codecs and the receiver's gain.
+They say nothing about Steam voice, the codec TF2 runs unless `sv_voicecodec` is changed (this page's own
+statement: the record does not give the default, and [FINDINGS.md, entry
+10](FINDINGS.md#10-the-older-engine-codecs) gives it as read): the checks of Steam's side (`hold`, `gate`,
 `queue`) are not built yet.
 
 Each check's section says "not yet run on a recording of the game" until the script itself has been run on one.
@@ -56,14 +58,25 @@ differently and the other checks would compare with another input: report it (be
 
 These steps are the record's runs (the record's entry "The file-input runs, measured again"; findings 27 and 31).
 
+**The game's console.** Start the game with the launch option `-console` (in Steam, the game's Properties, Launch
+options), or turn on the developer console in the game's Options (Keyboard, Advanced) and open it with the key
+under Esc. Lines are typed at its foot and run with Enter.
+
 1. **Put the clip in the game's folder as `voice_input.wav`.** The game's folder is the one that holds the game's
    executable: in Steam, the game's Manage, Browse local files. Copy the 22050 Hz clip for `vaudio_celt` and
    `vaudio_celt_high`, the 11025 Hz clip for `vaudio_speex`, and rename the copy `voice_input.wav`. That folder is
    measured for TF2's 64-bit game; for the 32-bit game the record's notes do not name it, and if nothing is
    written, try the `tf` folder inside it.
 2. **Start the game.** For `vaudio_celt` and `vaudio_celt_high`, start TF2 as usual. For `vaudio_speex`, start the
-   32-bit game from a command prompt in the game's folder, as the record's runs did:
-   `tf.exe -force32bit -game tf -console`. The 64-bit game cannot load the Speex module: it runs `vaudio_celt` in
+   32-bit game, as the record's runs did (measured: the run sheets), with Steam running: open PowerShell or a
+   command prompt in the game's folder (in File Explorer's address bar there, type `powershell` and press Enter)
+   and type, in that folder:
+
+   ```
+   .\tf.exe -force32bit -game tf -console
+   ```
+
+   The 64-bit game cannot load the Speex module: it runs `vaudio_celt` in
    its place and does not say so in the recording (read and measured, finding 31).
 3. **Choose the codec and load a map**, in the game's console (the codec must be set before the map loads). One of:
 
@@ -87,14 +100,16 @@ These steps are the record's runs (the record's entry "The file-input runs, meas
    No server variable needs setting: `sv_allow_voice_from_file` is 1 by default (read in the game's `find voice`
    output). The game still needs a working microphone device, though it does not use it (read, W3-03's report).
 5. **Record.** Type `+voicerecord` in the console and press Enter. Wait 15 s. Type `-voicerecord` and press Enter.
-   No key needs to be bound. To see which codec ran, type `voice_showincoming 1` before the press: the console
-   then prints one line a packet with its sample count (read, finding 27), 512 under `vaudio_celt` and 1024 under
+   No key needs to be bound. The game sends the voice in packets: a packet is one piece of coded voice, sent at
+   once, and decoded it gives a set number of samples. To see which codec ran, type `voice_showincoming 1` before
+   the press: the console then prints one line a packet with its sample count (read, finding 27), 512 under `vaudio_celt` and 1024 under
    `vaudio_celt_high` (measured, Set H), multiples of 160 under `vaudio_speex` (measured, Set O: 320 and 480;
    finding 31). A count of 512 under `vaudio_speex` is the 64-bit game's fall-back.
 6. **Copy the files away before the next press.** The game writes `voice_decompressed.wav` and `voice_micdata.wav`
    into the same folder (measured for TF2, Set H), and writes them again at every release of the key (measured
-   again on 2026-11-13, when a sitting was lost to it). Copy both somewhere else and rename them, for example
-   `celt_gain1.wav` and `celt_micdata.wav`.
+   again on 2026-11-13, when a sitting was lost to it). Copy both into the repository's folder, the one you run the
+   commands from, and rename them, for example `celt_gain1.wav` and `celt_micdata.wav`: the commands below find
+   them there. A file elsewhere is given with its path, in quotes if it holds a space.
 7. **For `gain`, record again at `voice_maxgain 10`**, with the same codec and clip: `voice_maxgain 10`, then step
    5, then step 6 (for example `celt_gain10.wav`).
 
@@ -151,6 +166,13 @@ second file if it was another, or the `voice_micdata.wav` the game wrote with `-
 repository's CELT on the input from its third sample, frame by frame, and compares its decoded samples with the
 recording's at no lag (the method of W3-08's report).
 
+**A clip at another rate.** The game takes a file's samples at its codec's rate whatever its header says (read,
+W3-03's report): given the 11025 Hz clip under `vaudio_celt`, it coded it as 22050 Hz sound, at double speed, and
+its recording matched this repository's CELT run the same way in 145,919 of 145,920 samples (measured, Set I,
+finding 31). Give that clip as the second file with `--any-rate`, for example
+`node tests/reproduce.mjs celt seti_gain1.wav clips\voice_input_11025.wav --any-rate`; without the option the
+script refuses a second file at another rate and names the option.
+
 **What to expect.** All but a few samples equal, each of the others one step off: the record has 292,351 of
 292,352 for `vaudio_celt` and 292,789 of 292,864 for `vaudio_celt_high` (measured, Set H, finding 31). The script
 passes at most 0.05% of samples one step off and none further, which is Set H's larger share doubled (a choice of
@@ -195,7 +217,9 @@ O; the record's entry "The file-input runs, measured again").
 The last line gives the reason. Look for these, in order:
 
 1. **A step was missed.** The script names what it can see: a file at the wrong rate, a file with no sound, a file
-   that is not whole packets of the codec named, two files at different rates. A recording of 512-sample packets
+   that is not whole packets of the codec named, two files at different rates, a recording that ends more than one
+   packet before the clip does (the key was released early: hold it until the clip has ended, about 15 s), two
+   recordings for `gain` whose lengths are more than one packet apart. A recording of 512-sample packets
    from `vaudio_speex` is the 64-bit game's fall-back (step 2). A `voice_maxgain 10` recording checked as 1 differs
    everywhere.
 2. **The build differs.** Compare the game's `version` line in the console with the record's runs: Set O ran TF2

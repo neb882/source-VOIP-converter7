@@ -6,14 +6,16 @@
 //
 // Both are voice_decompressed.wav from one input and one codec. The rule is
 // the engine's (receiverAutoGain at voice_maxgain 10, voice_avggain 0.5,
-// voice_scale 1), compared by tests/gain-exact.mjs's compareGain. The last
+// voice_scale 1), compared by compareGain (gain-compare.mjs, which
+// tests/gain-exact.mjs uses too). The last
 // packet differs between two key presses (measured, Set H) and is counted
 // apart: --packet gives its length, by default 512 at 22050 Hz (vaudio_celt's
 // packet) and 160 at 11025 Hz (one Speex frame: a choice of this script; the
 // record has no gain-10 figure under Speex but the whole render's). Two files of different lengths are compared over the shorter, and
-// the check says so. Expected: no sample differs before the last packet
+// the check says so; two files more than one packet apart in length are
+// refused (a key released early). Expected: no sample differs before the last packet
 // (measured, Set H: 0 of 291,840).
-import { compareGain } from '../gain-exact.mjs';
+import { compareGain } from './gain-compare.mjs';
 import { cannot, describe, differs, fmt, hasSound, parseArgs, readWav, wholeOption } from './common.mjs';
 
 const PACKETS = { 22050: 512, 11025: 160 };
@@ -31,7 +33,10 @@ export default {
     if (one.rate !== ten.rate) throw differs(`the two files are at different rates (${one.rate} and ${ten.rate} Hz): not two recordings of one codec`);
     if (!(one.rate in PACKETS)) throw differs(`the files are at ${one.rate} Hz; the game writes 22050 Hz under vaudio_celt and vaudio_celt_high and 11025 Hz under vaudio_speex`);
     const packet = wholeOption(options, 'packet', PACKETS[one.rate], 1, 8192);
-    const n = Math.min(one.samples.length, ten.samples.length);
+    const n = Math.min(one.samples.length, ten.samples.length), apart = Math.abs(one.samples.length - ten.samples.length);
+    if (apart > packet) {
+      throw differs(`the files differ in length by ${fmt(apart)} samples (${(apart / one.rate).toFixed(2)} s), more than one packet of ${fmt(packet)}: two key presses on one clip end within a packet of each other; hold the key until the clip has ended, about 15 s, each time`);
+    }
     if (one.samples.length !== ten.samples.length) {
       report.info(`the files differ in length (${fmt(one.samples.length)} and ${fmt(ten.samples.length)} samples): compared over the shorter, ${fmt(n)}`);
     }

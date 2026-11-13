@@ -15,11 +15,13 @@
 // runs (finding 31; Set O): the whole render of the `speex` profile
 // (TF2Audio.process) with the gain's output taken at onGain, against the
 // file at the codec's delay (80 samples). Expected: every sample equal
-// (measured, Set O: 145,966 of 145,966 at voice_maxgain 1 and at 10).
+// (measured, Set O: 145,966 of 145,966 at voice_maxgain 1 and at 10). A
+// file 1 more than one 160-sample frame shorter or longer than the input's
+// frames is refused (celt.mjs, lengthFloor).
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadEngine } from '../lib/engine.cjs';
-import { inputFor } from './celt.mjs';
+import { inputFor, lengthFloor } from './celt.mjs';
 import { cannot, describe, differs, fmt, hasSound, numberOption, parseArgs, readWav } from './common.mjs';
 
 export const RATE = 11025;
@@ -62,6 +64,7 @@ export default {
       input = padded;
       report.info('then two zeros, as the game\'s capture ends');
     }
+    lengthFloor(g.length, Math.ceil(input.length / FRAME) * FRAME, FRAME, 'frame', RATE);
     report.info(`render: the speex profile at voice_maxgain ${maxGain}, voice_avggain 0.5, voice_scale 1, the gain's output`);
     const { samples: mine, lag } = await rendered(input, maxGain);
     const n = Math.min(mine.length, g.length - lag);

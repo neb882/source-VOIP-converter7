@@ -13,7 +13,8 @@
 //
 //   node tests/gain-exact.mjs --files <gain 1 file> <gain 10 file>
 //     The same check on two files given by path (exactCheck). The comparison
-//     itself is exported (compareGain) for tests/reproduce/gain.mjs.
+//     itself is tests/reproduce/gain-compare.mjs's compareGain, which
+//     tests/reproduce/gain.mjs loads without this file's child process.
 //
 //   node tests/gain-exact.mjs --synthetic
 //     The same check on two files it makes in a temporary folder: a seeded
@@ -30,9 +31,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { loadEngine as loadShared, sourceRoot } from './lib/engine.cjs';
+import { compareGain } from './reproduce/gain-compare.mjs';
 
-const root = sourceRoot();
+export { compareGain };
 
 // The engine's rule as docs/work-orders/W3-05-receiver-gain.md writes it
 // (from docs/reports/W3-03-engine-binary.md, section 2; the script that
@@ -74,10 +75,6 @@ export function engineGain(xs, settings, notDecoded = null) {
     }
   }
   return { out, fixedAt };
-}
-
-function loadEngine() {
-  return loadShared({ root }).audio;
 }
 
 // A 16-bit mono PCM WAV: its rate and samples (Int16Array).
@@ -123,28 +120,6 @@ function find(folder, name) {
 }
 
 const PACKET = 512;
-
-// The comparison on two files' samples (Int16Arrays of one length): the
-// engine's receiverAutoGain at voice_maxgain 10 run on gain1, rounded back
-// to 16 bits, against gain10. Counts the samples that differ before the last
-// `packet` samples and in them, and the samples before them that the gain
-// changed (where it is not 1). tests/reproduce/gain.mjs calls it with the
-// samples it read itself.
-export function compareGain(gain1, gain10, packet = PACKET) {
-  if (gain1.length !== gain10.length) throw new Error(`the files differ in length (${gain1.length} and ${gain10.length} samples)`);
-  const n = gain1.length, body = n - packet;
-  const A = loadEngine();
-  const x = Float32Array.from(gain1, v => v / 32768);
-  const y = A.receiverAutoGain(x, { maxGain: 10, avgGain: 0.5, scale: 1 });
-  let before = 0, last = 0, changed = 0;
-  for (let i = 0; i < n; i++) {
-    const v = Math.round(y[i] * 32768);
-    if (i < body && v !== gain1[i]) changed++;
-    if (v === gain10[i]) continue;
-    if (i < body) before++; else last++;
-  }
-  return { before, last, body, packet, changed };
-}
 
 // Set H's check on two files given by path: gain1 at voice_maxgain 1, gain10
 // at 10, both 22050 Hz and of one length.
