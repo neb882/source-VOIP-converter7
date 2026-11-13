@@ -16,7 +16,7 @@
     },
     {
       "order": "W3-02e, W3-02f",
-      "state": "a planner started 2026-11-13 (branch claude/w3-02ef-plan): the two old sections of W3-02-receiver-queue.md written again as one order against main after the engine's split, W3-02c-2, W3-02d and BC-4",
+      "state": "planned again 2026-11-13 as one order of two parts (docs/work-orders/W3-02ef-lane-and-flat-rule.md, the orchestrator's rulings at its end): W3-02f, the flat re-timing rule taken out of the engine (3 hours), its builder started at once; W3-02e, the lane and the real-take panel on the game's queue (8 hours), after a plan review and the orchestrator's private look. f is merged before W3-02c-3a.",
       "note": "The codec lane's marks and the real-take check's words (W3-02e); the flat re-timing rule retired (W3-02f)."
     },
     {
@@ -34,7 +34,7 @@
     },
     {
       "order": "W3-02e, W3-02f",
-      "file": "docs/work-orders/W3-02-receiver-queue.md",
+      "file": "docs/work-orders/W3-02ef-lane-and-flat-rule.md",
       "after": "W3-02d-1 (merged 2026-11-13)",
       "line": "the codec lane's marks and the real-take check; the flat re-timing rule retired; in flight since 2026-11-13 (in_flight)."
     },

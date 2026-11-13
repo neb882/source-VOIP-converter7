@@ -491,3 +491,6 @@ monitor, about 102 ms at 66.67 frames a second and 357 ms at 300 (inferred, this
 chain growing about 2 MB an hour in `steamTimeline`'s open-ended frame log (inferred from the code, with or
 without the queue) goes on PROGRESS's deferred list; this order does not fix it. A plan reviewer reads the order
 before part a is built.
+
+*Added 2026-11-13 (the orchestrator), from W3-02ef's ruling 9:* W3-02f is merged before part a. After it no render
+refuses `retime`, so part a's item 4 and its check of the refusals lose `retime`: the chain does not name it.

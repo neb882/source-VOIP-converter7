@@ -560,3 +560,17 @@ Each with the planner's recommendation.
    other way round costs part f a file outside its list (`engine/live-chain.js`).
 
 The private looks are in the planning report, under "For the orchestrator's private look".
+
+## Rulings (2026-11-13, the orchestrator)
+
+All nine as the planner recommends: no second reader for f; the console's `voice_retime` alias and the old saved
+`retime` reading stay; after f the engine ignores `opts.retime` like any unread name; `spans` leaves `steamTimeline`
+with the rule; the panel keeps lining a take up against the render on screen, on the queue too, with the 20 ms
+frame gate's phrases; `tests/accuracy.mjs` keeps its "5.8 ms steps" count; no mark for jitter's bunches;
+`reference.js`'s 256-sample comment is corrected in f; f is merged before W3-02c-3a, whose item 4 then loses
+`retime` (written into that order the same day). Part e tests for `channel.source`, as the planner found against
+W3-02c-3b.
+
+The order of work: f's builder starts at once. A plan reviewer reads the whole order meanwhile; an edit it finds
+for f reaches f's builder before its merge. Part e waits for the plan review and for the orchestrator's private
+look before its build (the report's item 1).
