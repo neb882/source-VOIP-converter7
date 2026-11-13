@@ -91,14 +91,13 @@
   // timeline, as every render before. 'game': the receiver's voice channel
   // plays them on the game's clock (steamChannel). 'game' runs where the
   // render has the game's own packets: the steam codec, on, with the sender's
-  // messages (not a demo's received voice), and without re-timing, which
-  // moves the spurts by a rule of its own; the older codecs have no sender
+  // messages (not a demo's received voice); the older codecs have no sender
   // model and their ring is another size. Anywhere else it is refused, never
   // ignored: a render that asked for it and was given the source's timeline
   // would let a caller compare two renders that are one. Any other value is
   // refused too. process() and createRender() call this at their entry, with
   // their own reading of the other options; true for 'game'.
-  function steamGameTimeline(value, { codecKey, codec, enableCodec, received, retime }) {
+  function steamGameTimeline(value, { codecKey, codec, enableCodec, received }) {
     if (value === undefined || value === null || value === 'source') return false;
     if (value !== 'game') {
       let text;
@@ -109,7 +108,6 @@
     if (received) refuse('a demo\'s received voice (opts.received) has no packets of the sender\'s to give the channel');
     if (!enableCodec) refuse('with the codec bypassed (enableWarble false) no packet reaches the channel');
     if (codec.senderGate?.rule !== 'steam') refuse(`it runs on the steam codec only, and ${codecKey} has no sender model`);
-    if (retime) refuse('it and retime exclude each other; re-timing moves the spurts by a rule of its own');
     return true;
   }
 
@@ -373,8 +371,8 @@
   //
   // A render on the game's timeline (W3-02c-2) passes cfg.channel, a
   // steamChannel, and no gain. Then each message runs as above (the counts,
-  // the spurt's anchor, the resampler, the place, the refusal, the frame log,
-  // the cursor and the spans) but nothing is laid: what arrived goes to the
+  // the spurt's anchor, the resampler, the place, the refusal, the frame log
+  // and the cursor) but nothing is laid: what arrived goes to the
   // channel on its message's tick instead, with its source position, the
   // channel's gain running on it there. A sound packet: the resampler's
   // samples over 32768, whole, at its place; a silence record: its resampled
@@ -391,7 +389,6 @@
     let buf = new Float32Array(cfg.capacity || 1 << 16), base = 0, high = 0;
     let spurt = null, cursor = 0, open = false, laid = false, calls = 0, dropped = 0, moved = 0;
     let messages = 0, lostMessages = 0, refusedMessages = 0;
-    const spans = [];   // each spurt's laid spans, [from, to) on the voice timeline
     const centre = (i) => (i * STEAM_FRAME + STEAM_FRAME / 2 - lookahead) * STEAM_VOICE_RATE / STEAM_RATE;
 
     function lay(y, at, floor) {
@@ -437,7 +434,6 @@
         if (!made.silence && msg.spurt !== spurt) {
           spurt = msg.spurt; open = true; laid = false;
           cursor = Math.round((msg.start - lookahead) * STEAM_VOICE_RATE / STEAM_RATE);
-          spans.push([cursor, cursor]);
         }
         const pcm = made.pcm;
         if (pcm.length) {
@@ -479,13 +475,11 @@
                 cfg.onMove?.(at, given);
                 moved++;
                 at = given;
-                spans.push([at, at]);
               }
             }
             lay(y, at, given);
             mark(made.blocks, y.length, at);
             cursor = at + y.length;
-            spans[spans.length - 1][1] = cursor;
             laid = true;
           }
         }
@@ -517,8 +511,6 @@
         return { from, to, frameLog: frameLog.subarray(from, to), frameBytes: frameBytes.subarray(from, to), frameMode: frameMode.slice(from, to) };
       },
       slots: () => ({ frames: slots, frameLog, frameBytes, frameMode }),
-      // The spurts' laid spans, inside [0, voiceLength).
-      spans: () => spans.map(([a, b]) => [Math.max(a, 0), Math.min(b, voiceLength)]).filter(([a, b]) => b > a),
       calls: () => calls,
       dropped: () => dropped,
       moved: () => moved,

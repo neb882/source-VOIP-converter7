@@ -158,7 +158,7 @@ The suites hold each stage to the rule as read and to numbers taken from the rec
 | `engine/dsp.js` | signal arithmetic with nothing of the game in it: the seeded draw, the yield, the FFT, the downmix, the resampler, the filters, the clip, 16-bit rounding and the WAV, each whole and a piece at a time |
 | `engine/gain.js` | the receiver's gain |
 | `engine/mix.js` | the mixer and the output stage |
-| `engine/network.js` | loss and jitter: the retiming, the loss masks, the steam profile's loss by message and its arrival times |
+| `engine/network.js` | loss and jitter: the loss masks, the steam profile's loss by message and its arrival times |
 | `engine/codec.js` | what the renderers share about a profile and its codec: the gate's defaults and threshold, the profile's filters, the frame codes, a demo's frame statistics, the call to the loader |
 | `engine/room.js` | the room's settings and what the mix is told |
 | `engine/steam.js` | the steam profile: its constants, its capture, its sender's options, its timeline, the voice channel on the game's timeline, its codec information |

@@ -9,10 +9,10 @@
     hardClip, joinSamples, microYield, mulberry32, resampleSinc, sincLength } = E.dsp;
   const { createGain, decodedFromFrames, gainLead, receiverAutoGain } = E.gain;
   const { createMixStage, createOutStage, deviceRateOf, joinInts } = E.mix;
-  const { buildLossMask, retimeSpurts, steamArrivalPlan, steamLoser } = E.network;
+  const { buildLossMask, steamArrivalPlan, steamLoser } = E.network;
   const { DEFAULT_SENDER_GATE, celtModeRate, gateThresholdDb, loadOpusModule, profileEq, receivedCodecInfo } = E.codec;
   const { resolveRoom, roomPreset, tailAtDevice } = E.room;
-  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel,
+  const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel,
     steamCodecInfo, steamGameTimeline, steamModules, steamPlayedInfo, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
@@ -42,14 +42,14 @@
   // is done to the object while it runs. The lists below say where each is
   // first used.
   // The options process() uses only after B, each first used after the
-  // codec stage (the receiver's gain, re-timing, the room, volume, the
-  // device, the game's timeline: the channel takes B's messages and decoded
-  // packets and changes nothing in them). An option used at or before B must
+  // codec stage (the receiver's gain, the room, volume, the device, the
+  // game's timeline: the channel takes B's messages and decoded packets and
+  // changes nothing in them). An option used at or before B must
   // not be on this list. jitterMs is not on it: the other profiles draw their
   // late frames in the codec stage. On `steam` it is used only after B (the
   // arrival times, BC-4), and readOptions puts it in the keys as 0 there, so
   // a changed jitter on `steam` starts from B.
-  const AFTER_B_OPTIONS = ['voiceScale', 'agc', 'avgGain', 'maxGain', 'retime', 'volume',
+  const AFTER_B_OPTIONS = ['voiceScale', 'agc', 'avgGain', 'maxGain', 'volume',
     'room', 'underwater', 'listenerPos', 'dspRoom', 'customEnv', 'deviceRate', 'timeline', 'fps', 'bufferMs'];
   // The options used only after A: those, and the sender's and the
   // network's, first used in the codec stage. An option used at or before A
@@ -91,7 +91,7 @@
     const codecKey = Object.hasOwn(CODEC_PROFILES, o.codec) ? o.codec : 'steam';
     const codec = CODEC_PROFILES[codecKey];
     const engine = VOICE_ENGINE;
-    const seedNumber = finiteOr(o.seed, 0xC0FFEE), seed = seedNumber >>> 0;
+    const seed = finiteOr(o.seed, 0xC0FFEE) >>> 0;
     // The room, made for the render's first sample (null: none, nothing of
     // it runs).
     const room = makeRoom ? resolveRoom(o, seed) : null;
@@ -121,7 +121,7 @@
     // The game's timeline (W3-02c-2), or a RangeError where it was asked for
     // and cannot run (steamGameTimeline). fps and bufferMs are handed to the
     // channel as they were given.
-    const game = steamGameTimeline(o.timeline, { codecKey, codec, enableCodec, received, retime: o.retime });
+    const game = steamGameTimeline(o.timeline, { codecKey, codec, enableCodec, received });
     // opts.arriveAt (BC-4), or a RangeError where it cannot run.
     const arriveAt = steamArriveAt(o.arriveAt, game);
     // Steam's sender and decoder run (the steam path): jitter draws no late
@@ -134,7 +134,7 @@
       steamUptime: o.steamUptime == null ? null : o.steamUptime, seed, frameMs: framesPerPacket,
       loseMessage: o.loseMessage, arriveAt, swrKernel: o.swrKernel, onDecoded: o.onDecoded, onResampled: o.onResampled
     };
-    return { o, codecKey, codec, seedNumber, seed, room, micGain, captureChannel, hp, lp, bits, lossPct, jitterMs,
+    return { o, codecKey, codec, seed, room, micGain, captureChannel, hp, lp, bits, lossPct, jitterMs,
       enableCodec, autoGain, gateSpec, gateOn, gateDb, avgGain, maxGain, voiceScale, volume, received, receivedInfo,
       deviceRate, framesPerPacket, game, arriveAt, used };
   }
@@ -283,8 +283,8 @@
   }
 
   // A copy of a codecInfo held in B, for each render made from it: its
-  // arrays and objects are the render's own (re-timing writes into the frame
-  // log, and a caller may write into what it is given).
+  // arrays and objects are the render's own (a caller may write into what it
+  // is given).
   function copyInfo(value) {
     if (ArrayBuffer.isView(value)) return value.slice();
     if (Array.isArray(value)) return value.map(copyInfo);
@@ -300,12 +300,12 @@
   // is, over its first 14 s, the render of the whole source, sample for
   // sample (W4-01b, step 3), as tests/stages.verify.mjs shows for every
   // profile at these settings. Not for a demo's voice, with loss or jitter,
-  // with talk-spurt re-timing, with a room that runs or under water (none
-  // of them was shown), with a test's hook (loseMessage, arriveAt), nor at a
-  // device rate the test does not cover.
+  // with a room that runs or under water (none of them was shown), with a
+  // test's hook (loseMessage, arriveAt), nor at a device rate the test does
+  // not cover.
   const PREVIEW_DEVICE_RATES = [44100, 48000];
   function previewAllowed(opts = {}) {
-    if (opts.received || opts.retime || typeof opts.loseMessage === 'function' || opts.arriveAt != null) return false;
+    if (opts.received || typeof opts.loseMessage === 'function' || opts.arriveAt != null) return false;
     if (clamp(finiteOr(opts.lossPct, 0), 0, 100) > 0 || clamp(finiteOr(opts.jitterMs, 0), 0, 500) > 0) return false;
     let room;
     try { room = roomPreset(opts); } catch (e) { return false; }
@@ -402,7 +402,6 @@
    *                 copy of the block's sum before the clip (an Int32Array;
    *                 with a room, the room path's output, its tail included)
    *   agc:          receiver auto-gain (false = unity gain)             [true]
-   *   retime:       TF2's early talk-spurt starts (finding 19)          [false]
    *   avgGain:      voice_avggain, mean (0) to peak (1) normalization   [0.5]
    *   maxGain:      voice_maxgain gain cap                              [10]
    *   voiceScale:   voice_scale, applied inside the auto-gain           [1]
@@ -416,9 +415,9 @@
    *                 the receiver's voice channel (voice-channel.js: the wait,
    *                 the queue, the one sample dropped from every packet, the
    *                 fade, a gain reset at each channel opened). `steam` only,
-   *                 with the codec on, no `received` and no `retime`; anywhere
-   *                 else, and for any other value, a RangeError. The page
-   *                 renders Steam voice on it by default since W3-02d-1; this
+   *                 with the codec on and no `received`; anywhere else, and
+   *                 for any other value, a RangeError. The page renders
+   *                 Steam voice on it by default since W3-02d-1; this
    *                 engine's own default is the source's        ['source']
    *   fps, bufferMs: with timeline 'game', the listener's frames a second
    *                 and voice_buffer_ms, handed to the channel as given (it
@@ -611,8 +610,8 @@
       // and the codecInfo. Loss and jitter are drawn above it. Every option
       // used above is in B's key, as it is used: none of them may be put on
       // AFTER_B_OPTIONS. Below, the decoded packets and their blocks are
-      // read only, the frame log is a new array, and the frame path's
-      // samples and codecInfo are copied before re-timing writes into them.
+      // read only, the frame log is a new array, the frame path's samples are
+      // never written to, and its codecInfo is copied for each render.
       // `steam`'s messages are kept without their `pcm`, the encoder's
       // input, which nothing after B reads.
       if (kept && coded) kept.keep('b', b.kind === 'steam' ? { ...b, messages: b.messages.map(({ pcm, ...rest }) => rest) } : b);
@@ -621,8 +620,6 @@
 
     /* ---- after B: used from here on, the receiver's settings ---- */
     const { autoGain, avgGain, maxGain, voiceScale } = r;
-    // Re-timing's own seed, so loss patterns stay put.
-    const retimeSeed = (r.seedNumber ^ 0x9E3779B9) >>> 0;
     let samples, codecInfo, steamVoice = null, lead = null;
     if (steamPath) {
       // Steam's resampler, the 12-frame refusal, the gain and the laying,
@@ -667,28 +664,15 @@
       codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate, lossSet), framesPerPacket };
       if (played) codecInfo = steamPlayedInfo(codecInfo, played, trip.lookahead);
       if (arrivals) codecInfo.arrivals = { jitterMs: arrivals.jitterMs, fps: arrivals.fps, floorTicks: arrivals.floorTicks, ...channel.arrivals() };
-      // The receiver's re-timing (finding 19), on the voice-rate timeline: the
-      // laid spurts, moved earlier as the frame path moves its decoded sound;
-      // the slots of 480 codec samples are 882 here.
-      if (o.retime) {
-        codecInfo.retimed = retimeSpurts(steamVoice, { frameLog: codecInfo.frameLog, frameBytes: codecInfo.frameBytes,
-          frameSamples: STEAM_FRAME * STEAM_VOICE_RATE / STEAM_RATE, lookahead: Math.round(trip.lookahead * STEAM_VOICE_RATE / STEAM_RATE),
-          spans: timeline.spans() },
-        STEAM_VOICE_RATE, mulberry32(retimeSeed));
-      }
       report(0.72);
     } else if (b.kind === 'frames') {
-      // Re-timing moves samples and the frame log in place: it is given
-      // copies of B's.
-      samples = o.retime ? b.samples.slice() : b.samples;
+      // B's samples are read only after it; its codecInfo is copied, since a
+      // caller may write into a render's.
+      samples = b.samples;
       codecInfo = copyInfo(b.info);
       // The engine codecs: the decoded samples the delay's trim dropped, for
       // the gain to run on first (gainLead).
       if (autoGain && gainLead(codec, codecInfo.lookahead)) lead = b.head;
-      // The receiver's re-timing, from its own seed so loss patterns stay put.
-      // It never moves the first spurt, so the samples in `lead` stay where
-      // they are.
-      if (o.retime) codecInfo.retimed = retimeSpurts(samples, codecInfo, codecRate, mulberry32(retimeSeed));
     } else {
       // A demo's voice, or the codec skipped: stage 4 runs on A's samples.
       samples = b.samples;

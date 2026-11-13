@@ -24,8 +24,8 @@
 //      changed while the render runs (read once, at the call), values the
 //      engine reads differently that look alike (the keys hold each option
 //      as the stages use it), a stages object that cannot keep, a caller
-//      writing into what it was given, what `steam`'s B holds, a render
-//      stopped part way;
+//      writing into what it was given, retime (which the engine no longer
+//      reads, W3-02f), what `steam`'s B holds, a render stopped part way;
 //   4. W4-01b's step 3: the first 14 s of a render of a source's first 15 s
 //      are the first 14 s of the render of the whole source, sample for
 //      sample, for each profile on three seeded clips and for each setting
@@ -114,7 +114,7 @@ console.log(`  (${((performance.now() - t1) / 1000).toFixed(1)} s)`);
 // changed value for each (two for some), each changed alone.
 // Since W3-02d-1 the page renders on the game's timeline by default
 // (timeline 'game' at 300 frames a second, voice_buffer_ms 100), and no
-// longer sends retime, which is the engine's own name here.
+// longer sends retime, which since W3-02f the engine does not read either.
 const RENDER_OPTION_NAMES = ['codec', 'room', 'underwater', 'captureChannel', 'micGain', 'voiceScale', 'hp', 'lp', 'bits', 'agc',
   'maxGain', 'avgGain', 'gate', 'gateThresholdDb', 'steamUptime', 'volume', 'deviceRate', 'lossPct', 'frameMs', 'enableWarble', 'jitterMs',
   'timeline', 'fps', 'bufferMs'];
@@ -156,7 +156,7 @@ const CHANGES = {
 // changed alone: [name, base options, changed options, source?] (the
 // source a demo's voice where it is one). With the page's cases these change
 // every name process() reads (the check below).
-const ENGINE_OPTION_NAMES = ['listenerPos', 'dspRoom', 'customEnv', 'seed', 'received', 'swrKernel', 'retime'];
+const ENGINE_OPTION_NAMES = ['listenerPos', 'dspRoom', 'customEnv', 'seed', 'received', 'swrKernel'];
 const CELT_BASE = { ...SOURCE_BASE, codec: 'celt_22', steamUptime: undefined };
 const demoVoice = receivedVoice(5, 23);
 const ENGINE_OPTION_CASES = [
@@ -170,9 +170,7 @@ const ENGINE_OPTION_CASES = [
     customEnv: { duration: 1, decay: 2, mix: 0.3 } }, { customEnv: { duration: 1, decay: 2, mix: 0.5 } }],
   ['steam: {"swrKernel":"c"}', { ...PAGE_DEFAULTS }, { swrKernel: 'c' }],
   ['steam, a demo\'s samples: {"received":…}', { ...SOURCE_BASE, micGain: 2 }, { received: demoVoice.received },
-    buffer(demoVoice.samples, 24000)],
-  // retime, the engine's own since W3-02d-1: the page no longer sends it.
-  ['steam, the file\'s own timing: {"retime":true}', { ...SOURCE_BASE }, { retime: true }]
+    buffer(demoVoice.samples, 24000)]
 ];
 // A later order's case, in the same form. W3-02c-2's timeline, fps and
 // bufferMs are the page's since W3-02d-1, in the cases above.
@@ -262,8 +260,8 @@ check('every option the page sends has a changed value here, and every name the 
 
 console.log('\n[3] The keys');
 {
-  // The file's own timing (W3-02d-1): the base feeds a celt_22 render and
-  // re-timing below, which the game's timeline refuses.
+  // The file's own timing (W3-02d-1): the base feeds a celt_22 render
+  // below, which the game's timeline refuses.
   const x = voice(4, 48000, 31), source = buffer(x, 48000), base = { ...SOURCE_BASE };
   const fresh = async (opts) => hashes(await A.process(source, opts));
   const warmed = async (key = 'k') => { const stages = {}; await A.process(source, { ...base, stages, sourceKey: key }); return stages; };
@@ -431,32 +429,49 @@ console.log('\n[3] The keys');
         error ? `${error.name}: ${error.message}` : JSON.stringify(stages));
     }
   }
-  // Nothing kept is written to: a caller writing into what it was given,
-  // re-timing (which works in place), a render stopped. On a source whose
-  // re-timing moves a spurt on both paths.
+  // Nothing kept is written to: a caller writing into what it was given (the
+  // render that kept B, and a render made from it), a render stopped. With
+  // them, retime, which the engine no longer reads (W3-02f): it is in both
+  // keys as it is given, as any name the engine does not read is.
   {
-    const rx = voice(4, 48000, 36), retimable = buffer(rx, 48000);
-    const freshOf = async (opts) => hashes(await A.process(retimable, opts));
+    const rx = voice(4, 48000, 36), written = buffer(rx, 48000);
+    const freshOf = async (opts) => hashes(await A.process(written, opts));
     const celt = { ...base, codec: 'celt_22', steamUptime: undefined, gate: true };
     const stages = {};
-    const r1 = await A.process(retimable, { ...celt, stages, sourceKey: 'r' });
+    const r1 = await A.process(written, { ...celt, stages, sourceKey: 'r' });
     r1.codecInfo.frameLog.fill(0);
     r1.codecInfo.frameBytes.fill(0);
     r1.codecInfo.modes.celt = -1;
-    const retimed = await A.process(retimable, { ...celt, retime: true, stages, sourceKey: 'r' });
-    const r2 = await A.process(retimable, { ...celt, stages, sourceKey: 'r' });
-    check('a caller writing into a render\'s codecInfo, and re-timing in place, change nothing kept (the frame path, from B)',
-      taken(stages).b === 2 && await hashes(r2) === await freshOf(celt) && await hashes(retimed) === await freshOf({ ...celt, retime: true })
-      && retimed.codecInfo.retimed.length > 0, `${retimed.codecInfo.retimed.length} spurt moved; ${counts(stages)}`);
+    const r2 = await A.process(written, { ...celt, stages, sourceKey: 'r' });
+    const r2Hashes = await hashes(r2);
+    r2.codecInfo.frameLog.fill(0);
+    r2.codecInfo.frameBytes.fill(0);
+    r2.codecInfo.modes.celt = -1;
+    const r3 = await A.process(written, { ...celt, stages, sourceKey: 'r' });
+    check('a caller writing into a render\'s codecInfo, the render that kept B and one made from it, changes nothing kept (the frame path: three renders, B reused by each after the first, 2 times)',
+      taken(stages).b === 2 && r2Hashes === await freshOf(celt) && await hashes(r3) === await freshOf(celt), counts(stages));
     const steamStages = {};
-    await A.process(retimable, { ...base, stages: steamStages, sourceKey: 'r' });
-    const s1 = await A.process(retimable, { ...base, retime: true, stages: steamStages, sourceKey: 'r' });
+    await A.process(written, { ...base, stages: steamStages, sourceKey: 'r' });
+    const s1 = await A.process(written, { ...base, stages: steamStages, sourceKey: 'r' });
     const s1Hashes = await hashes(s1);
     s1.codecInfo.frameLog.fill(0);
     s1.codecInfo.sender.spurts.length = 0;
-    const s2 = await A.process(retimable, { ...base, stages: steamStages, sourceKey: 'r' });
-    check('the same on `steam`: re-timing and a caller\'s writes change nothing kept', taken(steamStages).b === 2 && s1.codecInfo.retimed.length > 0
-      && await hashes(s2) === await freshOf(base) && s1Hashes === await freshOf({ ...base, retime: true }), counts(steamStages));
+    const s2 = await A.process(written, { ...base, stages: steamStages, sourceKey: 'r' });
+    check('the same on `steam`: a caller\'s writes change nothing kept (three renders, B reused by each after the first, 2 times)', taken(steamStages).b === 2
+      && s1Hashes === await freshOf(base) && await hashes(s2) === await freshOf(base), counts(steamStages));
+    // retime with warm stages of the same source, on both paths: neither A nor
+    // B is taken, and the render is a fresh render's and the render without it.
+    const unread = [];
+    for (const [name, opts] of [['celt_22', celt], ['steam', base]]) {
+      const warm = {};
+      await A.process(written, { ...opts, stages: warm, sourceKey: 'u' });
+      const r = await A.process(written, { ...opts, retime: true, stages: warm, sourceKey: 'u' });
+      const got = taken(warm), h = await hashes(r);
+      const same = h === await freshOf({ ...opts, retime: true }) && h === await freshOf(opts);
+      unread.push({ name, ok: got.a === 0 && got.b === 0 && same, same, counts: counts(warm) });
+    }
+    check('retime, which the engine no longer reads, with warm stages of the same source: neither A nor B is taken, and the render is a fresh render\'s and the render without it (celt_22 and `steam`)',
+      unread.every((u) => u.ok), unread.map((u) => `${u.name}: ${u.same ? 'as fresh' : 'differs'}, ${u.counts}`).join('; '));
     // steam's B keeps the sender's messages without their pcm, the encoder's
     // input, which nothing after B reads (the second reader's finding 5).
     const messages = steamStages.b.value.messages;
@@ -518,12 +533,13 @@ console.log('\n[4] The first 14 s of a render of the first 15 s are the whole re
       at === -1 ? 'sample for sample' : `first differing sample ${at}`);
   }
   // Nothing else is allowed.
-  const refused = [{ lossPct: 5 }, { jitterMs: 50 }, { retime: true }, { room: { preset: 6 } }, { underwater: true },
+  const refused = [{ lossPct: 5 }, { jitterMs: 50 }, { room: { preset: 6 } }, { underwater: true },
     { room: { custom: { duration: 1, decay: 2, mix: 0.3 } } }, { room: { auto: 'tunnel' } }, { deviceRate: 96000 },
     { received: { frameLog: [2], frameBytes: [60], frameMs: 20, spurts: 1 } }, { loseMessage: () => false }, { arriveAt: (t) => t }];
-  check('previewAllowed() allows nothing else: loss, jitter, re-timing, a room, under water, an untested device rate, a demo\'s voice, loseMessage, arriveAt',
-    refused.every((change) => !A.previewAllowed({ ...(change.retime ? SOURCE_BASE : PAGE_DEFAULTS), ...change })) && A.previewAllowed({ ...PAGE_DEFAULTS, room: { preset: 0 } }),
-    `${refused.length} refused; a room number that is no room is allowed`);
+  check('previewAllowed() allows nothing else: loss, jitter, a room, under water, an untested device rate, a demo\'s voice, loseMessage, arriveAt; retime, which the engine no longer reads, is allowed',
+    refused.every((change) => !A.previewAllowed({ ...PAGE_DEFAULTS, ...change })) && A.previewAllowed({ ...PAGE_DEFAULTS, room: { preset: 0 } })
+    && A.previewAllowed({ ...SOURCE_BASE, retime: true }),
+    `${refused.length} refused; a room number that is no room is allowed; { ...SOURCE_BASE, retime: true } ${A.previewAllowed({ ...SOURCE_BASE, retime: true }) ? 'allowed' : 'refused'}`);
   console.log(`  (${((performance.now() - t4) / 1000).toFixed(1)} s)`);
 }
 

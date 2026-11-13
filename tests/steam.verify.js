@@ -422,52 +422,6 @@ async function steamSection() {
       n === Math.ceil((x.length + L) / 480) && same(Array.from(r.codecInfo.frameLog, (c) => (c ? 1 : 0)), covered(240)) && !same(covered(240), covered(0)),
       `${n} slots, ${covered(240).reduce((t, v) => t + v, 0)} holding a frame`);
   }
-  // Re-timing (opts.retime) on the steam path moves a spurt's laid samples
-  // whole: the moved spurt equals the unmoved one sample for sample, nothing
-  // is left between where it now ends and where it ended, it lands no earlier
-  // than the spurt before ends, and the rest of the render is as it was. Six
-  // bursts 0.8 s apart; at seeds 18 and 21 a move would otherwise reach into
-  // the spurt before.
-  {
-    const x = bursts(10, [0.5, 2.1, 3.7, 5.3, 6.9, 8.5], 0.8, -50);
-    let moves = 0, whole = 0, clear = 0, apart = 0, rest = 0;
-    for (const seed of [1, 2, 3, 4, 18, 21]) {
-      const h0 = hooked(), h1 = hooked();
-      const r0 = await render(x, { seed }, h0), r1 = await render(x, { seed, retime: true }, h1);
-      const L = r0.codecInfo.lookahead, N = h0.gained.length, spans = [];
-      let spurt = null, cursor = 0;
-      for (const { y, msg } of h0.resampled) {
-        if (msg.silence !== undefined) continue;
-        if (msg.spurt !== spurt) { spurt = msg.spurt; cursor = Math.round((msg.start - L) * VR / R); spans.push([cursor, cursor]); }
-        cursor += y.length;
-        spans[spans.length - 1][1] = cursor;
-      }
-      const merged = [];
-      for (const [p, q] of spans) {
-        const a = Math.max(0, p), b = Math.min(N, q);
-        if (b <= a) continue;
-        if (merged.length && a <= merged[merged.length - 1][1]) merged[merged.length - 1][1] = Math.max(b, merged[merged.length - 1][1]);
-        else merged.push([a, b]);
-      }
-      const want = Float32Array.from(h0.gained);
-      for (const m of r1.codecInfo.retimed) {
-        moves++;
-        const shift = Math.round(m.shiftMs * VR / 1000), from = Math.round(m.time * VR), span = merged.find(([a]) => a === from);
-        if (!span) continue;
-        const to = span[1];
-        if (same(Array.from(h1.gained.subarray(from - shift, to - shift)), Array.from(h0.gained.subarray(from, to)))) whole++;
-        if (h1.gained.subarray(to - shift, to).every((v) => v === 0)) clear++;
-        const k = merged.indexOf(span);
-        if (from - shift >= (k > 0 ? merged[k - 1][1] : 0)) apart++;
-        want.copyWithin(from - shift, from, to);
-        want.fill(0, Math.max(from - shift, to - shift), to);
-      }
-      if (same(Array.from(want), Array.from(h1.gained))) rest++;
-    }
-    check('re-timing on the steam path moves a spurt\'s laid samples whole: the moved spurt equals the unmoved one, nothing is left at its old place, it lands after the spurt before, the rest is as it was',
-      moves >= 6 && whole === moves && clear === moves && apart === moves && rest === 6,
-      `${moves} moves; ${whole} whole, ${clear} leaving nothing behind, ${apart} after the spurt before; ${rest} of 6 renders otherwise as they were`);
-  }
   // steamUptime (W3-16): how long the sender's Steam had run, passed to the
   // sender as its uptime, unclamped. 1 s of loud tone then 2 s of silence: at
   // 4 hours the last chunk is read at most 0.466 s after the last active one,
@@ -951,39 +905,6 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
         && whole.codecInfo.network && whole.codecInfo.network.lostMessages > 0 && (!late || !late.silent || whole.codecInfo.underrunFrames > 0),
         `${JSON.stringify(whole.codecInfo.network)}${late ? `; ${whole.codecInfo.lostFrames} concealed and ${whole.codecInfo.underrunFrames} silent late frames` : ''}`);
     }
-  }
-
-  // Review round, S1: re-timing (opts.retime) under loss and jitter moves
-  // each sender's spurt whole, its frame log with its samples, a spurt with
-  // empty time inside it (frames past ten concealed, or a refused packet)
-  // included: every slot that holds one of a spurt's frames without
-  // re-timing holds it, with its size, the same number of slots earlier with
-  // it (0, or a move's frames). Without retimeSpurts' merge of runs whose
-  // spans meet, such a spurt's frames after the hole stay behind.
-  {
-    const x = talk(20, 3);
-    let moved = 0, holed = 0, spurts = 0, broken = [];
-    for (const seed of [1, 2, 3, 4, 5, 6]) {
-      // BC-4: the late frames jitter 100 ms drew before, from the suite's own mask.
-      const o = { seed, lossPct: 49.8 }, late = (count) => TF2Audio.buildLossMask(count, 1, 0, TF2Audio.mulberry32(seed), 100);
-      const r0 = (await withMask(late, () => render(x, o))).codecInfo, r1 = (await withMask(late, () => render(x, { ...o, retime: true }))).codecInfo, L = r0.lookahead;
-      const shifts = [0, ...r1.retimed.map((m) => Math.round(Math.round(m.shiftMs * VR / 1000) / SLOT))];
-      for (const sp of r0.sender.spurts) {
-        const slots = [];
-        for (let i = 0; i < r0.frameLog.length; i++) {
-          const c = 480 * i + 240 - L;
-          if (c >= sp.start && c < sp.start + 480 * sp.frames && r0.frameLog[i]) slots.push(i);
-        }
-        if (!slots.length) continue;
-        spurts++;
-        const hole = slots.some((v, j) => j > 0 && v - slots[j - 1] > 1);
-        const d = shifts.find((dd) => slots.every((i) => i - dd >= 0 && r1.frameLog[i - dd] === r0.frameLog[i] && r1.frameBytes[i - dd] === r0.frameBytes[i]));
-        if (d === undefined) broken.push(`seed ${seed} from ${sp.start}`);
-        else if (d > 0) { moved++; if (hole) holed++; }
-      }
-    }
-    check('re-timing under loss (49.8%, and the late frames jitter 100 ms drew before BC-4, seeds 1 to 6) moves each sender\'s spurt whole, its frame log with it, those with empty time inside them included',
-      broken.length === 0 && moved >= 4 && holed >= 1, `${spurts} spurts, ${moved} moved, ${holed} of them with a hole${broken.length ? `; split: ${broken.join(', ')}` : ''}`);
   }
 
   // Review round, S3: an end marker alone is a message and takes a draw

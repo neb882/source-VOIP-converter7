@@ -1092,7 +1092,7 @@ for (const [name, extra] of [['demo voice as received', { retime: true }], ['ste
   let diff;
   try { diff = await difference(whole, await streamed(c.rate, sources.get(name), opts, 'uneven')); }
   catch (error) { diff = `threw ${error.message}`; }
-  check(`${name}, with ${Object.keys(extra).join(', ')} (which process() ignores there): streamed, and the recorded render`,
+  check(`${name}, with ${Object.keys(extra).join(', ')} (which process() ignores): streamed, and the recorded render`,
     diff === null && sha256(await wavBytes(whole.blob)) === GOLDEN[name][0], diff || '');
 }
 
@@ -1237,12 +1237,6 @@ console.log('\n[3] What createRender reports, refuses and leaves alone');
 const mono = (rate, length) => ({ sampleRate: rate, length, numberOfChannels: 1 });
 async function refusal(make) {
   try { await make(); return null; } catch (error) { return error; }
-}
-// Since W3-17c a room streams; the flat re-timing rule still does not, with
-// a room or without (W3-02f removes it).
-for (const [opts, named] of [[{ retime: true }, 'retime'], [{ retime: true, room: { preset: 6 } }, 'retime']]) {
-  const error = await refusal(() => A.createRender(mono(48000, 4800), { ...PAGE, ...opts }));
-  check(`createRender refuses ${JSON.stringify(opts)} by name`, error instanceof RangeError && error.message.includes(named), error?.message);
 }
 {
   const roomed = await A.createRender(mono(48000, 4800), { ...PAGE, room: { preset: 6 } }), dry = await A.createRender(mono(44100, 4410), PAGE);

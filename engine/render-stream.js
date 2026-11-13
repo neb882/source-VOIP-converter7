@@ -26,7 +26,7 @@
   /* process() reads as missing. The gate decides a frame once its      */
   /* pre-roll is measured; the codec restarts at each talk spurt as     */
   /* roundTrip does; the loss mask is drawn once over all frames. A     */
-  /* room streams (W3-17c); talk-spurt re-timing does not.              */
+  /* room streams (W3-17c).                                             */
   /* ------------------------------------------------------------------ */
 
   // The voice gate and the codec a frame at a time, as roundTrip,
@@ -147,8 +147,7 @@
    *                the output, a room's tail included
    *   free()       releases the codec (finish() does too)
    * Concatenated, the output is process()'s samples and codecInfo is its
-   * codecInfo; steamUptime is taken as process() takes it. retime is
-   * rejected with a RangeError: not streamed (W3-02f removes the rule).
+   * codecInfo; steamUptime is taken as process() takes it.
    * timeline 'game' (W3-02c-2) streams, and is refused where process()
    * refuses it, before anything else is refused; so does opts.arriveAt
    * (BC-4), refused next.
@@ -192,16 +191,10 @@
 
     // The game's timeline (W3-02c-2), or a RangeError where it was asked for
     // and cannot run, as process() decides it (steamGameTimeline).
-    const game = steamGameTimeline(opts.timeline, { codecKey, codec, enableCodec, received, retime: opts.retime });
+    const game = steamGameTimeline(opts.timeline, { codecKey, codec, enableCodec, received });
     // opts.arriveAt (BC-4), or a RangeError where it cannot run, as process()
     // decides it (steamArriveAt).
     const arriveAt = steamArriveAt(opts.arriveAt, game);
-
-    // What process() would do that is not streamed: the flat re-timing rule,
-    // with a room or without (W3-02f removes the rule).
-    if (opts.retime && enableCodec && !received) {
-      throw new RangeError('TF2Audio.createRender does not stream talk-spurt re-timing yet (retime); use TF2Audio.process.');
-    }
 
     // Each stage's whole length, as process()'s stages give them; the
     // output's is the source's duration at the device's rate.
