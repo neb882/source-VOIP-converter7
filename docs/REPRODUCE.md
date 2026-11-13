@@ -11,8 +11,12 @@ rate, and should give the same result on any PC (inferred: measured with two Sou
 and O). They check the engine's older codecs and the receiver's gain.
 They say nothing about Steam voice, the codec TF2 runs unless `sv_voicecodec` is changed (this page's own
 statement: the record does not give the default, and [FINDINGS.md, entry
-10](FINDINGS.md#10-the-older-engine-codecs) gives it as read): the checks of Steam's side (`hold`, `gate`,
-`queue`) are not built yet.
+10](FINDINGS.md#10-the-older-engine-codecs) gives it as read).
+
+**Steam voice has two checks that need the game and Steam alone** ("With Steam's console and the game's log"):
+`gate` reads Steam's sender gate from the text Steam's own console prints, and `queue` reads the receiver's queue
+from the log the game's console writes. **Neither has been run on a log of the game yet.** The hold after speech
+has steps by hand and no script yet ("The hold and Steam's clock").
 
 Three more checks need more than the game. `ceiling` and `clock` need a recording of what the PC plays: a
 recorder, and a way to play a file into the game as its microphone ("With a recorder of the PC's output"). `demo`
@@ -24,9 +28,9 @@ stands here, and gave "as expected" (measured; the record's entry "The script ru
 sections give that run's figures beside the record's older ones, which were made with other code (findings 26 and
 31). Those recordings are not published yet (order RP-01e), so nobody else can repeat that run today. `ceiling`,
 `clock` and `demo` were run on the owner's recordings of the PC's output and on one demo the same day (measured;
-their sections give the figures), and those files stay private. What CI runs is the suite `reproduce`, on
-stand-ins that this repository makes, and a stand-in cannot show that the script lines up a file as the game wrote
-it.
+their sections give the figures), and those files stay private. `gate` and `queue` have not been run on a log of
+the game. What CI runs is the suite `reproduce`, on stand-ins that this repository makes, and a stand-in cannot
+show that the script lines up a file as the game wrote it.
 
 ## What you need
 
@@ -34,6 +38,7 @@ it.
 - [Node](https://nodejs.org) 22 or later, and a copy of this repository: a clone, or the ZIP from the repository's
   page. No package is installed and nothing is built.
 - A command prompt in the repository's folder. Every command below is run from there.
+- For `gate`: Steam's own console ("Steam's console", below). For `queue`: the game's console log. Nothing else.
 - For `ceiling` and `clock` only: a recorder of what the PC plays, and a virtual audio cable to play a file into the
   game as its microphone (below, "With a recorder of the PC's output"). For `demo` only: a dedicated server with
   SourceTV ("With a server").
@@ -46,26 +51,32 @@ place among the arguments ("file 1", "file 2").
 `node tests/reproduce.mjs` alone lists the checks. Each check ends with one line: `<check>: as expected` (exit 0),
 `<check>: differs: <the reason>` (exit 1), or `<check>: cannot check: <the reason>` (exit 2).
 
-## The two clips
+## The clips
 
-The game takes a file as its microphone. The clips for it are made by a script, the same bytes on every PC:
+The game and Steam each take a file as the microphone. The clips for them are made by a script, the same bytes on
+every PC:
 
 ```
 node tests/reproduce.mjs inputs clips
 ```
 
-This writes two files into the folder `clips` and prints each one's SHA-256 with "as expected" or "differs" beside
-it. They are the files the game was fed in the record's runs (measured, 2026-11-13; the record's entry "The
-file-input runs, measured again"):
+This writes three files into the folder `clips` and prints each one's SHA-256 with "as expected" or "differs"
+beside it. The first two are the files the game was fed in the record's runs (measured, 2026-11-13; the record's
+entry "The file-input runs, measured again"). The third, for Steam's `mic_inputfile`, is a choice of order RP-01b
+and has not been played into Steam yet (not built yet); its checksum was computed (the record's entry "The checks
+gate and queue"):
 
 | File | For | Rate | Samples | SHA-256 |
 | --- | --- | --- | --- | --- |
 | `voice_input_22050.wav` | `vaudio_celt`, `vaudio_celt_high` | 22050 Hz | 291,942 | `fc1c6cbd9aabd8ed1b64d4381eae3c2f56dce23eff36e14ba7d9f67dc5505a58` |
 | `voice_input_11025.wav` | `vaudio_speex` | 11025 Hz | 145,966 | `bd31df844cee4b38fe705be1fbdfb1b17acb9f161f9314b06b1eb2ba0d560dbd` |
+| `steam_mic_24000.wav` | Steam's `mic_inputfile` (`gate`) | 24000 Hz | 679,200 | `3e02aaa585001e562e133aea7985bce4208563e39c00655d153f34b88e873fde` |
 
-Each is 13.2 s of tone bursts, a sweep and a harmonic tone with pauses, 16-bit mono with a plain 44-byte header
-(the generator is `tests/recordings/make-inputs.mjs`). If a checksum differs, your Node computes the clip
-differently and the other checks would compare with another input: report it (below) and stop there.
+The first two are each 13.2 s of tone bursts, a sweep and a harmonic tone with pauses (the generator is
+`tests/recordings/make-inputs.mjs`); the third is 28.3 s, described under `gate` (its generator is
+`tests/reproduce/steam-clip.mjs`). All three are 16-bit mono with a plain 44-byte header. If a checksum differs,
+your Node computes the clip differently and the other checks would compare with another input: report it (below)
+and stop there.
 
 ## In the game
 
@@ -229,6 +240,263 @@ node tests/reproduce.mjs inputs --against speex_micdata.wav
 
 It should be the clip from its third sample in 145,964 of 145,964 samples, then two zeros (measured, Sets M and
 O; the record's entry "The file-input runs, measured again").
+
+## With Steam's console and the game's log
+
+`gate` and `queue` check Steam voice, the codec TF2 runs by default, with the game and Steam alone: no recorder, no
+cable and no server. `gate` reads the text Steam's own console prints; `queue` reads the log the game's console
+writes. **Neither has been run on a log of the game yet** (the record's entry "The checks gate and queue"). What
+CI runs is the suite `reproduce`, on stand-ins this repository writes.
+
+**Both texts hold private details. Steam's console text holds account names and addresses (measured: the record's
+entry "Steam's chunk line"), and a console log of the game holds player names and addresses. Give them to the
+script and post only what the script prints.** The script keeps numbers and counts only: no line, no path, no
+name.
+
+**Steam's console** is not the game's. Type `steam://open/console` into a browser's address bar or the Run box of
+Windows, and a Console tab appears in Steam (W3-09's suggestion, `docs/reports/W3-09-steam-voice.md`, "What the
+owner could run"). Type each command on a line of its own and press Enter: two commands on one line were not tried
+(the record's entry "The checks gate and queue").
+
+## gate
+
+**Not yet run on a log of the game.**
+
+**The claim.** Steam judges each chunk of the capture whole: a chunk is sent when the mean of its absolute samples
+is at least 1.0% of 32767, or when one sample reaches 4915 (read; finding 28, with finding 5). With
+`@voice_spew_activity_check 1` set, Steam's console prints one line for every chunk that holds samples: three marks
+(the chunk is active, its mean passed, its peak passed), its length in milliseconds, its mean as a percentage of
+32767, its peak as a percentage of 32768 and its count of samples at or above 4915 (measured, Set J; finding 27).
+
+**The record.** With a file as the microphone all 789 verdicts Steam printed follow the rule; the highest mean that
+failed is 0.9998% and the lowest that passed 1.0315% (measured, Set J, finding 28). A run with a real microphone
+follows it on all 590 chunk lines (measured, Set L; finding 16's paragraph on Set L). On all 2,706 chunk lines of
+Steam's own log file the marks agree with the printed numbers as G1 to G3 below ask (measured 2026-11-13 by the
+orchestrator, private; the record's entry "The checks gate and queue").
+
+**The signal.** The clip `steam_mic_24000.wav` ("The clips", above), 28.3 s that Steam loops, or your own voice.
+The clip holds, in order: 0.5 s of silence; five 1 kHz bursts of 1 s with pauses of 1.2 s; the record's two tones,
+1 kHz at −38 dBFS, which stayed shut, and at −35 dBFS, which opened (measured, Set J, finding 28); a tone whose
+mean of |x| rises from 0.90% to 1.10% of 32767 and falls back, so that chunks lie close to 1.0% on both sides;
+single samples of 4905 to 4925, so that chunks' largest samples lie on both sides of 4915; the record's 1.5 ms
+burst at 0.2 of full scale, which opened by its peak alone (measured, Set J, finding 28); and 1.2 s of silence. What
+it holds is a choice of order RP-01b; it has not been played into Steam (not built yet).
+
+**The steps.**
+
+1. `node tests/reproduce.mjs inputs clips` writes the clip. Copy `steam_mic_24000.wav` into a folder whose path has
+   no space, such as `C:\tf2check`: the record's path had no space and was typed bare, with no quotes (measured,
+   the record's entry "The checks gate and queue"); how a path with a space is typed is not in the record.
+2. In Steam's console, two lines, each typed alone:
+
+   ```
+   @voice_spew_activity_check 1
+   ```
+   ```
+   mic_inputfile C:\tf2check\steam_mic_24000.wav
+   ```
+
+   The path is the file's full path. A path that does not load is not retried, and may fill the console with
+   `looped` lines or stop Steam (read, W3-14's order). Steam still needs a working capture device (read, W3-14's
+   order). With a real microphone, leave out the second line and speak, with pauses.
+3. In the game's console, before the map:
+
+   ```
+   sv_voicecodec steam; map ctf_2fort
+   ```
+
+   Once the map has loaded:
+
+   ```
+   voice_loopback 1
+   ```
+
+   The record's runs had it (measured, Set J); whether the chunk lines come without it is not in the record.
+4. Type `+voicerecord` in the game's console and press Enter. Wait 60 s, two passes of the clip. Type
+   `-voicerecord` and press Enter. One press is enough.
+5. **Save the text.** Select all of the Console tab's text, copy it, and paste it into a text file in the
+   repository's folder, for example `steam_console.txt`. Or take `console_log.txt` from the `logs` folder of Steam's
+   install, which holds the same lines with a stamp in front of each (measured: the record's entry "Steam's chunk
+   line"). **This text holds account names and addresses: give it to the script and post only what the script
+   prints.**
+6. Run:
+
+   ```
+   node tests/reproduce.mjs gate steam_console.txt clips\steam_mic_24000.wav
+   ```
+
+   With a real microphone, give the text alone: `node tests/reproduce.mjs gate steam_console.txt`.
+7. Afterwards, in Steam's console, each on its own line:
+
+   ```
+   @voice_spew_activity_check 0
+   ```
+   ```
+   mic_inputfile ""
+   ```
+
+   The console answers `"mic_inputfile" = ""` (measured, the record's entry "The checks gate and queue"). Or restart
+   Steam.
+
+**What the script checks.** With the text alone, on every chunk line:
+
+- **G1:** the first mark is set exactly when the second or the third is.
+- **G2:** the third mark is set exactly when the count of high samples is above 0, and exactly when the printed
+  peak, as whole samples of 32768, is 4915 or more (each whole sample from 0 to 32768 prints differently with
+  three decimals: computed by order RP-01b's planning run).
+- **G3:** on the lines whose printed mean is not 1.00, the second mark is set exactly when the printed mean is above
+  1.00. A print of 1.00 can lie on either side of 1.0%, so those lines are counted apart (one of 2,706 in the
+  record's log file, without the mark; measured, private, the record's entry "The checks gate and queue").
+
+A line of one sample (0.04 ms) is counted apart from every figure: the code's mean of one sample is 0 (read), and
+Set J holds one such line (measured, finding 28). The two limits are the app's own (`STEAM_SENDER` in
+`steam-sender.js`), so the check tests the app's constants.
+
+With the clip, every chunk after the `loaded` line that Steam prints when it loads a file of the clip's length is
+also recomputed from the clip, as W3-14 did: from the clip's first sample, moving on by each line's length (its
+milliseconds times 24) and wrapping at its end, up to the next `loaded` line or the next `mic_inputfile` typed or
+answered.
+
+- **G4:** the printed mean, peak and count are the clip's at that place: the count equal, the mean within 0.01 and
+  the peak within 0.001 (one unit of the last printed digit: a choice of this check, for the print's rounding).
+- **G5:** the three marks are the rule's on the clip's own samples. A chunk whose exact mean lies within a millionth
+  of a percent of 1.0% is counted apart: the code compares in 32-bit floats (read, `docs/reports/W3-16-second-read.md`).
+
+**What to expect.** Every figure "as expected". The script also prints counts: the brackets of each kind, the six
+most frequent chunk lengths, the printed means and peaks nearest each limit, the chunks that passed by their peak
+alone, and with the clip the exact means nearest 1.0% on each side (the record's own clip gave 0.9998% and 1.0315%,
+measured, finding 28), the passes through the clip and the `looped` lines. Please report the chunk lengths, with the
+clip or with a microphone: on the owner's PC a microphone's chunks are whole steps of 31.25 ms (measured, finding
+28), and the real-microphone run's lengths were 62.50 ms on 441 lines, 31.25 on 142 and 93.75 on 7 (measured,
+Set L, private; the record's entry "The checks gate and queue"). That step may be one PC's.
+
+**What the script refuses.** A text with no chunk line (the variable was not set), with fewer than 50 chunk lines
+(a choice of this check), or with no chunk on each side of 1.0% cannot show the rule: "differs", with the reason. A
+line that begins as a chunk line and does not read as one is named by its line number. A clip that is not 16-bit
+mono at 24000 Hz with a plain 44-byte header is refused: Steam reads a file from byte 44 on as sound (read, W3-14's
+order). A clip of another length than the `loaded` line names is not the clip Steam played.
+
+**A second press in one Steam session.** Steam prints the `loaded` line when it loads the file, at the first read
+after the key goes down; the same path typed again does not load it again, and the file's place carries on from one
+press to the next (read, W3-14's order). With no `loaded` line in the text, the script finds the place in the clip
+by the first chunk lines and says so. If they fit several places, it asks for `mic_inputfile ""` and the path
+again, or a restart of Steam, and a new press.
+
+**What a pass shows, and what it does not.** A pass shows that Steam's verdicts follow the rule with the app's two
+limits, and with the clip that Steam's numbers are the clip's. It says nothing of the hold after the last loud chunk
+("The hold and Steam's clock", below). The suite's stand-in takes its verdicts from the app's own sender, so a pass
+there shows that the check agrees with the app's sender, not that Steam prints these lines so.
+
+## queue
+
+**Not yet run on a log of the game.**
+
+**The claim.** Each speaker's voice waits in a ring of 22050 samples, 0.5 s at 44100 Hz (read, finding 22). A
+packet for a speaker with no channel opens one, and the channel waits `ceil(0.1 × frames a second)` ticks of 15 ms
+before it plays, the packet's own tick counted (read, finding 23). Each packet of N samples adds N − 1 to the ring
+(read, finding 24). A channel ends on the first tick after the mixer has emptied its ring (read, finding 22). With
+`voice_showincoming 1` and `voice_showchannels 1` the game's console prints one line for every packet with its
+count of samples and one line every tick with the bytes queued (read, finding 27).
+
+**The record.** The rule, replayed over Set G's 2,375 packets with the mixer's demand taken from the log, gives the
+logged queue on every one of 9,808 ticks (measured, finding 22). The lines before the queue can fall were 7 in 2 of
+2 channels at `fps_max 67`, 10 in 4 of 4 at 100, and at 300 30 in 19 of 28, 31 in 8 and 32 in 1 (measured, Set G,
+finding 23). Replayed again with this repository's code, part by part, the rule and six faults put in on purpose
+mismatch the log on these ticks (measured 2026-11-13 by the orchestrator, private; the record's entry "The checks
+gate and queue"):
+
+| Frames a second | Wait (ticks) | Ticks | The rule | Ring + 1 | Ring − 1 | Wait + 1 | Wait − 1 | Sample kept | No grace |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 300 | 30 | 6,267 | 0 | 4,933 | 4,933 | 1,549 | 708 | 5,781 | 181 |
+| 66.67 | 7 | 511 | 0 | 0 | 0 | 496 | 498 | 510 | 0 |
+| 100 | 10 | 598 | 0 | 0 | 0 | 555 | 559 | 595 | 0 |
+| 300 | 30 | 581 | 0 | 504 | 504 | 13 | 4 | 494 | 0 |
+| 300 | 30 | 917 | 0 | 839 | 839 | 63 | 18 | 877 | 0 |
+| 300 | 30 | 934 | 0 | 882 | 882 | 0 | 19 | 865 | 0 |
+
+A log shows a fault only where the thing happened: the ring's two faults need an overflow, which happens at 300
+frames a second and not at 67 or 100 (finding 23), and "no grace" needs a grace. So the script prints the faults as
+information, and a 0 there is not a failure.
+
+**The steps.**
+
+1. A local server with Steam voice, so that you hear yourself. In the game's console, before the map:
+
+   ```
+   sv_voicecodec steam; map ctf_2fort
+   ```
+
+2. Once the map has loaded, wait a few seconds: one frame of 0.1 s or more while a channel waits ends its wait at
+   once (read, finding 23). Then one line, with a log name you have not used before (whether `con_logfile` adds to
+   an older file is not in the record):
+
+   ```
+   con_logfile voice_q1.log; echo MARK100; voice_loopback 1; voice_showincoming 1; voice_showchannels 1; cl_showfps 1; fps_max 100
+   ```
+
+   `echo MARK100` marks where this run starts in the log. `voice_showchannels` is 1, not 2: 2 adds a line for each
+   pull of the mixer, which the script refuses.
+3. Type `+voicerecord` and press Enter. Speak a few phrases with pauses for 30 s, or let Steam play the 24 kHz clip
+   as in `gate`. Type `-voicerecord` and press Enter. Read the frame rate off the counter while it runs. One speaker
+   only.
+4. If your PC holds 300 frames a second, a second run in the same log, at the game's default cap:
+
+   ```
+   echo MARK300; fps_max 300
+   ```
+
+   then step 3 again. The record's runs were at 67, 100 and 300 (measured, Set G).
+5. Then:
+
+   ```
+   voice_showincoming 0; voice_showchannels 0
+   ```
+
+   The log is `voice_q1.log` in the `tf` folder inside the game's folder (inferred: the record does not name the
+   folder). Copy it into the repository's folder. **It holds player names and addresses: give it to the script and
+   post only what the script prints.**
+6. Run once for each part, with the number the counter showed:
+
+   ```
+   node tests/reproduce.mjs queue voice_q1.log --section MARK100 --fps 100
+   ```
+   ```
+   node tests/reproduce.mjs queue voice_q1.log --section MARK300 --fps 300
+   ```
+
+   Give `--buffer-ms` only if `voice_buffer_ms` was changed from 100. The marker word is yours and is never
+   printed.
+
+Hold the frame rate steady with `fps_max`: the wait is counted in frames, and the script takes one frame rate for the
+whole part.
+
+**What the script checks.** It reads the part with `tests/voicequeue/log-to-fixture.mjs`, whose rules and refusals
+are in [tests/voicequeue/](../tests/voicequeue/README.md), and replays it through `voice-channel.js` as the suite
+`voice-channel` does. **Q1** is the ticks on which the rule gives the logged queue, expected all. It also prints
+each fault's mismatching ticks ("0 means this log cannot tell that fault from the rule"), the channels by the tick
+lines before their queue first fell, the packets of whole 882-sample frames and the others (silence records and
+empty packets), and the pulls read from the log that are not whole blocks of 512 samples.
+
+**What to expect.** Q1 on every tick. The lines before the queue fell: 7 at 67 frames a second, 10 at 100, 30 to
+32 at 300 (measured, Set G, finding 23).
+
+**What the script refuses.** A log with fewer than 100 tick lines (a choice of this check), or in which no channel's
+queue ever fell (no channel played), cannot show the rule: "differs", with the reason. A log with marked parts needs
+`--section`. Pull lines, a second speaker, two packets before one tick line and a line that begins as a voice line
+and does not read as one stop the reading with the line's number.
+
+**A different result.** A failing Q1 names the first tick that mismatches and asks for the frame rate to be checked:
+a PC that did not hold its `fps_max`, or one frame of 0.1 s or more during a wait, ends a wait early (read, finding
+23). A frame rate given higher than the game's stops the reading at the first queue that falls during its wait.
+
+**What a pass shows, and what it does not.** A pass shows the ring, the wait, the one sample a packet and the grace
+against the queue the game logged. The replay takes the mixer's demand from the log, so it does not test when the
+mixer pulls (finding 22). For the same reason Q1 does not catch a frame rate given lower than the game's: compare
+the lines before the queue fell with the wait the script prints. The suite's stand-in is a log written from a second
+model of the channel and replayed through the first, so a pass there shows the reading and that the two models
+agree, not that the game prints these lines so. The packet counts through Steam's resampler are not checked (not
+built yet): the record's port of that resampler gives the logged count of all 2,372 packets of Set G that are not
+empty (measured, finding 29).
 
 ## With a recorder of the PC's output
 
@@ -458,6 +726,60 @@ another kind, or a rate other than 24000, would be a finding for the record.
 These are steps a stranger can follow and look at by ear or in an editor. **No script yet:** none of them is
 measured by the script, so what you see is not compared with the record's figures for you.
 
+### The hold and Steam's clock
+
+**No script yet.** After the last loud chunk Steam goes on sending for 0.4 s on a clock of seconds since Steam
+started, kept as a 32-bit float (read, finding 28): each loud chunk notes the clock, and the phrase's last chunk is
+the first one read when the clock has passed the noted time plus 0.4, added and compared as floats. A float of that
+size moves in steps that grow with Steam's uptime, so the hold comes out as whole steps (computed, finding 28):
+
+| Steam has run | The float's step | Where the hold runs out, from the read of the last loud chunk |
+| --- | --- | --- |
+| under 18 hours | 4 ms or less | 398 to 402 ms |
+| 18 to 36 hours | 1/128 s | 398 to 406 ms |
+| 1.5 to 3.0 days | 1/64 s | 406 to 422 ms |
+| 3.0 to 6.1 days | 1/32 s | 406 to 437 ms |
+| 6.1 to 12.1 days | 1/16 s | 375 to 437 ms |
+| 12.1 to 24.3 days | 1/8 s | 375 to 500 ms |
+| 24.3 to 48.5 days | 1/4 s | 500 to 750 ms |
+
+The last chunk is the first one read after that point, so up to 64 ms later.
+
+**The record.** These counts are of reads that brought samples, counted from the last loud chunk (measured, Sets J
+and L; finding 28 and finding 16's paragraph on Set L, with the counts read again by the orchestrator on 2026-11-13,
+the record's entry "The checks gate and queue"):
+
+- **On a Steam that had run 23.9 days** (Set J's file-input run, 12 phrase ends): every phrase ended at the first read
+  four steps of 1/8 s after the read of the last loud chunk, 389 to 514 ms in real time, on the 7th read 4 times, the
+  8th 5 times and the 9th 3 times.
+- **On a Steam started 4.8 minutes before** (that evening's file-input run, 18 ends, and its real-microphone run, 19
+  ends): the hold's edge lay between 399.4 and 403.1 ms, and of the 37 ends together 5 fell on the 7th read and 32 on
+  the 8th, never the 9th.
+- **The app's sender,** given each file-input run's uptime, gives every end of both (18 of 18 and 12 of 12), and
+  fails on both when given the other's.
+
+**Steam's console alone does not show where a phrase ends.** Its marks are each chunk's verdict. The end shows in
+the game's packet lines (`voice_showincoming 1`): after a phrase's last sound packet comes a packet whose count is
+not a multiple of 882, the silence record (finding 22). With a microphone on the owner's PC that count was 2756 or
+2757, or 1378 or 1379 (measured, Set G, finding 22). After a read that brought nothing Steam sends no silence record
+(read; seen in 2 of Set J's 12 ends, finding 28).
+
+**The steps, by hand, with both consoles.**
+
+1. Steam's console as for `gate`, with a real microphone: `@voice_spew_activity_check 1`, and no `mic_inputfile`.
+2. The game's console as for `queue`, steps 1 and 2: the log holds the packet lines.
+3. Speak short loud phrases with pauses of a second or more, one press for all of them.
+4. For each phrase: count its packets in the game's log, from its opening packet to the last before the silence
+   record. In Steam's console find the phrase's opening chunk (a line whose first mark is `+` after lines without
+   it) and count as many chunk lines from it: that is the phrase's last chunk. Count back from there to the last line
+   whose first mark is `+`: the last chunk is that many reads after the last loud one.
+5. How long Steam has run: restart Steam and note the time, which is the sure way. For a Steam that has run for
+   days, Windows gives the start of the process: `(Get-Process steam).StartTime` in PowerShell (not tried).
+
+Do it on a Steam started that day and again on one that has run for days, and set the counts beside the table
+above. These steps were not followed in this form by anyone, and a report of the counts is wanted (below, "When a
+result differs").
+
 ### The voice's level in the mix
 
 **No script yet.** The mixer adds Steam voice at 255/256 of its level, truncated: a clamped voice enters as 32639
@@ -539,7 +861,10 @@ The last line gives the reason. Look for these, in order:
    recordings for `gain` whose lengths are more than one packet apart. A recording of 512-sample packets
    from `vaudio_speex` is the 64-bit game's fall-back (step 2). A `voice_maxgain 10` recording checked as 1 differs
    everywhere. For `ceiling` and `clock`: an effect or a volume under 100% in the system, a lossy recording, a voice
-   too quiet or with no game sound under it, a recording too short.
+   too quiet or with no game sound under it, a recording too short. For `gate`: `@voice_spew_activity_check 1` not
+   set, a press too short, a clip other than the one `mic_inputfile` played, a second press with no `loaded` line.
+   For `queue`: `voice_showchannels 2`, a second speaker, `--fps` not the counter's number, a frame rate the PC did
+   not hold, a log with marked parts and no `--section`.
 2. **The build differs.** Compare the game's `version` line in the console with the record's runs: Set O ran TF2
    build 11191711 (measured). The files the findings were read from are to be listed with their builds and
    SHA-256 in the record (not built yet: order RP-01d). A hash that differs from theirs refutes nothing: the game
@@ -554,8 +879,7 @@ game ran as 64-bit or 32-bit. The output is figures only; post nothing else of y
 
 | Check | What it will check | Findings | Order |
 | --- | --- | --- | --- |
-| `hold` | Steam's hold after speech and its clock | 12, 16, 28 | RP-01b, not built yet (planned again first) |
-| `gate` | Steam's sender gate, chunk by chunk | 5, 27, 28 | RP-01b, not built yet |
-| `queue` | the receiver's queue, from the game's console log, and the packet counts | 22, 23, 24, 25, 29 | RP-01b, not built yet |
+| `hold` | Steam's hold after speech and its clock, from Steam's console and the game's log side by side | 12, 16, 28 | none yet: it waits on the owner's runs with both consoles at two uptimes ([owner-runs.md](owner-runs.md), "The key, for W3-11c"); the steps by hand are above |
+| the packet counts in `queue` | Steam's resampler gives the logged count of every packet | 29 | none yet |
 
-`node tests/reproduce.mjs <check>` for one of these prints "not built yet" and exits other than 0.
+`node tests/reproduce.mjs hold` prints "not built yet" and exits 3.

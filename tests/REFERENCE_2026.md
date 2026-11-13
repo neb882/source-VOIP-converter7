@@ -352,6 +352,11 @@ text was saved by copying it from Steam's console window, or from the file `cons
 of Steam's install, which holds the same lines with the stamps; that file also holds account names and addresses
 (measured).
 
+*Corrected by RP-01b (2026-11-13): the three files of "3,358 of 3,358" overlap. Every chunk line of the two texts
+copied from the console is in the log file, in order, so those three files hold 1,979 different chunk lines, and one
+pattern fits all of them and the 2,706 of the same log file saved later (measured, private, the orchestrator,
+2026-11-13; the entry "The checks gate and queue (2026-11-13)" below).*
+
 ### The script run on the game's files (2026-11-13)
 
 Added 2026-11-13 at RP-01a's merge. The orchestrator ran `tests/reproduce.mjs`, as merged, on the recordings the
@@ -399,6 +404,92 @@ here). A first run, before the merge, changed two of the checks: the order's sec
 - **`clock` against the accuracy suite.** On the fourteen takes where both gave a figure the check's reading
   differs from the table's by -11 to +10 parts in a million, so the check's window is the table's range of +397 to
   +416 widened by 11.
+
+### The checks gate and queue (2026-11-13)
+
+Added 2026-11-13 by RP-01b (`docs/work-orders/RP-01b-gate-hold-queue.md`). The checks `gate` and `queue` of
+`tests/reproduce.mjs` are built and have not been run on a log of the game (not built yet: the orchestrator's
+private run). This entry holds the 24 kHz clip, the orchestrator's private look at the logs for the order (counts and
+layouts only, nothing of the files), and what the suite `reproduce` computes on the model.
+
+**The 24 kHz clip.** `node tests/reproduce.mjs inputs <folder>` writes `steam_mic_24000.wav` beside the two clips
+above: 679,200 samples (28.3 s) at 24000 Hz, 16-bit mono with a plain 44-byte header, 1,358,444 bytes, SHA-256
+`3e02aaa585001e562e133aea7985bce4208563e39c00655d153f34b88e873fde` (computed by the order's planning run and again by
+its build, on Node 22). What it holds is the order's choice (`tests/reproduce/steam-clip.mjs`): silence, five loud
+1 kHz bursts with pauses of 1.2 s, the record's tones at −38 and −35 dBFS, a tone whose mean of |x| rises from 0.90%
+to 1.10% of 32767 and falls back, single samples of 4905 to 4925, the record's 1.5 ms burst at 0.2 of full scale,
+and silence. It has not been played into Steam (not built yet).
+
+**Steam's console text** (measured, private, the orchestrator, 2026-11-13). Four files were read: the text copied
+from Steam's console in Set J (789 chunk lines), the text copied in Set L's run with a real microphone (590), Steam's
+`console_log.txt` as saved after Set L (1,979) and the same file as saved later (2,706).
+
+- **The files overlap.** Every chunk line of the two copied texts is in the first log, in order, and the first log is
+  the beginning of the second. So "3,358 of 3,358 chunk lines in three files" above counts 1,379 lines twice: those
+  three files hold 1,979 different chunk lines.
+- **The pattern.** One pattern, held from the optional stamp to the line's end, fits every chunk line of the four
+  files. No chunk line carries text after its count, and nothing stands between the stamp and the first bracket.
+- **The marks against the printed numbers,** on all 2,706 lines of the later log: the first mark is set exactly when
+  the second or the third is; the third exactly when the count of high samples is above 0, and exactly when the
+  printed peak is 14.999 or more; no line with a printed mean of 1.01 or more lacks the second mark, and none of 0.99
+  or less carries it.
+- **The brackets:** `[   ]` 1,158, `[+++]` 1,261, `[++ ]` 277, `[+ +]` 10. The lowest printed mean with the second
+  mark is 1.01 and the highest without it 1.00; the lowest printed peak with the third mark is 15.005 and the highest
+  without it 14.984.
+- **A printed mean of exactly 1.00:** one line in 2,706, without the second mark. **Lines of 0.04 ms:** one in 2,706
+  (Set J's), with a printed mean of 0.00, no mark and no high sample.
+- **The run with a real microphone** (Set L), judged by its printed numbers: the counts above hold on all 590 of its
+  lines. Its lengths are 62.50 ms on 441 lines, 31.25 on 142 and 93.75 on 7, and no other.
+- **The lines of a file input** read `loaded voice input file <path>, <N> samples (<S> seconds)` and `voice input
+  file <path> looped`. N is a whole number and S has one decimal. In the log file each begins with the stamp; in the
+  copied text neither does. The copied text also holds the typed command, after `] `, and the console's answer,
+  `"mic_inputfile" = "<path>"`; the log file holds the answer with its stamp. All four kinds carry the path.
+- **Typing.** The path was typed bare, with no quotes, and had no space. It was set back with `mic_inputfile ""`, and
+  the console answered `"mic_inputfile" = ""`. Each command was typed on a line of its own; two on one line was not
+  tried.
+- **Encoding.** All four files are plain ASCII with no byte-order mark. The copied texts end every line with a
+  carriage return and a line feed. The log file does too, but for some lines that end with a line feed alone (433 of
+  10,711 in the first log).
+
+**The counts of the hold in finding 16's paragraph on Set L, read again** (measured, private, the orchestrator,
+2026-11-13). The 12 ends are Set J's file-input run, on the Steam of 23.9 days. The 18 ends are the file-input run on
+the Steam started 4.8 minutes before; the built sender gives 18 of 18 and 12 of 12. The 37 ends are that evening's
+two runs together, the file-input run's 18 and the real-microphone run's 19: "the 7th read 5 times, the 8th 32
+times, never the 9th" counts all 37.
+
+**The game's console log** (measured, private, the orchestrator, 2026-11-13).
+
+- Plain ASCII, no byte-order mark, every line ending in a carriage return and a line feed (two logs).
+- The folder `con_logfile` writes in is not in any file the owner sent.
+- Set G's six parts, replayed with the repository's code as it stood (the fixture made from the logs earlier, through
+  `tests/voice-channel.verify.mjs --fixture`): the ticks on which the rule and each of six faults mismatch the log.
+
+  | Part (packets, ticks, opens) | Frames a second | Wait (ticks) | The rule | Ring + 1 | Ring − 1 | Wait + 1 | Wait − 1 | Sample kept | No grace |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 1 (1520, 6267, 20) | 300 | 30 | 0 | 4933 | 4933 | 1549 | 708 | 5781 | 181 |
+  | 2 (126, 511, 2) | 66.67 | 7 | 0 | 0 | 0 | 496 | 498 | 510 | 0 |
+  | 3 (141, 598, 4) | 100 | 10 | 0 | 0 | 0 | 555 | 559 | 595 | 0 |
+  | 4 (130, 581, 3) | 300 | 30 | 0 | 504 | 504 | 13 | 4 | 494 | 0 |
+  | 5 (223, 917, 3) | 300 | 30 | 0 | 839 | 839 | 63 | 18 | 877 | 0 |
+  | 6 (235, 934, 2) | 300 | 30 | 0 | 882 | 882 | 0 | 19 | 865 | 0 |
+
+  The ticks sum to 9,808, finding 22's count. At 67 and 100 frames a second the ring's two faults and "no grace" show
+  nowhere; at 300 "no grace" shows in one part of four and "wait + 1" is missing from one.
+- `tests/voicequeue/log-to-fixture.mjs` reads the two logs that hold one run each at `--fps 300` without a stop, with
+  no pull off the 512-sample blocks. The third log holds marked parts; it was read by `--section` when the fixture was
+  made, and not read again that day.
+
+**On the model** (computed by the suite `reproduce`, `tests/reproduce.verify.mjs`, on stand-ins it writes; not the
+game):
+
+- `gate`'s stand-in is Steam's console text for two passes of the 24 kHz clip, with a file input's chunk lengths, the
+  suite's own sums and the verdicts of the app's sender (`steam-sender.js`): 1,013 chunk lines, all four brackets, 13
+  that print a mean of 1.00, peaks of 4,914 without the third mark and 4,915 with it, 10 chunks passed by their peak
+  alone; with the clip, the highest exact mean without the second mark 0.9996% and the lowest with it 1.0002%.
+- `queue`'s stand-ins are console logs written from the second model of the channel
+  (`tests/voicequeue/reference-channel.mjs`) and replayed through `voice-channel.js`: at 300 frames a second 90 packets
+  and 473 ticks with no mismatching tick, every fault mismatching somewhere; at 66.67, 90 packets and 377 ticks with no
+  mismatching tick, the ring's two faults mismatching nowhere.
 
 ### What was read
 

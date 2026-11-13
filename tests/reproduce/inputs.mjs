@@ -1,4 +1,4 @@
-// The check `inputs` (docs/REPRODUCE.md, "The two clips").
+// The check `inputs` (docs/REPRODUCE.md, "The clips").
 //
 //   inputs <folder>
 //     writes voice_input_22050.wav and voice_input_11025.wav, the clips of

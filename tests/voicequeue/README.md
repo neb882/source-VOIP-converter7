@@ -112,6 +112,13 @@ non-zero if the engine mismatches anywhere, or if a fault mismatches nowhere in 
 that fault from the engine and proves less than it seems). A section without `bufferMs` is replayed at 100, one
 without a name is named by its place. `pnpm test` runs the same checks on a log the test writes itself.
 
+**The check `queue`.** `node tests/reproduce.mjs queue <log> --fps <frames a second> --section <marker>`
+([docs/REPRODUCE.md, "queue"](../../docs/REPRODUCE.md#queue)) runs this tool and the same replay on one part of a log,
+and prints figures only: the ticks on which the rule gives the logged queue, expected all, and each fault's
+mismatching ticks as information, since a log shows a fault only where the thing happened. The replay and the
+synthetic log's writer live in `replay.mjs` and `synthetic-log.mjs` here, which the suite `voice-channel` and the check
+both load.
+
 To compare a section, event for event, with a section of another fixture:
 
 ```sh

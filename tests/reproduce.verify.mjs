@@ -38,15 +38,16 @@
 //           frames at Steam's settings in Steam's numbering, and that nothing of the header or a
 //           payload, numbered from 0 per phrase   SteamID is printed; one frame, record or number
 //                                                 changed differs
-//   queue   a console log written by the synthetic the tool's reading, and that the two models of the
-//           log's writer from the second model of channel agree on every tick (the suite voice-channel
-//           the channel (reference-channel.mjs),  holds that too); not that the game prints the lines
-//           at 300 and 66.67 frames a second      so; a queue line 2 bytes off differs
+//   queue   a console log written by the          the tool's reading, and that the two models of the
+//           synthetic log's writer from the       channel agree on every tick (the suite voice-channel
+//           second model of the channel           holds that too); not that the game prints the lines
+//           (reference-channel.mjs), at 300       so; a queue line 2 bytes off differs
+//           and 66.67 frames a second
 //   gate    Steam's console text written here:    the check's reading and its rule agree with the
-//           a file input's chunks over two passes app's sender on every chunk, and its walk through
-//           of the 24 kHz clip, the numbers the   the clip with the suite's sums; not that Steam
-//           suite's own sums, the marks the built prints the lines so; a mark, a number, a length
-//           sender's (steam-sender.js)            or a line changed differs
+//           a file input's chunks over two        app's sender on every chunk, and its walk through
+//           passes of the 24 kHz clip, the        the clip with the suite's sums; not that Steam
+//           numbers the suite's own sums, the     prints the lines so; a mark, a number, a length
+//           marks the built sender's              or a line changed differs
 //
 // [1] The list: every check by name, hold saying "not built yet" with no
 //     order and exiting 3; gate's and queue's usage lines.

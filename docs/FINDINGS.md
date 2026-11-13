@@ -48,7 +48,7 @@ Steam, not the game, decides which stretches of the microphone are sent: a stret
 
 **Not settled.** Where the 750-sample step comes from was not read; that it is one 32nd of a one-second capture buffer is inferred. The step and the read times are one PC's. Steam's reads favour one part of the game's 15 ms tick (measured: 63% fall in a window of 4.5 ms), and why was not read. The threshold in Steam's settings is not this gate (inferred: nothing in the client sets the two numbers).
 
-**Check it yourself.** In Steam's own console, `@voice_spew_activity_check 1` prints one line for every chunk: whether it passed, its length, its mean and its peak. `mic_inputfile` plays a 24 kHz mono file in place of the microphone, so the input is known.
+**Check it yourself.** In Steam's own console, `@voice_spew_activity_check 1` prints one line for every chunk: whether it passed, its length, its mean and its peak. `mic_inputfile` plays a 24 kHz mono file in place of the microphone, so the input is known. The script's check `gate` reads that text and checks every verdict against the rule, and with the clip every chunk against the clip's own samples ([REPRODUCE.md, "gate"](REPRODUCE.md#gate); not yet run on a log of the game).
 
 **Record.** Findings 5, 12, 25, 27 and 28.
 
@@ -86,7 +86,7 @@ The rows of the table other than those two were not measured.
 3. Do this a few times and take the average: one sound can fall anywhere between two of Steam's reads.
 4. Restart Steam and do it all again.
 
-By the table the voice goes silent about 0.4 to 0.5 s after the loud sound on the Steam started today, and 0.1 to 0.35 s later than that on the old one (computed; no Steam older than 24.3 days was measured, and the check was not made in this form). The single values of the two runs can overlap; the averages should not. With Steam's console the same shows in counts, and that is the sounder form of the check. With `@voice_spew_activity_check 1` on, the phrase ended on the 7th or 8th chunk after the last loud one on the young Steam (measured: 5 and 32 of 37, never the 9th), and on the 7th, 8th or 9th on the Steam of 23.9 days (measured: 4, 5 and 3 of 12).
+By the table the voice goes silent about 0.4 to 0.5 s after the loud sound on the Steam started today, and 0.1 to 0.35 s later than that on the old one (computed; no Steam older than 24.3 days was measured, and the check was not made in this form). The single values of the two runs can overlap; the averages should not. The same shows in counts, which is the sounder form of the check, but Steam's console alone does not show where a phrase ends: its marks are each chunk's verdict. The count needs the game's packet lines (`voice_showincoming 1`) beside Steam's console (`@voice_spew_activity_check 1`), where the silence record marks the phrase's end. Counted so, the phrase ended on the 7th or 8th chunk after the last loud one on the young Steam (measured: 5 and 32 of 37, never the 9th), and on the 7th, 8th or 9th on the Steam of 23.9 days (measured: 4, 5 and 3 of 12). [REPRODUCE.md, "The hold and Steam's clock"](REPRODUCE.md#the-hold-and-steams-clock) gives the steps by hand; there is no script for it yet.
 
 **Record.** Findings 12, 16 (its paragraph on Set L), 27 and 28.
 
@@ -177,7 +177,7 @@ The game queues each speaker's voice before it plays it, so a phrase that follow
 
 **Not settled.** A listener under 67 frames a second, and the queue under the older codecs, were not logged. The fade and what an empty queue plays were read and not recorded.
 
-**Check it yourself.** With `voice_loopback 1`, `voice_showincoming 1` and `voice_showchannels 1` the console prints one line for every packet and one line every tick with the bytes queued. Set `fps_max` to 67, 100 and 300 and count the lines before the queue starts to fall: 7, 10 and 30. [tests/voicequeue/](../tests/voicequeue/README.md) turns such a log into numbers.
+**Check it yourself.** With `voice_loopback 1`, `voice_showincoming 1` and `voice_showchannels 1` the console prints one line for every packet and one line every tick with the bytes queued. Set `fps_max` to 67, 100 and 300 and count the lines before the queue starts to fall: 7, 10 and 30. [tests/voicequeue/](../tests/voicequeue/README.md) turns such a log into numbers, and the script's check `queue` replays it through the rule tick by tick ([REPRODUCE.md, "queue"](REPRODUCE.md#queue); not yet run on a log of the game).
 
 **Record.** Findings 10, 19 and 21 to 25.
 
