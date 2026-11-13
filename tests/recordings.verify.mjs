@@ -6,8 +6,9 @@
 // [1] The table "The files that were read" in tests/REFERENCE_2026.md: its
 //     status line; its columns; ids F1 and up, in order; no empty cell; each
 //     SHA-256 64 lowercase hex digits or "not kept" with words; nothing that
-//     looks like an address (0x and four or more hex digits) or a listing of
-//     bytes; no cell longer than a name, a date, a build line or a hash
+//     looks like an address (0x or 0X and four or more hex digits, or five or
+//     more followed by h), a listing of bytes, or a path of a PC in a cell; no
+//     cell longer than a name, a date, a build line or a hash
 //     needs; "pending" only in the orchestrator's columns, and only while the
 //     status line says "the orchestrator's cells are pending" (a skip line
 //     then says some are left); the findings each row is read for are the
@@ -20,11 +21,13 @@
 //     I, M and O; the kind; input.script tests/recordings/make-inputs.mjs and
 //     input.sha256 one of the clips it makes; the check of tests/reproduce.mjs
 //     that showed the file, with at least 999 samples in 1,000 equal and none
-//     more than one step off; no file the record gives as private.
+//     more than one step off; no file the record gives as private (a hash in
+//     any "### Set X" entry of its Provenance but those of H, I, M and O).
 // [3] The folder, tests/recordings/files/: every file has a row and every row
 //     a file; each file's SHA-256 and the SHA-256 of its data chunk are its
 //     row's; each file is exactly a 44-byte header and its samples, in its
-//     row's format; nothing else is in it; nothing ignores it.
+//     row's format; nothing else is in it; nothing ignores it (where git
+//     cannot say, a skip line, but a failure on CI).
 // [4] tests/recordings/inspect.mjs: every chunk with its size, the metadata
 //     chunks by name, the plain 44-byte header said yes or no, the SHA-256s
 //     and the format; no path or file name in what it prints; WAV only.
@@ -82,14 +85,27 @@ function findingNumbers(text) {
   return new Set([...findings.matchAll(/^### (\d+)\. /gm)].map((m) => Number(m[1])));
 }
 
+// The sets whose files can be published: their entries may come to hold a
+// published file's SHA-256 (order RP-01, part e).
+const PUBLISHABLE = ['H', 'I', 'M', 'O'];
+
 // The SHA-256s the record gives for the owner's private files: every hash in
-// "## Provenance" before its entry "The file-input runs" (Sets A to F: the
-// takes, the speech, the music, the demo). The two clips, which are ours, are
-// in that entry and after it.
+// each "### Set X" entry of "## Provenance", wherever the entry stands, but
+// the entries of Sets H, I, M and O. An entry runs to the next heading of its
+// level or higher. Returns the hashes and the sets whose entries were read.
+// The entry "The file-input runs" is no set's: its two clips are ours.
 function privateHashes(text) {
-  const at = text.indexOf('\n## Provenance\n'), end = text.indexOf('\n### The file-input runs');
-  if (at < 0 || end < at) return new Set();
-  return new Set([...text.slice(at, end).matchAll(/`([0-9a-f]{64})`/g)].map((m) => m[1]));
+  const hashes = new Set(), sets = [];
+  const at = text.indexOf('\n## Provenance\n');
+  if (at < 0) return { hashes, sets };
+  const rest = text.slice(at + 1), end = rest.slice(1).search(/^## /m);
+  const provenance = end < 0 ? rest : rest.slice(0, end + 1);
+  for (const m of provenance.matchAll(/^### Set ([A-Z])\b[^\n]*\n([\s\S]*?)(?=^#{1,3} |(?![\s\S]))/gm)) {
+    if (PUBLISHABLE.includes(m[1])) continue;
+    sets.push(m[1]);
+    for (const h of m[2].matchAll(/\b([0-9a-f]{64})\b/g)) hashes.add(h[1]);
+  }
+  return { hashes, sets };
 }
 
 // The record's SHA-256 of a private file, by the first cell of its row.
@@ -168,7 +184,7 @@ export function checkFilesTable(text, { findings = findingNumbers(text), reports
   const pending = status[0]?.[1] === 'pending';
 
   // Nothing that looks like an address or a listing of bytes, anywhere in the section.
-  const address = /0x[0-9a-fA-F]{4,}/.exec(section);
+  const address = /0[xX][0-9a-fA-F]{4,}|\b[0-9a-fA-F]{5,}h\b/.exec(section);
   if (address) problems.push(`the section holds what looks like an address (${address[0]})`);
   const listing = /\b[0-9a-fA-F]{2}(?: [0-9a-fA-F]{2}){3,}\b/.exec(section);
   if (listing) problems.push(`the section holds what looks like a listing of bytes (${listing[0]})`);
@@ -197,6 +213,7 @@ export function checkFilesTable(text, { findings = findingNumbers(text), reports
     c.forEach((cell, j) => {
       const col = COLUMNS[j];
       if (EMPTY.has(cell)) problems.push(`${id}: the cell "${col}" is empty`);
+      if (/\b[A-Za-z]:\\|(?:^|[\s`(])\/[^\s/`]+\//.test(cell)) problems.push(`${id}: the cell "${col}" holds a path of a PC (a drive letter and backslash, or a path from /)`);
       if (cell.length > CELL_MAX) problems.push(`${id}: the cell "${col}" is ${cell.length} characters, longer than a name, a date, a build line or a hash needs (${CELL_MAX})`);
       if (/\bpending\b/i.test(cell)) {
         if (!MAY_PEND.has(col)) problems.push(`${id}: the cell "${col}" says pending, and it is not one of the orchestrator's`);
@@ -418,6 +435,8 @@ export function checkFolder(dir, rows) {
   let entries = [];
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (error) { if (error.code !== 'ENOENT') return [`the folder cannot be read (${error.code})`]; }
   const byName = new Map((Array.isArray(rows) ? rows : []).filter((r) => r && typeof r.name === 'string').map((r) => [r.name, r]));
+  const named = (Array.isArray(rows) ? rows : []).filter((r) => r && typeof r.name === 'string').map((r) => r.name);
+  for (const name of new Set(named.filter((n, i) => named.indexOf(n) !== i))) problems.push(`${name}: two rows name this file`);
   for (const e of entries) {
     if (!e.isFile()) { problems.push(`${e.name}: is not a plain file (a folder or a link); the folder holds only the published files`); continue; }
     const row = byName.get(e.name);
@@ -448,6 +467,14 @@ export function ignoredPaths(root, probes, config = []) {
   return run.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
+// What to make of git's answer: 'check' when it answered, else 'fail' on CI
+// (where git is always there, so no answer is a fault) and 'skip' elsewhere
+// (a copy of the repository with no git).
+export function ignoreVerdict(ignored, env) {
+  if (ignored != null) return 'check';
+  return env.CI ? 'fail' : 'skip';
+}
+
 // ---------------------------------------------------------------------------
 // WAV files for the stand-ins: a plain 44-byte header and a tone, or with
 // chunks put in before or after.
@@ -476,7 +503,7 @@ const infoList = (text) => Buffer.concat([Buffer.from('INFO', 'latin1'), Buffer.
 // ---------------------------------------------------------------------------
 
 const findings = findingNumbers(referenceText);
-const privates = privateHashes(referenceText);
+const { hashes: privates, sets: privateSets } = privateHashes(referenceText);
 const clipBytes = new Map(RATES.map((rate) => [rate, clipWav(rate)]));
 const clips = new Set([...clipBytes.values()].map(sha256));
 
@@ -487,9 +514,11 @@ console.log('[0] What the suite takes from the record and the generator');
   check('the two clips tests/recordings/make-inputs.mjs makes have the SHA-256 the record gives ("The file-input runs")', rec.size === 2 && mismatch.length === 0,
     mismatch.length ? `differs at ${mismatch.join(', ')} Hz` : RATES.map((r) => `${r} Hz ${rec.get(r).slice(0, 12)}…`).join(', '));
   const speechTake = recordHashOf(referenceText, 'take4_my_own_speech'), speechSource = recordHashOf(referenceText, 'my_own_speech_raw_from_audacity.wav');
-  check('the record\'s SHA-256s of private files (Provenance, Sets A to F) are read, the speech take and its source among them',
-    privates.size >= 10 && privates.has(speechTake) && privates.has(speechSource) && ![...clips].some((h) => privates.has(h)),
-    `${privates.size} hashes; none of them a clip's`);
+  check('the record\'s SHA-256s of private files are read from each Set entry of Provenance but H, I, M and O, the speech take and its source among them',
+    privateSets.length > 0 && privates.size >= 10 && privates.has(speechTake) && privates.has(speechSource) && ![...clips].some((h) => privates.has(h)),
+    `${privates.size} hashes from Sets ${privateSets.join(', ')}; none of them a clip's`);
+  const none = privateHashes(referenceText.replace(/^### Set /gm, '### Lot '));
+  check('a record with no Set entry gives no hash, so the check above fails on it', none.sets.length === 0 && none.hashes.size === 0);
   check('the record\'s findings are read', findings.size >= 30 && findings.has(1) && findings.has(32), `${findings.size} findings`);
 }
 
@@ -531,6 +560,12 @@ if (table.pending) {
   breaks('a cell longer than a name, a date, a build line or a hash needs fails', checkFilesTable(swap(rowOf(f2), withCell(f2, 2, 'x'.repeat(CELL_MAX + 1)))).problems, /longer than a name/);
   breaks('a date that is not a date fails', checkFilesTable(swap(rowOf(f2), withCell(f2, 4, 'September'))).problems, /^F2: the cell "Built" is not a date/);
   breaks('an id out of order fails', checkFilesTable(swap(rowOf(f2), withCell(f2, 0, 'F3'))).problems, /^row 2: its id is "F3"/);
+  breaks('a row with a cell too many fails', checkFilesTable(swap(rowOf(f2), rowOf([...f2, 'more']))).problems, /^F2: 10 cells/);
+  breaks('an address of four hex digits (0x58d8) fails', checkFilesTable(swap(rowOf(f1), withCell(f1, 2, 'the owner\'s TF2, at 0x58d8'))).problems, /looks like an address \(0x58d8\)/);
+  breaks('an address in capitals (0X180058D80) fails', checkFilesTable(swap(rowOf(f1), withCell(f1, 2, 'the owner\'s TF2, at 0X180058D80'))).problems, /looks like an address \(0X180058D80\)/);
+  breaks('an address written with an h (1000a2f0h) fails', checkFilesTable(swap(rowOf(f1), withCell(f1, 2, 'the owner\'s TF2, at 1000a2f0h'))).problems, /looks like an address \(1000a2f0h\)/);
+  breaks('a Windows path in a cell fails', checkFilesTable(swap(rowOf(f1), withCell(f1, 1, 'C:\\Games\\tf\\engine.dll'))).problems, /^F1: the cell "File" holds a path/);
+  breaks('a Unix path in a cell fails', checkFilesTable(swap(rowOf(f1), withCell(f1, 1, '/home/someone/engine.dll'))).problems, /^F1: the cell "File" holds a path/);
   breaks('a row with a cell too few fails', checkFilesTable(swap(rowOf(f2), rowOf(f2.slice(0, -1)))).problems, /^F2: 8 cells/);
   breaks('a column renamed fails', checkFilesTable(swap('| Id | File | From |', '| Id | Name | From |')).problems, /columns are not/);
   breaks('a finding the record does not have in "Read for" fails', checkFilesTable(swap(rowOf(f2), withCell(f2, 7, '31, 99'))).problems, /names finding 99/);
@@ -597,7 +632,7 @@ function exampleRows() {
   return rows;
 }
 const ordered = (row) => Object.fromEntries(ROW_FIELDS.map((f) => [f, row[f]]));
-function standIn(edit = () => {}) {
+function standIn(edit = () => {}, { privates: known = privates } = {}) {
   const rows = exampleRows();
   const m = { about: manifest?.about || 'stand-in', fields: { ...(manifest?.fields || Object.fromEntries(ROW_FIELDS.map((f) => [f, f]))) }, rows: rows.map(ordered) };
   const files = new Map(rows.map((r) => [r.name, r.file]));
@@ -605,7 +640,7 @@ function standIn(edit = () => {}) {
   fs.rmSync(standIns, { recursive: true, force: true });
   fs.mkdirSync(standIns);
   for (const [name, bytes] of files) fs.writeFileSync(path.join(standIns, name), bytes);
-  return { manifest: m, problems: [...checkManifest(m, { clips, privates, findings }), ...checkFolder(standIns, m.rows)] };
+  return { manifest: m, problems: [...checkManifest(m, { clips, privates: known, findings }), ...checkFolder(standIns, m.rows)] };
 }
 {
   const base = standIn();
@@ -637,6 +672,19 @@ function standIn(edit = () => {}) {
   breaks('a finding the record does not have fails', standIn((m) => { row(m).findings = [99]; }).problems, /"findings" is not a list of the record's findings/);
   breaks('a used_by that is not a file fails', standIn((m) => { row(m).used_by = ['tests/nosuch.mjs']; }).problems, /"used_by" names "tests\/nosuch\.mjs"/);
   breaks('two rows of one file fail', standIn((m) => { m.rows[1].sha256 = row(m).sha256; }).problems, /another row has the same file/);
+  breaks('two rows of one name, the first with a wrong sha256, fail', standIn((m) => { m.rows[1].name = row(m).name; m.rows[1].check.files = ['this']; row(m).sha256 = 'c'.repeat(64); }).problems, /another row has the same name/);
+  breaks('the folder check alone fails two rows of one name', (() => { const r = standIn(); const rows = r.manifest.rows.map((x) => ({ ...x })); rows[1].name = rows[0].name; return checkFolder(standIns, rows); })(), /: two rows name this file/);
+  breaks('sets holding one letter twice fail', standIn((m) => { row(m).sets = ['H', 'H']; }).problems, /"sets" is not a list of one or two sets/);
+  {
+    // The record's hashes by entry: a published file's hash written into Set
+    // H's entry is no private file's; the same in a new Set entry is.
+    const hash = exampleRows()[0].sha256;
+    const inH = referenceText.replace('\n### Set I: ', `\nPublished: \`${hash}\`.\n\n### Set I: `);
+    check('a row\'s hash written into Set H\'s entry of the record passes', inH !== referenceText &&
+      standIn(() => {}, { privates: privateHashes(inH).hashes }).problems.length === 0);
+    const inP = referenceText.replace('\n### The script run on the game\'s files', `\n### Set P: a later set\n\n| File | SHA-256 |\n| --- | --- |\n| a take | \`${hash}\` |\n\n### The script run on the game\'s files`);
+    breaks('the same hash in a new Set entry after "The file-input runs" fails', standIn(() => {}, { privates: privateHashes(inP).hashes }).problems, /"sha256" is the record's SHA-256 of a private file/);
+  }
   breaks('a manifest whose fields are not the rows\' fails', standIn((m) => { delete m.fields.used_by; }).problems, /"fields" does not name/);
   check('the record holds the speech take\'s SHA-256, so its break above uses the record\'s own hash', HEX64.test(speechTake || '') && HEX64.test(speechSource || ''));
 }
@@ -653,7 +701,9 @@ console.log('\n[3] The folder (tests/recordings/files/)');
 
   const probes = [`${FOLDER}/`, `${FOLDER}/set-h_vaudio-celt_maxgain-1.wav`, ...(manifest?.rows || []).map((r) => `${FOLDER}/${r.name}`)];
   const ignored = ignoredPaths(ROOT, probes);
-  if (ignored == null) skip('nothing ignores tests/recordings/files/', 'git cannot say here (no git, or not a repository)');
+  const verdict = ignoreVerdict(ignored, process.env);
+  if (verdict === 'fail') check('nothing ignores tests/recordings/files/: git must answer on CI', false, 'git could not say (no git, or not a repository)');
+  else if (verdict === 'skip') skip('nothing ignores tests/recordings/files/', 'git cannot say here (no git, or not a repository)');
   else {
     check('nothing ignores tests/recordings/files/ or a file in it (git check-ignore)', ignored.length === 0, ignored.length ? `ignored: ${ignored.join(', ')}` : `${probes.length} paths`);
     const excludes = path.join(tmp, 'excludes');
@@ -664,6 +714,10 @@ console.log('\n[3] The folder (tests/recordings/files/)');
     }
   }
 
+  check('where git cannot say, the check fails on CI and is skipped elsewhere', ignoreVerdict(null, { CI: 'true' }) === 'fail' &&
+    ignoreVerdict(null, {}) === 'skip' && ignoreVerdict([], { CI: 'true' }) === 'check');
+  const outside = ignoredPaths(tmp, ['x.wav']);
+  check('git\'s "cannot say" is read as no answer (a folder outside any repository)', outside === null, outside === null ? 'no answer, as on a copy with no git' : `answered ${JSON.stringify(outside)}`);
   const name0 = 'set-h_vaudio-celt_maxgain-1.wav';
   breaks('a file in the folder with no row fails', standIn((m, files) => { files.set('set-o_vaudio-speex_maxgain-1.wav', wavBytes(11025, tone(500, 300, 11025))); }).problems, /set-o_vaudio-speex_maxgain-1\.wav: a file in the folder with no row/);
   breaks('a placeholder file with no row fails', standIn((m, files) => { files.set('.gitkeep', Buffer.alloc(0)); }).problems, /\.gitkeep: a file in the folder with no row/);

@@ -55,8 +55,9 @@ stand-ins the suite makes, and each break below is a stand-in the suite builds a
 
 - **[0] What it takes from the record.** The two clips `make-inputs.mjs` makes have the SHA-256 the record's table
   "The file-input runs" gives (read from the record, not pinned in the suite). The never-published hashes are read
-  from the record: every SHA-256 in "Provenance" before "The file-input runs", which are Sets A to F's files (24
-  today), the speech take and its source among them, none of them a clip's. The findings' numbers are read from
+  from the record: every SHA-256 in each `### Set X` entry of "Provenance", wherever the entry stands, but the
+  entries of Sets H, I, M and O (24 today, all in the entries of Sets A to F), the speech take and its source among
+  them, none of them a clip's. A record with no Set entry gives no hash, and the check fails on it (fix round). The findings' numbers are read from
   "## Findings".
 - **[1] The table.** On the record: passes, and a skip line says the orchestrator's cells are pending. Breaks, each
   made from the record's own rows: a SHA-256 of 63 digits, one in capitals, `not kept` with no reason (and `not
@@ -126,7 +127,7 @@ Line numbers are of this branch. "Pending" cells are listed after.
 | F1 | File, From | `bin/x64/engine.dll`, the owner's TF2, 64-bit | `docs/reports/W3-03-engine-binary.md` 153 (PE32+ x86-64); the record's table "What was read", 385 ("from the owner's install") |
 | F1 | Built | 2026-10-05 | W3-03, 154 ("link date") |
 | F1 | SHA-256 | `4802a74c…a08ec80` in full | W3-03, 153; the same in `W3-07-mixer-output.md` 19 and `W3-09-steam-voice.md` 43 |
-| F1 | Report | W3-03, W3-07, W3-09, W3-10, W3-15, W3-15b, W3-17, BC plan | W3-03 153, W3-07 19, W3-09 43 and 634, `W3-10-upsampler-read.md` 3, `W3-15-room-dsp.md` 22, `W3-15b-rooms-in-the-takes.md` 4, `W3-17-room-dsp-second-read.md` 3 and `W3-17-amp-mdy-second-read.md` 3, `bad-connections-plan.md` 10 |
+| F1 | Report | W3-03, W3-05, W3-07, W3-09, W3-10, W3-15, W3-15b, W3-17, W3-17a, W3-17b, BC plan | W3-03 153, `W3-05-receiver-gain.md` 9, 25 and 47 (its second read of the engine's gain function; the record 932), W3-07 19, W3-09 43 and 634, `W3-10-upsampler-read.md` 3, `W3-15-room-dsp.md` 22, `W3-15b-rooms-in-the-takes.md` 4, `W3-17-room-dsp-second-read.md` 3 and `W3-17-amp-mdy-second-read.md` 3, `W3-17a-second-read.md` 3, `W3-17b-second-read.md` 3 and 4, `bad-connections-plan.md` 10 |
 | F2 | File, From, Built, SHA-256 | `bin/x64/vaudio_celt.dll`, 2026-09-30, `255cf083…` | W3-03, 155 and 156 |
 | F2 | Report | W3-03, W3-08 | W3-03 155; `W3-08-celt-encoder.md` 8 to 10 |
 | F3 | From | another Source game of the owner's, 32-bit | W3-08, 72 ("The owner's 32-bit module from another Source game") |
@@ -140,7 +141,7 @@ Line numbers are of this branch. "Pending" cells are listed after.
 | F10 | File, From, Built, SHA-256 | `vaudio_speex.dll`, another Source game, 32-bit, 2026-05-20, `70d66432…` | W3-09, 42 and 502 |
 | F11 | From, Read for | the owner's TF2, 32-bit; 31 (run, Set O) | `tests/REFERENCE_2026.md` 280 and 1081 |
 | F12 | From, Build | the owner's TF2, 32-bit; 11191711, the build the game reported in Set O | the record, 277 and 281; `docs/FINDINGS.md` 27 |
-| F13 | File, From, Built | `vaudio_miles.dll`, the owner's TF2, 32-bit, 2024-01-17 | `vendor/voxware-vr12/README.md` 53 and 71 to 74; `docs/FINDINGS.md` 29 |
+| F13 | File, From, Built | `vaudio_miles.dll` (never a TF2 codec), the owner's TF2, 32-bit, 2024-01-17 | `vendor/voxware-vr12/README.md` 53 and 71 to 74; `docs/FINDINGS.md` 29 |
 | F13, F14 | Report | W3-20a | `docs/reports/W3-20a-miles-codec.md` 166 to 177; the vendor README is that order's |
 | F15, F16 | Built | 2009-12-04, 2010-02-01 | `docs/FINDINGS.md` 29 (the only place in the repository that gives them) |
 | F15 to F18 | Report | W3-20a, W3-20b | W3-20a 166 to 177; the record's finding 31, the bullets of W3-20a and W3-20b (1084 to 1121) |
@@ -293,8 +294,8 @@ logs they read are not in this repository and never go into it" becomes:
 3. The manifest check fails on a missing field (`the field "pcm_sha256" is missing`), a name with a date (`the name
    holds a date`), an `input.script` that is not a file (`"input.script" is not a file of the repository`), and, by
    the brief's ruling, a `sha256` or `pcm_sha256` that is the record's for the speech take or its source (`"sha256"
-   is the record's SHA-256 of a private file, which is never published`). The record holds such hashes (Provenance,
-   Sets A to F), so that break is in.
+   is the record's SHA-256 of a private file, which is never published`). The record holds such hashes (the Set
+   entries of Provenance other than H, I, M and O), so that break is in.
 4. `inspect.mjs` names `LIST (INFO), bext` in a WAV the suite makes and says "no"; on a clean file it says "yes". A
    FLAC file is "not a WAV file".
 4a. The folder check fails on a file with no row, a row with no file, a file whose SHA-256 is not its row's, and a
@@ -329,8 +330,9 @@ All parts: `node tests/run.mjs site harness` passes; `node tests/cache-number.mj
 - **The table's cell limit** is 100 characters, a choice: the longest hash cell is 66, the longest cell today 79.
 - **The Read-for cells** are section 6's. They were set beside the reports each finding cites in the record and
   agree; that is not a reading of each finding's text line by line.
-- **The never-published hashes** are found by position in the record (Provenance before "The file-input runs"). A
-  hash added to Sets G to O's entries later would not be seen unless it is put there.
+- **The never-published hashes** are read from every `### Set X` entry of "Provenance" but those of Sets H, I, M
+  and O, wherever the entry stands (fix round). A private file's hash written outside a Set entry, or into the entry
+  of H, I, M or O, is not seen.
 - **No manifest field was added.** `private_sha256` stays out, as the brief rules; the suite fails a row that has
   one.
 
@@ -347,3 +349,38 @@ All parts: `node tests/run.mjs site harness` passes; `node tests/cache-number.mj
   and the hand-back gives its result.
 - The branch's diff and its commit messages were scanned for recordings, personal details, real SteamIDs, paths and
   model names: none but the trailer lines.
+
+## Fix round
+
+The review's five points, as the orchestrator passed them on. `main` merged in again at `d246af9` (docs only).
+
+1. **The never-published hashes are read by entry, not by position.** `privateHashes` reads every SHA-256 in each
+   `### Set X` entry of "Provenance", wherever it stands, and leaves out the entries of Sets H, I, M and O, where
+   part e may write a published file's hash. Today it reads 24 hashes from the entries of Sets A to F (G, J, K, L and
+   N hold none). A record with no Set entry gives no hash, and [0] fails on that. New in [2]: a stand-in row's hash
+   written into Set H's entry of a copy of the record passes; the same hash in a new `### Set P` entry placed after
+   "The file-input runs" fails. Breaks: Sets H, I, M and O read like the others (the Set H case fails); the hashes
+   taken by position again, up to "The file-input runs" (the Set P case fails).
+2. **F1's "Report"** adds W3-05 (its second read of the engine's gain function: `W3-05-receiver-gain.md` 9, 25 and
+   47; the record, 932), W3-17a and W3-17b (their second reads read the engine: `W3-17a-second-read.md` 3,
+   `W3-17b-second-read.md` 3 and 4). The cell is 82 characters.
+3. **The checks no break reached, and wider forms.** New stand-in breaks: two rows of one name with the first row's
+   `sha256` wrong (the manifest's "another row has the same name"; and the folder check now says by itself "two rows
+   name this file", with its own break); a table row with a cell too many ("10 cells, not 9"); `sets` holding `H`
+   twice; an address of four hex digits, `0x58d8`. The address check also takes `0X` in capitals (`0X180058D80`) and
+   a run of five or more hex digits followed by `h` (`1000a2f0h`), each with a break. A cell holding a path of a PC
+   fails: a drive letter and a backslash (`C:\Games\tf\engine.dll`), or a path that starts with a slash and has a
+   second (`/home/someone/engine.dll`), each with a break. The record's cells such as `bin/x64/engine.dll` start with
+   no slash and pass. Breaks of the code: the address check narrowed to `0x` alone (the `0X` and `h` cases fail),
+   four digits made five (the `0x58d8` case fails), the path check removed (both path cases fail), the duplicate
+   name check removed (its case fails), the repeated set check removed (its case fails), a cell too many allowed
+   (its case fails).
+4. **`vaudio_miles` is marked** "never a TF2 codec" in rows F17 and F18 and in this report's cell table (F13), as
+   `CLAUDE.md` asks.
+5. **"Nothing ignores the folder" on CI.** Where git cannot answer, the check fails when `CI` is set and is a skip
+   line elsewhere (`ignoreVerdict`). The suite checks the verdict on its three cases, and that git's "not a
+   repository" (exit 128, in a folder outside any repository) is read as no answer. Break: the CI case made a skip
+   (the verdict check fails). With `CI=true` the suite passes here, git answering.
+
+Runs after the fix round: see "Runs, fix round" below.
+

@@ -408,7 +408,7 @@ found. W3-15b is the report the table above calls W3-18, and "BC plan" is `docs/
 
 | Id | File | From | Build, as its owner can read it | Built | Taken | SHA-256 | Read for | Report |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| F1 | `bin/x64/engine.dll` | the owner's TF2, 64-bit | pending | 2026-10-05 | pending | `4802a74ce0abb1175851d00e37fc88609085a96238aa52ac0eb224ae4a08ec80` | 2, 4, 8, 9, 10, 14, 21 to 27, 29 (what the game takes of a message), 30, 31, 32 | W3-03, W3-07, W3-09, W3-10, W3-15, W3-15b, W3-17, BC plan |
+| F1 | `bin/x64/engine.dll` | the owner's TF2, 64-bit | pending | 2026-10-05 | pending | `4802a74ce0abb1175851d00e37fc88609085a96238aa52ac0eb224ae4a08ec80` | 2, 4, 8, 9, 10, 14, 21 to 27, 29 (what the game takes of a message), 30, 31, 32 | W3-03, W3-05, W3-07, W3-09, W3-10, W3-15, W3-15b, W3-17, W3-17a, W3-17b, BC plan |
 | F2 | `bin/x64/vaudio_celt.dll` | the owner's TF2, 64-bit | pending | 2026-09-30 | pending | `255cf0836a11118195c9129869b7a0e5a15123c99054409b93e379a66e07a66e` | 31 | W3-03, W3-08 |
 | F3 | a second `vaudio_celt` module, its file name pending | another Source game of the owner's, which one pending; 32-bit | pending | pending | pending | pending | 31 | W3-08 |
 | F4 | `steamclient64.dll` | the owner's Steam, 64-bit | pending | 2026-10-13 | pending | `e9045710ec7ee47d7b7488d1c5dda2d933dec7e251e965967a5c48f4df68eb4e` | 5, 11, 12, 16, 27, 28, 29 | W3-09, W3-16, BC plan |
@@ -424,8 +424,8 @@ found. W3-15b is the report the table above calls W3-18, and "BC plan" is `docs/
 | F14 | the Miles files beside F13, their names pending | the owner's TF2, 32-bit | pending | pending | pending | pending | 31 | W3-20a |
 | F15 | the engine of Source SDK Base 2006, its file name pending | the owner's Source SDK Base 2006 | pending | 2009-12-04 | pending | pending | 24, 31 | W3-20a, W3-20b |
 | F16 | the engine of Source SDK Base 2007, its file name pending | the owner's Source SDK Base 2007 | pending | 2010-02-01 | pending | pending | 24, 31 | W3-20a, W3-20b |
-| F17 | the `vaudio_miles` wrapper of F15, its file name pending | the owner's Source SDK Base 2006, with the plug-in Miles 6.6a | pending | 2006-05-22 | pending | pending | 31 | W3-20a, W3-20b |
-| F18 | the `vaudio_miles` wrapper of F16, its file name pending | the owner's Source SDK Base 2007, with the plug-in Miles 6.6a | pending | 2008-07-11 | pending | pending | 31 | W3-20a, W3-20b |
+| F17 | the `vaudio_miles` wrapper of F15 (never a TF2 codec), its file name pending | the owner's Source SDK Base 2006, with the plug-in Miles 6.6a | pending | 2006-05-22 | pending | pending | 31 | W3-20a, W3-20b |
+| F18 | the `vaudio_miles` wrapper of F16 (never a TF2 codec), its file name pending | the owner's Source SDK Base 2007, with the plug-in Miles 6.6a | pending | 2008-07-11 | pending | pending | 31 | W3-20a, W3-20b |
 | F19 | `client.dll` | the owner's TF2; 64 or 32 bit pending | pending | pending | pending | pending | 32 (its strings only) | W3-15, W3-15b |
 | F20 | `GameUI.dll` | the owner's TF2 | pending | pending | pending | pending | 32 (the menu option that turns the room off) | W3-15b |
 | F21 | `scripts/dsp_presets.txt` | the owner's TF2, the game's own archive | pending | pending | pending | pending | 30, 32 | W3-15, W3-17 |
