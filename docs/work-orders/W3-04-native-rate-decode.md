@@ -61,7 +61,7 @@ May not touch: `audio.js`, `constants.js`, `opus-codec.mjs`, `reference.js`, `me
 - `pnpm test` and the browser suite pass; CI passes on the pushed branch.
 - The accuracy suite's figures do not move. It decodes with its own 48 kHz context, so it should not see this
   change at all: run `flock /tmp/tf2ve-heavy.lock env CHROMIUM_EXECUTABLE=... node tests/accuracy.mjs --takes
-  /home/user/tf2-voice-takes --only take4_my_own_speech,sender_A,music_river --json <scratch>/after.json` before and
+  <the private takes> --only take4_my_own_speech,sender_A,music_river --json <scratch>/after.json` before and
   after and show the three rows are identical. The takes folder is private: read-only, nothing from it in the
   repository, no file names of its music in the report beyond the take names above.
 - The report says, for each format, how the rate is read and what was not handled.

@@ -106,6 +106,7 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | BC-4 | jitter as arrival times | not started; no order | | | after W3-02c-2; the owner's block 2 |
 | BC-5 | the engine codecs under loss | not started; no order | | | the owner's block 1, its optional take |
 | BC-6 | the sender's side, a real server | no build planned | | | the owner's block 6 |
+| RP-01 | a document a stranger can check findings from on their own PC, with one script (`docs/REPRODUCE.md`, not built yet); the name, build, date and SHA-256 of each file a finding marked "read" was read from; which recordings are published, and how | planned and ruled on (2026-11-13, section 14 of the order: nine recordings of two synthetic clips are candidates, in the repository; no recording of the modern path can be published, each carrying the owner's voice); no part is started | [RP-01-reproduce-it.md](work-orders/RP-01-reproduce-it.md) | none yet | after the orchestrator's rulings (the order's section 12) and a plan review; part e is the orchestrator's alone |
 | Maintenance passes | the plan kept up to date | done | `527bda6`, `3f3a4f1`, `c37c7e1` | W3-plan-maintenance.md, W3-plan-maintenance-2.md | |
 | Documentation pass | every document read against the code and rewritten | in flight | | | |
 
