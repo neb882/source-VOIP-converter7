@@ -595,3 +595,47 @@ worse on the queue: outside the expected 0.5 dB, inside the 1 dB stop. The level
 likely cause is that the render's draw of early phrase starts differs from the take's at some phrases (inferred, not
 measured). **Ruling: ruling 5 stands; part e is built after its plan review, and its documents give these figures
 with their standing.**
+
+## After the plan review (2026-11-13, the orchestrator)
+
+A plan reviewer read the order at `81718a9` as its builders would (ready with edits; figures below measured by it
+on a copy of the planner's trial tree and on renders). Each point binds the builder of its part and holds over the
+text above.
+
+**Part f.**
+
+1. **The warm-stages check also asserts that the warm render reuses neither A nor B**, as `zzNew` does
+   (`tests/stages.verify.mjs:270-276`), with a stages object of its own. Hashes alone pass when the stage keys leave
+   `retime` out (shown: `&& name !== 'retime'` at `engine/render.js:193` passed the hash-only check and `zzNew`),
+   which goes against ruling 3. The break row "the stage keys leave out a name the engine does not read" names this
+   check, with `zzNew` beside it.
+2. **"B taken twice" is wrong for the frame path** (`:441-450`): without the re-timed render B is reused once there.
+   The order's text reads "B reused by each render after the first", or gives the counts per path.
+3. **[10c]** says what the stream's bytes are compared with (`createRender` without `retime`).
+4. **Lines:** the rule's comment and function in `engine/network.js` are `:36-85`; `reference.js`'s statement is at
+   `:453`. Part f may also touch `tests/stages.verify.mjs:264-266` (a comment that goes stale).
+
+**Part e.**
+
+5. **The zoomed-out lane.** `drawCodecLane` works out `f0` and `f1` itself with `info.lookahead`
+   (`app/visualizer.js:895-896`); point 1 covers that path too (or both use one slot function). Check 1 gains a
+   pixel test at a zoom where frames are aggregated (`perPixel` at least 0.5): the first frame pixel of a phrase
+   sits at `frameStart` of its first played slot.
+6. **The phrase plan:** phrase lengths 1.5, 1.2, 1.0, 1.4, 0.8, 1.3, 1.6, 1.0, 2.0, 1.2, 1.5 and 1.1 s with the
+   order's pauses and a trailing pause of 1.0 s; the source stays at 30 s or shorter (the preview starts above 30 s,
+   `app/render.js:644`). The page sends no seed, so the check searches the take's or the signal's seed; with the
+   default seed phrases 5 and 11 start early, with seed 1 phrases 5, 9 and 11 (measured, the page's options).
+7. **Words to settle in the code and the text:** `guideMs` is 0 when `guideSpurts` is null; when it is null from a
+   null offset, `takeMs` and `takeKind` are null, shown as `—`, and the change is left out of T and G. The hover
+   prints the absolute value of `(882 f + 441 - source[f]) / 44.1` with `early` when it is negative, and check 3
+   compares that. `voiceRate` is 44,100 (`TF2VoiceChannel.VOICE_CHANNEL.rate`). The slot's own `frame f (packet p)`
+   stays in the hover. "The source's end" is the duration of `state.renderedSource`. Marks are drawn on whole
+   pixels.
+8. **W3-02c-3b.** Its live chain gives `counts()` without `source`, `drops` or `spurts`, so testing `channel.source`
+   holds. The sentence's second form ("keeps the file's own timing and starts none early") is keyed on the absence
+   of `channel`; a `channel` without `spurts` has wording of its own.
+9. **Small points:** the legend's skip item has a swatch other than `.lg-box` (five checks filter on it, and one adds
+   up its last word); marks are drawn in the zoomed-in branch too (it returns early at `:900`).
+10. **Size.** Part e's 8 hours are tight. If it runs over, points 6 and 7 of "What changes" (the phrase starts) go to
+    a part of their own, which private look 2 gates anyway; the lane, the hover, the legend and the status line come
+    first.
