@@ -1957,27 +1957,33 @@ async function verifyJourney(browser, base) {
       'with frames the gate held, the line ends with the time not sent', gate.status);
   } finally { await context.close(); }
 
-  // 4. A 61 s source: a changed setting waits for the button, and the page says so.
+  // 4. A 61 s source: a changed setting that needs a new encode waits for the
+  // button, and the page says so. Jitter: read in the codec stage today (it
+  // is on the engine's AFTER_A list, not AFTER_B), and it allows no first
+  // seconds, so the line under the player reads "Rendering 61.0 s…"
+  // throughout. (BC-4 is to move it across that stage for Steam voice; this
+  // check then wants another setting.) (W3-02d-2: a change on the receiver's side alone renders such a
+  // source by itself, [Browser 8d].)
   {
     const { context, page } = await fresh();
     try {
       await chooseFile(page, { name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(61, 8000) }, 120000);
       const r = await page.evaluate(() => state.renderId), mark = 'test: the long source changed';
       await page.evaluate((m) => logLine(m, 'sys'), mark);
-      await setControl(page, 'voice_scale', '0.5');
+      await setControl(page, 'jitter', '50');
       await page.waitForTimeout(2000);
       const marks = () => page.evaluate(() => ({ status: els.renderStatus.textContent, button: els.process.textContent, download: els.dl.textContent,
         stale: ['viz-container', 'viz-legend', 'meter'].map((id) => document.getElementById(id).classList.contains('stale')), renders: state.renderId, processing: state.processing }));
       const waiting = await marks();
       check(waiting.renders === r && !waiting.processing && await rendersStartedSince(page, mark) === 0,
-        'a 61 s source and a changed setting: no render starts within 2 s', `${await rendersStartedSince(page, mark)} started`);
+        'a 61 s source and a changed jitter: no render starts within 2 s', `${await rendersStartedSince(page, mark)} started`);
       check(waiting.status === STALE_TEXT && waiting.button === 'Render again' && waiting.download === 'Download WAV (earlier settings)' && waiting.stale.every(Boolean),
         'the status line, "Render again" and "(earlier settings)" say so, and the views and the table are marked stale', JSON.stringify(waiting));
-      await setControl(page, 'voice_scale', '1.0');
+      await setControl(page, 'jitter', '0');
       const back = await marks();
       check(back.renders === r && back.status !== STALE_TEXT && back.status.startsWith('Rendered in') && back.button === 'Render' && back.download === 'Download WAV' && !back.stale.some(Boolean),
         'the value set back removes the marks, with no render', JSON.stringify(back));
-      await setControl(page, 'voice_scale', '0.5');
+      await setControl(page, 'jitter', '50');
       await page.locator('#process').click();
       // While it renders: "Rendering… N%" and "Rendering 61.0 s…".
       await page.waitForFunction(() => /^Rendering… \d+%$/.test(els.process.textContent), null, { timeout: 30000 });
@@ -1992,7 +1998,7 @@ async function verifyJourney(browser, base) {
         'with no frames held by the gate, the line says nothing of it', done.status);
       // A change while it renders (review, S1): the render that comes is
       // labelled with the settings it was made with, so the page marks it.
-      await setControl(page, 'voice_scale', '0.6');
+      await setControl(page, 'jitter', '60');
       await page.locator('#process').click();
       await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
       await setControl(page, 'loss', '5');
@@ -2288,11 +2294,15 @@ async function verifyPageTimeline(browser, base) {
 
   // A source longer than 60 s: a changed volume, fps_max or Phrase timing
   // marks the render and starts none; the line beside Hear follows the render
-  // on screen, not the controls.
+  // on screen, not the controls. (W3-02d-2: such a change renders a longer
+  // source by itself when its render took at most AUTO_RENDER_KEPT_MS, which
+  // [Browser 8d] checks; here the render on screen's time is set over it, so
+  // that the render stays marked.)
   {
     const { context, page } = await fresh();
     try {
       await chooseFile(page, { name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(61, 8000) }, 120000);
+      await page.evaluate(() => { state.renderedTook = AUTO_RENDER_KEPT_MS + 1; });
       const first = await timelineState(page);
       const seen = [];
       for (const [id, value, back] of [['volume', '0.5', '1'], ['fps', '67', '300'], ['timeline', 'source', 'game']]) {
@@ -2305,7 +2315,7 @@ async function verifyPageTimeline(browser, base) {
         await setControl(page, id, back);
       }
       check(first.channel && first.line && seen.every((x) => x.started === 0 && x.stale && x.status && x.line),
-        'a 61 s source: a changed volume, fps_max or Phrase timing each marks the render and starts none, and the line beside Hear stays as the render on screen has it',
+        'a 61 s source whose render took over the limit: a changed volume, fps_max or Phrase timing each marks the render and starts none, and the line beside Hear stays as the render on screen has it',
         JSON.stringify(seen));
     } finally { await context.close(); }
   }
@@ -2449,6 +2459,253 @@ async function verifyPageTimeline(browser, base) {
     } finally { await context.close(); }
   }
   check(errors.length === 0, 'the game\'s timeline on the page: no page errors', errors.join('; '));
+}
+
+// W3-02d-2: a source longer than 60 s renders again by itself after a change
+// that needs no new encode, when the page's worker still holds what the render
+// on screen left and that render took at most AUTO_RENDER_KEPT_MS on this
+// device (reconcileRender, rendersFromKept). A change that needs a new encode
+// marks the render, as before. A source of 60 s or less is checked by the
+// sections above, unchanged.
+// A synthetic Steam-voice demo of more than 60 s, one speaker in universe 0 (no
+// account can have it), two talk spurts of 1 s, the second 64 s after the
+// first: written as tests/demo.verify.mjs writes its demo (the same layout,
+// cut down to what this needs).
+async function longDemo() {
+  const opus = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'vendor', 'libopus-1.1', 'index.mjs')).href);
+  const bits = [];
+  let at = 0;
+  const write = (value, n) => { for (let i = 0; i < n; i++, at++) { if ((at & 7) === 0) bits.push(0); if (Math.floor(value / 2 ** i) % 2) bits[bits.length - 1] |= 1 << (at & 7); } };
+  const message = (fill) => { bits.length = 0; at = 0; fill(); return Uint8Array.from(bits); };
+  const crc32 = (d) => { let c = 0xFFFFFFFF; for (const b of d) { c ^= b; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1)); } return (~c) >>> 0; };
+  const payload = (frames) => {
+    const op = [];
+    for (const f of frames) { if (f === 'end') op.push(0xFF, 0xFF); else op.push(f.data.length & 255, f.data.length >> 8, f.seq & 255, f.seq >> 8, ...f.data); }
+    const id = new DataView(new ArrayBuffer(8)); id.setBigUint64(0, 4503603922337793n, true);
+    const body = [...new Uint8Array(id.buffer), 11, 24000 & 255, 24000 >> 8, 6, op.length & 255, op.length >> 8, ...op], c = crc32(body);
+    return Uint8Array.from([...body, c & 255, (c >>> 8) & 255, (c >>> 16) & 255, c >>> 24]);
+  };
+  const rate = 24000, encoder = await opus.createEncoder({ sampleRate: rate, channels: 1, bitrate: 32000, vbr: true, complexity: 10 });
+  const spurt = (from, seq) => [...Array.from({ length: 50 }, (_, k) => ({ seq: seq + k,
+    data: encoder.encodeFloat(Float32Array.from({ length: 480 }, (_, i) => .2 * Math.sin(2 * Math.PI * 180 * (480 * (from + k) + i) / rate))) })), 'end'];
+  const first = spurt(0, 100), second = spurt(50, 200);
+  encoder.free();
+  const voice = (frames) => () => { write(15, 6); write(1, 8); write(0, 8); const p = payload(frames); write(p.length * 8, 16); for (const b of p) write(b, 8); };
+  const init = () => { write(3, 6); write(1234, 32); write(15, 16); write(1, 16); write(14, 6); for (const ch of 'steam') write(ch.charCodeAt(0), 8); write(0, 8); write(255, 8); write(0, 16); };
+  const packets = [{ tick: 100, fill: init }];
+  for (const [frames, tick] of [[first, 200], [second, 200 + Math.round(64 / 0.015)]]) {
+    for (let k = 0; k < frames.length; k += 5) packets.push({ tick: tick + Math.round(k * 0.02 / 0.015), fill: voice(frames.slice(k, k + 5)) });
+  }
+  const header = new Uint8Array(1072), dv = new DataView(header.buffer);
+  header.set([...'HL2DEMO'].map((c) => c.charCodeAt(0))); dv.setInt32(8, 3, true); dv.setInt32(12, 24, true);
+  header.set([...'Synthetic test'].map((c) => c.charCodeAt(0)), 16); header.set([...'ctf_2fort'].map((c) => c.charCodeAt(0)), 536);
+  dv.setFloat32(1056, 70, true); dv.setInt32(1060, 4700, true); dv.setInt32(1064, packets.length, true);
+  const parts = [header];
+  for (const { tick, fill } of packets) {
+    const data = message(fill), frame = new Uint8Array(93 + data.length), fv = new DataView(frame.buffer);
+    frame[0] = 2; fv.setInt32(1, tick, true); fv.setUint32(89, data.length, true); frame.set(data, 93);
+    parts.push(frame);
+  }
+  parts.push(Uint8Array.of(7, 0, 0, 0, 0));
+  return Buffer.concat(parts.map((p) => Buffer.from(p)));
+}
+
+async function verifyAutoRerender(browser, base) {
+  console.log('\n[Browser 8d] A longer source renders again by itself after a change on the receiver\'s side (W3-02d-2)');
+  const errors = [];
+  const fresh = async () => {
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await context.newPage();
+    page.setDefaultTimeout(30000);
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto(base, { waitUntil: 'domcontentloaded' });
+    return { context, page };
+  };
+  const long = { name: 'long-speech.wav', mimeType: 'audio/wav', buffer: wavSpeech(61) };
+  let marks = 0;
+  // Make a change, then wait: for the render it starts to end (and 600 ms
+  // more, in which a second would have started), or `wait` ms with none.
+  // Returns the renders started since, and the page after them.
+  const afterChange = async (page, change, wait = 1500) => {
+    const mark = `test: W3-02d-2 change ${++marks}`;
+    const r = await page.evaluate((m) => { logLine(m, 'sys'); return state.renderId; }, mark);
+    await change();
+    await page.waitForFunction((n) => !renderIdle() || state.renderId > n, r, { timeout: wait }).catch(() => {});
+    await page.waitForFunction(() => renderIdle(), null, { timeout: 120000 });
+    await page.waitForTimeout(600);
+    return page.evaluate(({ m, r }) => {
+      const lines = [...document.getElementById('console-out').children].map((e) => e.textContent), since = lines.slice(lines.lastIndexOf(m) + 1);
+      return { started: since.filter((l) => l.startsWith('S_StartSound: initializing render')).length, renders: state.renderId - r,
+        from: state.renderedFrom === undefined ? 'none' : state.renderedFrom, rendered: state.renderedKey === currentRenderKey(), stale: state.stale,
+        marked: state.stale && els.renderStatus.textContent === STALE_TEXT, processing: state.processing,
+        line: since.filter((l) => l.startsWith('ChangeLevel: rendered')).at(-1) || null };
+    }, { m: mark, r });
+  };
+  // Cancel the render that runs (or is about to), from the page, once its
+  // progress has reached `percent`.
+  const cancelAt = (page, percent = 0) => page.evaluate((p) => new Promise((resolve) => {
+    const tick = setInterval(() => {
+      if (state.processing && state.cancelProcessing && (!els.progress || els.progress.value >= p)) { clearInterval(tick); els.cancel.click(); resolve(); }
+    }, 5);
+  }), percent).then(() => page.waitForFunction(() => !state.processing, null, { timeout: 60000 }));
+  const one = (x) => x.started === 1 && x.renders === 1 && x.rendered && !x.stale && x.from === 'b' && /from the kept codec result$/.test(x.line || '');
+  const none = (x) => x.started === 0 && x.renders === 0 && !x.processing;
+
+  {
+    const { context, page } = await fresh();
+    try {
+      await chooseFile(page, long, 120000);
+      const first = await page.evaluate(() => ({ took: state.renderedTook, limit: AUTO_RENDER_KEPT_MS, kept: state.workerKeepsShown, from: state.renderedFrom }));
+      check(first.took > 0 && first.took <= first.limit && first.kept && first.limit === 30000 && first.from === null,
+        'a 61 s source: its first render took under AUTO_RENDER_KEPT_MS (30,000 ms) on this machine, the worker started it from the start (startedFrom null), and the page holds that its worker keeps that render\'s stages',
+        `${first.took} ms; from ${first.from}`);
+
+      // Volume, changed twice within 400 ms: one render, of the last value, from the kept codec result.
+      const volume = await afterChange(page, async () => { await setControl(page, 'volume', '0.5'); await page.waitForTimeout(100); await setControl(page, 'volume', '0.6'); });
+      const shown = await wavHash(page), afresh = await freshHash(page);
+      check(one(volume) && await page.evaluate(() => JSON.parse(state.renderedKey).volume === 0.6),
+        'a 61 s source: volume changed twice within 400 ms starts exactly one render by itself, of the last value, and the worker started it from the kept codec result',
+        JSON.stringify(volume));
+      check(shown === afresh, 'that render is, byte for byte, a render made afresh on the page\'s own thread', `${shown.slice(0, 12)} / ${afresh.slice(0, 12)}`);
+      // fps_max, Phrase timing and the room: each one render, from the kept codec result.
+      for (const [label, id, value] of [['fps_max 67', 'fps', '67'], ['Phrase timing set to the file\'s own timing', 'timeline', 'source'],
+        ['the room (a small room)', 'listener_position', 'auto_small_room']]) {
+        const got = await afterChange(page, () => setControl(page, id, value));
+        check(one(got), `a 61 s source: ${label} starts exactly one render by itself, from the kept codec result`, JSON.stringify(got));
+      }
+
+      // A change that needs a new encode: marked, and no render starts.
+      // vad_threshold -30: a name the key on screen does not hold (at the codec's own -40 the page sends none).
+      for (const [label, id, value, back] of [['snd_bits 8', 'bits', '8', '16'], ['net_fakeloss 5', 'loss', '5', '0'], ['vad_threshold -30', 'vad_threshold', '-30', '-40']]) {
+        const got = await afterChange(page, () => setControl(page, id, value));
+        check(none(got) && got.marked, `a 61 s source: ${label} marks the render and starts none`, JSON.stringify(got));
+        await setControl(page, id, back);
+      }
+      const both = await afterChange(page, () => page.evaluate(() => {
+        for (const [el, v] of [[els.volume, '0.7'], [els.bits, '8']]) { el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); }
+      }));
+      check(none(both) && both.marked, 'a 61 s source: volume and snd_bits changed together mark the render and start none', JSON.stringify(both));
+      await page.evaluate(() => { for (const [el, v] of [[els.volume, '0.6'], [els.bits, '16']]) { el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); } });
+
+      // Rule D: the render on screen's time over the limit, or 0 (not known): marked.
+      const took = await page.evaluate(() => state.renderedTook);
+      for (const [label, value] of [['over the limit', 'over'], ['0', 0]]) {
+        await page.evaluate((v) => { state.renderedTook = v === 'over' ? AUTO_RENDER_KEPT_MS + 1 : v; }, value);
+        const got = await afterChange(page, () => setControl(page, 'volume', '0.5'));
+        check(none(got) && got.marked, `a 61 s source, with the render on screen's time ${label}: a changed volume marks the render and starts none`, JSON.stringify(got));
+        await setControl(page, 'volume', '0.6');
+      }
+      await page.evaluate((t) => { state.renderedTook = t; }, took);
+
+      // A render the user cancelled does not start again by itself on a return to its settings.
+      const cancelled = await afterChange(page, async () => {
+        await setControl(page, 'volume', '0.3');
+        await cancelAt(page);
+        await setControl(page, 'volume', '0.6');
+        await setControl(page, 'volume', '0.3');
+      });
+      check(cancelled.started === 1 && cancelled.renders === 0 && cancelled.marked && !cancelled.processing,
+        'a 61 s source: an automatic render the user cancelled is not started again by a return to the same settings (one started, the cancelled one)', JSON.stringify(cancelled));
+      await setControl(page, 'volume', '0.6');
+
+      // The reviewer's sequence: snd_bits 8; Render; Cancel in the middle of
+      // the encode; snd_bits back and volume changed. The engine let go of the
+      // codec's result the render on screen left: marked, none starts.
+      const sequence = await afterChange(page, async () => {
+        await setControl(page, 'bits', '8');
+        await page.locator('#process').click();
+        await cancelAt(page, 10);
+        await setControl(page, 'bits', '16');
+        await setControl(page, 'volume', '0.7');
+      });
+      check(sequence.started === 1 && sequence.renders === 0 && sequence.marked && !sequence.processing,
+        'a 61 s source: snd_bits changed, Render, Cancel during the encode, snd_bits back and volume changed: the render is marked and none starts by itself (one started, the cancelled one)',
+        JSON.stringify(sequence));
+      await renderNow(page, 120000);
+      const pressed = await page.evaluate(() => state.renderedFrom);
+      const again = await afterChange(page, () => setControl(page, 'volume', '0.8'));
+      check(pressed === 'a' && one(again), 'the press started from the kept capture signal (startedFrom \'a\'); after it a changed volume starts exactly one render by itself, from the kept codec result',
+        `the press started from ${pressed}; ${JSON.stringify(again)}`);
+
+      // The page's worker ended (as after a cancel that does not stop in time): marked.
+      await page.evaluate(() => dropPageWorker());
+      const dropped = await afterChange(page, () => setControl(page, 'volume', '0.9'));
+      check(none(dropped) && dropped.marked, 'a 61 s source: after the page\'s worker is ended, a changed volume marks the render and starts none', JSON.stringify(dropped));
+    } finally { await context.close(); }
+  }
+
+  // No render of the source on screen: its first render cancelled.
+  {
+    const { context, page } = await fresh();
+    try {
+      await page.locator('#file').setInputFiles(long);
+      await cancelAt(page);
+      const alone = await afterChange(page, () => setControl(page, 'volume', '0.5'));
+      check(none(alone) && await page.evaluate(() => state.renderedSource !== state.decodedSource),
+        'a 61 s source whose first render was cancelled: a changed volume starts no render', JSON.stringify(alone));
+      // Rule A on its own: the mark, the time and the key set by hand as if a render were on screen.
+      await page.evaluate(() => { state.workerKeepsShown = true; state.renderedTook = 1000; state.renderedKey = currentRenderKey(); });
+      const forced = await afterChange(page, () => setControl(page, 'volume', '0.4'));
+      check(none(forced), 'with the other rules\' state set by hand as if a render were on screen, a changed volume still starts none (rule A)', JSON.stringify(forced));
+    } finally { await context.close(); }
+  }
+
+  // A recorded live take of 90 s: marked, none starts, also with a time under the limit set by hand (rule C).
+  {
+    const { context, page } = await fresh();
+    try {
+      await chooseFile(page, { name: 'before.wav', mimeType: 'audio/wav', buffer: wavSpeech(2) });
+      await page.evaluate(() => {
+        const rate = 48000, n = 90 * rate, dry = Float32Array.from({ length: n }, (_, i) => 0.1 * Math.sin(2 * Math.PI * 300 * i / rate));
+        mountLiveTake({ dry, wet: dry.slice(), rate, frameLog: new Int8Array(90 * 50).fill(2),
+          counts: { modes: { hybrid: 4500 }, spurts: 1, gated: 0, frames: 4500, dtx: 0, lost: 0, late: 0 },
+          info: { codec: 'steam', realOpus: true, version: 'test', bitrate: 32000, vbr: true, dtx: true, gate: -40, autoGain: true, voiceRate: 44100, frameSamples: 480 } });
+      });
+      const take = await afterChange(page, () => setControl(page, 'volume', '0.5'));
+      check(none(take) && take.marked, 'a 90 s live take: a changed volume marks it and starts no render', JSON.stringify(take));
+      await page.evaluate(() => { state.renderedTook = 1000; });
+      const timed = await afterChange(page, () => setControl(page, 'volume', '0.4'));
+      check(none(timed) && timed.marked, 'a 90 s live take with its time set under the limit by hand: a changed volume still marks it and starts none (rule C)', JSON.stringify(timed));
+    } finally { await context.close(); }
+  }
+  // The worker unavailable (the page opened from file://, the codec skipped):
+  // a render made on the page's own thread leaves rule C's mark clear.
+  {
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    try {
+      const page = await context.newPage();
+      page.setDefaultTimeout(30000);
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`file://${path.join(__dirname, '..', 'index.html')}`, { waitUntil: 'domcontentloaded' });
+      await page.evaluate(() => execCommand('snd_codec 0'));
+      await chooseFile(page, long, 120000);
+      const offWorker = await page.evaluate(() => ({ worker: canUseWorker(), kept: state.workerKeepsShown, from: state.renderedFrom === undefined ? 'none' : state.renderedFrom }));
+      const got = await afterChange(page, () => setControl(page, 'volume', '0.5'));
+      check(!offWorker.worker && !offWorker.kept && offWorker.from === 'none' && none(got) && got.marked,
+        'opened from file:// (no worker) with the codec skipped, a 61 s source: the render was made on the page\'s own thread, and a changed volume marks it and starts none',
+        `${JSON.stringify(offWorker)}; ${JSON.stringify(got)}`);
+    } finally { await context.close(); }
+  }
+
+  // A demo of more than 60 s: a changed volume renders by itself from the kept
+  // capture signal (a demo has no codec stage of the page's). Then a changed mic gain (left out of a demo's key) and then a
+  // changed volume. The engine's key of the kept capture signal holds the mic
+  // gain, so the render would start from the start: it is marked.
+  {
+    const { context, page } = await fresh();
+    try {
+      await chooseFile(page, { name: 'long.dem', mimeType: 'application/octet-stream', buffer: await longDemo() }, 120000);
+      const demo = await page.evaluate(() => ({ demo: !!state.sourceDemo, seconds: state.decodedSource.duration, kept: state.workerKeepsShown }));
+      const plain = await afterChange(page, () => setControl(page, 'volume', '0.8'));
+      check(demo.demo && demo.seconds > 60 && demo.kept && plain.started === 1 && plain.renders === 1 && plain.from === 'a' && !plain.stale,
+        'a demo of more than 60 s: a changed volume starts one render by itself, from the kept capture signal', `${demo.seconds.toFixed(1)} s; ${JSON.stringify(plain)}`);
+      const gain = await afterChange(page, () => setControl(page, 'gain', '2'));
+      const got = await afterChange(page, () => setControl(page, 'volume', '0.5'));
+      check(none(gain) && none(got) && got.marked,
+        'then mic gain changed (no render: a demo\'s key leaves it out), then volume: the render is marked and none starts', JSON.stringify(got));
+    } finally { await context.close(); }
+  }
+  check(errors.length === 0, 'a longer source rendering again by itself: no page errors', errors.join('; '));
 }
 
 // W4-01a: which version this is. The footer gives the service worker's cache
@@ -3340,6 +3597,76 @@ async function speedCancelUnanswered(browser, base) {
   } finally { await context.close(); }
 }
 
+// W3-02d-2, ruling 18: a render that started by itself for a source over 60 s
+// runs only where the kept stage is. On the rig of the check above (the
+// worker made not to answer a cancel), a 61 s source: volume changed, and
+// changed again while that render runs. The worker is ended at the cancel's
+// bound (1.4 s), and the render queued for the second change finds the kept
+// stage gone: it does not run from the start in the new worker, the render on
+// screen is marked, and the console says so. Then the worker breaking
+// (its onerror) during such a render: nothing renders on the page's thread.
+async function speedKeptLost(browser, base) {
+  const { context, page, errors } = await speedPage(browser, base);
+  try {
+    await page.evaluate(() => {
+      const rig = window.__rig = { armed: false, id: null, endedAt: null };
+      const Counted = window.Worker;
+      window.Worker = class extends Counted {
+        constructor(url, options) {
+          super(url, options);
+          this.addEventListener('message', (event) => {
+            const data = event.data || {};
+            if (rig.id !== null && data.id === rig.id && data.type !== 'progress' && data.type !== 'preview') event.stopImmediatePropagation();
+          });
+        }
+        postMessage(message, transfer) {
+          if (message && message.type === 'process' && rig.armed && rig.id === null) { rig.id = message.id; this.__rigged = true; }
+          if (message && message.type === 'cancel' && message.id === rig.id) return;
+          return super.postMessage(message, transfer);
+        }
+        terminate() { if (this.__rigged && rig.endedAt === null) rig.endedAt = performance.now(); return super.terminate(); }
+      };
+    });
+    await chooseFile(page, { name: 'kept-lost.wav', mimeType: 'audio/wav', buffer: wavSpeech(61) }, 120000);
+    const mark = 'test: the kept stage lost before a render by itself';
+    const r = await page.evaluate((m) => { logLine(m, 'sys'); window.__rig.armed = true; return state.renderId; }, mark);
+    await setControl(page, 'volume', '0.5');
+    await page.waitForFunction(() => window.__rig.id !== null && state.processing, null, { timeout: 30000 });
+    await setControl(page, 'volume', '0.6');
+    const ended = await page.waitForFunction(() => window.__rig.endedAt !== null, null, { timeout: 30000 }).then(() => true, () => false);
+    await page.waitForFunction(() => renderIdle() && !pageWorker.running && !pageWorker.queue.length, null, { timeout: 120000 });
+    await page.waitForTimeout(800);
+    const lines = await linesSince(page, mark);
+    const after = await page.evaluate((r) => ({ renders: state.renderId - r, stale: state.stale, status: els.renderStatus.textContent, kept: state.workerKeepsShown,
+      cancelled: state.cancelledKey === currentRenderKey() }), r);
+    const fromStart = lines.filter((t) => /^ChangeLevel: rendered .* from the start$/.test(t)).length;
+    const said = lines.filter((t) => t.startsWith('S_StopSound: the render by itself did not run')).length;
+    check(ended && fromStart === 0 && lines.filter((t) => t.startsWith('ChangeLevel')).length === 0 && after.renders === 0 && after.stale && after.status === STALE_TEXT
+      && !after.kept && !after.cancelled && said === 1 && lines.filter((t) => /compatibility path/.test(t)).length === 0,
+      'a 61 s source, two volume changes, the worker ended at the cancel\'s bound: the render queued for the second change does not run from the start; the render on screen is marked, and the console says why',
+      `${ended ? 'worker ended' : 'worker not ended'}; ${after.renders} renders shown; ${said} line; ${lines.filter((t) => /^(ChangeLevel|S_StopSound)/.test(t)).join(' | ')}`);
+    // Render pressed: a render from the start, which keeps the stages again.
+    await page.evaluate(() => { window.__rig.armed = false; });
+    await renderNow(page, 120000);
+    const pressed = await page.evaluate(() => ({ from: state.renderedFrom, kept: state.workerKeepsShown }));
+    // The worker breaks (its onerror, raised by the test) during a render by itself.
+    const mark2 = 'test: the worker breaks during a render by itself';
+    const r2 = await page.evaluate((m) => { logLine(m, 'sys'); return state.renderId; }, mark2);
+    await setControl(page, 'volume', '0.7');
+    await page.waitForFunction(() => state.processing && pageWorker.running && pageWorker.running.render, null, { timeout: 30000 });
+    await page.evaluate(() => pageWorker.worker.onerror(new ErrorEvent('error', { message: 'broken by the test' })));
+    await page.waitForFunction(() => renderIdle(), null, { timeout: 120000 });
+    await page.waitForTimeout(800);
+    const lines2 = await linesSince(page, mark2);
+    const broke = await page.evaluate((r) => ({ renders: state.renderId - r, stale: state.stale, kept: state.workerKeepsShown }), r2);
+    check(pressed.from === null && pressed.kept && broke.renders === 0 && broke.stale && !broke.kept && lines2.filter((t) => /compatibility path/.test(t)).length === 0
+      && lines2.filter((t) => t.startsWith('S_StopSound: the render by itself did not run')).length === 1,
+      'the worker breaking during a render by itself of a 61 s source: nothing renders on the page\'s thread, and the render on screen is marked',
+      `${broke.renders} renders shown; ${lines2.filter((t) => /^(ChangeLevel|S_StopSound|Audio worker)/.test(t)).join(' | ')}`);
+    check(errors.length === 0, 'the kept stage lost: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
 // Progress that moves: in a 60 s steam render the button shows at least
 // five percentages from 60 to 72 (Steam's resampler, the gain, the laying).
 async function speedProgress(browser, base) {
@@ -3626,7 +3953,7 @@ async function speedBatchExport(browser, base) {
 
 async function verifySpeed(browser, base) {
   console.log('\n[Browser 10] Speed with the same samples (W4-01b): the kept worker, Cancel, the meter after the result, progress, the stages, the first seconds');
-  for (const part of [speedOneWorker, speedLateMeter, speedCancel, speedCancelUnanswered, speedQueuedCancel, speedCaptureChannel, speedProgress, speedStages,
+  for (const part of [speedOneWorker, speedLateMeter, speedCancel, speedCancelUnanswered, speedKeptLost, speedQueuedCancel, speedCaptureChannel, speedProgress, speedStages,
     speedDemoSource, speedFirstSeconds, speedFirstSecondsCancel, speedFirstSecondsRerenderCancel, speedBatchExport]) await part(browser, base);
 }
 
@@ -4182,6 +4509,7 @@ async function main() {
     await verifyUpdateThroughHttpCache(browser);
     await verifyJourney(browser, base);
     await verifyPageTimeline(browser, base);
+    await verifyAutoRerender(browser, base);
     await verifyVersionLine(browser);
     await verifyAccess(browser, base);
     await verifyBatchAndFormats(browser, base);

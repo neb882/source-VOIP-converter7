@@ -24,6 +24,11 @@ const abortedError = () => {
   error.name = 'AbortError';
   return error;
 };
+// W3-02d-2, ruling 18: a render that started by itself for a source over
+// AUTO_RENDER_SECONDS runs only where the kept stage is. Where the worker no
+// longer holds it, the render stops with this AbortError (its own flag), never
+// with a plain error, which would send it whole to the page's own thread.
+const keptLostError = () => Object.assign(abortedError(), { keptLost: true });
 
 // One job in a worker of its own, as before W4-01b (the batch's lanes).
 // Returns { promise, cancel }: the promise resolves with the worker's
@@ -118,6 +123,8 @@ function dropPageWorker() {
   if (pageWorker.worker) pageWorker.worker.terminate();
   pageWorker.worker = null;
   pageWorker.held = null;
+  // W3-02d-2, rule C: the stages the render on screen left went with the worker.
+  state.workerKeepsShown = false;
 }
 
 function settlePageJob(job, error, reply) {
@@ -146,7 +153,10 @@ function pumpPageWorker() {
     if (job.prepare) job.prepare(worker);
     worker.postMessage(job.message, job.transfer || []);
   } catch (error) {
-    dropPageWorker();
+    // A render that started by itself and finds the kept stage gone
+    // (W3-02d-2, ruling 18) is refused before it is posted: the worker is
+    // sound, and is kept.
+    if (!error.keptLost) dropPageWorker();
     settlePageJob(job, error);
     endPageJob(job);
   }
@@ -210,6 +220,9 @@ const renderReply = (reply, stats) => ({
   blob: reply.blob,
   realOpus: reply.realOpus,
   codecInfo: reply.codecInfo,
+  // Where the page's worker started the render (W3-02d-2): 'b', 'a' or null
+  // (TF2Audio.stagesHold before the render); undefined from a worker of its own.
+  startedFrom: reply.startedFrom,
   stats
 });
 
@@ -242,13 +255,18 @@ function workerSourceId(source, channel) {
 // has it; its loudness and levels follow in a message of their own (stats:
 // a promise of them, which the meter takes when it comes; if the worker ends
 // before, the meter measures the render itself).
-function processInWorker(captured, opts, sourceId, { onPreview = null } = {}) {
+// `fromKept` (W3-02d-2, ruling 18): the render started by itself for a source
+// over AUTO_RENDER_SECONDS; it is refused when the job comes to start and the
+// worker no longer holds the stages of the render on screen (rule C's mark is
+// read again then, before the source is posted).
+function processInWorker(captured, opts, sourceId, { onPreview = null, fromKept = false } = {}) {
   const workerOpts = { ...opts };
   delete workerOpts.onProgress;
   let measured, failed;
   const stats = new Promise((resolve, reject) => { measured = resolve; failed = reject; });
   stats.catch(() => {});
   const prepare = (worker) => {
+    if (fromKept && !state.workerKeepsShown) throw keptLostError();
     if (pageWorker.held === sourceId) return;
     const mono = captured.getChannelData(0).slice();
     worker.postMessage({ type: 'source', sourceId, sampleRate: captured.sampleRate, samples: mono.buffer }, [mono.buffer]);
@@ -263,6 +281,8 @@ function processInWorker(captured, opts, sourceId, { onPreview = null } = {}) {
   return job.promise.then((reply) => {
     const result = renderReply(reply, null);
     result.stats = stats.catch(() => analyzeCopy(result.samples, result.sampleRate));
+    // Made in the page's worker, which now holds its stages (W3-02d-2).
+    result.inWorker = true;
     return result;
   }).finally(() => {
     if (state.cancelProcessing === job.cancel) state.cancelProcessing = null;
@@ -377,14 +397,17 @@ function renderOptions() {
   };
 }
 
-async function runAudioProcess(source, opts, { onPreview = null } = {}) {
+async function runAudioProcess(source, opts, { onPreview = null, fromKept = false } = {}) {
   const sourceId = workerSourceId(source, opts.captureChannel);
   source = captureSource(source, opts.captureChannel);
   if (canUseWorker()) {
     try {
-      return await processInWorker(source, opts, sourceId, { onPreview });
+      return await processInWorker(source, opts, sourceId, { onPreview, fromKept });
     } catch (error) {
       if (error.name === 'AbortError') throw error;
+      // A render that started by itself for a longer source does not go to
+      // the page's own thread when the worker breaks (ruling 18): it is marked.
+      if (fromKept) throw keptLostError();
       logLine(`Audio worker unavailable; using compatibility path (${error.message})`, 'warn');
     }
   }
@@ -470,7 +493,7 @@ if (els.format) {
 // (the source and settings key it was made from, the codec's name for the
 // status line, whether the player is to come into view and take the focus,
 // and whether it is a recorded live session).
-function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }, took, codecKey, made = {}) {
+function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats, startedFrom, inWorker }, took, codecKey, made = {}) {
   // Report the actual processing path: codec version, bitrate and the
   // Opus modes the encoder really chose.
   logLine(realOpus
@@ -535,6 +558,16 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
   // the person just made.
   state.cancelledKey = made.live ? currentRenderKey() : null;
   state.cancelledSource = made.live ? source : null;
+  // W3-02d-2: what the rule for a longer source reads (reconcileRender). The
+  // time the render took on this device (a live take's is 0, not known),
+  // where the worker started it, and the mark of rule C: set for a render the
+  // page's worker made (its stages are the ones it holds now); a live take,
+  // whose source the worker never held, and a render made on the page's own
+  // thread clear it.
+  state.renderedTook = took;
+  state.renderedFrom = made.live ? undefined : startedFrom;
+  state.renderedSender = made.sender === undefined ? null : made.sender;
+  state.workerKeepsShown = !made.live && !!inWorker;
 
   els.audio.src = state.lastBlob;
   // Arm the muted twin of the original, so Hear is an instant unmute rather
@@ -579,7 +612,10 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
   // A render waiting for these settings is not needed now (a recorded live
   // session arrives with its render); one for others is kept or marked.
   reconcileRender();
-  logLine(`ChangeLevel: rendered ${samples.length} samples @ ${sampleRate}Hz in ${took}ms`, 'sys');
+  // Where the page's worker started the render (W3-02d-2).
+  const from = state.renderedFrom === 'b' ? ' from the kept codec result' : state.renderedFrom === 'a' ? ' from the kept capture signal'
+    : state.renderedFrom === null ? ' from the start' : '';
+  logLine(`ChangeLevel: rendered ${samples.length} samples @ ${sampleRate}Hz in ${took}ms${from}`, 'sys');
   logLine(`Net_SendPacket: reliable stream ready.`);
   if (made.reveal) revealPlayer(made.reveal === 'scroll');
 }
@@ -789,23 +825,27 @@ function clearAutoRender() {
 // running is cancelled first and this one starts when it has stopped.
 // `button`: the user pressed Render (the player then takes the focus). The
 // first render of a source brings the player into view (presentRender).
-function startRender({ button = false } = {}) {
+// `fromKept` (W3-02d-2): started by itself for a source over
+// AUTO_RENDER_SECONDS, from the stage the worker kept (rendersFromKept); the
+// button, a new source and a source of 60 s or less never carry it.
+function startRender({ button = false, fromKept = false } = {}) {
   clearAutoRender();
   if (!state.decodedSource) return;
   if (state.batchRunning) {
     // The batch holds the workers, and the settings cannot change meanwhile
     // (its controls are inert): try again once it is done.
-    autoRenderTimer = setTimeout(() => { autoRenderTimer = 0; startRender({ button }); }, AUTO_RENDER_DELAY_MS);
+    autoRenderTimer = setTimeout(() => { autoRenderTimer = 0; startRender({ button, fromKept }); }, AUTO_RENDER_DELAY_MS);
     return;
   }
   if (state.processing) {
-    renderAfter = { button: button || !!(renderAfter && renderAfter.button) };
+    const pressed = button || !!(renderAfter && renderAfter.button);
+    renderAfter = { button: pressed, fromKept: !pressed && fromKept && !(renderAfter && !renderAfter.fromKept) };
     dropRunning = false;
     if (state.cancelProcessing) state.cancelProcessing();
     updateStale();
     return;
   }
-  runRender({ button });
+  runRender({ button, fromKept: !button && fromKept });
 }
 
 // The source just mounted renders by itself (mountSource; loadDemoFile once
@@ -814,10 +854,51 @@ function renderNewSource() {
   startRender();
 }
 
+// W3-02d-2: a demo's sender settings (DEMO_IGNORES), which settingsKey leaves
+// out but the engine's key of the kept capture signal holds, as JSON (null
+// for a source that is not a demo). The render on screen keeps its own
+// (state.renderedSender); a difference counts as a change before the codec's
+// result.
+function demoSenderValues(demo = state.sourceDemo) {
+  if (!demo) return null;
+  const opts = sourceRenderOptions(demo);
+  return JSON.stringify(DEMO_IGNORES.map((name) => (opts[name] === undefined ? null : opts[name])));
+}
+
+// W3-02d-2, rule B: whether the settings of key `to` differ from those of
+// key `from` only in options the engine uses after the codec's result, so
+// that a render with them starts from the result the worker kept. The list
+// is the engine's (TF2Audio.STAGE_OPTIONS.afterB), read each time: the page
+// keeps no copy, so an option the engine moves across that stage moves this
+// rule with it. No key (no render) is never such a change.
+function changedAfterCodecOnly(from, to) {
+  if (typeof from !== 'string' || typeof to !== 'string') return false;
+  const a = JSON.parse(from), b = JSON.parse(to), after = TF2Audio.STAGE_OPTIONS.afterB;
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])]
+    .every((name) => after.includes(name) || JSON.stringify(a[name]) === JSON.stringify(b[name]));
+}
+
+// W3-02d-2: whether a source longer than AUTO_RENDER_SECONDS renders by
+// itself with the controls' key `key`. All four rules of the order hold:
+// A. a render of this source is on screen (a recorded live take is held back
+//    by C and D: the worker never held its source, and its time is 0);
+// B. the change needs no new encode;
+// C. the page's worker still holds what the render on screen left;
+// D. the render on screen took at most AUTO_RENDER_KEPT_MS on this device (0
+//    or none is not known).
+function rendersFromKept(key) {
+  if (state.renderedSource !== state.decodedSource || !state.lastWav) return false;
+  if (!changedAfterCodecOnly(state.renderedKey, key)) return false;
+  if (demoSenderValues() !== state.renderedSender) return false;
+  if (!state.workerKeepsShown) return false;
+  return state.renderedTook > 0 && state.renderedTook <= AUTO_RENDER_KEPT_MS;
+}
+
 // After a change of the settings (tf2:settings) and after each render: with
 // the controls on another key than the render on screen (or the one
 // running), a source of at most AUTO_RENDER_SECONDS renders 400 ms after the
-// last change; a longer one is marked. Back on the key of the render on
+// last change; a longer one renders so when rendersFromKept allows it
+// (W3-02d-2), and is marked otherwise. Back on the key of the render on
 // screen, a render running for other settings stops and nothing starts.
 function reconcileRender() {
   clearAutoRender();
@@ -827,13 +908,16 @@ function reconcileRender() {
   // A render the user cancelled, or one that failed, is not started again by
   // itself: only a change to other settings, or the button, starts one.
   const cancelled = state.cancelledSource === state.decodedSource && key === state.cancelledKey;
-  const short = state.decodedSource.duration <= AUTO_RENDER_SECONDS && !cancelled;
+  const short = state.decodedSource.duration <= AUTO_RENDER_SECONDS;
+  const auto = !cancelled && (short || rendersFromKept(key));
+  // A longer source's render by itself runs only where the kept stage is (ruling 18).
+  const fromKept = !short;
   if (state.processing) {
     if (key === state.renderingKey) { /* it is coming */ }
     else if (key === onScreen) { dropRunning = true; if (state.cancelProcessing) state.cancelProcessing(); }
-    else if (short) autoRenderTimer = setTimeout(() => { autoRenderTimer = 0; startRender(); }, AUTO_RENDER_DELAY_MS);
-  } else if (key !== onScreen && short) {
-    autoRenderTimer = setTimeout(() => { autoRenderTimer = 0; startRender(); }, AUTO_RENDER_DELAY_MS);
+    else if (auto) autoRenderTimer = setTimeout(() => { autoRenderTimer = 0; startRender({ fromKept }); }, AUTO_RENDER_DELAY_MS);
+  } else if (key !== onScreen && auto) {
+    autoRenderTimer = setTimeout(() => { autoRenderTimer = 0; startRender({ fromKept }); }, AUTO_RENDER_DELAY_MS);
   }
   updateStale();
 }
@@ -867,7 +951,7 @@ function updateStale() {
   else if (was && els.renderStatus && els.renderStatus.classList.contains('stale')) setRenderStatus(state.lastRenderStatus || '');
 }
 
-async function runRender({ button }) {
+async function runRender({ button, fromKept = false }) {
   const source = state.decodedSource;
   state.processing = true;
   // A demo's voice arrives already coded: only the receiver runs, with the
@@ -875,6 +959,12 @@ async function runRender({ button }) {
   const demo = state.sourceDemo;
   const key = currentRenderKey();
   state.renderingKey = key;
+  // W3-02d-2, rule C: a render whose settings differ from the render on
+  // screen's before the codec's result lets go of the stages that render left
+  // (the engine drops a kept stage held for another key), whether it then
+  // finishes, fails or is cancelled.
+  const sender = demoSenderValues(demo);
+  if (!(state.renderedSource === source && changedAfterCodecOnly(state.renderedKey, key) && sender === state.renderedSender)) state.workerKeepsShown = false;
   // The line under Phrase timing follows the source too (a demo's is set
   // once its packets are in place, after the source was mounted).
   updateTimelineNote();
@@ -913,7 +1003,7 @@ async function runRender({ button }) {
 
     const t0 = performance.now();
     const result = await runAudioProcess(source, opts,
-      { onPreview: previewWanted(source, opts) ? (preview) => showPreview(source, preview) : null });
+      { onPreview: previewWanted(source, opts) ? (preview) => showPreview(source, preview) : null, fromKept });
     const took = Math.round(performance.now() - t0);
 
     if (state.decodedSource !== source) {
@@ -923,11 +1013,17 @@ async function runRender({ button }) {
     // The first render of a source comes into view; one the button started
     // takes the focus.
     const first = state.renderedSource !== source;
-    presentRender(result, took, codecKey, { source, key, codecName, reveal: first ? 'scroll' : button ? 'focus' : null });
+    presentRender(result, took, codecKey, { source, key, sender, codecName, reveal: first ? 'scroll' : button ? 'focus' : null });
   } catch (e) {
     superseded = !!renderAfter || dropRunning;
     if (state.decodedSource !== source) {
       logLine('S_StopSound: render of the previous source stopped.', 'warn');
+    } else if (e.keptLost) {
+      // Ruling 18: the render by itself found the kept stage gone (the
+      // worker was ended, or broke). It is not a cancel: no cancelledKey; the
+      // render on screen is marked (reconcileRender below, the mark clear).
+      state.workerKeepsShown = false;
+      logLine('S_StopSound: the render by itself did not run: the worker no longer holds what the render on screen left. Render makes it.', 'warn');
     } else if (e.name === 'AbortError') {
       logLine(renderAfter ? 'S_StopSound: render stopped for newer settings.' : dropRunning ? 'S_StopSound: render stopped; the settings are back to the render on screen.'
         : 'S_StopSound: render cancelled.', 'warn');
