@@ -1957,29 +1957,31 @@ async function verifyJourney(browser, base) {
       'with frames the gate held, the line ends with the time not sent', gate.status);
   } finally { await context.close(); }
 
-  // 4. A 61 s source: a changed setting that needs a new encode (snd_bits)
-  // waits for the button, and the page says so. (W3-02d-2: a change on the
-  // receiver's side alone renders such a source by itself, [Browser 8d].)
+  // 4. A 61 s source: a changed setting that needs a new encode (jitter,
+  // which also allows no first seconds, so the line under the player reads
+  // "Rendering 61.0 s…" throughout) waits for the button, and the page says
+  // so. (W3-02d-2: a change on the receiver's side alone renders such a
+  // source by itself, [Browser 8d].)
   {
     const { context, page } = await fresh();
     try {
       await chooseFile(page, { name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(61, 8000) }, 120000);
       const r = await page.evaluate(() => state.renderId), mark = 'test: the long source changed';
       await page.evaluate((m) => logLine(m, 'sys'), mark);
-      await setControl(page, 'bits', '8');
+      await setControl(page, 'jitter', '50');
       await page.waitForTimeout(2000);
       const marks = () => page.evaluate(() => ({ status: els.renderStatus.textContent, button: els.process.textContent, download: els.dl.textContent,
         stale: ['viz-container', 'viz-legend', 'meter'].map((id) => document.getElementById(id).classList.contains('stale')), renders: state.renderId, processing: state.processing }));
       const waiting = await marks();
       check(waiting.renders === r && !waiting.processing && await rendersStartedSince(page, mark) === 0,
-        'a 61 s source and a changed snd_bits: no render starts within 2 s', `${await rendersStartedSince(page, mark)} started`);
+        'a 61 s source and a changed jitter: no render starts within 2 s', `${await rendersStartedSince(page, mark)} started`);
       check(waiting.status === STALE_TEXT && waiting.button === 'Render again' && waiting.download === 'Download WAV (earlier settings)' && waiting.stale.every(Boolean),
         'the status line, "Render again" and "(earlier settings)" say so, and the views and the table are marked stale', JSON.stringify(waiting));
-      await setControl(page, 'bits', '16');
+      await setControl(page, 'jitter', '0');
       const back = await marks();
       check(back.renders === r && back.status !== STALE_TEXT && back.status.startsWith('Rendered in') && back.button === 'Render' && back.download === 'Download WAV' && !back.stale.some(Boolean),
         'the value set back removes the marks, with no render', JSON.stringify(back));
-      await setControl(page, 'bits', '8');
+      await setControl(page, 'jitter', '50');
       await page.locator('#process').click();
       // While it renders: "Rendering… N%" and "Rendering 61.0 s…".
       await page.waitForFunction(() => /^Rendering… \d+%$/.test(els.process.textContent), null, { timeout: 30000 });
@@ -1994,7 +1996,7 @@ async function verifyJourney(browser, base) {
         'with no frames held by the gate, the line says nothing of it', done.status);
       // A change while it renders (review, S1): the render that comes is
       // labelled with the settings it was made with, so the page marks it.
-      await setControl(page, 'bits', '12');
+      await setControl(page, 'jitter', '60');
       await page.locator('#process').click();
       await page.waitForFunction(() => state.processing, null, { timeout: 30000 });
       await setControl(page, 'loss', '5');
