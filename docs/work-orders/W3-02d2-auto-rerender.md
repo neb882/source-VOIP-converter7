@@ -47,7 +47,7 @@ page's worker never held its source.
 (`state.renderedKey`) and the key of the controls (`currentRenderKey()`, `app/render.js:715`) is a name in
 `TF2Audio.STAGE_OPTIONS.afterB` (`audio.js:100`; the engine's `AFTER_B_OPTIONS`, `engine/render.js:49-50`). The
 page reads the list from the engine when it decides and keeps no copy, so an order that moves an option across
-stage B (BC-4 moves `jitterMs`) moves this rule with it. After W3-02d-1 `timeline`, `fps` and `bufferMs` are
+stage B moves this rule with it (corrected 2026-11-13: this read "BC-4 moves `jitterMs`"; BC-4 keeps `jitterMs` off the list, its ruling 7, so here a changed jitter still needs a new encode, though on Steam voice the engine then starts from stage B). After W3-02d-1 `timeline`, `fps` and `bufferMs` are
 names the page sends and names of the list.
 
 **C. The worker still holds what the render on screen left.** Comparing keys is not enough. The engine deletes

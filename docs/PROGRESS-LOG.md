@@ -600,3 +600,10 @@ parts a and d merged 2026-11-13; part e is next and is the orchestrator's alone 
 ## 2026-11-13: next, BC-4 (replaced when its order was written)
 
 jitter as in-order arrival delays through the queue; retires the late-frame fit. With W3-02c-2 and W3-02d it is the last build before the tool's finish line. The comment at engine/render.js:389 still says the page does not offer the game's timeline; the first order that touches the engine corrects it.
+
+## 2026-11-13: W3-02d-2 merged (cache v43); entries replaced
+
+- in_flight, W3-02d-2 removed: "{'order': 'W3-02d-2', 'state': 'ordered 2026-11-13 (docs/work-orders/W3-02d2-auto-rerender.md, rulings 8 and 13 to 16); a builder is on it', 'note': 'A source longer than 60 s re-renders by itself after a change that needs no new encode, when the worker still holds the render on screen's codec result and that render took at most 30 s on this device. No render's samples change.'}"
+- next, W3-02d-2 removed: "{'order': 'W3-02d-2', 'file': 'docs/work-orders/W3-02d2-auto-rerender.md', 'after': 'W3-02d-1 (merged 2026-11-13)', 'line': 'in flight since 2026-11-13 (in_flight).'}"
+- next, BC-4, after replaced: "W3-02d-2 (being built); BC-4a first, then BC-4b"
+- live.last_merge, the older part removed from the entry: "Before it: RP-01c (cache v41 unchanged, pull request #45, 2026-11-13): the checks ceiling, clock and demo of tests/reproduce.mjs with their sections of docs/REPRODUCE.md; no file the site loads changed. Before it: W3-22 (f463452, cache v41, pull request #43, 2026-11-13): words only. The page's note, the console's line and help, the README, the record, the vendored codec's README, comments and the suite miles now say that vaudio_miles is not a TF2 codec, that its codec was checked against one recording of a 2006 engine (Source SDK Base 2006, 2026-11-13) and that the rest of the profile was not; docs/owner-runs.md says what that sitting ran and what it did not. No render changed and no recorded hash moved. Both are live: the site serves v41 (read 2026-11-13). Earlier merges: the index, docs/README.md, and docs/PROGRESS-LOG.md."
