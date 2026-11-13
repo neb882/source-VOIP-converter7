@@ -53,7 +53,11 @@ noise suppression and gain control off, so the only lossy pass is the emulated c
 A new source renders by itself. A changed setting renders a source of 60 s or less again, 400 ms after the last
 change. A longer source renders again by itself, in the same way, after a change on the receiver's side alone (the
 first group under "What a render runs again"), when its render on screen took at most 30 s on this device: the
-render then starts from the codec's result the page's worker kept. After any other change a longer source keeps its
+render then starts from what the page's worker kept, the codec's result. With the codec skipped it starts from the
+kept capture signal, and a source over 30 s then plays its first seconds while the rest renders; a demo's voice also
+starts from the kept capture signal, with no first seconds (a demo never has them). Such a
+render runs only in the worker that holds those stages: when the worker was ended or broke before it began, it does not
+run, and the render on screen is marked. After any other change a longer source keeps its
 render, marked as made with the earlier settings ("Render again", "(earlier settings)" on the download, the views
 dimmed), until you press **Render**. It is marked too when the worker no longer holds what the render on screen
 left: after a render with other settings before the codec's result started (even one you cancelled), or after the
@@ -87,8 +91,8 @@ the next render of the same source: the capture signal at the codec's rate, and 
 the sender's messages and their decoded packets; for the other codecs the decoded sound). A render after a changed
 setting starts from the last of them that the setting does not change:
 - `voice_scale`, `voice_avggain`, `voice_maxgain`, the gain switch, Phrase timing, `fps_max`, `voice_buffer_ms`, `volume`, the room, under water
-  and the sound device: from the codec's result, in about a third of a first render's time (measured on the build
-  machine);
+  and the sound device: from the codec's result, in about half a whole render's time in the page (0.38 to 0.54 of it,
+  measured in headless Chromium on the build machine; the W3-02d-2 report);
 - the voice gate and its threshold, how long the sender's Steam has run, `snd_bits`, loss, jitter and the packet
   length: from the capture signal;
 - the codec, the codec switch, the capture channel, mic gain and the filters: from the start.

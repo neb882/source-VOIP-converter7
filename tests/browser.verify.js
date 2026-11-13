@@ -1957,10 +1957,12 @@ async function verifyJourney(browser, base) {
       'with frames the gate held, the line ends with the time not sent', gate.status);
   } finally { await context.close(); }
 
-  // 4. A 61 s source: a changed setting that needs a new encode (jitter,
-  // which also allows no first seconds, so the line under the player reads
-  // "Rendering 61.0 s…" throughout) waits for the button, and the page says
-  // so. (W3-02d-2: a change on the receiver's side alone renders such a
+  // 4. A 61 s source: a changed setting that needs a new encode waits for the
+  // button, and the page says so. Jitter: read in the codec stage today (it
+  // is on the engine's AFTER_A list, not AFTER_B), and it allows no first
+  // seconds, so the line under the player reads "Rendering 61.0 s…"
+  // throughout. (BC-4 is to move it across that stage for Steam voice; this
+  // check then wants another setting.) (W3-02d-2: a change on the receiver's side alone renders such a
   // source by itself, [Browser 8d].)
   {
     const { context, page } = await fresh();
