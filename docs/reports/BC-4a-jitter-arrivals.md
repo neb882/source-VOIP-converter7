@@ -28,7 +28,7 @@ codec, is unchanged.
 | One packet a tick on each crossing; a packet that leaves a list rides the next side's packet of tick ceil(r / 15), one entry per tick, riders sharing it | `steamArrivals` | read for the in-process path, inferred for sockets; step 3 as the plan review states it |
 | The lag taken as twice the jitter | `FAKE_LAG_PER_JITTER` | chosen |
 | The lists start at tick −200, a packet a tick | `FAKE_LAG_START_TICK` | chosen (the plan review's point 5) |
-| The least delay 2 × ceil(jitter / 15) ticks taken out | `steamArrivals`, `floorTicks` | chosen (ruling 6) |
+| The least delay 2 × (floor(jitter / 15) + 1) ticks taken out (2 × ceil(jitter / 15) before the fix round) | `steamArrivals`, `floorTicks` | chosen (ruling 6); the count corrected in the fix round, point 1 |
 | Each list's own stream, `mulberry32((seed ^ 0x4A495431) >>> 0)` and `…0x4A495432` | `STEAM_CROSSINGS[].salt` | arbitrary constants (the order) |
 
 `steamArrivals({ jitterMs, fps, seed })` returns `{ jitterMs, fps, floorTicks, at(tick) }`. `at` takes any whole
@@ -101,7 +101,7 @@ The order's check 4 is section 1, extended; the others are new sections 11 to 20
 | 19 | `arriveAt`'s refusals: on `'source'`, on `celt_22`, not a function, a result not whole (and NaN), a result below the last, each a RangeError from `process()` and `createRender`; the same tick for every message renders; `(t) => t` gives the render without it |
 | 20 | The same seed twice gives the same render; at seed 5 and loss 30% the same messages are lost at jitter 0, 50 and 500, and seed 6 loses others; seeds 5 and 6 give other arrival ticks |
 
-The whole suite: 174 checks passed, 89 s (one run, measured).
+The whole suite passed in 89 s (one run, measured).
 
 **The pin's figures** (measured on the build; section 14). Seeds 1 to 20, 4,000 ticks each, jitter 50; the
 messages are `steam-sender.js`'s for 60 s of unbroken sound with the gate off.
@@ -148,7 +148,7 @@ untested. It stays tested: `withStreamMask` (the live section's, and a copy in s
 ## The recorded values that moved
 
 Only these, each a `steam` case with jitter above 0, re-recorded in a commit of their own (`e60b209`). No other
-hash of `tests/render-stream.verify.mjs` moved (83 cases printed and compared).
+hash of `tests/render-stream.verify.mjs` moved (every recorded case printed and compared).
 
 | Case | WAV (old, new) | codecInfo (old, new) | gain (old, new) |
 | --- | --- | --- | --- |
@@ -193,7 +193,7 @@ Each break was made in a scratch copy of the sources and the named sections run 
 | a packet behind the head can leave before it has been looked at as the head | 12 and 13 | 22 of 26 fail |
 | the second list looked at once a tick | 13 at 300 fps | 14 of 16 fail, 300 fps from tick 0 to 2 |
 | one crossing, not two | 13 | all 16 fail |
-| the floor not taken out | 12 | the four floor checks fail |
+| the floor not taken out | 12 | the floor's checks fail |
 | the floor taken out one tick too much | 12 | the same four fail |
 | the arrivals drawn from the loss stream | 13 (point 4) | 14 of 16 fail |
 | the next head looked at only at the next look | 14 (the pin) | both fail (114.63 and 193.31 ms, 0.02%) |
@@ -201,19 +201,18 @@ Each break was made in a scratch copy of the sources and the named sections run 
 | `steamChannel` pushes at the sender's tick | 1 (check 4) and 15 | the three jitter settings of section 1 fail (the first difference at 19,456, 21,504 and 15,394 samples), and the hold of 40 ticks fails (opens 1, nothing dropped) |
 | the stream's `advance` not mapped | 16 | the give-out check fails (33 of 46 pushes asked nothing, 21 gave another count); the samples still equal, as they must |
 | the stream makes its arrivals from another seed | 16 | all three stream cases fail |
-| the steam path still draws late frames from `jitterMs` | 17 | the three `process()` checks fail (the stream was left unbroken) |
+| the steam path still draws late frames from `jitterMs` | 17 | the `process()` checks fail (the stream was left unbroken) |
 | `used.jitterMs` keeps the value on `steam` | 18 | both `steam` rows fail (A taken, B made again) and the B-key check fails |
 
 ## Done means
 
-1. `node tests/run.mjs render-channel` passes: 174 checks, 89 s (one run, before the full run); in the full run
-   98.1 s.
+1. `node tests/run.mjs render-channel` passes: 89 s (one run, before the full run); in the full run 98.1 s.
 2. `flock /tmp/tf2ve-heavy.lock node tests/run.mjs render-stream`, `stages` and `steam`: each passed inside the full
-   run below (render-stream 354.5 s, stages 261.6 s with 355 checks, steam 159.9 s). The values that moved are the
+   run below (render-stream 354.5 s, stages 261.6 s, steam 159.9 s). The values that moved are the
    four above, each a `steam` case with jitter.
-3. `flock /tmp/tf2ve-heavy.lock pnpm test`: "27 of 27 suites passed. 1173.2 s summed". The browser suite,
+3. `flock /tmp/tf2ve-heavy.lock pnpm test`: every suite passed, 1173.2 s summed. The browser suite,
    `CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux*/chrome | head -1) flock
-   /tmp/tf2ve-heavy.lock pnpm test:browser`: "1 of 1 suites passed. 321.1 s summed" (its one changed check holds the control's new help, and the console's `net_fakejitter` help is held to the control's first sentence).
+   /tmp/tf2ve-heavy.lock pnpm test:browser`: the suite passed, 321.1 s (its one changed check holds the control's new help, and the console's `net_fakejitter` help is held to the control's first sentence).
 4. `git diff origin/main --stat -- voice-channel.js steam-sender.js opus-codec.mjs tests/accuracy.mjs
    tests/predictions/predictions.json` prints nothing.
 5. `git diff origin/main --stat` shows only files the order allows, with `tests/verify.js` (the plan review's
@@ -224,15 +223,91 @@ Each break was made in a scratch copy of the sources and the named sections run 
 
 CI (`tests`, the `verify` job) on the branch: run 43443511309 on `22ea9c3` (the last commit that changes anything outside `docs/`): `verify` success, with `units`, `engine`, `render`, `stages` and `browser` each success. The report's commit changes only `docs/` and starts no run.
 
+## The fix round (2026-11-13)
+
+From the order's sections "Check (ii), run on BC-4a's branch" and "After the review and the second read", points
+1 to 12, after a merge of `main` (W3-02d-2, and the two commits to the order).
+
+**Code and checks.**
+
+1. **The floor at a jitter of whole ticks.** `steamArrivals` and the second model take out 2 × (floor(J / 15) + 1)
+   ticks. At 15, 30, 45, 60 and 90 ms this is one tick a crossing more than 2 × ceil(J / 15); elsewhere it is the
+   same, so no recorded value moved (the full run below). Check 12 adds jitter 30 and 60, where the least of
+   `at(p) − p` is now 0; check 13 compares the engine with the second model at 30 and 60 too. The engine's comment
+   says why, and that a packet could leave at the exact age only on a draw of 0 (a chance of 2^-32 a draw).
+2. **`arriveAt` answers for every whole tick.** `steamChannel` asks `arrive` for every tick from 0 up to the
+   highest asked so far, once and in order: a fall, an answer that is not whole and an answer below 0 are each a
+   RangeError with a message of its own. `process()` and `createRender` then ask through the render's last tick
+   before `finish()`: the stream's last bound (`steamBoundTick`, every sample given to the sender and every message
+   made), which `process()` now computes the same way. They ask it (`steamChannel`'s `ask`) without moving the
+   channel: a break that advanced the channel there instead showed that running blocks past the end can move where
+   an overflow is heard, which would move `codecInfo`. The option's comment says it answers for every whole tick
+   and that an answer far past the end costs time in proportion (3.3 s for 1e8, the second reader's measure). New
+   checks (section 19): a table that answers the message ticks only and falls between them, and one that falls
+   only after the last message, throw in both with the same message; a table for every tick gives the same
+   samples and `codecInfo` in both, and both ask the same ticks, 0 to the render's last, in order; an answer below 0
+   is refused with its own message; every refusal now has to give the same message in both. Sections 15 and 16 now
+   hold `arriveAt` to every tick in order, and section 16's give-out check reads the answer for the highest tick
+   asked.
+3. **The two checks the breaks passed.** Section 13: `fps` 0 and 5 give the arrivals of 10, and 2000 those of 1000,
+   tick for tick, and say so. Section 19: under `arriveAt` with `jitterMs` 70, `codecInfo.arrivals.jitterMs` is 70.
+4. **The renamed case** ('steam, jitter 500 ms on the file's own timing (does nothing)') is compared in its check
+   with a render at jitter 0 made there.
+
+**Words.**
+
+5. What a render with jitter does, with the second reader's figures (measured on the model), in place of "plays
+   about 70 ms later": `README.md` (the jitter bullet and the bullet on a render's start and end),
+   `docs/VOICE-PATH.md`, finding 9, and `docs/ACCURACY.md`, which had the same sentence.
+6. The two help strings: on Steam voice jitter acts only through the game's voice queue; on the file's own timing,
+   and so for a video or a demo's voice, it does nothing. Each sentence of the control's help is under 115
+   characters, and the console's help still starts with its first sentence.
+7. `docs/FINDINGS.md`: three skips in the noise in all, two from 1 s after its start; check (ii)'s result; and the
+   combined take's silence as the queue's. `docs/LIVE.md`: the sentence the first round's insert split is whole
+   again, and the jitter sentence follows it. This report: no counts of checks or suites. `docs/ACCURACY.md`: check
+   (ii)'s result where it said the run was not in yet, and the combined take's silence.
+
+**The record** (`tests/REFERENCE_2026.md`, added and dated lines only; each changed line keeps its old text whole).
+
+8. Finding 9: check (ii)'s figures, the bursts one by one and the two differences, with their standing.
+9. Finding 9: no reading tried closes the two differences (the second reader's stand-in figures), the inference,
+   and what block 2's log is read for first.
+10. Finding 9: the render at jitter 0 has no look once a frame, and what that moves at each frame rate.
+11. Finding 9: at exactly 66.67 frames a second the looks drift and the mean delay climbs (96.3 to 108.1 ms); the
+    pin's figure is the first minute's.
+12. Finding 8: the dated sentence closing the entry on the combined take. Also dated lines on the floor (beside
+    finding 9's bullet) and in "What remains unverified" (network settings; loss on messages or on frames).
+
+**The fix round's breaks.** Each in a scratch copy, the named sections run against it (`TF2_DIR`).
+
+| Break | The check that caught it |
+| --- | --- |
+| the floor back to 2 × ceil(J / 15) | 12 (jitter 30 and 60, both rates) and 13 |
+| `arrive` asked only on the ticks the channel is given | 19: the message-ticks table, the every-tick table, the answer below 0 |
+| no refusal of an answer below 0 | 19: the row for an answer below 0 |
+| `process()` does not ask through the render's last tick | 19: the table that falls after the last message, and the every-tick table |
+| `createRender` does not ask through it | 19: the same two |
+| the model's lowest frame rate 5, not 10 | 13: the frame-rate limits |
+| the model's highest frame rate 2000, not 1000 | 13: the frame-rate limits |
+| `arrivals.jitterMs` 0 under `arriveAt` | 19: the render's `jitterMs` under `arriveAt` |
+| the steam path draws late frames from `jitterMs` (for point 4) | the renamed case's check in `tests/render-stream.verify.mjs` (8 late frames; the four moved cases' hashes fail too) |
+
+**Done-means after the fix round.** Heavy runs inside `flock /tmp/tf2ve-heavy.lock`. `pnpm test`: every suite passed (render-channel 88.6 s, steam
+152.4 s, render-stream 318.9 s, stages 244.2 s; 1086.1 s summed), so no recorded value moved. The browser suite
+passed, 396.0 s. The `git diff --stat` of `voice-channel.js`, `steam-sender.js`, `opus-codec.mjs`,
+`tests/accuracy.mjs` and `tests/predictions/predictions.json` prints nothing; `grep -n "does not offer it"
+engine/render.js` prints nothing. `node tests/cache-number.mjs origin/main --report`: "cache number against
+origin/main (179ea83): the number is v43, not above v43: it must rise (node tests/cache-number.mjs origin/main
+--set)". CI on the fix round's head: CI_FIX.
+
 ## What was not done, or is uncertain
 
-- **The merge with W3-02d-2.** It was not on `main` when this report was written (`main` at `39bdd8e`), so it is
-  not merged in. A trial merge with its branch as it stood (`origin/claude/w3-02d2-auto-rerender`, not committed)
-  had no conflict, and this build's console lines land in `presentRender` after the queue's line. When it is on
-  `main` the branch takes `git merge origin/main` and the done-means are run again.
-
-- **The private checks** (i) and (ii) are the orchestrator's. The engine renders Set C's settings at `timeline`
-  'game', `fps` 300, 336 and 295, `bufferMs` 100, any seed; nothing in BC-4a limits those.
+- **The merge with W3-02d-2** is done (`8d801dc`, no conflict: the console lines sit in `presentRender` after the
+  queue's line), and `main` was merged again for the fix round (`9386886`).
+- **Not taken in the fix round** (the order's ruling): an `arriveAt` answer far past the render's end is not
+  refused; whether a render with jitter should run past its source's end, so the last words are heard, is for
+  another order.
+- **The private checks** (i) and (ii) are the orchestrator's; both are run, and their figures are in finding 9.
 - **W3-02d-2's sentence** "BC-4 moves `jitterMs`": `jitterMs` stays off `STAGE_OPTIONS.afterB` (ruling 7). By the
   orchestrator's ruling that sentence is corrected when W3-02d-2 is merged, not here. A changed jitter on a long
   source is marked and waits for the button on every codec; the engine starts from the kept codec result on Steam
