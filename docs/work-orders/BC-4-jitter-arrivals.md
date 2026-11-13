@@ -701,3 +701,56 @@ crossing the mean delay does not move (189.7 against 189.6 ms) and the same-tick
 crossing is for block 2's log.
 
 **Size.** 10 hours and 1,000 to 1,300 lines stands; these edits add about 80.
+
+## Check (ii), run on BC-4a's branch (2026-11-13, the orchestrator)
+
+Run on `5f22ff2` (measured, private: the takes stay private; the renders are of the public network test signal).
+The signal was rendered at Set C's settings (`volume` 0.15, the room `set_c_room`), Steam voice, the game's
+timeline, `bufferMs` 100, seeds 1 to 10: without jitter at 300 and at 295 frames a second (the two render alike,
+sample for sample: the wait is 30 ticks at both), jitter 50 at 300 and at 336, loss 37.0% at 300, both at 300 and
+at 336, and loss 37.0% on the file's own timing. Each render and the Set C takes without jitter, with jitter and
+combined were measured by one script: the BC-1 premise's remake of finding 8's method with check (i)'s steps,
+against `main`'s dry guide, the bursts from 60 ms after each start to 60 ms before each end. A figure is the mean
+of the ten seeds, the lowest and highest seed in brackets.
+
+| Measure | The take | Tolerance | The build | |
+| --- | --- | --- | --- | --- |
+| Jitter: present and silent in the 12 s of noise | 99.7% and 0.2% | at least 98.5% and at most 1%, every seed | 100.0% and 0.0% in every seed, at 300 and at 336 | inside |
+| Jitter: events a second in the noise and the chirp at places the baseline has none | 3 in 19.4 s, 2 of them skips | 0 to 0.4 | 0.005 at 300, 0.010 at 336 | inside |
+| Jitter: the downward steps' sum there, less the baseline's | 3.7 ms a second (skips of 32 and 39 ms) | 0 to 2.5 ms a second | 0.14 at 300 (-0.44 to 0.94), 0.22 at 336 (-0.22 to 1.32) | inside |
+| The same by counts | 2 skips of 10 ms or more in 19.4 s | a Poisson bound | 0.29 such skips expected in 19.4 s at 300, 0.19 at 336: two or more has a probability of 0.035 and 0.016 | the take has more than the model |
+| Bursts: sound skipped, less the baseline | +39 ms a second (50.7 against 11.5) | +3 to +15 | +9.0 at 300 (0.9 to 27.8); at the photographs' rates, 336 against 295, +18.3 (7.8 to 34.4) | inside at 300; at the photographs' rates the take's is about twice the build's and above every seed |
+| Bursts: skips of 10 ms or more, less the baseline | +0.58 a second (9 against 4 in 8.6 s) | +0.1 to +0.7 | +0.31 at 300; +0.46 at the photographs' rates | inside; the counts agree |
+| Events one frame long (reported only) | not known | | 61% at 300, 49% at 336 | |
+| The clock (reported only) | +310 ppm by the accuracy suite | | +280 ppm at 300 and +390 at 336, as the slope of the followed delay less the baseline's (the take: +660 by the same slope) | not the suite's measure |
+| Combined: silent in the 12 s of noise | 10.3% | 5% to 14% | 8.0% at 300 (3.3 to 14.1), 8.8% at 336 (3.7 to 14.2) | inside |
+| Combined: silent with jitter less without, same seeds | not known | -1 to +3 points | +1.4 (-0.2 to +3.6) | inside |
+| Combined: channels opened with jitter less without | not known | -1 to +2 | +0.5 (-1 to +2) | inside |
+| Combined: level | | within 0.5 dB | +0.11 dB at 300, +0.06 at 336 | inside |
+
+The level row measures each render against its own baseline render, less the combined take against the baseline
+take, over the noise parts. It is not the accuracy suite's column, because that suite renders on the file's own
+timing.
+
+**Finding 8's entry on the combined take closes.** Loss 37.0% on the file's own timing leaves 3.8% of the noise
+silent (0.8 to 8.0; the prototype gave 4.0%). On the queue without jitter it is 6.6% (3.3 to 11.9), and with
+jitter 8.0% and 8.8%. The take's 10.3% is inside the seeds' range. The silence is the queue's, with about 1.4
+points more from jitter (measured on the model).
+
+**The bursts one by one.** The odd bursts (1, 3, 5, 7) open a channel and lose sound at its opening; the even ones
+lose none. Both takes show this, and so do the renders: without jitter at 300, a skip of more than 3 ms happens in
+8, 0, 7, 1, 8, 0, 6 and 1 of the ten seeds, burst by burst (measured). Without jitter the size agrees too: the
+four odd bursts skip 40 ms in all in the take, and 8 to 57 ms (mean 40) in the renders. With jitter the take's
+four odd bursts skip 72, 71, 57 and 78 ms, 278 ms in all. The renders at 336 skip 49 to 211 ms in all (mean 120),
+and only 17% of their odd bursts skip 50 ms or more. So with jitter the take loses more sound at each opening than
+the model: the number of skips agrees, their size does not. This is measured and not explained. Block 2's log
+(check iii) is the next evidence: how bunched the first packets of a phrase arrive.
+
+**Ruling.** Nothing the merge waits on fails: the jitter take's present and silent shares are inside their
+bounds. BC-4a goes on to its review and fix round. In the fix round the builder writes into the record, from this
+section, with these figures and their standing:
+- finding 9's dated lines: in the noise, the take's skips outnumber the model's (probability 0.016 to 0.035); in
+  the bursts, the counts agree and the size is about twice;
+- finding 8's dated sentence closing the combined entry.
+
+The orchestrator replaces `docs/ACCURACY.md`'s two rows after the merge, with a run of the accuracy suite.
