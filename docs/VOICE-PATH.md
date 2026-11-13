@@ -77,7 +77,7 @@ On the game's voice queue the render does four things the file's own timing does
 - **One sample a packet.** The game drops one sample from every packet, so its playback gains about 0.04% on the talker (read; measured). At 300 frames a second a render gains about 0.4 ms every second, and the end of ten minutes plays 0.24 to 0.28 s ahead of the source (measured on the model).
 - **The fade.** The game fades the last 0.1 s of its queue (read).
 
-The page no longer offers the flat rule that stood in for the queue ("Talk-spurt timing", a fit to the takes, finding 19); `voice_retime` is kept as an old name for `voice_timeline`.
+The page no longer offers the flat rule that stood in for the queue ("Talk-spurt timing", a fit to the takes, finding 19), and since W3-02f the engine no longer has it; `voice_retime` is kept as an old name for `voice_timeline`.
 
 ### 8. The mixer and the output
 
