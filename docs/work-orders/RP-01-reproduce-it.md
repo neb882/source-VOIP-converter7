@@ -1,8 +1,8 @@
 # RP-01: a page a stranger can check findings from, the files behind the read findings, and which recordings are published
 
-**Status 2026-11-13: ruled on, not started**, every part (RP-01a to RP-01f, section 9). The orchestrator's rulings
-are section 14; **read it first: where it differs from sections 7, 8, 9, 12 and 13, section 14 holds.** A plan review
-by a different model (`docs/PIPELINE.md`) comes before part a.
+**Status 2026-11-13: ruled on and reviewed, not started.** Sections 14 (the orchestrator's rulings) and 15 (after
+the plan review) hold where an earlier section differs; sections 7, 8 and 9 were edited in place to agree with
+them. Part a is next, then d, e and f; part c after a; part b waits for a planner's pass (section 15).
 
 *Written 2026-11-13 by a planner's pass on `main` at `d27727c` (cache v39). The planner read the repository only:
 it opened no recording and no file of the owner's install. What it knows of the private files is an inventory of
@@ -275,110 +275,73 @@ hearing the file:
    demo and its second PC's recording; every console log, demo, packet dump, screenshot and configuration. The
    suite holds the record's SHA-256 of each such file that the record gives, and fails on a row that names one.
 
-Rule 1 is not met today by any file-input set. The scripts that made the inputs of Sets H, I, J, K, M and O are
-not in this repository (`tests/testsignal/` makes three other signals), and the record calls Set J's two clips
-"speech". Part e moves each script in, and a set whose input no script of ours makes, or whose input holds a
-voice, stays out (section 13).
+Rule 1 is met for two clips and for no others (section 14): the clips of Sets H, I, M and O, which
+`tests/recordings/make-inputs.mjs` makes bit for bit. Sets J, K and L carry the owner's voice and are never
+published. *This subsection and the four after it were rewritten on 2026-11-13 after the rulings and the plan
+review; the planner's text on device recordings, a release and a rewrite of the files is in the history
+(`4b2eb53`).*
 
-### The hard case: the recordings of the PC's sound output
+### The test a file passes before it goes out
 
-Sets B, C, D and F and Set K's device files hold the game's own sound under the voice: the map's ambience, at
-about −30 dB against the voice in Set B and near −35 dBFS in Set D's sender take (measured), and it is the only
-sound between two phrases. That sound is Valve's, and the hard rule is to carry none of Valve's art.
+Rule 2 is applied by a test, not by a description. For each file the orchestrator runs, in part e, the check of
+`tests/reproduce.mjs` that part f later runs in CI, so the proof and the public check are one piece of code:
 
-| Course | What a stranger gets | What it costs |
-| --- | --- | --- |
-| (a) only the files of rule 2 | the checks to the sample, run in public: the CELT build, the gain and Speex against the game's own decoded voice | nothing of the mixer, the output stage or a room; the table of `docs/ACCURACY.md` stays measured on private takes |
-| (b) the device recordings of the synthetic signals as well | the sound a listener hears; the rows of that table for Sets B, C, D's sender and F, run by anyone | Valve's ambience goes out with them, about 85 to 105 MB of it (computed from the inventory), and cannot be taken back |
+| Kind | The check | What is compared | Passes when |
+| --- | --- | --- | --- |
+| decoded voice at `voice_maxgain 1`, CELT (Set H's two, Set I's first) | `celt` | the file against the repository's CELT run on the generated clip from its third sample, at the record's lag | the record's count for that file (section 5) is met, and no sample outside the last packet is more than one step off |
+| decoded voice at `voice_maxgain 1`, Speex (Sets M and O) | `speex` | the same with the vendored Speex | the same |
+| decoded voice at `voice_maxgain 10` (Set H's, Set I's second, Sets M and O's one file) | `gain` | the file against the gain rule run on the published `voice_maxgain 1` file of the same set | the same; where the two files were not one sitting's (Set M's gain-1 file is one frame shorter), the check runs over the shorter and says so |
+| the captured input (Sets M and O's one file) | `inputs` with `--against` | the file against the generated clip from its third sample | every sample equal and the two after the clip zero (measured 2026-11-13: 145,964 of 145,964) |
 
-**Recommended: (a).** The rule on Valve's art does not turn on level, so a quiet ambience is still Valve's.
-
-For (b), a device file passes only if no sample of it holds game sound. The orchestrator can measure that: in
-every stretch between two phrases, after the room's tail, the samples are digital zero, and under a voice the
-other sound was at zero. No take of Sets B, C, D or F can pass: they were made at the game's default, where other
-sound falls to half under a voice and returns after it (read, finding 30). The two retakes of Set K made with
-`voice_overdrive 1000` have other sound at exactly zero under a voice from about 0.65 s after it starts
-(measured), so a cut of them that keeps only those stretches could pass, if the measurement shows it. The page
-would say of such a file: "A recording of a PC's sound output, cut to the stretches where a voice was playing;
-the game's other sound was at zero there, and the cut's sample positions are in the manifest." A cut file is not
-the file a row of `docs/ACCURACY.md` was measured on. That table goes public only by takes made again with no
-other sound in them, which is the owner's to make and not this order.
+The count is over every sample the check compares, and the check prints its lag, what it leaves out (the last
+packet, the samples before the lag) and the largest difference. A file whose count the record does not hold
+(Set I's second file) is measured and entered in `tests/REFERENCE_2026.md` by the orchestrator first, or it stays
+out. A file that fails stays out, and its row is not written. If a `voice_maxgain 10` file's `voice_maxgain 1`
+partner stays out, so does it.
 
 ### Where the files live
 
-**Recommended: assets of one release on GitHub, not files of the repository.** The repository keeps the manifest.
-
-| | Release assets | In the repository (`tests/recordings/`) |
-| --- | --- | --- |
-| Size | course (a) is about 8 MB plus Set K's seven files, under 30 MB in all (computed from the inventory) | the same, added to a working tree of 12 MB (measured), and kept by the history for good |
-| The site | untouched: no file of the site changes, `sw.js` and its number stay | the root is the site, so GitHub Pages would serve every file; `sw.js` stays, since the page loads none |
-| Taking a file back | the asset is deleted; copies already fetched remain | the history is rewritten, which this repository has done once and should not do again |
-| CI | a download of under 30 MB with each hash checked, a few seconds | none |
-
-**The release's name.** Its tag is `recordings-1`, and a later set would be `recordings-2`. A tag that begins
-`recordings-` holds data only: it points at the commit that added the manifest's rows, its text opens "Recordings
-only. This tag marks no state of the app.", and it is created as a pre-release so that it never shows as the
-latest release. A release of the modern path (point (2), not this order) takes a name of another kind. The
-documents call it "the recordings release", never a version.
-
-The three test signals as played are not in it: their scripts and checksums are public and the page of this order
-does not use them. Adding them would cost 50 to 65 MB as WAV (computed from the inventory).
+In the repository, `tests/recordings/files/`, nine files, 3,508,328 bytes together (section 14). Nothing ignores
+that folder. The root of the repository is the site, so GitHub Pages serves the files; `sw.js` does not list
+them and the page loads none. The three test signals as played are not published; their scripts are.
 
 ### What is done to a file before it goes out, and who does it
 
 The orchestrator, in part e, for each file. A builder has no access to the recordings; part d gives the
 orchestrator the tool `tests/recordings/inspect.mjs`, tested on files the suite makes.
 
-1. **The checksum.** `sha256sum` of the private file against the record's, where the record has one (Sets B, C,
-   D and F have; Sets H to O have none, and the manifest then holds the private file's SHA-256 as measured).
-2. **Every header and tag, read and listed.** `node tests/recordings/inspect.mjs <file>` prints, for a WAV, every
-   chunk with its size and names any `LIST`/`INFO`, `bext`, `iXML`, `cart` or `id3 ` chunk; for a FLAC, the
-   STREAMINFO fields and every other block by kind (VORBIS_COMMENT with its vendor string and the names of its
-   comments, PICTURE, APPLICATION, CUESHEET, SEEKTABLE, PADDING). The orchestrator reads the values privately;
-   the report lists kinds and names only.
-3. **A rewrite that keeps the samples and drops everything but the format.** Both commands were tried on
-   2026-11-13 with FFmpeg 6.1.1 on files made for the purpose: the decoded samples came out equal, and two runs
-   gave the same bytes.
-   - WAV: `ffmpeg -nostdin -i IN.wav -map 0:a:0 -map_metadata -1 -fflags +bitexact -flags:a +bitexact -c:a pcm_s16le OUT.wav`.
-     It leaves a 44-byte header with a `fmt ` and a `data` chunk.
-   - FLAC (course (b) only): `ffmpeg -nostdin -i IN.flac -map 0:a:0 -map_metadata -1 -map_chapters -1 -fflags +bitexact -flags:a +bitexact -c:a flac -compression_level 8 OUT.flac`.
-     It leaves STREAMINFO, an empty comment block whose vendor string is `ffmpeg`, and padding of zeros; a file
-     streamed with no length in its header, as Set F's are, gets its length.
-4. **The samples, checked.** The SHA-256 of the decoded PCM of IN and of OUT must be equal:
-   `ffmpeg -nostdin -loglevel error -i FILE -map 0:a:0 -f s16le -c:a pcm_s16le - | sha256sum` (`s24le` and
-   `pcm_s24le` for a 24-bit file). Then `inspect.mjs` on OUT must list only the blocks named in step 3.
-5. **The name.** `set-<letter>_<what>_<settings>.<ext>`, lower case, from the manifest: for example
-   `set-h_vaudio-celt_maxgain-1.wav`. No upload prefix, no date, no name the owner gave a file.
-6. **The orchestrator reads each OUT's header once more** before the push, as the decision of 2026-11-12 asks.
+1. **The header, read and listed.** `node tests/recordings/inspect.mjs <file>` prints every chunk of a WAV with
+   its size, names any `LIST`/`INFO`, `bext`, `iXML`, `cart` or `id3 ` chunk, and says whether the file is
+   exactly a 44-byte header and its samples. A file that is anything else stays out: nothing is rewritten.
+2. **The test above.**
+3. **The name.** `set-<letter>_<what>_<settings>.wav`, lower case, from the manifest: for example
+   `set-h_vaudio-celt_maxgain-1.wav`. No upload prefix, no date, no name the owner gave a file. Two sets' takes
+   that are one file byte for byte are published once, and the row names both sets.
+4. **The orchestrator reads each file's header once more** before the push, as the decision of 2026-11-12 asks.
 
 ### The manifest
 
-`tests/recordings/manifest.json`, a file of its own beside `tests/accuracy.takes.json`. That file lists takes by
-the names of private files and with the settings of renders, for one tool; the published set is other sets (H to
-O) and holds inputs too. One row a published file:
+`tests/recordings/manifest.json`, a file of its own beside `tests/accuracy.takes.json`. One row a published file:
 
-`name`; `set`; `kind` (`input`, `decoded voice`, `capture`); `input` (`script`, `sha256`); `made_with` (the game
-and whether 64 or 32 bit, the codec, `voice_maxgain`, and any other setting that was changed); `format` (rate,
-channels, bits, samples); `bytes`; `sha256` (the file as published); `pcm_sha256` (its decoded PCM, by the command
-of step 4); `private_sha256` (the file it was made from); `findings`; `used_by` (the checks of
-`tests/reproduce.mjs`, the suites, or the rows of `docs/ACCURACY.md` that use it). The file's head holds the
-release's tag and the address its assets are fetched from.
+`name`; `sets` (one or two of `H`, `I`, `M`, `O`); `kind` (`decoded voice`, `capture`); `input` (`script`,
+`sha256`); `made_with` (the game and whether 64 or 32 bit, the codec, `voice_maxgain`, and any other setting that
+was changed); `format` (rate, channels, bits, samples); `bytes`; `sha256` (the file, which is the game's file byte
+for byte); `pcm_sha256` (the SHA-256 of the bytes of its `data` chunk); `check` (the check of the test above, its
+lag, the count it gave and the largest difference); `findings`; `used_by`.
 
-The suite `recordings` holds the frame: every field present, each hash 64 lowercase hex digits, the name of the
-form above, `kind` one of the three, `input.script` a file of the repository, no `private_sha256` on the
-never-published list, and for a row of Sets B, C, D or F a `private_sha256` that is one of the record's for a
-take of a synthetic signal. With no rows the frame's checks pass and the suite says the release is not made yet.
+The suite `recordings` holds the frame and the folder together: every field present; each hash 64 lowercase hex
+digits; the name of the form above; `sets` holding only `H`, `I`, `M` or `O`; `kind` one of the two;
+`input.script` a file of the repository; every file in `tests/recordings/files/` has a row and every row a file;
+each file's SHA-256 and `pcm_sha256` are its row's; each file is exactly a 44-byte header and its samples. With no
+rows and an empty folder the checks pass and the suite says no recording is published yet.
 
 ### What then becomes checkable in public
 
-- **Wired by this order (part f):** `node tests/recordings/fetch.mjs` fetches the manifest's files into
-  `tests/recordings/files/` (ignored by git) and checks `sha256` and `pcm_sha256`; the suite `reproduce` then runs
-  `celt`, `gain` and `speex` on them and expects the record's counts of section 5. CI's `units` job runs the
-  fetch before the runner and sets `TF2VE_RECORDINGS=required`, so a file that is missing fails there. Cost: a
-  download of under 30 MB and a few seconds of the bundled codecs (estimated; part f measures it).
+- **Wired by this order (part f):** the suite `reproduce` runs `celt`, `gain`, `speex` and the capture's check on
+  the files of the manifest and expects each row's own count. CI's `units` job runs it with the other suites; a
+  row whose file is missing fails. No download.
 - **Left to a later order:** `tests/accuracy.mjs` on published takes in CI. It needs Chromium and device
-  recordings, so it has nothing to run on under course (a).
-- **No recorded hash moves.** The suites that hold recorded hashes are not touched.
+  recordings, and no device recording is published.
 
 ## 8. The words that change
 
@@ -391,67 +354,68 @@ owner's recordings, which are not in this repository: they are in a private one 
 
 > `tests/accuracy.mjs` and `tests/retiming.mjs` need the owner's recordings, which are not in this repository:
 > they are in a private one a session can attach (`docs/PROGRESS.json`, `takes`, says how to point the tests at
-> it). Nothing from it is copied here. The one way out of it is the recordings release: the files that
-> `tests/recordings/manifest.json` lists, published by the orchestrator as the hard rule below says.
+> it). Nothing from it is copied here but the files that `tests/recordings/manifest.json` lists, which the
+> orchestrator added under `tests/recordings/files/` as the hard rule below says.
 
 **`CLAUDE.md`, the opening hard rule.** To:
 
 > - Never commit the owner's recordings, demos, packet dumps, console logs, speech or music, and never publish
->   them anywhere else. Public are the synthetic signals and fixtures made by the tests, and the recordings that
->   `tests/recordings/manifest.json` lists: files the game or Steam wrote from a signal that a script in this
->   repository makes, holding only what the voice path made of that signal, each with its metadata removed and its
->   header read by the orchestrator before it went out. They are assets of the recordings release, not files of
->   the repository. A file joins that list only through an order that names it and by the orchestrator's own push;
->   a doubt about a file leaves it out. [The recordings hold the owner's voice, copyrighted music, SteamIDs and the
->   game's own sound. On 2026-11-12 the owner left the game's recordings of the project's synthetic signals to the
->   orchestrator ("Do what you think is best"), who published the files on that list and nothing else. Publishing
->   cannot be undone.]
+>   them anywhere else. Public are the synthetic signals and fixtures made by the tests, and the nine recordings
+>   under `tests/recordings/files/` that `tests/recordings/manifest.json` lists: files the game wrote with
+>   `voice_recordtofile` from a clip that `tests/recordings/make-inputs.mjs` makes, each shown by the check named
+>   in its row to be what this repository's code makes of that clip, and each with its header read by the
+>   orchestrator before it went in. No other file joins them except by a new decision of the owner's and an
+>   order that names the file and its check; a doubt about a file leaves it out. [The recordings hold the owner's
+>   voice, copyrighted music, SteamIDs and the game's own sound. On 2026-11-12 the owner left the game's
+>   recordings of the project's synthetic signals to the orchestrator ("Do what you think is best"), who added
+>   the files on that list and nothing else. Publishing cannot be undone.]
 
-The old wording forbade a commit and said nothing of a release; the new one closes that. It adds console logs to
-the list. Under course (b) or files in the repository, the two middle sentences change and nothing else.
+The old wording forbade a commit and said nothing of publishing elsewhere; the new one closes that, adds console
+logs to the list, and names the proof a file needs, so that no later file passes on a description.
 
 | File | The line today | What it becomes |
 | --- | --- | --- |
 | `tests/REFERENCE_2026.md`, the head | "No recording, source music or derived audio is distributed with this project. The exceptions are the synthetic test signals" and "stay private; only numbers measured from them are written here" | the exceptions gain the recordings of the manifest, by set; a sentence marked *Corrected by RP-01 (date)* where it stands |
 | the same, Sets M and O | "The recordings are private; only numbers are here." | marked corrected, with the manifest's names, for the files that went out |
-| the same, Sets H, I and J | no checksum | each published file's row of the manifest named |
+| the same, Sets H, I, M and O | no checksum | each published file's row of the manifest named |
 | `docs/ACCURACY.md`, its opening | "the recordings are private: only numbers from them are here" | the recordings are private but for those of the manifest, which the checks of `docs/REPRODUCE.md` run on |
 | `docs/FINDINGS.md`, "How to read it" | "The recordings are private, and only numbers from them are given." | the same change |
 | `README.md`, "Tests" | "The owner's recordings are private, so the checks that need them are run privately and reported as numbers." | the checks on the published files run in CI; the rest as before |
-| `tests/README.md`, "Tools that need the owner's recordings" | "These are outside CI. The recordings, demos and logs they read are not in this repository and never go into it" | the tools stay outside CI; the published files are fetched, not committed |
+| `tests/README.md`, "Tools that need the owner's recordings" | "These are outside CI. The recordings, demos and logs they read are not in this repository and never go into it" | the tools stay outside CI; the published files are under `tests/recordings/files/` and their checks run in CI |
 | `docs/owner-runs.md`, its opening | "What comes back is private" | the same, but for what a later order names in the manifest |
-| `docs/PROGRESS.json`, `takes` (the orchestrator's) | says the takes are in the private repository only | adds: which files are in the recordings release, and that the manifest is the list |
+| `docs/PROGRESS.json`, `takes` (the orchestrator's) | says the takes are in the private repository only | adds: which files are published, and that the manifest is the list |
 
 ## 9. The parts
 
-Each part merges alone and is useful alone. Parts a and d share no file and may be built side by side; b and c
-follow a; e follows a to d; f follows e.
+Each part merges alone and is useful alone. The order of building, after the plan review (section 15): a, then d
+(they share `tests/run.mjs`, `tests/README.md` and `docs/FINDINGS.md`, so they are not built side by side), then
+e and f; c after a; b only after a planner's pass of its own.
 
 | Part | Whose | What | Budget |
 | --- | --- | --- | --- |
-| RP-01a | a builder | the script's frame, `inputs`, `gain`, `celt`, `speex`; the suite `reproduce`; the page with those sections and its three links | 8 hours |
-| RP-01b | a builder | `gate`, `hold`, `queue`; their sections; the page then opens with `hold` | 10 hours |
+| RP-01a | a builder | the script's frame; `tests/recordings/make-inputs.mjs` and `inputs`; `gain`, `celt`, `speex`; the suite `reproduce`; the page with those sections and its three links; section 14's measurements entered in the record | 8 hours |
+| RP-01b | a builder, after a planner's pass (section 15) | `gate`, `hold`, `queue`; their sections | not budgeted until it is planned again |
 | RP-01c | a builder | `ceiling`, `clock`, `demo`; their sections; the steps-only entries and "With a server" | 6 hours |
-| RP-01d | a builder | the frame of section 6's table with every cell the public record gives; the manifest's frame; `inspect.mjs`; the suite `recordings`; section 8's words, written out in the report | 6 hours |
-| RP-01e | the orchestrator alone | every step that touches a private file or the private record: the table's cells; the private runs of section 5; the input scripts moved in; section 7's steps for each file; the manifest's rows; the release; section 8's edits; PROGRESS | not a builder's |
-| RP-01f | a builder | `fetch.mjs`; the suite on the published files; CI's step; the page's "not yet run" marks removed where a check passed | 3 hours |
+| RP-01d | a builder | the frame of section 6's table with every cell the public record gives; the manifest's frame; `inspect.mjs` (WAV only); the suite `recordings`; section 8's words, written out in the report | 5 hours |
+| RP-01e | the orchestrator alone | every step that touches a private file or the private record: the table's cells; the private runs of section 5; section 7's test and steps for each file; the nine files and the manifest's rows; section 8's edits; PROGRESS. It goes through a pull request and CI | not a builder's |
+| RP-01f | a builder | the suite on the published files, in CI with the other suites; the page's "not yet run" marks removed where a check passed | 2 hours |
 
 At its budget a builder stops, pushes what passes and reports what is left.
 
 **No builder step needs a private file.** Where a check wants a published recording that is not there, the suite
 prints a skip line and passes, in the form `tests/room-dsp.verify.mjs` uses (`  skip  <what>: <why>`); the tools
-that need the takes stay outside CI as `tests/README.md` lists them. From part f on, CI sets
-`TF2VE_RECORDINGS=required` and the skip becomes a failure there.
+that need the takes stay outside CI as `tests/README.md` lists them. From part f on the suite runs every row of
+the manifest, and a row whose file is missing fails.
 
 ### Files
 
 | Part | May touch | May not touch |
 | --- | --- | --- |
-| a | new: `tests/reproduce.mjs`, `tests/reproduce/`, `tests/reproduce.verify.mjs`, `docs/REPRODUCE.md`. Changed: `tests/run.mjs` and `tests/README.md` (the suite's row), `tests/gain-exact.mjs` (its check given two paths; the `--synthetic` output unchanged), `README.md`, `docs/FINDINGS.md` and `docs/README.md` (one link each) | everything else |
+| a | new: `tests/reproduce.mjs`, `tests/reproduce/`, `tests/reproduce.verify.mjs`, `tests/recordings/make-inputs.mjs`, `docs/REPRODUCE.md`. Changed: `tests/run.mjs` and `tests/README.md` (the suite's row), `tests/gain-exact.mjs` (its check given two paths; the `--synthetic` output unchanged), `README.md`, `docs/FINDINGS.md` and `docs/README.md` (one link each; in `docs/FINDINGS.md` also "inferred" to "measured" for the folder of entry 10, with section 14's grounds), `tests/REFERENCE_2026.md` (added lines only: section 14's measurements as an entry dated 2026-11-13, and a note marked *Corrected by RP-01a* under finding 24's 505) | everything else |
 | b | the files of part a; `tests/voice-channel.verify.mjs` and a new file under `tests/voicequeue/` (the replay moved so both load it; the suite's output unchanged) | everything else |
 | c | the files of part a | everything else |
-| d | new: `tests/recordings/manifest.json`, `tests/recordings/inspect.mjs`, `tests/recordings.verify.mjs`. Changed: `tests/REFERENCE_2026.md` (the new section, the ids' column and one sentence; no other line), `docs/FINDINGS.md` (one sentence), `tests/run.mjs`, `tests/README.md`, `.gitignore` (`tests/recordings/files/`) | everything else |
-| f | new: `tests/recordings/fetch.mjs`. Changed: `tests/reproduce.verify.mjs`, `.github/workflows/test.yml` (one step and one variable in the `units` job), `docs/REPRODUCE.md`, `tests/README.md` | everything else |
+| d | new: `tests/recordings/manifest.json`, `tests/recordings/inspect.mjs`, `tests/recordings.verify.mjs`. Changed: `tests/REFERENCE_2026.md` (the new section, the ids' column and one sentence; no other line), `docs/FINDINGS.md` (one sentence), `tests/run.mjs`, `tests/README.md`. Not `.gitignore`: nothing may ignore `tests/recordings/files/` | everything else |
+| f | changed: `tests/reproduce.verify.mjs`, `docs/REPRODUCE.md`, `tests/README.md`; `.github/workflows/test.yml` only if the suite is not already in a job's list | everything else |
 
 For every builder: no file under `engine/`, no file the site loads, no codec module, `sw.js` not at all (its
 number is the orchestrator's, and no part changes a file it lists), `CLAUDE.md`, `docs/PROGRESS.json`,
@@ -464,16 +428,21 @@ passes, and `node tests/cache-number.mjs origin/main --report` says the number s
 
 **RP-01a.**
 1. `node tests/run.mjs reproduce` passes, and `node tests/reproduce.mjs` lists the checks.
-2. `node tests/reproduce.mjs inputs <folder>` writes the three signals with the SHA-256 the suite pins, on the
-   builder's machine and on CI.
-3. For `gain`, `celt` and `speex`: on its stand-in the script prints "as expected", and on the stand-in with one
-   sample changed it prints "differs" and exits other than 0. The report shows both outputs.
+2. `node tests/reproduce.mjs inputs <folder>` writes the two clips of section 14 as `voice_input_22050.wav` and
+   `voice_input_11025.wav` with the SHA-256 the suite pins, on the builder's machine and on CI, and the page's
+   steps say to copy the one wanted into the game's folder as `voice_input.wav`. (The 24 kHz clip for Steam is
+   part b's.)
+3. For `gain`, `celt` and `speex`: on its stand-in the script prints "as expected"; on the stand-in with one
+   sample moved by three steps it prints "differs" and exits other than 0; and on a file of zeros, or one too
+   short to hold a block where the gain is not 1, it prints "differs" with the reason, not "as expected". The
+   report shows the outputs.
 4. The suite's two network checks and its marker check (section 4) pass, and each fails when the builder adds a
    `fetch(` to a file under `tests/reproduce/`, opens a socket in a check, or prints a file name.
 5. `node tests/gain-exact.mjs --synthetic` prints what it printed before.
 6. Every figure on the page is the record's, with its standing and the finding's number; the report lists each
    with the line of the record it was copied from.
-7. `node tests/miles.verify.mjs` passes (it reads `README.md`).
+7. `node tests/run.mjs miles` passes (it reads `README.md` and `tests/REFERENCE_2026.md`).
+8. `git diff origin/main -- tests/REFERENCE_2026.md` shows added lines only.
 
 **RP-01b.** Points 1, 3, 4 and 6 of part a for `gate`, `hold` and `queue`, and:
 1. `hold` on its stand-in at two uptimes of different rows gives every end at the stand-in's own uptime and
@@ -491,14 +460,16 @@ passes, and `node tests/cache-number.mjs origin/main --report` says the number s
    `pending` left under a status line that says "filled".
 3. The manifest check fails on each of: a missing field, a name with a date in it, an `input.script` that is not
    a file, and a `private_sha256` that is the record's for the speech take.
-4. `inspect.mjs` names a `LIST` and a `bext` chunk in a WAV, and a comment, a PICTURE and an APPLICATION block in
-   a FLAC, on files the suite makes; on a clean file it lists the format's own blocks only.
+4. `inspect.mjs` names a `LIST` and a `bext` chunk in a WAV the suite makes and says the file is not a plain
+   44-byte header and its samples; on a clean file it says it is. No FLAC.
+4a. The folder check fails on each of: a file in `tests/recordings/files/` with no row, a row with no file, a
+   file whose SHA-256 is not its row's, a row whose `sets` holds `J`. `node tests/run.mjs miles` passes.
 5. `git diff origin/main -- tests/REFERENCE_2026.md` shows added lines and the one changed table, and no other
    change.
 
-**RP-01f.** `node tests/recordings/fetch.mjs` followed by `TF2VE_RECORDINGS=required node tests/run.mjs reproduce`
-passes with the record's counts; with one file removed it fails; without the variable it skips and passes. The
-run on the branch's head is green, and the report gives the fetch's size and seconds as measured on CI.
+**RP-01f.** `node tests/run.mjs reproduce` passes with each row's own count on the files part e added; with one
+file removed, or one sample of a file moved by three steps, it fails. The run on the branch's head is green, and
+the report gives the seconds the suite takes on CI.
 
 ### Stop and ask
 
@@ -688,3 +659,37 @@ Until part e is merged the hard rule stands as written and nothing of the takes 
 
 Also ruled: the path into the private repository that the W3-08 order carried is removed from it in the change
 that brings this order to `main`.
+
+## 15. After the plan review (2026-11-13, the orchestrator)
+
+The plan review by the builders' model said: build after edits. Sections 7, 8 and 9 were edited in place the same
+day (the files in the repository, no rewrite of a file, no fetch, no ignore line, the test a file passes, the
+parts' order). What else it found, and what is ruled:
+
+- **Part b is not ready and is planned again before it is built.** `hold` cannot be made from Steam's console
+  alone: Steam's first mark is the chunk's verdict, not the sender's state, and the record read the phrase ends
+  from the game's `voice_showincoming` log; the sender's clock option refuses chunks over 2,250 samples where file
+  input gives up to 6,000; and the read times have to be rebuilt as W3-14 and W3-16's second read did, which no
+  code in the repository does. `gate`'s two figures (0.9998% and 1.0315%) came from recomputing each chunk from
+  the known clip, and a mean printed to two decimals cannot show them. `queue` as written fails on most strangers'
+  logs, since it asks every fault of the replay to show somewhere and two of them show only at 300 frames a
+  second. A planner's pass states, for each of the three: its inputs (for `hold`, Steam's console text, the
+  game's console log, the uptime with its unit, and the generated clip), the code it reuses, and its pass line
+  (for `queue`: no mismatching tick, the faults' counts printed as information). So the first thing handed to a
+  stranger is `celt`, `gain` and `speex`, not `hold`. That is the surer check and says nothing of the modern
+  path; the page says so in its opening.
+- **Every check has a floor.** A check prints "differs", with the reason, on input that cannot show the thing:
+  a file of zeros, a log with no phrase end, no packet, no chunk on each side of 1.0%, a demo with no voice.
+  What is only information (how many ends at the other uptime) is printed and is not part of the pass.
+- **The break tests go outside the tolerances:** three steps, not one, for `celt` and for `ceiling`.
+- **The stranger's steps gain what a newcomer lacks:** how Steam's console is opened; that `mic_inputfile` takes
+  a full path and still needs a working capture device; that the game writes `voice_decompressed.wav` again at
+  every release of the key, so a file is copied away before the next press (measured again on 2026-11-13, when a
+  sitting was lost to it); that everything was measured on Windows; `--uptime`'s unit, and that the model's
+  uptime stops at 4,000,000 s.
+- **Section 14's measurements go into the record in part a,** as added lines (the files table of section 9), so
+  that part a's rule "every figure is the record's" can hold.
+- **The never-published list is kept by the manifest's `sets`,** which may hold only H, I, M and O, and by the
+  folder check; hashes of files the record has no hash for cannot do it.
+- **Not taken:** folding part f into part e. Part e is the one change that touches private files and it stays
+  as small as it can be.
