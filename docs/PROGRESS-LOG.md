@@ -506,3 +506,17 @@ Replaced or removed (next, W3-22 (moved to in_flight)):
 Replaced or removed (live, last_merge, now kept as the tail of the new text):
 
 (the W3-02c-2 text stays in place after the RP-01a sentence)
+
+## 2026-11-13, when the three builders handed back
+
+Replaced or removed (in_flight, W3-21, its state):
+
+a builder is at work since 2026-11-13 (branch claude/w3-21-capture-phase); it stopped once and was ruled on (the order's last section)
+
+Replaced or removed (in_flight, W3-22, its state):
+
+a builder is at work since 2026-11-13 (branch claude/w3-22-miles-words)
+
+Replaced or removed (in_flight, RP-01d, its state):
+
+a builder is at work since 2026-11-13 (branch claude/rp-01d-files-and-manifest)
