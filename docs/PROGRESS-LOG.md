@@ -530,3 +530,9 @@ built 2026-11-13 (branch claude/rp-01d-files-and-manifest, CI green); a reviewer
 Replaced or removed (in_flight, RP-01, its state):
 
 part a merged 2026-11-13 (the script's frame, the two clips' generator, the checks inputs, gain, celt and speex, the suite reproduce, docs/REPRODUCE.md); part d is next (the files behind the read findings, the manifest's frame, the suite recordings), then e (the orchestrator's alone: the nine recordings, the hard rule's amendment) and f; part c after; part b after a planner's pass
+
+## 2026-11-13, when part e's publishing step was held
+
+Replaced or removed (in_flight, RP-01, its state):
+
+parts a and d merged 2026-11-13; part e is next and is the orchestrator's alone (the pending cells of the files table from the private inventory; the nine recordings, each after its check and a read of its header; the manifest's rows; the hard rule's amendment), through a pull request and CI; then f (the suite on the published files), c, and b after a planner's pass

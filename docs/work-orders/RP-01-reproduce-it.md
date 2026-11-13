@@ -2,8 +2,9 @@
 
 **Status 2026-11-13: parts a and d are merged** (reports: [RP-01a](../reports/RP-01a-reproduce-script.md),
 [RP-01d](../reports/RP-01d-files-and-manifest.md); the script's `gain`, `celt` and `speex` also passed the
-orchestrator's private run on the game's files). Part e, the orchestrator's, is next, then f; part c after them;
-part b waits for a planner's pass (section 15). Sections 14 (the
+orchestrator's private run on the game's files). Of part e, the files table is filled and merged; the step that
+publishes the recordings is prepared and waits for the owner's word (section 17), and part f waits with it. Part
+c can go ahead; part b waits for a planner's pass (section 15). Sections 14 (the
 orchestrator's rulings) and 15 (after the plan review) hold where an earlier section differs; sections 7, 8 and 9
 were edited in place to agree with them.
 
@@ -734,3 +735,19 @@ files go out, each with every sample either compared by its check or zero; the m
   page's `gain` section keeps Set H's count as the record's and says that pair is not published.
 - A press's last packet that holds sound the clip does not is entered in the record as measured and not
   explained. The real plug-in or the game's own decoder on a cut packet would settle it; no order asks for that.
+
+## 17. Part e in two steps (2026-11-13, the orchestrator)
+
+Part e was prepared whole: the files table filled, the seven files of section 16 under their public names with
+their headers read and their checks run, the manifest's rows, section 8's words and the amended hard rule. When
+the orchestrator went to push it, the session's own safety check refused the step that would publish the
+recordings. A refusal of that kind is not worked around, and publishing cannot be undone, so the step waits for
+the owner to say so in their own words, whatever the decision of 2026-11-12 already allows.
+
+- **Merged now:** the files table's cells in the record (names, dates and hashes only), and two break tests of
+  the suite `recordings` that had assumed the table still said "pending".
+- **Held for the owner's word:** the seven files, the manifest's rows, the amended hard rule in `CLAUDE.md`,
+  section 8's other sentences, the record's entry on the published recordings, the page's section "Without the
+  game", and part e's report. The prepared change is kept privately. Until it is merged the hard rule stands as
+  written and nothing of the takes is public.
+- **Part f waits for it.** Part c does not.

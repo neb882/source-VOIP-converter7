@@ -404,44 +404,55 @@ file's own build date as the record or a report gives it (its link date). "Build
 record. Where the reading was the orchestrator's own investigation, the report named is the one that gives what it
 found. W3-15b is the report the table above calls W3-18, and "BC plan" is `docs/reports/bad-connections-plan.md`.
 
-**Status:** the orchestrator's cells are pending.
+**Status:** the orchestrator's cells are filled.
+
+They were filled on 2026-11-13 by order RP-01, part e; the paragraph under the table says how.
 
 | Id | File | From | Build, as its owner can read it | Built | Taken | SHA-256 | Read for | Report |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| F1 | `bin/x64/engine.dll` | the owner's TF2, 64-bit | pending | 2026-10-05 | pending | `4802a74ce0abb1175851d00e37fc88609085a96238aa52ac0eb224ae4a08ec80` | 2, 4, 8, 9, 10, 14, 21 to 27, 29 (what the game takes of a message), 30, 31, 32 | W3-03, W3-05, W3-07, W3-09, W3-10, W3-15, W3-15b, W3-17, W3-17a, W3-17b, BC plan |
-| F2 | `bin/x64/vaudio_celt.dll` | the owner's TF2, 64-bit | pending | 2026-09-30 | pending | `255cf0836a11118195c9129869b7a0e5a15123c99054409b93e379a66e07a66e` | 31 | W3-03, W3-08 |
-| F3 | a second `vaudio_celt` module, its file name pending | another Source game of the owner's, which one pending; 32-bit | pending | pending | pending | pending | 31 | W3-08 |
-| F4 | `steamclient64.dll` | the owner's Steam, 64-bit | pending | 2026-10-13 | pending | `e9045710ec7ee47d7b7488d1c5dda2d933dec7e251e965967a5c48f4df68eb4e` | 5, 11, 12, 16, 27, 28, 29 | W3-09, W3-16, BC plan |
-| F5 | `steamclient64.dll` | `bins_win64.zip`, Valve's public client package | pending | 2026-10-21 | pending | `253e0a11a4415b38c78a42f7bdd6ecc426455f06c1ba6453a48090df3142dbbc` | 28 (the same constants) | W3-09 |
-| F6 | `tier0_s64.dll` | Valve's public client package; the owner's own copy was not read | pending | 2026-10-21 | pending | `8559e6bd32eb3fddd95079633272866deb292211ec4f7e69aeb0ec48fdafef72` | 28 (where the clock counts from) | W3-16 |
-| F7 | `video64.dll` | `bins_win64.zip`, Valve's public client package | pending | pending | pending | `e84cb3391b4206feb03e1162b0d6815316905034a7ae190c66d0fa7fb00d48ba` | 29 (the resampler object) | W3-09 |
-| F8 | `libswresample-6.dll` | `bins_codecs_win64.zip`, Valve's public codec package | pending | pending | pending | `2ed49e82c7cab6b197b5229759c4d4e1a9eaa74fa5a8303680b34436de74d399` | 29 (the resampler's defaults and version) | W3-09 |
-| F9 | `linux64/steamclient.so` | `bins_sdk_ubuntu12.zip`, Valve's public Linux package | pending | pending | pending | `3e32119f473cb9c2615e1b282da8498b9986378e8b71537a4aed9f77e7b797e0` | 16, 28 (the libopus version string) | W3-09 |
-| F10 | `vaudio_speex.dll` | another Source game of the owner's, 32-bit | pending | 2026-05-20 | pending | `70d6643250a2010e79b79d727f9256a60f29317e5e2ad257d0721081afa9227f` | 31 | W3-09 |
-| F11 | TF2's own `vaudio_speex` module, its file name pending | the owner's TF2, 32-bit | pending | pending | pending | pending | 31 (run, Set O) | none: the record, Set O |
-| F12 | TF2's 32-bit engine, its file name pending | the owner's TF2, 32-bit | 11191711, the build the game reported in Set O | pending | pending | pending | 31 (the four codec names) | none: the record, Set O |
-| F13 | `vaudio_miles.dll` (never a TF2 codec) | the owner's TF2, 32-bit | pending | 2024-01-17 | pending | pending | 31 | W3-20a |
-| F14 | the Miles files beside F13, their names pending | the owner's TF2, 32-bit | pending | pending | pending | pending | 31 | W3-20a |
-| F15 | the engine of Source SDK Base 2006, its file name pending | the owner's Source SDK Base 2006 | pending | 2009-12-04 | pending | pending | 24, 31 | W3-20a, W3-20b |
-| F16 | the engine of Source SDK Base 2007, its file name pending | the owner's Source SDK Base 2007 | pending | 2010-02-01 | pending | pending | 24, 31 | W3-20a, W3-20b |
-| F17 | the `vaudio_miles` wrapper of F15 (never a TF2 codec), its file name pending | the owner's Source SDK Base 2006, with the plug-in Miles 6.6a | pending | 2006-05-22 | pending | pending | 31 | W3-20a, W3-20b |
-| F18 | the `vaudio_miles` wrapper of F16 (never a TF2 codec), its file name pending | the owner's Source SDK Base 2007, with the plug-in Miles 6.6a | pending | 2008-07-11 | pending | pending | 31 | W3-20a, W3-20b |
-| F19 | `client.dll` | the owner's TF2; 64 or 32 bit pending | pending | pending | pending | pending | 32 (its strings only) | W3-15, W3-15b |
-| F20 | `GameUI.dll` | the owner's TF2 | pending | pending | pending | pending | 32 (the menu option that turns the room off) | W3-15b |
-| F21 | `scripts/dsp_presets.txt` | the owner's TF2, the game's own archive | pending | pending | pending | pending | 30, 32 | W3-15, W3-17 |
-| F22 | `scripts/soundmixers.txt` | the owner's TF2, the game's own archive | pending | pending | pending | pending | 30 (the two-speaker level), 32 | W3-15 |
-| F23 | the 40 `scripts/soundscapes*.txt`, as one row | the owner's TF2, the game's own archive | pending | pending | pending | pending | 32 | W3-15 |
+| F1 | `bin/x64/engine.dll` | the owner's TF2, 64-bit | TF2 build 11191711 (the game's console, 2026-11-10) | 2026-10-05 | 2026-11-10 | `4802a74ce0abb1175851d00e37fc88609085a96238aa52ac0eb224ae4a08ec80` | 2, 4, 8, 9, 10, 14, 21 to 27, 29 (what the game takes of a message), 30, 31, 32 | W3-03, W3-05, W3-07, W3-09, W3-10, W3-15, W3-15b, W3-17, W3-17a, W3-17b, BC plan |
+| F2 | `bin/x64/vaudio_celt.dll` | the owner's TF2, 64-bit | TF2 build 11191711 (the game's console, 2026-11-10) | 2026-09-30 | 2026-11-10 | `255cf0836a11118195c9129869b7a0e5a15123c99054409b93e379a66e07a66e` | 31 | W3-03, W3-08 |
+| F3 | `bin/vaudio_celt.dll` | the owner's Half-Life 2: Deathmatch, 32-bit | HL2DM build 10889068 (the game's console, 2026-11-10) | 2026-05-20 | 2026-11-10 | `4d142d069c8db187333409c9b9478ad44ea1e6d245d3b83a43116aaa0fd8a294` | 31 | W3-08 |
+| F4 | `steamclient64.dll` | the owner's Steam, 64-bit | not recorded | 2026-10-13 | 2026-11-10 | `e9045710ec7ee47d7b7488d1c5dda2d933dec7e251e965967a5c48f4df68eb4e` | 5, 11, 12, 16, 27, 28, 29 | W3-09, W3-16, BC plan |
+| F5 | `steamclient64.dll` | `bins_win64.zip`, Valve's public client package | client package version 1792618285 (Valve's manifest) | 2026-10-21 | 2026-11-10 | `253e0a11a4415b38c78a42f7bdd6ecc426455f06c1ba6453a48090df3142dbbc` | 28 (the same constants) | W3-09 |
+| F6 | `tier0_s64.dll` | Valve's public client package; the owner's own copy was not read | client package version 1792618285 (Valve's manifest) | 2026-10-21 | 2026-11-10 | `8559e6bd32eb3fddd95079633272866deb292211ec4f7e69aeb0ec48fdafef72` | 28 (where the clock counts from) | W3-16 |
+| F7 | `video64.dll` | `bins_win64.zip`, Valve's public client package | client package version 1792618285 (Valve's manifest) | 2026-10-21 | 2026-11-10 | `e84cb3391b4206feb03e1162b0d6815316905034a7ae190c66d0fa7fb00d48ba` | 29 (the resampler object) | W3-09 |
+| F8 | `libswresample-6.dll` | `bins_codecs_win64.zip`, Valve's public codec package | client package version 1792618285 (Valve's manifest) | 2026-10-12 | 2026-11-10 | `2ed49e82c7cab6b197b5229759c4d4e1a9eaa74fa5a8303680b34436de74d399` | 29 (the resampler's defaults and version) | W3-09 |
+| F9 | `linux64/steamclient.so` | `bins_sdk_ubuntu12.zip`, Valve's public Linux package | client package version 1792618285 (Valve's manifest) | none: the file holds no link date | 2026-11-10 | `3e32119f473cb9c2615e1b282da8498b9986378e8b71537a4aed9f77e7b797e0` | 16, 28 (the libopus version string) | W3-09 |
+| F10 | `vaudio_speex.dll` | another Source game of the owner's, 32-bit | HL2DM build 10889068 (the game's console, 2026-11-10) | 2026-05-20 | 2026-11-10 | `70d6643250a2010e79b79d727f9256a60f29317e5e2ad257d0721081afa9227f` | 31 | W3-09 |
+| F11 | `bin/vaudio_speex.dll` | the owner's TF2, 32-bit | TF2 build 11191711 (the game's console, 2026-11-11) | 2026-09-30 | 2026-11-11 | `ba40de0677977a5c203c38ae57f1d1161865875b4c58d0df4e86f1f8a407fa38` | 31 (run, Set O) | none: the record, Set O |
+| F12 | `bin/engine.dll` | the owner's TF2, 32-bit | TF2 build 11191711 (the game's console, 2026-11-11) | 2026-10-05 | 2026-11-11 | `aca809df6828eef3c5bd42da32c2868c0a53c1503dafa5fc287c4c6d72070a27` | 31 (the four codec names) | none: the record, Set O |
+| F13 | `bin/vaudio_miles.dll` (never a TF2 codec) | the owner's TF2, 32-bit | TF2 build 11191711 (the game's console, 2026-11-11) | 2024-01-17 | 2026-11-11 | `1420952213fdcd5c5b2c064aa9e9085c517eaaae7e7d9526f2c691585d7c54ac` | 31 | W3-20a |
+| F14 | `bin/mssvoice.asi`, the Miles plug-in beside F13 | the owner's TF2, 32-bit | TF2 build 11191711 (the game's console, 2026-11-11) | 2012-11-26 | 2026-11-11 | `3c22a68c4bff65661dc5dcb315d4be246ff1913203472b776290bbda17586463` | 31 | W3-20a |
+| F15 | `bin/engine.dll` | the owner's Source SDK Base 2006 | not recorded | 2009-12-04 | 2026-11-11 | `4fc435499f0f18db9f1e3d4af84b463ffd2099cbfa3a1037516dd4aedf7a02b7` | 24, 31 | W3-20a, W3-20b |
+| F16 | `bin/engine.dll` | the owner's Source SDK Base 2007 | not recorded | 2010-02-01 | 2026-11-11 | `e80187a7166d134355204b63d0c485164aad603b2d5e1c2b9349a726b7991081` | 24, 31 | W3-20a, W3-20b |
+| F17 | `bin/vaudio_miles.dll` (never a TF2 codec) | the owner's Source SDK Base 2006, with the plug-in Miles 6.6a | not recorded | 2006-05-22 | 2026-11-11 | `4c456b30bc1f7db811353f46a60859ecc3a626a7a4eee7a56d73de9ba3563f32` | 31 | W3-20a, W3-20b |
+| F18 | `bin/vaudio_miles.dll` (never a TF2 codec) | the owner's Source SDK Base 2007, with the plug-in Miles 6.6a | not recorded | 2008-07-11 | 2026-11-11 | `208de297931294913c4b7ec3dc7f7cfd393237decd222eae82b6483896c136b2` | 31 | W3-20a, W3-20b |
+| F19 | `tf/bin/x64/client.dll` | the owner's TF2, 64-bit | TF2 build 11191711 (the game's console, 2026-11-10) | 2026-10-16 | 2026-11-10 | `b6f45c74805edacf0cf61d965f658158fc22960f66d583ef3a6549eb56696b95` | 32 (its strings only) | W3-15, W3-15b |
+| F20 | `bin/x64/GameUI.dll` | the owner's TF2, 64-bit | TF2 build 11191711 (the game's console, 2026-11-10) | 2026-10-05 | 2026-11-10 | `1862d70adc9505f54c5a31756c05d42867ed7364ca5944d8b30d526447c7ec9f` | 32 (the menu option that turns the room off) | W3-15b |
+| F21 | `scripts/dsp_presets.txt` | the owner's TF2, the game's own archive | TF2 build 11191711 (the game's console, 2026-11-10) | none: a text file | 2026-11-10 | `5a59d25d656fdabc27ec2da2f0598aa970b962a8b4edd9ff9fe8f3cf407a3c23` | 30, 32 | W3-15, W3-17 |
+| F22 | `scripts/soundmixers.txt` | the owner's TF2, the game's own archive | TF2 build 11191711 (the game's console, 2026-11-10) | none: a text file | 2026-11-10 | `3e95dd0bc9182f99cb3fad543cd7df77371e4ce3ad7bfaa833eaadec8ea99e47` | 30 (the two-speaker level), 32 | W3-15 |
+| F23 | the 40 `scripts/soundscapes*.txt`, as one row | the owner's TF2, the game's own archive | TF2 build 11191711 (the game's console, 2026-11-10) | none: text files | 2026-11-10 | `a22030d778f6bd4f10adec2c0d26c7187fe117436120b76aedb70dcfa78d1295` | 32 | W3-15 |
 
-What the reports give short of a full SHA-256, for the orchestrator to set beside the private record: F3's begins
-`4d142d06` and ends `0fd8a294` (W3-08); F19's begins `b6f45c74` (W3-15); F21 is 46,419 bytes, with the CRC-32
-2441946680 that the game's archive index gives (W3-15, and the order W3-17); F11 differs from F10 in 50 bytes of
-code, all address operands (Set O). F23's SHA-256 is to be that of the sorted list of the 40 files' names and
-SHA-256s. F14 stands for the Miles files that TF2's 32-bit folder ships beside F13, which the record does not name.
+How the orchestrator's cells were filled (2026-11-13, measured on the private copies unless said otherwise). A
+SHA-256 is the copy's own; the four the reports already gave for the owner's files (F1, F2, F4, F10) and F5's were
+computed again and are equal. "Built" is the link date in the file's header. "Taken" is the day the copy reached
+the project from the owner's install, or the day a public package was downloaded. "Build" for a game's file is the
+build number that game printed in its console on the day named, from the same install as the copy (the file was
+not matched to the number by any other means: inferred); for a public package it is the version in Valve's client
+manifest it was listed in; "not recorded" means nobody noted Steam's build date or the old engine's version on
+the day. F3's hash begins and ends as W3-08 gave it, F19's begins as W3-15 gave it, and F21 is 46,419 bytes as
+W3-15 gave it. F23's SHA-256 is that of 40 lines, one a file in the order of the names, each the file's SHA-256,
+two spaces and its name, with a newline after each. Beside F14 in the same folder is `bin/Mss32.dll`, built
+2012-11-26, SHA-256 `9ff707f8feb76f240816b425f175cea19debd87b305a8d178976672625e86d49`; beside F17 and F18 is
+the plug-in `bin/mssvoice.asi` of Miles 6.6a, one file in both installs, built 2004-04-02, SHA-256
+`7e5495a45c9e7199b7616d9c34d7fe7cfcab237036014e653c4dcddd772a2828`. F10 is Half-Life 2: Deathmatch's (measured:
+its link date and Set M's game). F11 differs from F10 in 50 bytes of code, all address operands (Set O).
 
 Not rows: Valve's public SDK, which is source and is cited by its commit; the public sources of libopus, CELT,
 Speex and FFmpeg; `XAudio2_7.dll`, whose conversion is measured and not read; and W3-14, which opened no file.
-The reads of finding 8 that the record cites as "the plan, reads 1, 2, 4 and 7" are the BC plan's, which names F1
-and F4 for its addresses and not for each read; which file each read is in is pending. Findings 1, 3, 6, 7, 13,
+The reads of finding 8 that the record cites as "the plan, reads 1, 2, 4 and 7" are the BC plan's; each of the
+four gives its place in the engine's image, so all four are F1's. Findings 1, 3, 6, 7, 13,
 15, 17, 18, 19 and 20 rest on no reading of their own.
 
 A reader whose file has the same SHA-256 holds the bytes the finding was read from, and can look for the same rule

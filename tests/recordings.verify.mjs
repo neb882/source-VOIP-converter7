@@ -554,8 +554,14 @@ if (table.pending) {
   breaks('an address in the section\'s words fails', checkFilesTable(swap('Not rows: Valve', 'Read at 0x1234abcd. Not rows: Valve')).problems, /looks like an address/);
   breaks('a listing of bytes fails', checkFilesTable(swap('Not rows: Valve', 'Bytes 48 8b 05 c3. Not rows: Valve')).problems, /listing of bytes/);
   breaks('a run of hex that is no SHA-256 fails', checkFilesTable(swap('Not rows: Valve', 'Code deadbeefcafe. Not rows: Valve')).problems, /run of 12 hex digits/);
-  breaks('pending left under a status line that says "filled" fails', checkFilesTable(swap('the orchestrator\'s cells are pending.', 'the orchestrator\'s cells are filled.')).problems, /says pending under a status line that says the cells are filled/);
-  breaks('no status line fails', checkFilesTable(swap('**Status:** the orchestrator\'s cells are pending.', '')).problems, /one status line/);
+  // The record's status line says "pending" until part e and "filled" after it:
+  // the two breaks below are made from whichever it says.
+  const statusLine = `**Status:** the orchestrator's cells are ${table.pending ? 'pending' : 'filled'}.`;
+  const pendingUnderFilled = table.pending
+    ? swap('the orchestrator\'s cells are pending.', 'the orchestrator\'s cells are filled.')
+    : swap(rowOf(f1), withCell(f1, 3, 'pending'));
+  breaks('pending left under a status line that says "filled" fails', checkFilesTable(pendingUnderFilled).problems, /says pending under a status line that says the cells are filled/);
+  breaks('no status line fails', checkFilesTable(swap(statusLine, '')).problems, /one status line/);
   breaks('pending in "Report" fails', checkFilesTable(swap(rowOf(f2), withCell(f2, 8, 'pending'))).problems, /^F2: the cell "Report" says pending/);
   breaks('a cell longer than a name, a date, a build line or a hash needs fails', checkFilesTable(swap(rowOf(f2), withCell(f2, 2, 'x'.repeat(CELL_MAX + 1)))).problems, /longer than a name/);
   breaks('a date that is not a date fails', checkFilesTable(swap(rowOf(f2), withCell(f2, 4, 'September'))).problems, /^F2: the cell "Built" is not a date/);
