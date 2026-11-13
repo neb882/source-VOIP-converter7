@@ -536,3 +536,8 @@ part a merged 2026-11-13 (the script's frame, the two clips' generator, the chec
 Replaced or removed (in_flight, RP-01, its state):
 
 parts a and d merged 2026-11-13; part e is next and is the orchestrator's alone (the pending cells of the files table from the private inventory; the nine recordings, each after its check and a read of its header; the manifest's rows; the hard rule's amendment), through a pull request and CI; then f (the suite on the published files), c, and b after a planner's pass
+
+## 2026-11-13: states of W3-21 and W3-22 replaced
+
+- W3-21, state replaced: "built 2026-11-13 (branch claude/w3-21-capture-phase, CI green); a reviewer and a second reader are at work. The builder's point for judgment: the render's sound lies within one sample of main's place, not at the same whole sample in every seed"
+- W3-22, state replaced: "the builder stopped on seven places the order did not list; ruled on 2026-11-13 (the order's last section) and resumed (branch claude/w3-22-miles-words)"
