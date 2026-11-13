@@ -27,6 +27,7 @@ the model, made in Node in a scratch folder with signals made by a script.
 | "the count of steps near 5.8 ms is dropped" | on the page, yes. `tests/accuracy.mjs:259-275` counts the same class for the private table, and `docs/ACCURACY.md:158` already says the engine has no such operation. The order leaves both |
 | `sw.js` (the cache version) in each part's files | the orchestrator sets the number at the merge (PROGRESS, 2026-11-12) |
 | BC-4 was not written | on Steam voice jitter marks no frame late; a render with jitter has `codecInfo.arrivals`, totals only |
+| W3-02c-3 was one part, planned before BC-4 | it was planned again on 2026-11-13 in two parts. Part a shares four files with part f and has the chain refuse `retime` with `'game'`; part b shares the browser suite and three documents with part e and gives a live take a `channel` of counts |
 | W3-02d-2 was not written | a changed setting can re-render a longer source by itself, and each render without loss lines a loaded take up again (`app/render.js:613-617`) |
 
 ## Each place checked
@@ -57,7 +58,14 @@ Read at `bc28875`, by opening the file.
 - `README.md:86-96`, `:161`; `docs/ACCURACY.md:8-32`, `:104`, `:150-170`; `docs/PAGE.md:175-177`, `:250`,
   `:300-375`; `docs/VOICE-PATH.md:80`; `tests/REFERENCE_2026.md:820-830`, `:1026-1036`, `:1500`, `:1601-1602`;
   `tests/predictions/PREDICTIONS.md:184-200`.
-- The orders and reports the brief named, and `docs/work-orders/W3-02c3-live-channel.md`, "Files".
+- The orders and reports the brief named.
+- `docs/work-orders/W3-02c3-live-channel.md` as it stands on `main` at `a93ec66`: the status block, item 4 of
+  part a, both "Files", items 1, 5 and 6 of part b, and the rulings at its end.
+
+`main` moved from `bc28875` to `a93ec66` while this was written: documents, the published recordings and their
+manifest. `git diff bc28875 a93ec66 -- engine app audio.js reference.js voice-channel.js` and the same over the
+suites are empty. Of the lines above only those of `tests/REFERENCE_2026.md` moved: `:1036` is `:1078` there,
+`:1500` is `:1542`, `:1601-1602` is `:1643-1644`.
 
 ## What the planner measured
 
@@ -158,8 +166,10 @@ files as part f says, `spans` and `seedNumber` with it.
   may differ from Node's, so the order has the builder measure again.
 - **The words.** The hover's parts, `silence`, the legend's item and the sentence on phrase starts are the
   planner's wording. The order fixes them so that checks can hold them; the owner may want others.
-- **A live take on the queue.** W3-02c-3 is not built yet. Whether a recorded live take carries the queue's
-  info is that order's to say.
+- **A live take on the queue.** W3-02c-3 is not built yet. As planned again on `main` (`a93ec66`), its part b
+  gives a recorded take `codecInfo.channel` with counts and keeps the take's lane the sender's. The order's
+  part e therefore tests for `channel.source`, not `channel`. Whether that take's `channel` will hold `source`
+  could not be read from an order alone; if it does, the two orders disagree and the later builder stops.
 
 Seen and left: `net_graph`'s title for the loss figure on Steam voice says "concealed or late"
 (`app/netgraph.js:42-43`); on Steam voice no frame is late since BC-4a unless a test's own mask makes one. The

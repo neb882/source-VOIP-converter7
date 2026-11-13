@@ -5,6 +5,10 @@ stands at `bc28875` (cache v45). It takes the place of the sections "W3-02e" and
 [the old order](W3-02-receiver-queue.md), written 2026-11-10, which no longer need to be read. Every `file:line`
 below is of `bc28875`. The planning report is [docs/reports/W3-02ef-plan.md](../reports/W3-02ef-plan.md).
 
+While this was written `main` moved to `a93ec66`. No file under `engine/` or `app/` and no suite changed. Lines
+moved in `tests/REFERENCE_2026.md` alone among the files named here, and those are given for both commits.
+W3-02c-3 was planned again in two parts; "The order of the parts" is written against that text.
+
 | | Part W3-02f | Part W3-02e |
 | --- | --- | --- |
 | **What** | the flat rule for early phrases (`opts.retime`) is deleted from the engine | the codec lane and the real-take panel say what a render on the game's voice queue does |
@@ -195,8 +199,9 @@ anything.
 - `docs/VOICE-PATH.md:80`: one clause, that the engine no longer has the rule.
 - `tests/REFERENCE_2026.md`: three statements are marked where they stand, not deleted, each with
   "*Corrected by W3-02f (date): the flat rule is no longer in the engine; `tests/retiming.mjs` keeps a copy for
-  scoring.*": the paragraph "This flat rule is what the app runs today when the option is on" (`:1036`), the
-  table row "Voice channel" (`:1500`), and "Talk-spurt timing" (`:1601-1602`). No figure and no finding changes.
+  scoring.*": the paragraph "This flat rule is what the app runs today when the option is on" (`:1036`; `:1078`
+  at `a93ec66`), the table row "Voice channel" (`:1500`; `:1542`), and "Talk-spurt timing" (`:1601-1602`;
+  `:1643-1644`). No figure and no finding changes.
 - `tests/predictions/PREDICTIONS.md`: one paragraph after the last "Changed after registration" (BC-4a's,
   `:196`), in
   the form of the ones before it: which hashed files changed (`engine/network.js`, `engine/render.js`,
@@ -267,6 +272,8 @@ Each is made, seen to fail the named check, and undone.
 - Something outside the list reads `spans`, `seedNumber`, `retimeSpurts` or `codecInfo.retimed`.
 - `tests/predictions/PREDICTIONS.md`, "Results", shows a predicted take scored. The note's words "before any
   predicted take existed" would then be false.
+- W3-02c-3a has been merged before this part starts. `engine/live-chain.js` then calls `steamGameTimeline`,
+  and that file is not on this part's list.
 - The work passes 3 hours.
 
 ### What the reviewer attacks
@@ -280,7 +287,9 @@ the batch. Anything left that only the rule used. Each new check gutted a few wa
 
 ## Part W3-02e: the lane and the real-take panel on the game's queue
 
-Everything below applies to a render whose `codecInfo` has `channel`, called here "a render on the queue". For
+Everything below applies to a render whose `codecInfo.channel` holds `source`, the played log's map, called
+here "a render on the queue". The test is `source`, not `channel` alone: W3-02c-3b (not built yet) gives a
+recorded live take a `channel` of counts while its frame log stays the sender's. For
 any other render (the file's own timing, a demo's voice, the other codecs, a live take) the lane, its hover, its
 legend and the panel's alignment stay as they are today, pixel for pixel and character for character, except
 the status line's words (point 5).
@@ -349,7 +358,8 @@ the status line's words (point 5).
      when the take is aligned (`renderGuide` hands it on; it is not sent to the worker's `track()`), or `null`.
      It can differ from the render on screen: a render with loss does not line the take up again
      (`app/render.js:613-617`).
-   - `renderSpurts` is `state.lastCodecInfo.channel.spurts` of the render on screen, or `null`.
+   - `renderSpurts` is `state.lastCodecInfo.channel.spurts` of the render on screen, or `null` when that render
+     has no `channel` or its `channel` has no `spurts`.
 7. **What the panel prints from it.** `updateReferenceReport` (`app/realtake.js:183-232`) adds, after the lines
    it has, when there is at least one change:
    - with a render on the queue on screen: `Phrase starts: at N changes from one phrase to the next the take
@@ -504,18 +514,23 @@ standing. Each new check gutted a few ways.
 
 ## The order of the parts
 
-- **W3-02f first.** It is the smaller, W3-02g waits for it, and it takes lines out of `engine/steam.js` that
-  W3-02c-3 is planned against.
+- **W3-02f first, and before W3-02c-3a.** It is the smaller and W3-02g waits for it. It shares four files
+  with W3-02c-3a ([its order](W3-02c3-live-channel.md), "Files" of part a): `engine/network.js`,
+  `engine/steam.js`, `tests/render-channel.verify.mjs` and `tests/predictions/PREDICTIONS.md`. The two are never
+  built side by side. W3-02c-3a's item 4 has the chain refuse `'game'` with `retime` "as a render does"; after
+  part f no render refuses it and the chain ignores it too (ruling 9). If W3-02c-3a is merged first, part f
+  stops and asks, as its list says.
 - **W3-02e does not wait for W3-02f.** They share no code file and no test file; in `README.md` and
   `docs/ACCURACY.md` they change different lines. They may be built side by side when a builder is free
-  (`docs/PIPELINE.md`: at most two builds at once).
-- **Neither runs beside W3-02c-3's build.** W3-02c-3 may touch `engine/steam.js`,
-  `tests/render-channel.verify.mjs` and `tests/browser.verify.js`
-  ([its order](W3-02c3-live-channel.md), "Files"). Both parts merge before that build starts, or after it has
-  merged; if after, the builder of each part reads the merged files first.
-- **A live take.** Today a recorded live take has no `channel` (`app/render.js:753-771`), so part e leaves its
-  lane as it is. If W3-02c-3 (not built yet) gives a live take the queue's info, the lane reads it by the same
-  rule; that is W3-02c-3's to say.
+  (`docs/PIPELINE.md`: at most two builds at once). W3-02e shares no file with W3-02c-3a either.
+- **W3-02e is not built beside W3-02c-3b.** Both add checks to `tests/browser.verify.js` and both change
+  `docs/PAGE.md`, `README.md` and `docs/ACCURACY.md`. Whichever starts second starts from `main` with the other
+  merged, and its builder reads the merged files first.
+- **A live take.** Today a recorded live take has no `channel` (`app/render.js:753-771`). W3-02c-3b (not built
+  yet) gives a take made on the queue `codecInfo.channel` with the counts, and says its lane stays the sender's
+  frames on the file's own timing. Part e's test for a render on the queue is `channel.source`, so such a take
+  keeps today's lane, hover and legend whichever part is merged first. The builder of the later part adds the
+  check that holds it: a live take with a `channel` and no `source` draws no mark and reads `not sent`.
 
 ## Rulings wanted before the build
 
@@ -540,5 +555,8 @@ Each with the planner's recommendation.
    table is dated and the document already says the engine has no such operation. Only the page's words change.
 7. **No mark for jitter's bunches.** Recommended, for the reason in part e, point 9.
 8. **`reference.js`'s comment is corrected in part f**, so that part e touches no hashed file. Recommended.
+9. **Part f is built and merged before W3-02c-3a, and W3-02c-3a's item 4 loses the word `retime`.** Recommended.
+   After part f `steamGameTimeline` has no such refusal to hand on, and the two parts share four files. The
+   other way round costs part f a file outside its list (`engine/live-chain.js`).
 
 The private looks are in the planning report, under "For the orchestrator's private look".
