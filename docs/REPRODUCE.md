@@ -29,9 +29,10 @@ sections give that run's figures beside the record's older ones, which were made
 31). Seven of those recordings are in this repository, so that run can be repeated without the game: the section
 "Without the game" says how. `ceiling`,
 `clock` and `demo` were run on the owner's recordings of the PC's output and on one demo the same day (measured;
-their sections give the figures), and those files stay private. What CI runs is the suite `reproduce`, on
-stand-ins that this repository makes, and the suite `recordings`, which holds the seven files to their list; CI
-does not run the script on the seven files yet (not built yet: order RP-01f).
+their sections give the figures), and those files stay private. CI runs the suites `reproduce` and `recordings`.
+The suite `reproduce` runs the script on stand-ins that this repository makes, and on the seven files: each file's
+check must say "as expected" with the counts of the file's row in `tests/recordings/manifest.json`, and every
+sample its check does not compare must be zero. The suite `recordings` holds the seven files to their list.
 
 ## What you need
 
@@ -72,7 +73,9 @@ node tests/reproduce.mjs gain tests/recordings/files/set-o_vaudio-speex_maxgain-
 node tests/reproduce.mjs inputs --against tests/recordings/files/set-m-o_capture_vaudio-speex.wav
 ```
 
-Each should end "as expected", with the counts of the record's entry. Set H's and Set I's recordings at
+Each should end "as expected", with the counts of the record's entry. CI runs these checks in the suite
+`reproduce`, with `speex` and `gain` on Set M's `voice_maxgain 1` file as well, and expects each file's counts from
+its row in the manifest. Set H's and Set I's recordings at
 `voice_maxgain 10` are not among the files: their last packet holds a burst that is not the clip's and is not
 explained, so they stay private (measured; the same entry). `gain` therefore runs here on the `vaudio_speex`
 pair.

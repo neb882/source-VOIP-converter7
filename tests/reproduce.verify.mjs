@@ -91,6 +91,24 @@
 //     at the head of the place search; the search capped at 200 lines; the
 //     quiet lines alone, no chunk
 //     line, 49 chunk lines, a line with text after its count: "differs".
+// [13] The game's recordings that are published (order RP-01, part f): for
+//     every row of tests/recordings/manifest.json, the check its row names
+//     (its options; its files the row's own, the generated clip the row's
+//     input names, written here by tests/recordings/make-inputs.mjs into the
+//     temporary folder, or another row's), run on the file in
+//     tests/recordings/files/, prints "as expected" with the row's own lag,
+//     samples compared, samples equal and largest difference; gain runs on
+//     each voice_maxgain 1 file with the voice_maxgain 10 file of the same
+//     codec and a shared set (the Speex pair) and finds 0 samples differ
+//     before the last packet. Each row's codec is the one its check runs
+//     (celt vaudio_celt, celt --high vaudio_celt_high, speex vaudio_speex),
+//     and every voice_maxgain 1 file sharing a set with a voice_maxgain 10
+//     file is in a gain pair. Every sample of a published file outside what
+//     its check compared is zero (the order's section 16). On a copy of the
+//     folder the suite makes: each file removed, one sample of each file
+//     moved by three steps, one sample of each file's part apart made 3, and
+//     one sample of each gain pair's voice_maxgain 1 file moved: each fails.
+//     A manifest with no rows fails here. Nothing is fetched.
 // [6] Nothing leaves the PC: the text of the script, of every file under
 //     tests/reproduce/, of the clips' generator, of every file a run loaded
 //     and of the engine's files holds no network module, child process,
@@ -1110,6 +1128,168 @@ try {
     check('no file, three files, a missing file, an option gate does not take: cannot check, exit 2', refused.length === 0, refused.map(([w, x]) => `${w}: ${show(x)}`).join('; '));
     const missingClip = run('gate', base, path.join(folder, `${MARKERS[2]}-missing.wav`));
     check('a missing clip: cannot check, exit 2', missingClip.status === 2 && /file 2 cannot be read/.test(missingClip.out), show(missingClip));
+  }
+
+  console.log('\n[13] The game\'s recordings that are published (tests/recordings/files/)');
+  {
+    const manifest = JSON.parse(fs.readFileSync(path.join(here, 'recordings', 'manifest.json'), 'utf8'));
+    const rows = manifest.rows || [];
+    const published = path.join(here, 'recordings', 'files');
+    const n = (s) => Number(s.replace(/,/g, ''));
+    const fmt = (v) => v.toLocaleString('en-US');
+    // The clips the rows' inputs name, made here by the generator: nothing is
+    // fetched.
+    const clips = path.join(tmp, 'published-clips');
+    fs.mkdirSync(clips);
+    const clipBySha = {};
+    for (const rate of [22050, 11025]) {
+      const b = clipWav(rate), f = path.join(clips, `voice_input_${rate}.wav`);
+      fs.writeFileSync(f, b);
+      clipBySha[crypto.createHash('sha256').update(b).digest('hex')] = f;
+    }
+    // The samples of a WAV's data chunk, read here apart from the script.
+    const samplesOf = (file) => {
+      const b = fs.readFileSync(file);
+      for (let o = 12; o + 8 <= b.length;) {
+        const id = b.toString('latin1', o, o + 4), size = b.readUInt32LE(o + 4);
+        if (id === 'data') return Int16Array.from({ length: Math.floor(Math.min(size, b.length - o - 8) / 2) }, (_, i) => b.readInt16LE(o + 8 + 2 * i));
+        o += 8 + size + (size & 1);
+      }
+      return null;
+    };
+    // The command of a row's check, on the files in `dir`.
+    const argsOf = (row, dir) => [row.check.name, ...row.check.options, ...row.check.files.map((f) =>
+      (f === 'this' ? path.join(dir, row.name) : f === 'input' ? clipBySha[row.input.sha256] || path.join(clips, 'no-such-clip.wav') : path.join(dir, f)))];
+    // What a run printed, as the row's figures.
+    const figures = (name, out) => {
+      const g = (re) => { const m = re.exec(out); return m ? n(m[1]) : undefined; };
+      if (name === 'celt') {
+        return { lag: g(/lag: ([\d,]+) samples; compared: the first/), compared: g(/compared: the first ([\d,]+) samples/),
+          equal: g(/samples equal: ([\d,]+) of/), of: g(/samples equal: [\d,]+ of ([\d,]+)/), largest: g(/largest difference: ([\d,]+) step/) };
+      }
+      if (name === 'speex') {
+        return { lag: g(/lag: ([\d,]+) samples \(the codec's delay\)/), compared: g(/compared: ([\d,]+) samples, file 1's/),
+          equal: g(/samples equal: ([\d,]+) of/), of: g(/samples equal: [\d,]+ of ([\d,]+)/), largest: g(/largest difference: ([\d,]+)/) };
+      }
+      if (name === 'inputs') {
+        // The capture against the clip from its third sample: no lag, and no
+        // largest difference printed, which is 0 when every sample is equal.
+        const equal = g(/samples equal to the clip's: ([\d,]+) of/), of = g(/samples equal to the clip's: [\d,]+ of ([\d,]+)/);
+        return { lag: /from its third sample/.test(out) ? 0 : undefined, compared: of, equal, of, largest: equal !== undefined && equal === of ? 0 : undefined };
+      }
+      return null;
+    };
+    // A row's check on the files in `dir`: its problems, none when the run
+    // says "as expected" with the row's own figures.
+    const checkRow = (row, dir) => {
+      const problems = [];
+      const named = row.check.files.filter((f) => f !== 'input').map((f) => (f === 'this' ? row.name : f));
+      const missing = named.filter((f) => !fs.existsSync(path.join(dir, f)));
+      if (missing.length) problems.push(`no file ${missing.join(', ')}`);
+      if (row.check.files.includes('input') && !clipBySha[row.input.sha256]) problems.push('its input is not a clip the generator makes');
+      const r = run(...argsOf(row, dir));
+      if (!passes(r)) problems.push(show(r));
+      const fig = figures(row.check.name, r.out);
+      if (!fig) problems.push(`the suite does not read the check ${row.check.name}`);
+      else {
+        for (const k of ['lag', 'compared', 'equal', 'largest']) if (fig[k] !== row.check[k]) problems.push(`${k} ${fig[k]}, the row's ${row.check[k]}`);
+        if (fig.of !== fig.compared) problems.push(`the count is out of ${fig.of}, not of the ${fig.compared} compared`);
+      }
+      return { problems, fig };
+    };
+    // The samples of a file outside [lag, lag + compared): how many, and how
+    // many are not zero.
+    const apart = (file, lag, compared) => {
+      const s = samplesOf(file);
+      if (!s) return { count: 0, nonzero: 1, length: 0 };
+      let count = 0, nonzero = 0;
+      for (let i = 0; i < s.length; i++) if (i < lag || i >= lag + compared) { count++; if (s[i] !== 0) nonzero++; }
+      return { count, nonzero, length: s.length };
+    };
+    // gain on each voice_maxgain 1 file with the voice_maxgain 10 file of the
+    // same codec and a shared set; its last packet is counted apart.
+    const PACKET = { vaudio_speex: 160, vaudio_celt: 512, vaudio_celt_high: 1024 };
+    const voice = rows.filter((r) => r.kind === 'decoded voice');
+    const pairs = voice.filter((r) => r.made_with.voice_maxgain === 10).flatMap((ten) => voice
+      .filter((one) => one.made_with.voice_maxgain === 1 && one.made_with.codec === ten.made_with.codec && one.sets.some((s) => ten.sets.includes(s)))
+      .map((one) => [one, ten]));
+    const checkGain = (one, ten, dir) => {
+      const problems = [];
+      const r = run('gain', path.join(dir, one.name), path.join(dir, ten.name));
+      if (!passes(r)) problems.push(show(r));
+      const m = /samples that differ before the last packet: ([\d,]+) of ([\d,]+)/.exec(r.out);
+      const want = Math.min(one.format.samples, ten.format.samples) - PACKET[one.made_with.codec];
+      if (!m || n(m[1]) !== 0 || n(m[2]) !== want) problems.push(`differ before the last packet: ${m ? `${m[1]} of ${m[2]}` : 'not printed'}, expected 0 of ${fmt(want)}`);
+      return { problems, compared: m ? fmt(n(m[2])) : '?' };
+    };
+
+    check('the manifest lists published recordings, and every row names this suite in its used_by',
+      rows.length > 0 && rows.every((r) => Array.isArray(r.used_by) && r.used_by.includes('tests/reproduce.verify.mjs')), `${rows.length} rows`);
+    for (const row of rows) {
+      const { problems, fig } = checkRow(row, published);
+      const what = [row.check.name, ...row.check.options].join(' ');
+      // The codec the row names is the one its check runs: the pairs for
+      // gain are built from it.
+      const codec = row.check.name === 'celt' ? (row.check.options.includes('--high') ? 'vaudio_celt_high' : 'vaudio_celt') : row.check.name === 'speex' ? 'vaudio_speex' : null;
+      if (codec) check(`${row.name}: its row's codec, ${row.made_with.codec}, is the one ${what} runs`, row.made_with.codec === codec, `${what} runs ${codec}`);
+      check(`${row.name}: ${what} is as expected with its row's count${fig && fig.equal !== undefined ? `, ${fmt(fig.equal)} of ${fmt(fig.compared)} equal at lag ${fig.lag}, largest ${fig.largest}` : ''}`,
+        problems.length === 0, problems.join('; '));
+      const there = fs.existsSync(path.join(published, row.name));
+      const a = there ? apart(path.join(published, row.name), row.check.lag, row.check.compared) : { count: 0, nonzero: 0, length: 0 };
+      check(`${row.name}: the ${fmt(a.count)} samples its check does not compare are all zero`,
+        there && a.nonzero === 0 && a.length > 0 && row.check.lag + row.check.compared <= a.length, there ? `${a.nonzero} not zero` : 'no file');
+    }
+    check('gain has a pair to run on', pairs.length > 0, `${pairs.length} pairs`);
+    // Every voice_maxgain 1 file that shares a set with a voice_maxgain 10
+    // file, whatever codec its row names, is in a pair: a wrong codec in a
+    // row cannot drop one unseen.
+    const unpaired = voice.filter((one) => one.made_with.voice_maxgain === 1
+      && voice.some((ten) => ten.made_with.voice_maxgain === 10 && one.sets.some((s) => ten.sets.includes(s)))
+      && !pairs.some(([p]) => p === one));
+    check('every voice_maxgain 1 file that shares a set with a voice_maxgain 10 file is paired with it for gain (same codec)', unpaired.length === 0,
+      unpaired.map((r) => `${r.name} (${r.made_with.codec}) has no pair`).join('; ') || pairs.map(([o]) => o.name).join(', '));
+    for (const [one, ten] of pairs) {
+      const { problems, compared } = checkGain(one, ten, published);
+      check(`gain ${one.name} ${ten.name}: as expected, 0 of ${compared} differ before the last packet`, problems.length === 0, problems.join('; '));
+    }
+
+    // The breaks, on a copy of the folder this suite makes, for the rows
+    // whose files are there (a missing one has failed above).
+    const copy = path.join(tmp, 'published-copy');
+    fs.mkdirSync(copy);
+    for (const row of rows) if (fs.existsSync(path.join(published, row.name))) fs.copyFileSync(path.join(published, row.name), path.join(copy, row.name));
+    const present = (row) => fs.existsSync(path.join(copy, row.name));
+    const broken = rows.filter((row) => row.check.files.every((f) => f === 'input' || present(f === 'this' ? row : { name: f })));
+    const brokenPairs = pairs.filter(([one, ten]) => present(one) && present(ten));
+    const withSamples = (row, edit, body) => {
+      const file = path.join(copy, row.name), original = fs.readFileSync(file);
+      const s = samplesOf(file), bytes = Buffer.from(original), start = bytes.length - 2 * s.length;
+      edit(s).forEach((v, i) => bytes.writeInt16LE(v, start + 2 * i));
+      fs.writeFileSync(file, bytes);
+      try { return body(file); } finally { fs.writeFileSync(file, original); }
+    };
+    const removedMissed = [], movedMissed = [], apartMissed = [], gainMissed = [];
+    for (const row of broken) {
+      const file = path.join(copy, row.name), away = path.join(tmp, 'removed.wav');
+      fs.renameSync(file, away);
+      try {
+        const { problems } = checkRow(row, copy);
+        if (!problems.some((p) => /^no file /.test(p)) || !problems.some((p) => /cannot check/.test(p))) removedMissed.push(row.name);
+      } finally { fs.renameSync(away, file); }
+      const mid = row.check.lag + Math.floor(row.check.compared / 2);
+      withSamples(row, (s) => moved(s, mid), () => { if (checkRow(row, copy).problems.length === 0) movedMissed.push(row.name); });
+      const outside = row.check.lag > 0 ? 0 : row.check.lag + row.check.compared;
+      withSamples(row, (s) => { const t = Int16Array.from(s); t[outside] = 3; return t; }, (f) => {
+        if (apart(f, row.check.lag, row.check.compared).nonzero !== 1) apartMissed.push(row.name);
+      });
+    }
+    for (const [one, ten] of brokenPairs) {
+      withSamples(one, (s) => moved(s, Math.floor(s.length / 2)), () => { if (checkGain(one, ten, copy).problems.length === 0) gainMissed.push(one.name); });
+    }
+    check('with each file removed from a copy of the folder, its row fails ("no file", the check cannot check)', removedMissed.length === 0 && broken.length > 0, removedMissed.join(', '));
+    check('with one sample of each file moved by three steps, on a copy, its row fails', movedMissed.length === 0 && broken.length > 0, movedMissed.join(', '));
+    check('with one sample of each file\'s part its check does not compare made 3, on a copy, the zero test finds it', apartMissed.length === 0 && broken.length > 0, apartMissed.join(', '));
+    check('with one sample of each gain pair\'s voice_maxgain 1 file moved by three steps, on a copy, gain fails', gainMissed.length === 0 && brokenPairs.length > 0, gainMissed.join(', '));
   }
 
   console.log('\n[6] Nothing leaves the PC');
