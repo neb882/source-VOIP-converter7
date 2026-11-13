@@ -11,7 +11,7 @@ That depends on the codec. The tests settle it, and [tests/README.md](../tests/R
 
 | Codec | What the tests show |
 | --- | --- |
-| Steam voice (`steam`) | Yes. The live chain runs a render's own stages, fed as the microphone's blocks arrive. Given the same sound it gives the render's samples, one for one, where the voice enters the mix, at 24 and 48 kHz, also with packet loss, jitter, the gate off and push-to-talk (`tests/verify.js`, section 10b); and at the output at 48 and 44.1 kHz with the default settings (`tests/output-stage.verify.mjs`, section 14). |
+| Steam voice (`steam`) | Yes. The live chain runs a render's own stages, fed as the microphone's blocks arrive. Given the same sound it gives the render's samples, one for one, where the voice enters the mix, at 24 and 48 kHz, also with packet loss, jitter, the gate off and push-to-talk (`tests/steam.verify.js`, section 10b); and at the output at 48 and 44.1 kHz with the default settings (`tests/output-stage.verify.mjs`, section 14). |
 | `vaudio_speex` | Close, not proven equal. The live output follows a render's in waveform and in level: a correlation above 0.9 and levels within 0.5 dB. With loss it loses the frames the render loses (`tests/speex102.verify.mjs`). |
 | `vaudio_celt`, `vaudio_celt_high` | Not compared as a whole. The gate, the gain (with the codec bypassed) and the codec's restart at each talk spurt are each checked in the live chain. No test sets a whole live session beside a render. |
 | Fullband Opus (`steam_48`, not in TF2) | Close, not proven equal: a correlation above 0.9 and levels within 0.5 dB (`tests/verify.js`). |
@@ -19,13 +19,18 @@ That depends on the codec. The tests settle it, and [tests/README.md](../tests/R
 
 A live session in the browser starts in mid-stream, so it cannot be compared with a render sample for sample.
 The browser suite's check of a recorded session against a render is a smoke test only: within 2 samples and a
-correlation above 0.79 at 44.1 kHz for `steam`.
+correlation above 0.79 at 44.1 kHz for `steam`. That render is made on the file's own timing, as the monitor's is.
 
 Two things differ from the game on every codec:
-- There is no voice channel (the receiver's queue) in the live chain: not built yet. So no phrase starts early,
-  as some do in the game.
+- There is no voice channel (the receiver's queue) in the live chain. The monitor keeps the file's own timing,
+  whatever **Phrase timing** says, while the page's render on Steam voice runs the game's voice queue. So in the
+  monitor no phrase starts early, as some do in the game. Its own switch for the queue (W3-02c-3) is not built yet.
 - Push-to-talk is the app's stand-in for the key. Steam's own key rules are not built yet, and what TF2's
   open-microphone mode (`voice_vox`) does was not read.
+
+A recorded session is the monitor's sound, on the file's own timing. With Phrase timing on the game's voice queue
+the take is marked as made with other settings, and it does not render by itself; **Render** gives it on the
+game's queue.
 
 ## Latency
 

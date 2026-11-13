@@ -10,7 +10,7 @@
  * from it when saved. A render made with settings that have since changed is
  * marked, and "Render" redoes it.
  *
- * Depends on the app/ page scripts: els, state, LS, renderOptions, settingsKey, captureSource,
+ * Depends on the app/ page scripts: els, state, LS, renderOptions, captureSource,
  * startWorkerJob, canUseWorker, exportWav, cachedExport, currentFormat,
  * outputName, saveBlob, loadSourceFile, isVideoFile, isDemoFile, logLine, MAX_FILE_BYTES,
  * MAX_VIDEO_BYTES, MAX_AUDIO_SECONDS; and on TF2Audio, TF2Formats, TF2Zip.
@@ -71,7 +71,13 @@
     return cores >= 4 && memory >= 4 ? 2 : 1;
   }
 
-  // `key`: settingsKey() of the current controls.
+  // The key of the batch's renders: the controls' settings alone, as the
+  // batch renders with them (renderOptions). Not settingsKey(), which reads the
+  // page's source too (W3-02d-1: a video or a demo on the page keeps the
+  // file's own timing), and which would mark every row stale.
+  const batchKey = () => JSON.stringify(renderOptions());
+
+  // `key`: batchKey() of the current controls.
   function status(item, key) {
     if (item.working) return 'working';
     if (item.error) return 'error';
@@ -117,7 +123,7 @@
     ui.list.appendChild(row);
   }
 
-  function renderRow(item, key = settingsKey()) {
+  function renderRow(item, key = batchKey()) {
     const s = status(item, key);
     const { row, play, save, info, progress } = item.ui;
     row.dataset.state = s;
@@ -138,14 +144,14 @@
   }
 
   function renderAll() {
-    const key = settingsKey();
+    const key = batchKey();
     batch.items.forEach(item => renderRow(item, key));
   }
 
   /* ---------------- summary, buttons, title ---------------- */
 
   function refresh() {
-    const items = batch.items, key = settingsKey();
+    const items = batch.items, key = batchKey();
     const count = (s) => items.filter(i => status(i, key) === s).length;
     const done = count('done'), stale = count('stale'), failed = count('error');
     const pending = items.filter(i => needsRender(i, key)).length;
@@ -288,7 +294,7 @@
 
   async function run() {
     if (batch.running || batch.zipping || state.processing) return;
-    const opts = renderOptions(), key = JSON.stringify(opts);
+    const opts = renderOptions(), key = batchKey();
     const todo = batch.items.filter(i => needsRender(i, key));
     if (!todo.length) return;
     batch.running = true; batch.cancelled = false; setNote('');

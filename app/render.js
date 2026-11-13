@@ -296,7 +296,7 @@ function captureSource(source, channel) {
 // changing them does not render a demo again.
 const DEMO_IGNORES = ['captureChannel', 'micGain', 'hp', 'lp', 'bits', 'gate', 'gateThresholdDb', 'steamUptime', 'lossPct', 'jitterMs', 'frameMs'];
 function settingsKey(demo = null) {
-  const opts = renderOptions();
+  const opts = sourceRenderOptions(demo);
   if (demo) {
     opts.codec = demo.codecKey;
     for (const name of DEMO_IGNORES) delete opts[name];
@@ -304,8 +304,38 @@ function settingsKey(demo = null) {
   return JSON.stringify(opts);
 }
 
+// The options of a render on the file's own timing (W3-02d-1): the
+// timeline, and no frame rate or voice_buffer_ms, which the engine reads only
+// on the game's.
+const SOURCE_TIMING = { timeline: 'source', fps: undefined, bufferMs: undefined };
+
+// renderOptions() for the source on the page (W3-02d-1): renderOptions()
+// reads the controls only (the batch shares it), and here the sources that
+// keep the file's own timing whatever Phrase timing says do so. A demo's
+// voice (the engine refuses the game's timeline with opts.received; W3-02g,
+// not built yet, lifts that) and a source from a video file (the sound would
+// lead the picture). The key a render is kept by is made from these too
+// (settingsKey), so no key holds a frame rate under the file's own timing.
+function sourceRenderOptions(demo = state.sourceDemo) {
+  const opts = renderOptions();
+  if (opts.timeline === 'game' && (demo || state.sourceFromVideo)) Object.assign(opts, SOURCE_TIMING);
+  return opts;
+}
+
+// A number control's value, or `fallback` when it holds no number above 0
+// (a blank control).
+function controlNumber(el, fallback) {
+  const n = Number(el.value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 // The render settings of the current controls (everything but progress).
 function renderOptions() {
+  // W3-02d-1: the game's voice queue (Phrase timing) runs for Steam voice
+  // with its codec on; anything else keeps the file's own timing, with no
+  // frame rate or voice_buffer_ms sent, so a change of either changes no
+  // sample and no key (as gateThresholdDb and steamUptime below).
+  const game = els.codec.value === 'steam' && els.warble.value === '1' && els.timeline.value === 'game';
   return {
     codec: els.codec.value,
     // The listener's room and under water (W3-17d, app/rooms.js): the room
@@ -318,7 +348,6 @@ function renderOptions() {
     lp:          Number(els.lp.value),
     bits:        Number(els.bits.value),
     agc:         els.agc.value === '1',
-    retime:      !!els.retime && els.retime.value === '1',
     maxGain:     Number(els.maxGain.value),
     avgGain:     Number(els.avgGain.value),
     gate:        els.vad.value === 'auto' ? null : els.vad.value === '1',
@@ -339,7 +368,12 @@ function renderOptions() {
     lossPct:     Number(els.loss.value),
     frameMs:     Number(els.frameMs.value),
     enableWarble: els.warble.value === '1',
-    jitterMs:    Number(els.jitter.value)
+    jitterMs:    Number(els.jitter.value),
+    // The listener's frame rate (fps_max) and voice_buffer_ms, the module's
+    // defaults where a control is blank (voice-channel.js limits both).
+    timeline:    game ? 'game' : 'source',
+    fps:         game ? controlNumber(els.fps, TF2VoiceChannel.VOICE_CHANNEL.fps) : undefined,
+    bufferMs:    game ? controlNumber(els.bufferMs, TF2VoiceChannel.VOICE_CHANNEL.bufferMs) : undefined
   };
 }
 
@@ -412,8 +446,11 @@ function saveBlob(blob, name) {
 
 // "(earlier settings)" while the render on screen was made with other
 // settings than the controls hold (W4-01a).
+// A recorded live take held back (W3-02d-1) is marked too, but it was not
+// made with earlier settings: the label says it is the live take.
 function updateDownloadLabel() {
-  if (els.dl && !els.dl.dataset.busy) els.dl.textContent = `Download ${TF2Formats.FORMATS[currentFormat()].label}${state.stale ? ' (earlier settings)' : ''}`;
+  const marked = !state.stale ? '' : liveTakeHeld() ? ' (the live take)' : ' (earlier settings)';
+  if (els.dl && !els.dl.dataset.busy) els.dl.textContent = `Download ${TF2Formats.FORMATS[currentFormat()].label}${marked}`;
 }
 
 if (els.format) {
@@ -461,6 +498,17 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
     logLine(`S_Voice: ${codecInfo.lostFrames} frames lost and ${codecInfo.plc === 'zeros' ? 'played as zeros' : 'concealed'}, ${codecInfo.underrunFrames || 0} late frames played as silence`, 'sys');
   }
   logLine(`S_Voice: receiver auto-gain ${codecInfo.autoGain ? 'on' : 'off'} at ${codecInfo.voiceRate} Hz`, 'sys');
+  // W3-02d-1: a render on the game's timeline, from the receiver's voice
+  // channel (voice-channel.js): the frame rate, the wait (its ticks of 15 ms,
+  // the packet's own tick among them, so the wait is one tick less), the
+  // phrases that opened the channel and those that joined a running one, and
+  // the sound dropped to overflow.
+  if (codecInfo.channel) {
+    const ch = codecInfo.channel, tick = TF2VoiceChannel.VOICE_CHANNEL.tick, rate = TF2VoiceChannel.VOICE_CHANNEL.rate;
+    logLine(`S_Voice: the game's voice queue at fps_max ${ch.fps}, voice_buffer_ms ${ch.bufferMs}: a new phrase waits ${ch.waitTicks} ticks `
+      + `(${Math.round((ch.waitTicks - 1) * tick * 1000)} ms); ${ch.opens} phrase${ch.opens === 1 ? '' : 's'} opened the channel, `
+      + `${ch.appended} joined a running one; ${Math.round(1000 * ch.droppedSamples / rate)} ms dropped to overflow`, 'sys');
+  }
 
   // A render that replaces a render of the same source keeps the place:
   // the player's position (clamped to the new length), whether it plays,
@@ -480,8 +528,13 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
   state.lastExports = {};
   state.renderedSource = source;
   state.renderedKey = made.key !== undefined ? made.key : settingsKey(state.sourceDemo);
-  state.cancelledKey = null;
-  state.cancelledSource = null;
+  // A recorded live take is held back from a render by itself, as a render
+  // the user cancelled is (W3-02d-1): it was made on the file's own timing,
+  // and with Phrase timing on the game's queue the controls' key is another;
+  // only a change of the settings, or Render, renders it. The take is what
+  // the person just made.
+  state.cancelledKey = made.live ? currentRenderKey() : null;
+  state.cancelledSource = made.live ? source : null;
 
   els.audio.src = state.lastBlob;
   // Arm the muted twin of the original, so Hear is an instant unmute rather
@@ -506,6 +559,7 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
 
   state.renderId++;
   state.lastCodecInfo = codecInfo;
+  updateHearTimeline();
   updateAbButtons();
   updateVideoButton();
   // A re-render of the same source keeps the view, band and selection.
@@ -666,8 +720,18 @@ function mountLiveTake({ dry, wet, rate, frameLog, counts, info }) {
     // One code per codec frame of the recording, from its start.
     frameLog, frameSamples, sampleRate: codecRate, lookahead: 0, frameMs: 1000 * frameSamples / codecRate, framesPerPacket: 1 };
   logLine(`voice_record: live take of ${(dry.length / rate).toFixed(1)} s loaded (${counts.spurts} talk spurt${counts.spurts === 1 ? '' : 's'}).`, 'sys');
+  // The monitor keeps the file's own timing (live.js, liveOptions), and so
+  // the take's key is the page's on the file's own timing (W3-02d-1).
   presentRender({ samples: wet, sampleRate: rate, blob: TF2Audio.encodeWav(wet, rate), realOpus: !!info.realOpus, codecInfo }, 0, info.codec || 'steam',
-    { source: state.decodedSource, key: settingsKey(), live: true, codecName: codecNameFor(info.codec || 'steam', { skipped: !info.realOpus }) });
+    { source: state.decodedSource, key: JSON.stringify({ ...renderOptions(), ...SOURCE_TIMING }), live: true,
+      codecName: codecNameFor(info.codec || 'steam', { skipped: !info.realOpus }) });
+}
+
+// W3-02d-1: the line beside Hear, shown while the render on screen was made
+// on the game's timeline (its codecInfo has the channel's), whatever the
+// controls say now.
+function updateHearTimeline() {
+  if (els.hearTimeline) els.hearTimeline.hidden = !(state.lastCodecInfo && state.lastCodecInfo.channel);
 }
 
 if (els.cancel) els.cancel.addEventListener('click', () => {
@@ -780,6 +844,13 @@ document.addEventListener('tf2:settings', reconcileRender);
 // label and the views and the table, dimmed. They go when the controls
 // return to the rendered key.
 const STALE_TEXT = 'These settings are not rendered yet. What you see and hear was made with the earlier ones.';
+// A recorded live take on screen, held back from a render by itself
+// (presentRender), with no setting changed since.
+function liveTakeHeld() {
+  return !!(state.lastCodecInfo && state.lastCodecInfo.live && state.decodedSource
+    && state.cancelledSource === state.decodedSource && state.cancelledKey === currentRenderKey());
+}
+const LIVE_HELD_TEXT = 'on the file\'s own timing; Render gives it on the game\'s voice queue';
 function updateStale() {
   const coming = autoRenderTimer || renderAfter || (state.processing && state.renderingKey === (state.decodedSource ? currentRenderKey() : null));
   const stale = !!(state.lastWav && state.decodedSource && state.renderedSource === state.decodedSource
@@ -789,8 +860,11 @@ function updateStale() {
   for (const el of [els.vizContainer, els.vizLegend, els.meter]) if (el) el.classList.toggle('stale', stale);
   if (!state.processing) els.process.textContent = stale ? 'Render again' : 'Render';
   updateDownloadLabel();
-  if (stale) setRenderStatus(STALE_TEXT, 'stale');
-  else if (was && els.renderStatus && els.renderStatus.textContent === STALE_TEXT) setRenderStatus(state.lastRenderStatus || '');
+  // A recorded live take held back (presentRender), with no setting changed
+  // since: its own line says how it was made (W3-02d-1).
+  const heldTake = stale && liveTakeHeld();
+  if (stale) setRenderStatus(heldTake ? `${state.lastRenderStatus} · ${LIVE_HELD_TEXT}` : STALE_TEXT, 'stale');
+  else if (was && els.renderStatus && els.renderStatus.classList.contains('stale')) setRenderStatus(state.lastRenderStatus || '');
 }
 
 async function runRender({ button }) {
@@ -801,6 +875,9 @@ async function runRender({ button }) {
   const demo = state.sourceDemo;
   const key = currentRenderKey();
   state.renderingKey = key;
+  // The line under Phrase timing follows the source too (a demo's is set
+  // once its packets are in place, after the source was mounted).
+  updateTimelineNote();
   document.dispatchEvent(new Event('tf2:busy'));
   els.process.disabled = true;
   els.dl.disabled = true;
@@ -820,7 +897,8 @@ async function runRender({ button }) {
   try {
     const codecKey = demo ? demo.codecKey : els.codec.value;
     const opts = {
-      ...renderOptions(),
+      // A demo's voice and a video keep the file's own timing (W3-02d-1).
+      ...sourceRenderOptions(demo),
       ...(demo ? { codec: demo.codecKey, received: demo.received } : {}),
       onProgress:  (p) => {
         const percent = Math.min(100, Math.max(0, Math.round(p * 100)));

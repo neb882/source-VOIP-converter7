@@ -35,8 +35,12 @@
   let live = null;   // { ctx, stream, source, node, worker, timer, lastOpts, stats, talking, recording }
   let keyHeld = false, buttonHeld = false;
 
-  // The render settings plus the live-only low-latency switch.
-  const liveOptions = () => ({ ...renderOptions(), lowLatency: !!(ui.lowLatency && ui.lowLatency.checked) });
+  // The render settings plus the live-only low-latency switch. The monitor
+  // keeps the file's own timing whatever Phrase timing says (W3-02d-1; its
+  // own switch for the queue is W3-02c-3, not built yet), with no frame rate
+  // or voice_buffer_ms, so a change of either does not restart its chain.
+  const liveOptions = () => ({ ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined,
+    lowLatency: !!(ui.lowLatency && ui.lowLatency.checked) });
   const pttOn = () => !!(ui.ptt && ui.ptt.checked);
 
   // The live panel's texts follow the profile (W3-11b): `steam` runs the

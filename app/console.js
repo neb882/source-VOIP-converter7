@@ -85,6 +85,13 @@ function normalizeControlValue(el, raw) {
   return value;
 }
 
+// voice_buffer_ms is a whole number of milliseconds, within the control's
+// limits (voice-channel.js's own, 1 to 5000).
+function wholeBufferMs(v) {
+  const n = normalizeControlValue(els.bufferMs, v);
+  return n == null ? null : String(Math.round(Number(n)));
+}
+
 function showAdvanced(show) {
   document.body.classList.toggle('advanced', !!show);
   if (els.advancedToggle) {
@@ -329,7 +336,25 @@ const cvars = {
   'voice_micgain':   { help: 'Loudness into the game. Above 1 the sender clips, as an overdriven microphone does. The app\'s name, not a game variable', link: 'gain' },
   'voice_scale':     { help: 'The game\'s voice_scale. Not a plain volume: below 1 it lowers the voice by more than its number', link: 'voice_scale' },
   'voice_agc':       { help: 'The receiver\'s auto-gain as the game runs it (1). 0 is for comparison only: the voice at unity gain. The app\'s name', link: 'agc' },
-  'voice_retime':    { help: 'The game plays some phrases early after a short silence; which ones is random (1). 0: the file\'s own timing. The app\'s name', link: 'retime' },
+  // W3-02d-1: the game's voice queue and its two settings. The page's
+  // render runs the queue for Steam voice with the codec on; the live
+  // monitor always keeps the file's own timing.
+  'voice_timeline':  { help: 'The game queues each voice, so a phrase after a short pause can start early (game). It can come early by up to about the wait, and the sound runs 0.04% fast. At 300 frames a second a sound that opens the queue loses short pieces in its first seconds. source: the file\'s own timing keeps every sound where the source has it. The live monitor always keeps the file\'s own timing. The app\'s name, not a game variable', link: 'timeline' },
+  'fps_max':         { help: 'How many frames a second the listener\'s game draws. A new phrase waits before it plays, longer at a higher rate: about 0.09 s at 67 and 0.44 s at 300. The game\'s fps_max caps the rate; 300 is its default. From 10 to 1000', link: 'fps' },
+  'voice_buffer_ms': { help: 'The wait before a new phrase plays, in milliseconds. The game counts it down one frame at a time, so it lasts longer at a higher frame rate. The game\'s default is 100. A whole number from 1 to 5000', link: 'buffer_ms',
+    normalize: (v) => wholeBufferMs(v) },
+  // The old name of "Talk-spurt timing", a flat rule fitted to one set of
+  // takes, which the page no longer offers (W3-02d-1).
+  'voice_retime': {
+    help: 'An old name: the flat rule for early phrases is no longer offered, and voice_timeline took its place. 1 sets voice_timeline game, 0 sets voice_timeline source',
+    action: (v) => {
+      const value = v === undefined ? undefined : String(v).trim();
+      if (value === undefined) { logLine(`"voice_retime" = "${els.timeline.value === 'game' ? 1 : 0}"`, 'text'); }
+      else if (value !== '1' && value !== '0') { logLine(`voice_retime: invalid value "${v}"; it takes 1 or 0`, 'err'); return; }
+      else execCommand(`voice_timeline ${value === '1' ? 'game' : 'source'}`, false, 1);
+      logLine(' - voice_retime is an old name: the flat rule for early phrases is no longer offered; voice_timeline took its place', 'help');
+    }
+  },
   'voice_maxgain':   { help: 'The most the receiver\'s auto-gain may amplify. The game\'s default is 10', link: 'maxgain' },
   'voice_avggain':   { help: 'Where the auto-gain aims each block, from its mean (0) to its peak (1). The game\'s default is 0.5', link: 'avggain' },
   'voice_capture_channel': { help: 'Which channel the game\'s microphone gets: left / mix / right. Left is what one stereo cable gave it; a mono file is not affected. A setting of the sender\'s PC', link: 'capture_channel' },
@@ -543,6 +568,30 @@ function gateThresholdHelp(codecKey) {
     + `Chunks · ${1000 * S.preroll / S.rate} ms kept · ${S.hold} s hold. A typed level reaches the real-take check as a 20 ms RMS level, about 1 dB from this gate`;
 }
 
+// W3-02d-1: why a render keeps the file's own timing while Phrase timing
+// asks for the game's voice queue, or null when it does not. The codec
+// skipped gives the channel no packet; a demo's voice is not run through the
+// queue yet (W3-02g, not built yet); a video keeps its sound with its
+// picture. Another codec than Steam voice hides the control, so it needs no
+// reason.
+function sourceTimingReason() {
+  if (els.codec.value !== 'steam' || els.timeline.value !== 'game') return null;
+  if (els.warble.value !== '1') return 'the codec is skipped';
+  if (state.sourceDemo) return 'a demo\'s voice';
+  if (state.sourceFromVideo) return 'a video keeps its picture\'s timing';
+  return null;
+}
+// The line under Phrase timing that gives the reason, named in the
+// control's aria-describedby only while shown (as the codec's note is).
+function updateTimelineNote() {
+  if (!els.timelineNote) return;
+  const reason = sourceTimingReason();
+  els.timelineNote.textContent = reason ? `This render keeps the file's own timing: ${reason}.` : '';
+  els.timelineNote.hidden = !reason;
+  const ids = (els.timeline.getAttribute('aria-describedby') || '').split(/\s+/).filter((id) => id && id !== 'timeline-note');
+  els.timeline.setAttribute('aria-describedby', [...ids, ...(reason ? ['timeline-note'] : [])].join(' '));
+}
+
 // The profile whose default the threshold control was last given: when the
 // codec changes and the control holds that profile's default, it takes the
 // new profile's.
@@ -550,8 +599,10 @@ let gateProfile = els.codec.value;
 
 // Live, human-readable summary of the voice path the next render will use.
 function updateSignalChain() {
-  // The sender's Steam age is a setting of the `steam` profile's sender only.
-  if (els.steamUptime) els.steamUptime.closest('.control').hidden = els.codec.value !== 'steam';
+  // The sender's Steam age is a setting of the `steam` profile's sender only;
+  // so are the game's voice queue and its two settings (W3-02d-1).
+  for (const el of [els.steamUptime, els.fps, els.bufferMs, els.timeline]) if (el) el.closest('.control').hidden = els.codec.value !== 'steam';
+  updateTimelineNote();
   if (els.codec.value !== gateProfile) {
     if (Number(els.vadThreshold.value) === gateDefaultDb(gateProfile)) els.vadThreshold.value = String(gateDefaultDb(els.codec.value));
     gateProfile = els.codec.value;
@@ -613,7 +664,9 @@ function updateSignalChain() {
     // words, not the code's "int16").
     ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · 16-bit clip` : 'unity gain · 16-bit clip'}`
       + `${voiceScale !== 1 ? ` · voice_scale ${voiceScale}` : ''}${agcOn && avgGain !== VOICE_ENGINE.autoGain.avgGain ? ` · gain target ${avgGain}` : ''}`
-      + `${els.retime && els.retime.value === '1' ? ' · spurts re-timed' : ''}`, ''],
+      // W3-02d-1: on Steam voice, the game's voice queue at the frame rate
+      // the controls give, or the file's own timing.
+      + `${els.codec.value !== 'steam' ? '' : renderOptions().timeline === 'game' ? ` · queue at ${num(els.fps, 300)} fps` : ' · the file\'s own timing'}`, ''],
     ['Mixer', `44.1 kHz · ${room}`, ''],
     // The mixer's 44.1 kHz output, at the listener's device's rate (W3-10).
     ['Output', `volume ${Math.round(volume * 100)}% · ${+(deviceRate / 1000).toFixed(1)} kHz device`, '']
@@ -672,7 +725,10 @@ function runPreset(name) {
   execCommand('snd_bits 16');
   execCommand('snd_codec 1');
   execCommand('voice_agc 1');
-  execCommand('voice_retime 0');
+  // One timeline for every `steam` render, the presets with loss included;
+  // the listener's frame rate is the listener's PC's and stays (W3-02d-1).
+  execCommand('voice_timeline game');
+  execCommand('voice_buffer_ms 100');
   execCommand(`voice_maxgain ${VOICE_ENGINE.autoGain.maxGain}`);
   execCommand(`voice_avggain ${VOICE_ENGINE.autoGain.avgGain}`);
   execCommand('voice_vad auto');
@@ -779,7 +835,11 @@ const CONFIG_FIELDS = [
   configControl('cdec', els.cDec),
   configControl('cmix', els.cMix),
   configControl('jit', els.jitter),
-  configControl('retime', els.retime)
+  // W3-02d-1: Phrase timing and the queue's two settings, in the place of
+  // `retime` (migrateTimelineConfig reads an old `retime`).
+  configControl('tl', els.timeline),
+  configControl('fps', els.fps),
+  configControl('buf', els.bufferMs, null, wholeBufferMs)
 ];
 
 function collectConfig() {
@@ -912,10 +972,24 @@ function resetSettings() {
 }
 if (els.presetReset) els.presetReset.addEventListener('click', resetSettings);
 
+// Settings saved before W3-02d-1 (remembered, a share link, a user's preset)
+// hold `retime`, "Talk-spurt timing", which gave way to Phrase timing (`tl`).
+// A `retime` of 1 asked for early phrases: it becomes the game's voice queue
+// where no `tl` is given. A `retime` of 0 was the old default and is dropped,
+// so a returning visitor gets the new default.
+function migrateTimelineConfig(cfg) {
+  if (!cfg || cfg.retime == null) return cfg;
+  const { retime, ...rest } = cfg;
+  if (String(retime).trim() === '1' && rest.tl == null) rest.tl = 'game';
+  return rest;
+}
+
 function applyConfig(cfg) {
   if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return 0;
   // A position from before W3-17d lands on the new controls.
   cfg = migrateRoomConfig(cfg);
+  // So does "Talk-spurt timing" from before W3-02d-1.
+  cfg = migrateTimelineConfig(cfg);
   let applied = 0;
   CONFIG_FIELDS.forEach(([key, get, set, normalize]) => {
     if (cfg[key] == null) return;

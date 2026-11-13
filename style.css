@@ -235,6 +235,8 @@ select { cursor: pointer; text-overflow: ellipsis; white-space: nowrap; overflow
 .ab-match-wrap { display: flex; align-items: center; gap: 8px; flex: 1 1 260px; min-width: 0; }
 .ab-match-wrap .ab-button { flex: 0 0 auto; padding: 9px 14px; font-size: 13px; }
 .ab-match-help { font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+/* A render on the game's voice queue: Rendered and Original do not stay in step (W3-02d-1) */
+.hear-timeline { flex: 1 1 100%; margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
 .action-row .ab-button { flex: 0 0 auto; min-width: 130px; padding: 12px 16px; font-size: 14px; }
 /* The render's status, under the player (W4-01a) */
 .render-status { margin: 8px 0 0; min-height: 1.4em; font-size: 12.5px; line-height: 1.45; color: #9ae66e; }

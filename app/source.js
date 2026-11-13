@@ -11,8 +11,10 @@
 // stereo sources also keep their left channel so the render can capture it
 // like a stereo cable. The new source renders by itself (W4-01a), unless
 // `render` is false: a recorded live session arrives with its render, and a
-// demo renders once its packets are in place (loadDemoFile).
-function mountSource(mono, sampleRate, name, left = null, { render = true } = {}) {
+// demo renders once its packets are in place (loadDemoFile). `video`: the
+// clip came from a video file, so its renders keep the file's own timing
+// (W3-02d-1); set here, before the first render starts.
+function mountSource(mono, sampleRate, name, left = null, { render = true, video = false } = {}) {
   const duration = mono.length / sampleRate;
   if (!Number.isFinite(duration) || duration <= 0) throw new Error('the clip has no decodable audio');
   if (duration > MAX_AUDIO_SECONDS) throw new Error('the clip exceeds the 10 minute limit');
@@ -20,6 +22,7 @@ function mountSource(mono, sampleRate, name, left = null, { render = true } = {}
   if (state.processing && state.cancelProcessing) state.cancelProcessing();
   state.sourceName = name;
   state.sourceVideo = null;
+  state.sourceFromVideo = !!video;
   state.sourceDemo = null;
   if (els.demoSpeaker) els.demoSpeaker.hidden = true;
   updateVideoButton();
@@ -46,6 +49,7 @@ function mountSource(mono, sampleRate, name, left = null, { render = true } = {}
   setAbMutes();
   updateAbButtons();
   state.lastCodecInfo = null;
+  updateHearTimeline();
   setRenderStatus('');
   resetVizView();
   refreshVisualizer();
@@ -80,7 +84,8 @@ async function decodeAtFileRate(data, name, again = null) {
 let sourceLoadId = 0;
 // Resolves true once the clip is the source (false if a newer one took over
 // or it failed). again() gives the bytes anew if a second decode is needed.
-async function loadSourceFromArrayBuffer(ab, name, again = null) {
+// `video`: the bytes are a video file's (mountSource).
+async function loadSourceFromArrayBuffer(ab, name, again = null, { video = false } = {}) {
   const id = ++sourceLoadId;
   els.process.disabled = true;
   try {
@@ -89,7 +94,7 @@ async function loadSourceFromArrayBuffer(ab, name, again = null) {
     if (id !== sourceLoadId) return false; // A newer selection superseded this decode.
     if (decoded.duration > MAX_AUDIO_SECONDS) throw new Error('the clip exceeds the 10 minute limit');
     mountSource(TF2Audio.bufferToMono(decoded), decoded.sampleRate, name,
-      decoded.numberOfChannels > 1 ? decoded.getChannelData(0).slice() : null);
+      decoded.numberOfChannels > 1 ? decoded.getChannelData(0).slice() : null, { video });
     return true;
   } catch (e) {
     if (id !== sourceLoadId) return false;
@@ -413,7 +418,11 @@ async function loadSourceFile(f) {
     // Decoding takes the buffer over, so a remuxable video keeps a copy.
     const info = video && window.TF2Video ? TF2Video.inspect(new Uint8Array(bytes)) : null;
     const keep = info && info.video ? bytes.slice(0) : null;
-    if (!(await loadSourceFromArrayBuffer(bytes, f.name, () => f.arrayBuffer()))) return;
+    // A video keeps the file's own timing (W3-02d-1); an MP4 or MOV that
+    // inspect() read whole and found no video track in is audio, and does not.
+    // A WebM, or a file it could not read, cannot be told apart and keeps it.
+    const audioOnly = !!(info && !info.note && !info.video);
+    if (!(await loadSourceFromArrayBuffer(bytes, f.name, () => f.arrayBuffer(), { video: video && !audioOnly }))) return;
     if (keep) {
       state.sourceVideo = { bytes: keep, name: f.name, info };
       logLine(`FS_MountFile: video (${info.container.toUpperCase()}, ${info.codec}) kept; Download video puts the render back into it.`, 'sys');
