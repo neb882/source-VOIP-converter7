@@ -30,9 +30,9 @@ The page has four steps.
 | Under water | Steam voice with the microphone twice too loud and the listener under water |
 | Laggy | Steam voice with 18% of voice messages lost and 50 ms of jitter |
 
-The codec menu has two groups, "Team Fortress 2" and "Not in Team Fortress 2". A preset leaves three settings of the two PCs alone: how long the sender's Steam has run, the channel taken from a stereo file, and the rate of the listener's sound device. Settings are remembered in this browser, and the console's `writeconfig` copies a link that carries them.
+The codec menu has two groups, "Team Fortress 2" and "Not in Team Fortress 2". A preset leaves four settings of the two PCs alone: how long the sender's Steam has run, the channel taken from a stereo file, the rate of the listener's sound device, and the listener's frame rate. Settings are remembered in this browser, and the console's `writeconfig` copies a link that carries them.
 
-**3. Render & listen.** A source renders by itself. After a changed setting, a source of a minute or less renders again by itself; a longer one is marked as made with the earlier settings until you press **Render**. A render after a changed setting runs again only the stages from that setting on: a change on the receiver's side (its gain, talk-spurt timing, volume, the room, the sound device) skips the sender and the codec, and a change to the sender's gate or bit rate or to the network skips the capture. A clip longer than 30 s can be played from its first 14 s while the rest renders, except with loss, jitter, talk-spurt timing, a room or under water, a sound device at a rate other than 44.1 or 48 kHz, a demo, or a change on the receiver's side alone. **Cancel** stops a render and keeps what was already done for the next one. **Hear** switches between the render, the original and, when one is loaded, a real take of the game. The status line says how long the render took and how many seconds were too quiet to be sent. Downloads are WAV, FLAC or MP3, and an MP4 or MOV video comes back with the render as its sound.
+**3. Render & listen.** A source renders by itself. After a changed setting, a source of a minute or less renders again by itself; a longer one is marked as made with the earlier settings until you press **Render**. On Steam voice a render plays the voice through the game's voice queue, at the listener's frame rate (300 frames a second, the game's default cap) with `voice_buffer_ms` 100, so a phrase after a short pause can start early, as in the game. **Phrase timing** set to "The file's own timing" keeps every sound where the source has it; a demo's voice, a video and the live monitor always keep it. A render after a changed setting runs again only the stages from that setting on: a change on the receiver's side (its gain, Phrase timing, the frame rate, the voice buffer, volume, the room, the sound device) skips the sender and the codec, and a change to the sender's gate or bit rate or to the network skips the capture. A clip longer than 30 s can be played from its first 14 s while the rest renders, except with loss, jitter, a room or under water, a sound device at a rate other than 44.1 or 48 kHz, a demo, or a change on the receiver's side alone. **Cancel** stops a render and keeps what was already done for the next one. **Hear** switches between the render, the original and, when one is loaded, a real take of the game. The status line says how long the render took and how many seconds were too quiet to be sent. Downloads are WAV, FLAC or MP3, and an MP4 or MOV video comes back with the render as its sound.
 
 **4. Batch.** Render many files with the same settings, then save them one by one or as one ZIP.
 
@@ -83,11 +83,15 @@ The same document says what rests on one PC and what others had published before
 
 ## Accuracy
 
-**What is not exact.** The stages that equal the game sample for sample do not speak for these four.
+**What is not exact.** The stages that equal the game sample for sample do not speak for these. Phrase timing comes first: the page's render runs the game's voice queue on Steam voice.
 
-- **When a phrase starts.** A render keeps the source's own timing; the game starts some phrases early. On the owner's speech take the model of the game's queue gets 47% of the 9 changes between phrases right, as a mean over many draws of the sender's clock, with a start error of 122 ms (a private check). Part of this cannot be closed, because where the sender's clock stood while the talker spoke is not in a recording.
-- **The receiver's queue.** Replayed over the game's logged packets, with the mixer's demand taken from the log, the module gives the logged queue on every tick (measured, Set G). A render runs it when `opts.timeline` is `'game'`; the page does not offer that yet (W3-02d, not built yet).
-- **Jitter.** The jitter setting is a fit to one recording. The game's own behaviour, whole messages delayed and bunched, is not built yet.
+- **Which phrases start early.** A render shows one draw of the sender's clock. At 300 frames a second a render has the take's kind of change between phrases in 327 of 360 (seeds times changes) at pauses of 240 ms, in 114 of 300 around 420 to 440 ms, and in 155 of 270 on the speech take (measured, private runs; finding 28). At 66.67 frames a second it does no better than no timing model (measured, private). Part of this cannot be closed, because where the sender's clock stood while the talker spoke is not in a recording.
+- **The frame rate is one number.** A real game's rate moves, and one long frame ends the wait at once (read). What that does to a render is guessed.
+- **The start and the end.** A render can lose its first moments: up to 56 ms at 66.67 and 100 frames a second, and 11 ms at 300 in about one seed in a hundred. At the lower rates it can lose up to 47 ms of its end (measured on the model).
+- **Long unbroken sound at a low frame rate.** At 66.67 frames a second the level first dips after 0.4 to 3.2 minutes (median 2.2) and is first more than 3 dB down after 2.4 to 4.8 minutes; at 100, 144 and 200 the first dip comes at 2.5 to 4.9, 5.1 to 8.0 and 8.7 to 9.9 minutes (9 of 20 seeds). At 300 ten minutes play with no dip and no gap in 26 seeds (measured on the model; the rules are read; no take shows it).
+- **Loss on the game's timeline.** At 15% loss the render at 300 frames a second is silent 16.4% of the time against 10.1% in the one take (measured, private). The check against the game's log (BC-3) is not built yet.
+- **Jitter.** The jitter setting is a fit to one recording. The game's own behaviour, whole messages delayed and bunched (BC-4), is not built yet.
+- **The codec lane and the real-take panel** were made for the file's own timing; their order for the game's (W3-02e) is not built yet.
 - **The one codec in the menu that comes from older Source engines** and was never in TF2. Its codec stage was checked against one recording of a 2006 engine; the profile as the app runs it was not.
 
 **The finish line.** The tool is finished when every stage of the modern preset is either equal to a take sample for sample or has its remaining difference measured and explained. The research beside it (the older codecs beyond TF2's, bad connections in depth) has no finish line and is a second track.
@@ -95,9 +99,9 @@ The same document says what rests on one PC and what others had published before
 **Where the modern preset stands.**
 
 - **Equal to the game's own recordings:** Steam's sender rule (every verdict and message of the checked runs), the codec with the decoder and its resampler (all but 2 of 524,288 samples), and the receiver's gain (every sample, checked under `vaudio_celt`).
-- **Read from the game's files, not yet seen in a recording, and not in the page's render:** the fade at the end of the queue (in a render with `opts.timeline` `'game'`, which the page does not offer yet) and the voice's level with two speakers in place of headphones.
-- **Fitted to recordings, with no rule read:** the capture's roll-off above 11 kHz, the times of Steam's reads, the jitter, and the optional "Talk-spurt timing".
-- **Not built yet:** the voice channel in the page's render and the live monitor (a render runs it when `opts.timeline` is `'game'`), jitter as the game does it, and Steam's own push-to-talk rules.
+- **Read from the game's files, not yet seen in a recording:** the fade at the end of the queue (in the page's render on the game's voice queue) and the voice's level with two speakers in place of headphones.
+- **Fitted to recordings, with no rule read:** the capture's roll-off above 11 kHz, the times of Steam's reads, and the jitter.
+- **Not built yet:** the voice channel in the live monitor (W3-02c-3, not built yet), jitter as the game does it, and Steam's own push-to-talk rules.
 
 **The figures.** Against the owner's 18 takes, on 2026-11-12, the overall level of the plain takes is within about 0.1 to 0.2 dB of the render's, and their levels rise and fall alike (a correlation of 0.98 to 1.00). Three plain takes are weaker: the default take (0.951) and the two takes of low tones (0.797 and 0.584, with the overall level 0.7 and 2.2 dB low). The second PC's take, rendered at settings inferred from its recording, reads 0.959 and is 0.5 dB off in overall level, the one other plain take outside 0.2 dB. Takes with packet loss can be compared only as statistics.
 
@@ -161,7 +165,7 @@ The suites hold each stage to the rule as read and to numbers taken from the rec
 | `engine/render-stream.js` | `createRender`: the same render a piece at a time |
 | `engine/live-chain.js` | `createLiveChain`: the live monitor's chain |
 | `steam-sender.js` | Steam's sender: chunks, the level rule, the hold |
-| `voice-channel.js` | the game's voice channel as read; a render runs it when `opts.timeline` is `'game'`; the page does not offer it (W3-02d, not built yet) |
+| `voice-channel.js` | the game's voice channel as read; a render runs it when `opts.timeline` is `'game'`, as the page's render does on Steam voice by default |
 | `opus-codec.mjs` | packets and decoders for every codec profile |
 | `room-dsp.js`, `room-presets.js` | the game's room arithmetic and its presets as numbers |
 | `constants.js` | presets, codec profiles and the listener's places |

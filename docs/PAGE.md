@@ -28,7 +28,8 @@ may be HE-AAC. A WebM or Matroska file, whose rate the page does not read, is de
 is any file the browser cannot decode at its own rate; the console says so.
 
 **Video.** A video's audio track becomes the source. An MP4 or MOV is kept, so that **Download video** can put the
-render back into it (see "Downloads"). A WebM or Matroska video gives its audio only.
+render back into it (see "Downloads"). A WebM or Matroska video gives its audio only. A source from any video file
+renders on the file's own timing, whatever **Phrase timing** says, so the sound stays with the picture.
 
 **TF2 demos.** A SourceTV demo (`.dem`) holds each speaker's voice packets as the server received them, so no
 second encoding happens.
@@ -38,7 +39,8 @@ second encoding happens.
   room and the output. The sender, gate, codec and network settings are not used.
 - That decode is not yet the one a `steam` render uses: a demo's Steam packets are decoded to floats and resampled
   by the app's own resampler, not by Steam's 16-bit decoder and FFmpeg's resampler. Using a render's decoder for a
-  demo is not built yet (order W3-02g). There is no voice channel either.
+  demo is not built yet (order W3-02g). There is no voice channel either: a demo's voice renders on the file's own
+  timing, whatever **Phrase timing** says.
 - The codec lane shows the demo's own frames, DTX and lost packets included.
 - Steam voice, `vaudio_celt` and `vaudio_celt_high` are read. A demo made with `record` keeps the voice messages
   but not their audio, so record with SourceTV ([tests/demovoice/README.md](../tests/demovoice/README.md)).
@@ -60,12 +62,23 @@ the voice gate did not send. For a demo it gives the seconds with no voice packe
 it says "Recorded live". A render is in the player as soon as it is made; the meter's numbers for it follow a moment
 later.
 
+**The game's voice queue.** On Steam voice with the codec on, a render plays the voice through the game's voice
+queue by default (**Phrase timing**, at the listener's frame rate and `voice_buffer_ms`; see "Settings"). The
+console then gives the frame rate, the wait in ticks and milliseconds, how many phrases opened the channel and how
+many joined a running one, and the milliseconds dropped to overflow. While the render on screen was made on the
+queue, a line beside **Hear** says that Rendered and Original do not stay in step: a phrase can start early, by up
+to about the wait, and at 300 frames a second the render gains about 0.4 ms every second. The line follows the
+render on screen, not the controls. A recorded live session is the monitor's sound, on the file's own timing: with
+Phrase timing on the game's queue it is marked as made with other settings, its line says so, and it does not
+render by itself, whatever its length; a changed setting or **Render** renders it. What is not exact on the queue
+is listed in the README's "Accuracy" and in [ACCURACY.md](ACCURACY.md).
+
 **What a render runs again.** The page renders in one worker, which it keeps for its renders, its downloads, the
 meter and the real take's jobs. It sends the worker the source once. Each render leaves two of its stages there for
 the next render of the same source: the capture signal at the codec's rate, and the codec's result (for Steam voice
 the sender's messages and their decoded packets; for the other codecs the decoded sound). A render after a changed
 setting starts from the last of them that the setting does not change:
-- `voice_scale`, `voice_avggain`, `voice_maxgain`, the gain switch, talk-spurt timing, `volume`, the room, under water
+- `voice_scale`, `voice_avggain`, `voice_maxgain`, the gain switch, Phrase timing, `fps_max`, `voice_buffer_ms`, `volume`, the room, under water
   and the sound device: from the codec's result, in about a third of a first render's time (measured on the build
   machine);
 - the voice gate and its threshold, how long the sender's Steam has run, `snd_bits`, loss, jitter and the packet
@@ -84,8 +97,8 @@ first 14 s while the rest renders; the line under the player says "The first 14 
 downloads, the views and the meter wait for the whole render, which then takes the player's place where playback
 had got to, playing or not. A render that stops before (cancelled, failed or replaced by a newer one) gives the player
 back what it held. The first seconds are made only where a test shows they are the whole render's, sample for
-sample: with no loss and no jitter, talk-spurt timing off, no room and not under water, a sound device at 44.1 or
-48 kHz, and not for a demo. They are not made when the render starts from the codec's result.
+sample: with no loss and no jitter, no room and not under water, a sound device at 44.1 or 48 kHz, and not for a
+demo. They are not made when the render starts from the codec's result.
 
 ## Downloads
 
@@ -116,7 +129,7 @@ Step 4 renders many files with the current settings and saves them one by one or
 step 3.
 - Add files with the batch's own picker, by choosing several files in step 1, or by dropping files or whole folders
   anywhere on the page. A single file dropped outside the batch loads as the source. A video in the batch gives its
-  voice as audio.
+  voice as audio, and renders with Phrase timing as the page has it.
 - Two files render at a time where the machine has four or more cores and enough memory; otherwise one. The batch
   renders and makes its files in workers of its own and keeps nothing between files, so it does not wait for the
   page's render, nor the page's render for it.
@@ -132,6 +145,22 @@ above the groups; the advanced groups open with a switch. Every control has one 
 does to the sound and, where that is not plain, whose default it is. The console's `help <command>` says the same.
 A label shows a variable's name only where the game has that variable; the app's own names are console commands.
 Most controls have a console name; how long the sender's Steam has run and the live monitor's low latency do not.
+
+**The game's voice queue.** Three controls set it, for Steam voice only (another codec hides them):
+- **Listener's frame rate** (`fps_max`, 10 to 1000, 300 by default) is how many frames a second the listener's game
+  draws, which the game's `fps_max` caps. The page takes one figure for the whole render. A new phrase waits longer
+  at a higher rate. It is a property of the listener's PC, so a preset leaves it alone.
+- **Voice buffer ms** (`voice_buffer_ms`, a whole number from 1 to 5000, the game's 100 by default) is the wait
+  before a new phrase plays, counted down one frame at a time. A preset sets it to 100.
+- **Phrase timing** (`voice_timeline`, the app's name) is "The game's voice queue" by default, or "The file's own
+  timing", which keeps every sound where the source has it. A preset sets the queue. With the codec skipped, a
+  demo's voice or a video, a line under the control says why the render keeps the file's own timing. The live
+  monitor always keeps it. The page no longer offers "Talk-spurt timing", a flat rule fitted to one set of takes;
+  `voice_retime` 1 and 0 now set `voice_timeline` `game` and `source`, and a share link or saved settings with
+  `retime=1` get the game's queue.
+
+Each control's sentence gives the figures behind it (the waits are read; what a low frame rate does to long
+unbroken sound is the game's rule as read, run on the model, and no recording shows it).
 
 The **Voice codec** menu has two groups. "Team Fortress 2": Steam voice, `vaudio_celt`, `vaudio_celt_high`,
 `vaudio_speex`. "Not in Team Fortress 2": Fullband Opus (`steam_48`, not in TF2) and `vaudio_miles` (not in TF2;
@@ -174,6 +203,8 @@ Shift+Tab always moves it back. A screen reader hears what a typed command answe
 | Command | What it does |
 | --- | --- |
 | `exec preset_<name>` | applies a quick preset; `exec preset_sewers` runs **Under water** |
+| `fps_max`, `voice_buffer_ms`, `voice_timeline` | the game's voice queue: the listener's frame rate, the wait, and Phrase timing (`game` or `source`; the app's name) |
+| `voice_retime` | an old name: 1 sets `voice_timeline game`, 0 sets `voice_timeline source`, and it says that the flat rule is no longer offered |
 | `writeconfig` | copies a share link of the current settings |
 | `preset_save`, `preset_load`, `preset_list`, `preset_delete` | presets of your own, kept in this browser |
 | `+voicerecord`, `-voicerecord` | start and stop a microphone recording, as **Record** does |
