@@ -1,0 +1,18 @@
+{
+  "about": "The game's recordings that are published, one row a file in tests/recordings/files/ (order RP-01, section 7). A file goes in only by the orchestrator, after the check its row names has shown it to be what this repository's code makes of a clip that tests/recordings/make-inputs.mjs makes, and after its header was read with tests/recordings/inspect.mjs: exactly a 44-byte header and its samples, the game's file byte for byte. Only Sets H, I, M and O can have rows. The suite recordings (tests/recordings.verify.mjs) holds every row to this frame and to the folder. No recording is published yet.",
+  "fields": {
+    "name": "set-<letter>_<what>_<settings>.wav, lower case, with no date: the file's name in tests/recordings/files/",
+    "sets": "one or two of H, I, M and O; two where two sets' files are one file byte for byte",
+    "kind": "decoded voice (the game's voice_decompressed.wav) or capture (its voice_micdata.wav)",
+    "input": "{ script, sha256 }: the script of this repository that makes the clip the game was fed, and that clip's SHA-256",
+    "made_with": "{ game, bits, codec, voice_maxgain, other }: the game, 64 or 32, the codec, voice_maxgain, and any other setting that was changed (an object, empty if none)",
+    "format": "{ rate, channels, bits, samples }",
+    "bytes": "the file's length: 44 plus two a sample",
+    "sha256": "the file's SHA-256, 64 lowercase hex digits",
+    "pcm_sha256": "the SHA-256 of the bytes of its data chunk",
+    "check": "{ name, options, files, lag, compared, equal, largest, apart }: the check of tests/reproduce.mjs that showed the file is the repository's output (celt, gain, speex or inputs), its options, its files ('this', 'input', or another row's name), the lag in samples, the samples it compared and found equal, the largest difference in 16-bit steps, and what it left out",
+    "findings": "the record's findings the file bears on, by number",
+    "used_by": "the files of this repository that read it"
+  },
+  "rows": []
+}
