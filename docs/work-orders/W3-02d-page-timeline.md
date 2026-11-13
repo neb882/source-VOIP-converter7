@@ -372,3 +372,13 @@ Ruling 8 goes with [W3-02d-2](W3-02d2-auto-rerender.md). Rulings 9 and 10 are
 Two points of this text are the second plan pass's own and no ruling covers them yet: a live take is held back
 from an automatic render (part 2), and the break for the `voice_timeline source` check is "the page still sends
 `'game'`", because the engine reads no `fps` under `'source'` and a sample check cannot see one sent.
+
+### Ruled after the second plan pass (2026-11-13, the orchestrator)
+
+11. A recorded live take is held back from an automatic render, as a cancelled render is (part 2). The take is
+    what the person just made; replacing it 400 ms after it is shown would lose it without their asking. Its
+    status line says how it was made and that Render gives it on the game's queue.
+12. The break for the `voice_timeline source` check is "the page still sends `'game'`". A sent `fps` under
+    `'source'` is caught by the key check, which is where it does harm.
+
+Both are in the text above and bind the builder as the other rulings do.

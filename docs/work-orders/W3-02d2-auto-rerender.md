@@ -209,3 +209,13 @@ The orchestrator's ruling of 2026-11-13 that applies to this order:
 
 Written in after the plan review, and not ruled on yet: rules A and C; what rule D compares; the timing's two
 measurements in place of the processor throttle; the one field `audio-worker.js` adds.
+
+### Ruled after the second plan pass (2026-11-13, the orchestrator)
+
+13. Rules A and C stand as written. A missed way of losing the kept stage is a stop-and-ask, not a reason to
+    widen the rule by guess.
+14. Rule D compares the time of the render on screen, whichever stage it started from. It errs toward marking
+    after a whole render and corrects itself after one press of Render.
+15. The timing is the two measurements of "The timing". The browser's processor throttle is not used for the
+    page's own render, since it does not slow the worker (measured, the table under "Why").
+16. `audio-worker.js` may add the one field to its `result` reply. Nothing else in that file changes.

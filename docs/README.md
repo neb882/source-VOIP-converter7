@@ -59,9 +59,10 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | W3-02c-1 | the module as read (the first pull, D on blocks, the zero, the interpolator) | built and merged (no render runs it yet) | `a2b7dc9`, #30 (no cache change) | W3-02c1-channel-as-read.md | W3-02c-2 builds on it |
 | W3-02c-2 | the render behind `opts.timeline`; BC-3's build | built and merged `73993cf`, cache v39, #38 (a render runs the channel when asked with `timeline: 'game'`; the page does not offer it) | [W3-02c2-render-channel.md](work-orders/W3-02c2-render-channel.md) | `docs/reports/W3-02c2-render-channel.md` | W3-02c-3 and W3-02d build on it; the orchestrator's private runs against the takes are in the report (2026-11-13) |
 | W3-02c-3 | the live monitor can run the game's voice queue | planned 2026-11-13 ([the order](work-orders/W3-02c3-live-channel.md), [the plan's report](reports/W3-02cd-plan.md)); not started | | | after BC-4 (ruled 2026-11-13) |
-| W3-02d | the page renders on the game's timeline: three controls, the default, the words, the re-render of longer sources | planned 2026-11-13 ([the order](work-orders/W3-02d-page-timeline.md)); a plan reviewer is reading it | | | after W3-02c-2 |
-| W3-02e | the codec lane's marks, the real-take check | not started | | | after W3-02d |
-| W3-02f | the flat rule retired | not started | | | after W3-02d |
+| W3-02d-1 | the page renders on the game's timeline: three controls, the default, the words | planned 2026-11-13, read by a plan reviewer and written again ([the order](work-orders/W3-02d-page-timeline.md)); a builder is on it | | | after W3-02c-2 |
+| W3-02d-2 | a longer source re-renders by itself after a change that needs no new encode | planned 2026-11-13 ([the order](work-orders/W3-02d2-auto-rerender.md)); not started | | | after W3-02d-1 |
+| W3-02e | the codec lane's marks, the real-take check | not started | | | after W3-02d-1 |
+| W3-02f | the flat rule retired | not started | | | after W3-02d-1 |
 | W3-02g | a demo's own packets | not started; needs a planner's pass | | | after W3-02c-2 and W3-02f |
 | W3-03 | the engine's binary read (investigation) | done | `4630e06` | W3-03-engine-binary.md | |
 | W3-04 | a file decoded at its own rate | built and merged | `f32ba0e`, v19, #7 | W3-04-native-rate-decode.md | |

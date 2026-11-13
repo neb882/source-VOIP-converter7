@@ -6,6 +6,9 @@ and after BC-4 if BC-4 is built (the case each way is under "When to build it").
 repository as it stands at `9d5113a` (cache v41). It takes the place of section 9 of W3-02c's amendment in
 [the old order](W3-02-receiver-queue.md), which no longer needs to be read.
 
+**Note of 2026-11-13.** W3-02d was split in two after its plan review. Where this order says W3-02d it means
+[W3-02d-1](W3-02d-page-timeline.md), which adds the controls this order reads.
+
 **Kind:** a change to how the live chain computes its sound when a new setting is on, and a change to
 `voice-channel.js`, which every render on the game's timeline runs. No render may move.
 **Roles:** `tf-builder` (effort high), then `tf-reviewer` and a second reader on the stronger model
