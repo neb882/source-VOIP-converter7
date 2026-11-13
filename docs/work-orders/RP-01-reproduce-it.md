@@ -4,7 +4,7 @@
 [RP-01c](../reports/RP-01c-ceiling-clock-demo.md), [RP-01d](../reports/RP-01d-files-and-manifest.md); every built
 check was also run privately by the orchestrator on the game's files, and section 18 says what that run changed in
 part c). Of part e, the files table is filled and merged; the step that publishes the recordings is prepared and
-waits for the owner's word (section 17), and part f waits with it. Part b waits for a planner's pass (section 15). Sections 14 (the
+waits for the owner's word (section 17), and part f waits with it. Part b was planned again as [RP-01b](RP-01b-gate-hold-queue.md) and is merged: `gate` and `queue` are built, `hold` has steps and no script. Sections 14 (the
 orchestrator's rulings) and 15 (after the plan review) hold where an earlier section differs; sections 7, 8 and 9
 were edited in place to agree with them.
 

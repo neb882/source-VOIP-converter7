@@ -1,6 +1,6 @@
 # RP-01b: the checks `gate` and `queue` of the reproduce-it script, and what happens to `hold`
 
-**Status 2026-11-13: built; run by the orchestrator on the private logs (every real log as expected); reviewed (merge after fixes: the last section); the builder is on the fix round.** It supersedes part b of
+**Status 2026-11-13: built, reviewed, fixed, run by the orchestrator on the private logs before and after the fix round (every real log as expected) and merged (the cache number stays v42).** What follows is the order as it was built from. It supersedes part b of
 [RP-01](RP-01-reproduce-it.md) (its sections 3 to 5, 9 and 15). Written by a planner's pass on `main` at
 `695a584` ([the planning report](../reports/RP-01b-plan.md)). The planner read the repository only: it opened no
 recording, no log and no file of the owner's install.
