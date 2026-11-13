@@ -2,12 +2,14 @@
 
 Some of the findings in [FINDINGS.md](FINDINGS.md) can be checked with your own copy of the game and one script
 from this repository. This page gives the steps and what to expect. Every figure on it is the record's
-([tests/REFERENCE_2026.md](../tests/REFERENCE_2026.md)), with its standing and its finding's number.
+([tests/REFERENCE_2026.md](../tests/REFERENCE_2026.md)), with its standing and its finding's number; the two that
+are not (a tolerance and a map) say so.
 
 **Start with `celt`, `gain` and `speex`.** They need the game and nothing else, depend on no clock and no frame
 rate, and should give the same result on any PC. They check the engine's older codecs and the receiver's gain.
-They say nothing about Steam voice, the codec TF2 runs unless `sv_voicecodec` is changed (read; FINDINGS.md, entry
-10): the checks of Steam's side (`hold`, `gate`, `queue`) are not built yet.
+They say nothing about Steam voice, the codec TF2 runs unless `sv_voicecodec` is changed (read;
+[FINDINGS.md, entry 10](FINDINGS.md#10-the-older-engine-codecs)): the checks of Steam's side (`hold`, `gate`,
+`queue`) are not built yet.
 
 Each check's section says "not yet run on a recording of the game" until the script itself has been run on one.
 The figures it expects come from the owner's runs of the same comparison, made with other code (findings 26 and
