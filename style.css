@@ -391,6 +391,7 @@ canvas { width: 100%; height: 100%; display: block; }
 .viz-legend .lg-item { display: inline-flex; align-items: center; gap: 5px; cursor: help; }
 .lg-box { display: inline-block; width: 10px; height: 10px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
 .lg-line { display: inline-block; width: 16px; height: 0; }
+.lg-mark { display: inline-block; width: 2px; height: 12px; }
 
 /* The selection the meter is showing */
 .meter-sel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 6px; font-size: 12px; color: #c9d6e2; font-variant-numeric: tabular-nums; }
