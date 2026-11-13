@@ -614,3 +614,90 @@ show it.
 
 **The rulings wanted before the build.** All nine as the planner recommends. On item 7: W3-02d-2's order says
 "BC-4 moves `jitterMs`"; that sentence is corrected when W3-02d-2 is merged, not left for BC-4a's report.
+
+## After the plan review (2026-11-13)
+
+The plan reviewer read the order as its builder would and ran the model twice on prototypes of its own (look by
+look, and by jumping to the first look that can draw; the two agreed on 4,000 ticks in each of 480 settings).
+Its figures below are measured on those prototypes. Each point binds the builder and holds over the text above.
+
+1. **`tests/verify.js` may be touched, for one check.** `tests/verify.js:550-552` renders `codec: 'steam'` on
+   `'source'` with `jitterMs: 100` and expects a difference from jitter 0; after BC-4a there is none (tried on a
+   stand-in of the two engine changes). The check moves to `celt_22`, and a second states that on Steam voice
+   with the file's own timing a render at any jitter equals the render at jitter 0, sample for sample.
+2. **`tests/stages.verify.mjs`, section 2.** Its `startsFrom` predicts from the lists where a render starts. With
+   `used.jitterMs` 0 on Steam voice, a changed `jitterMs` alone on a coded Steam render starts from stage B while
+   the lists say A. `startsFrom` learns that case; it is not a re-recorded row. If `arriveAt` joins
+   `READ_OPTIONS`, it joins that section's `HOOKS` too.
+3. **Step 3 of the model, in words.** The second list holds one packet for every server tick: the server's packet
+   of tick q enters the second list at `15 × q` ms, whether or not a client packet left the first list for it, and
+   a client packet that leaves the first list rides the first server tick at or after its leaving. Two client
+   packets that leave the first list for the same server tick ride the same server packet (one entry in the
+   second list, both messages in it). This is the reading the planner's prototype used; the other reading (each
+   client packet entering the second list by itself) gives 73.6 and 99.7 ms in place of 69.6 and 96. **A pin that
+   does not share the builder's reading:** over seeds 1 to 20, 4,000 ticks each, at jitter 50, the mean delay
+   above the floor is 69.5 ± 3 ms at 300 fps and 95.6 ± 3 ms at 66.67, and the share of voice messages that
+   arrive on the tick of the one before is 5.2 ± 1.5% at 300 fps (measured on two prototypes). It fails the
+   other reading of step 3 and the reading "the next head is looked at only at the next look" (115 and 194 ms,
+   and no two messages on one tick, so no bunch and no skip).
+4. **Check 10.** The loss draw is seeded by the render's seed (`tests/steam.verify.js:651` holds that another seed
+   loses other messages). The check becomes: the same seed at jitter 0 and at 50 loses the same messages; another
+   seed gives other arrival ticks. The break "arrivals drawn from the loss stream" is caught by check 3.
+5. **The lists start before tick 0**, at tick -200 with a packet a tick, so the first ticks of a render are not
+   early (with empty lists the first 20 ticks come 2 ms early at jitter 50, 23 ms at 200 and 131 ms at 500, at 300
+   fps).
+6. **Look times as a function, not a period.** `fakeLagList` takes the time of look k as a function
+   (`k => 15 * k` for the server, `k => k * 1000 / fps` for the listener), not a `periodMs` multiplied out:
+   `k × (1000 / fps)` and `k × 1000 / fps` give other arrival ticks at 120 and 240 fps within the first 230 ticks
+   and at 59.94 fps near tick 10,000.
+7. **Check 5's bunch as a formula.** `arriveAt = (t) => (t >= T && t < T + 40) ? T + 40 : t`, with T the first
+   tick of a message at least 1 s into a phrase: ticks T to T+39 arrive together on T+40, later messages on their
+   own tick. Five seeds: a hold of 40 ticks gives two channel opens and 213 to 289 ms dropped; a hold of 4 gives
+   one open and nothing dropped. A channel's drops carry output times, not ticks: the check reads the drop where
+   the bunch's sound is written, not "at the bunch's tick".
+8. **What `codecInfo.arrivals` counts.** `messages` counts the messages pushed into the channel (lost messages are
+   not). Under `arriveAt`, `jitterMs` and `fps` are the render's, `floorTicks` is 0 and the delays are
+   `arriveAt(t) - t`.
+9. **Other suites that change.** `tests/render-stream.verify.mjs:835-836` (late frames for "steam, jitter 500
+   ms") and `tests/render-channel.verify.mjs:265-268` (`rest(g)` against `rest(s)`, which differ once `arrivals`
+   exists) are restated, each with its reason in the report. `withMask` wraps `steamRoundTrip`, which only
+   `process()` calls, so the stream's and the live chain's late-frame code on Steam voice stays untested after
+   BC-4a; the report says so.
+10. **Words.** `docs/VOICE-PATH.md:16` and `:54` ("marks some frames late" on Steam's path) are BC-4a's.
+    `net_fakejitter`'s help says the look rates are chosen and the same-look rule inferred, not "as the game's".
+    The new console line gives the arrival figures only; the channel opens and dropped milliseconds stay on the
+    queue's line (`app/render.js:508`). In the record the places are `tests/REFERENCE_2026.md:750`, `:758`, `:762`,
+    `:1444` and `:1580` (there is no "Not built" line naming BC-4). `steam.verify.js:1022` uses a hand-made mask
+    and is left as it is; `withMask` is defined at `:70`.
+11. **BC-4b.** `sourceTimingReason()` (`app/console.js:577`) returns null when the timeline setting itself is
+    'source'; the line under the control needs its own test of that case.
+
+**Check (ii), restated.**
+
+- **Frame rates.** Each case is rendered at 300 fps and also at the photographs' rates: jitter and combined at 336
+  fps, the baseline at 295 (read off the photographs).
+- **Bursts** (from 60 ms after each burst's start), jitter render less baseline render, the mean of seeds 1 to 10:
+  sound skipped +3 to +15 ms a second; skips of 10 ms or more +0.1 to +0.7 a second (the prototype gives +6.3 ms
+  and +0.24 a second at 300 fps; the bounds are guessed). At 336 against 295 the prototype's extra skips of 10 ms
+  or more in the bursts are +0.45 a second; the take has about +0.44 (8 against 4 in 8.6 s, measured).
+- **Noise:** the downward steps' sum less the baseline render's, 0 to 2.5 ms a second in the mean of the seeds
+  (the prototype gives +1.0 over 20 seeds with a spread of 1.6 a seed). Compared with the take by counts, with a
+  Poisson bound, not by a factor of the take's 6.6 ms a second.
+- **The events row** uses check (i)'s counts (2 events beyond the baseline's in the noise, 9 against 4 in the
+  bursts), not 1.36, which came from a script that did not survive.
+- **"One frame long" and the clock** are reported only, with no tolerance: the 81% is that script's, and the
+  accuracy suite's clock is one slope with skips taken as segment steps (`reference.js:821`, `tests/accuracy.mjs`
+  `timing()`).
+
+**Correction to the private look above.** "Three to five times the model's" is not shown in the noise: it rests
+on two skips, and at the model's rate two or more in 10.7 s has a probability of 0.08 to 0.17 (the reviewer's
+arithmetic). In the bursts at the photographs' frame rates the model's extra skips match the take's. Finding 9
+says so, in those words, and the order's prototype table loses the 1.36 and the 81% as targets.
+
+**On the 59 packets a second** (the reviewer, measured on its prototype): voice messages come three to five
+ticks apart, so a skipped tick only moves a message one tick later. With one tick in eight skipped on each
+crossing the mean delay does not move (189.7 against 189.6 ms) and the same-tick share rises from 4.9 to 6.4% at
+300 fps. The model keeps one packet a tick and says the reading is the one open point; a send schedule per
+crossing is for block 2's log.
+
+**Size.** 10 hours and 1,000 to 1,300 lines stands; these edits add about 80.
