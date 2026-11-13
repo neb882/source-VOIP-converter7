@@ -38,6 +38,7 @@ export const SUITES = [
   ['vendor', 'units', ['tests/vendor-opus.mjs', '--check']],
   ['gain', 'units', ['tests/gain.verify.mjs']],
   ['gain-exact', 'units', ['tests/gain-exact.mjs', '--synthetic']],
+  ['reproduce', 'units', ['tests/reproduce.verify.mjs']],
   ['opus', 'units', ['tests/opus.verify.mjs']],
   ['speex102', 'units', ['tests/speex102.verify.mjs']],
   ['vr12', 'units', ['tests/vr12.verify.mjs']],

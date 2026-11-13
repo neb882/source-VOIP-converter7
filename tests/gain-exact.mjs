@@ -11,6 +11,11 @@
 //     the last 512, and exits non-zero unless the first count is 0. It prints
 //     nothing of the recordings but those counts.
 //
+//   node tests/gain-exact.mjs --files <gain 1 file> <gain 10 file>
+//     The same check on two files given by path (exactCheck). The comparison
+//     itself is tests/reproduce/gain-compare.mjs's compareGain, which
+//     tests/reproduce/gain.mjs loads without this file's child process.
+//
 //   node tests/gain-exact.mjs --synthetic
 //     The same check on two files it makes in a temporary folder: a seeded
 //     signal, and the engine's rule (the transcription below) applied to it,
@@ -26,9 +31,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { loadEngine as loadShared, sourceRoot } from './lib/engine.cjs';
+import { compareGain } from './reproduce/gain-compare.mjs';
 
-const root = sourceRoot();
+export { compareGain };
 
 // The engine's rule as docs/work-orders/W3-05-receiver-gain.md writes it
 // (from docs/reports/W3-03-engine-binary.md, section 2; the script that
@@ -70,10 +75,6 @@ export function engineGain(xs, settings, notDecoded = null) {
     }
   }
   return { out, fixedAt };
-}
-
-function loadEngine() {
-  return loadShared({ root }).audio;
 }
 
 // A 16-bit mono PCM WAV: its rate and samples (Int16Array).
@@ -120,19 +121,12 @@ function find(folder, name) {
 
 const PACKET = 512;
 
-function exactCheck(folder) {
-  const gain1 = readWav(find(folder, 'celt_gain1.wav')), gain10 = readWav(find(folder, 'celt_gain10.wav'));
+// Set H's check on two files given by path: gain1 at voice_maxgain 1, gain10
+// at 10, both 22050 Hz and of one length.
+export function exactCheck(gain1File, gain10File) {
+  const gain1 = readWav(gain1File), gain10 = readWav(gain10File);
   if (gain1.rate !== 22050 || gain10.rate !== 22050) throw new Error('the files are not at 22050 Hz');
-  if (gain1.samples.length !== gain10.samples.length) throw new Error(`the files differ in length (${gain1.samples.length} and ${gain10.samples.length} samples)`);
-  const n = gain1.samples.length, body = n - PACKET;
-  const A = loadEngine();
-  const x = Float32Array.from(gain1.samples, v => v / 32768);
-  const y = A.receiverAutoGain(x, { maxGain: 10, avgGain: 0.5, scale: 1 });
-  let before = 0, last = 0;
-  for (let i = 0; i < n; i++) {
-    if (Math.round(y[i] * 32768) === gain10.samples[i]) continue;
-    if (i < body) before++; else last++;
-  }
+  const { before, last, body } = compareGain(gain1.samples, gain10.samples);
   console.log(`samples that differ before the last ${PACKET}: ${before} of ${body}`);
   console.log(`samples that differ in the last ${PACKET}: ${last} of ${PACKET}`);
   return before === 0;
@@ -179,11 +173,14 @@ function synthetic() {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const args = process.argv.slice(2), at = args.indexOf('--takes');
+  const args = process.argv.slice(2), at = args.indexOf('--takes'), files = args.indexOf('--files');
   try {
     if (args.includes('--synthetic')) process.exitCode = synthetic() ? 0 : 1;
-    else if (at >= 0 && args[at + 1]) process.exitCode = exactCheck(path.resolve(args[at + 1])) ? 0 : 1;
-    else { console.error('usage: node tests/gain-exact.mjs --takes <takes folder> | --synthetic'); process.exitCode = 2; }
+    else if (at >= 0 && args[at + 1]) {
+      const folder = path.resolve(args[at + 1]);
+      process.exitCode = exactCheck(find(folder, 'celt_gain1.wav'), find(folder, 'celt_gain10.wav')) ? 0 : 1;
+    } else if (files >= 0 && args[files + 2]) process.exitCode = exactCheck(path.resolve(args[files + 1]), path.resolve(args[files + 2])) ? 0 : 1;
+    else { console.error('usage: node tests/gain-exact.mjs --takes <takes folder> | --files <gain 1 file> <gain 10 file> | --synthetic'); process.exitCode = 2; }
   } catch (error) {
     console.error(`gain-exact: ${error.message}`);
     process.exitCode = 1;

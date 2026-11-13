@@ -1,8 +1,10 @@
 # RP-01: a page a stranger can check findings from, the files behind the read findings, and which recordings are published
 
-**Status 2026-11-13: ruled on and reviewed, not started.** Sections 14 (the orchestrator's rulings) and 15 (after
-the plan review) hold where an earlier section differs; sections 7, 8 and 9 were edited in place to agree with
-them. Part a is next, then d, e and f; part c after a; part b waits for a planner's pass (section 15).
+**Status 2026-11-13: part a is merged** (report: [RP-01a](../reports/RP-01a-reproduce-script.md); the script's
+`gain`, `celt` and `speex` also passed the orchestrator's private run on the game's files). Part d is next, then
+e and f; part c after them or beside d; part b waits for a planner's pass (section 15). Sections 14 (the
+orchestrator's rulings) and 15 (after the plan review) hold where an earlier section differs; sections 7, 8 and 9
+were edited in place to agree with them.
 
 *Written 2026-11-13 by a planner's pass on `main` at `d27727c` (cache v39). The planner read the repository only:
 it opened no recording and no file of the owner's install. What it knows of the private files is an inventory of

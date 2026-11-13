@@ -1,6 +1,6 @@
 # W3-21: the phase of Steam's capture steps against the sound
 
-**Status 2026-11-13: not started.** Written by the orchestrator from the investigation of 2026-11-13
+**Status 2026-11-13: being built** (the builder stopped once with two questions; the rulings are at the end). Written by the orchestrator from the investigation of 2026-11-13
 ([the report](../reports/W3-02c2-render-channel.md), "The investigation that followed").
 
 **Kind:** a change to how a `steam` render is computed. **Roles:** `tf-builder` (effort high), then `tf-reviewer`
@@ -118,3 +118,34 @@ The `lead: 0` proof (run it); a render whose sound is shifted by the lead; a spu
 a source shorter than the lead; `lead` 749 and 0 at the edges; the live chain against the render at three seeds;
 any recorded value moved that the order does not name; the words in `tests/REFERENCE_2026.md` (standings, no
 figure from a private file beyond those this order gives).
+
+## Rulings of 2026-11-13, after the builder's first stop
+
+The builder's draft changed `steam-sender.js` only (the render, the stream render and the live chain already place
+positions before the source), and with the lead forced to 0 every recorded value came back (83 of 83 cases of
+`render-stream`, 109 of 109 checks of `steam-sender`, 141 of 141 of `voice-channel`; measured by the builder).
+It stopped on two things this order had wrong.
+
+1. **The gate off.** The lead applies whatever the gate is: Steam's capture phase does not depend on it. The
+   seeded `steam` rows with the gate off may move, under the same proof. In the check that holds the live chain
+   equal to the render, the spurt's start becomes the pre-roll and the lead before the source; that the samples
+   are equal must pass unchanged. "Recorded values" above is corrected by this: the stop stands for another
+   profile, for `steam` with a caller's clock and no `opts.lead`, for `CLOCK_HASH` and `REF_READS`, and for the
+   samples' equality between the live chain and the render.
+2. **`tests/voice-channel.verify.mjs` may be touched,** for values that move because of the lead only, each listed
+   old and new: its pins at seed 4, its seeded statistics, and its zero check. The zero check is measured first
+   with four times the spurts, at lead 0 and with the lead, each mean with its standard error. Within 3 standard
+   errors of zero: the arrival figure stays 50.5 ms and the check's bound becomes the larger of 0.1 ms and 3
+   standard errors. Off zero by more than that and by less than 0.5 ms: `ARRIVAL_SECONDS` in `voice-channel.js`
+   (that constant and its comment only) and `ARRIVAL_MS` take the re-measured figure to 0.1 ms, and every further
+   value that moves is listed. Off by 0.5 ms or more: stop.
+3. **The zero check, after the builder's second stop.** Measured by the builder with four times the spurts: the
+   pooled mean of the timeline's zero is +2.68 ms on seeds 1 to 200 with the lead forced to 0, which is `main` as
+   it stands, and +0.96 ms on seeds 201 to 400; on the suite's own seeds 1 to 50 it is 0.02 ms. So the arrival
+   figure of 50.5 ms was fitted on 50 seeds and is 1 to 3.6 ms off on others, and the spurts of one seed are not
+   independent. This order did not make that and does not mend it: the figure stays, the suite's check keeps its
+   50 seeds, and its bound becomes 3 standard errors of that run, with the larger run's figures in its text. The
+   lead's own effect on that mean, paired on the same seeds, is -0.3 to -0.75 ms on four blocks of seeds
+   (measured; not explained). Rule 2 stands; the 0.5 ms line under "Recorded values" was a guessed line and is
+   struck. Measuring the arrival figure again, with a standard error taken by seed, is a later order (PROGRESS).
+
