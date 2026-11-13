@@ -139,11 +139,75 @@ none, apart from the required trailer lines.
 - **Another codec where nothing runs.** The order gives the second text for every other codec. With the codec
   skipped, or for a demo's voice on `vaudio_celt` (`celt_22`), no codec stage runs and jitter does nothing at all,
   yet the line says it is a fit there and the strip says "(a fit)". Loss is not marked in those cases either. Left
-  as the order wrote it; a question for the orchestrator if it matters.
+  as the order wrote it; a question for the orchestrator if it matters. *Fixed in the fix round, point 1.*
 - **The Receiver cell** of the strip still reads "queue at 300 fps" for a demo's voice or a video, because it reads
-  `renderOptions()`, not the source (W3-02d-1's, not touched; the Network cell follows the source).
+  `renderOptions()`, not the source (W3-02d-1's, not touched; the Network cell follows the source). *Fixed in the fix round, point 2.*
 - **The live panel's "net" figure's title** still says frames "late (silence), by the network settings" on Steam
   voice, where jitter now draws no late frame. It is a tooltip, not the monitor's status text, which is all the
-  order allows in `live.js`.
+  order allows in `live.js`. *Fixed in the fix round, point 3.*
 - The checks of [Browser 8e] that need a render use short sources (4 s and 2 s of speech, the synthetic demo, the
   short video fixture).
+
+## The fix round (2026-11-13)
+
+From the order's section "BC-4b: after the review (2026-11-13, the orchestrator)", after a merge of `main` at
+`3ca4f8e` (documents only).
+
+1. **Where no codec runs, jitter does nothing on every codec.** `noCodecRuns()` (`app/console.js`) gives
+   'skipped' with the codec skipped and 'demo' for a demo's voice. On a codec other than Steam voice the line then
+   says "Jitter does nothing here: the codec is skipped." or "Jitter does nothing here: a demo's voice is played as
+   the game received it."; Steam voice keeps its text. Where no codec runs and loss or jitter is above 0, the
+   Network cell reads "N ms packets · loss and jitter off (the codec is skipped)" or "(a demo's voice as received)",
+   on every codec, and is not hot. `docs/PAGE.md`: the third jitter bullet says the fit holds with the codec on and
+   not on a demo's voice, and a fourth says what happens where no codec runs; the Network cell's sentence gains the
+   new reading.
+2. **The Receiver cell** is `receiverStep()`, beside `networkStep()`: on Steam voice it names the queue only where
+   `renderOptions().timeline === 'game'` and `sourceTimingReason()` gives no reason, and "the file's own timing"
+   otherwise. `updateJitterNote()` rewrites both cells, so the Receiver cell follows a demo's state when it lands.
+   `docs/PAGE.md` says so.
+3. **The live "net" title** on Steam voice (`live.js` `updateTexts`, and the first title in `index.html`): "Frames
+   concealed: lost frames (net_fakeloss) the decoder filled in when the next one arrived. On Steam voice no frame
+   is late". The other codecs keep theirs.
+4. **The hot mark**: the `voice_timeline source` check holds that the Network cell is not hot; the game's-queue
+   check that it is hot at jitter 50; the `celt_22` check that "50 ms jitter (a fit)" is hot.
+
+**New checks.** In [Browser 8e], with no source: `celt_22` with the codec skipped, jitter 50 and loss 10 (the
+skipped text, the cell "loss and jitter off (the codec is skipped)", not hot); `celt_22` with the page's demo state
+set by hand, no source decoded (the demo text, not hot); Steam voice with the codec skipped, jitter 50 and loss 10
+(the cell, not hot). The Steam demo check now reads "loss and jitter off (a demo's voice as received)", not hot,
+and a Receiver cell of "the file's own timing"; the video check reads "jitter off (no queue)", not hot, and the
+same Receiver cell; the audio file after them reads "queue at 300 fps". In [Browser 3f]: the "net" title on Steam
+voice and in `index.html` is the new text, and on `celt_22` it is the frame text. No `celt_22` demo fixture
+exists, so the demo text on another codec is checked through the page's demo state, not a loaded demo.
+
+**The fix round's breaks.** Each made in the worktree's file, the named section run alone, the file restored.
+
+| Break | The check that failed |
+| --- | --- |
+| the codec skipped not counted where no codec runs | `celt_22` with the codec skipped, jitter 50 and loss 10 |
+| the fit text kept on another codec where no codec runs | the same |
+| a demo's voice not counted where no codec runs | `celt_22` with a demo's voice (the page's demo state) |
+| the Network cell shows loss and jitter where no codec runs | `celt_22` with the codec skipped |
+| the Network cell hot where no codec runs | the same |
+| the Receiver cell ignores `sourceTimingReason()` | the Steam demo check (its Receiver cell) |
+| the Receiver cell not rewritten with the Network cell | the Steam demo check |
+| the Network cell hot for "jitter off" (the reviewer's break) | `voice_timeline source`, jitter 50: "jitter off (no queue)", not hot |
+| the live title on Steam voice keeps late frames | the live "net" title check |
+| `index.html`'s first title keeps late frames | the live "net" title check |
+
+**Done-means after the fix round.**
+
+On `e9ed585`, heavy runs inside `flock /tmp/tf2ve-heavy.lock`.
+
+- `pnpm test`: "27 of 27 suites passed. 1045.7 s summed" (render-stream 305.3 s, stages 244.8 s).
+- The browser suite (`CHROMIUM_EXECUTABLE=… flock /tmp/tf2ve-heavy.lock pnpm test:browser`): "== browser: passed,
+  399.4 s", "1 of 1 suites passed."
+- `git diff origin/main --stat -- engine audio.js constants.js voice-channel.js` prints nothing;
+  `git diff origin/main --stat -- tests/` shows `tests/browser.verify.js` only; no file outside "May touch".
+- `node tests/cache-number.mjs origin/main --report`: "cached files changed since origin/main (3ca4f8e):
+  app/console.js, app/core.js, index.html, live.js" and "cache number against origin/main (3ca4f8e): the number is
+  v44, not above v44: it must rise (node tests/cache-number.mjs origin/main --set)". The builder did not set it.
+- CI (run 43482501433 on `e9ed585`): `verify` success, and `units`, `engine`, `render`, `stages` and `browser`
+  each success. This report's commit changes only `docs/` and starts no run.
+
+The fix round's diff and commit messages were scanned as before: nothing beyond the trailer lines.
