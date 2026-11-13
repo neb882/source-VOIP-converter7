@@ -494,3 +494,45 @@ before part a is built.
 
 *Added 2026-11-13 (the orchestrator), from W3-02ef's ruling 9:* W3-02f is merged before part a. After it no render
 refuses `retime`, so part a's item 4 and its check of the refusals lose `retime`: the chain does not name it.
+
+## After the plan review (2026-11-13, the orchestrator)
+
+A plan reviewer read the order as its builder would (ready with edits). It re-ran the derivation and the planner's
+prototypes and a chain of its own (jitter 500 at 10 and 1,000 frames a second, 24 and 48 kHz, the gate off,
+push-to-talk across a channel's wait, blocks of 1, 480 and 4,800, bunches held within 62 samples of a block's
+start): 12 of 12 equal to `createRender` and never short, the least margin 89 samples (measured). Each point binds
+the builder and holds over the text above.
+
+1. **`add()` with what was given out** cannot fail a check: `steamTimeline.add` pushes to the channel with `place`
+   (`engine/steam.js:473`) before any move (`:476-484`), and the given-out count is D behind the packets, so no
+   packet is ever moved (measured: 0 moves, samples equal). "No third argument" stays as an instruction; the break
+   row goes; the sentence "the channel would be told another place than a render's" is corrected.
+2. **The gain-off case** uses a `voiceScale` other than 1 (2, loud enough to clip), so the break "the chain's own
+   scale and clip kept" can fail: at 1 the channel's gain object already clamps and rounds
+   (`engine/steam.js:220-221`) and the chain's stage changes nothing.
+3. **P, the samples pushed,** is exposed by part a (`stats.pushed` or the like), so the check
+   "G = floor(P × 147 / 80) − D" can be computed; with a 48 kHz microphone P depends on the capture resampler.
+4. **The low-latency box (part b)** is disabled and sent as off only while the queue actually runs (the box
+   checked, `steam`, the codec on). A check: on `celt_22` with the box checked, low latency still works.
+5. **The endless arrival model's check** asks some ticks twice; an equal tick is accepted and only a lower one is
+   refused.
+6. **A channel's start.** In `512 × ceil(1323 a / 1024) − D`, `a` is the arrival tick. Only the render's opens
+   whose sample is below G are counted. The test sees "before the same mix sample" through a spy (for example the
+   count of samples `onGain` has seen when the room path's `spurtStart` is called). An open lies at least 89 samples
+   past what was given out and up to the largest arrival delay ahead (1,650 ms seen at jitter 500 and 10 frames a
+   second), so the chain keeps a list of pending opens.
+7. **The thirty-minute attack** reads "must not grow beyond `steamTimeline`'s frame log (deferred, about 2 MB an
+   hour)"; memory is judged by counts the endless forms expose, not the heap.
+8. **The recording's `channel` (part b).** The counters (packets, opens, appended, gainResets, droppedSamples) are
+   taken as the difference between start and stop; `fps`, `bufferMs`, `waitTicks`, `latency` and `codecDelay` as
+   they stand. The order says what happens when the chain is rebuilt during a recording, and whether a take
+   carries `arrivals` (the console's BC-4a line reads it).
+9. **Part b may touch** `updateStale`'s held line in `app/render.js` (near `:955-957`, `LIVE_HELD_TEXT`),
+   `presentRender`'s comment near `:562-566` ("it was made on the file's own timing") and the stale comments at
+   `live.js:38-41` and `:76-77`.
+10. **Lines:** `engine/render-stream.js:350-352` is `:348-358` (the skipped stage is the `if` at `:352-358`);
+    section 10 of `tests/render-channel.verify.mjs` is `:684-699`.
+11. **May:** the chain advances the timeline only when the bound tick rises, not after each sample (same output;
+    the report measures the margin where the chain gives out).
+
+Size stands: 10 hours for part a, 6 for part b. Part a starts after W3-02f is merged (W3-02ef's ruling 9).
