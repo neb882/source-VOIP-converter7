@@ -1,7 +1,7 @@
 # W3-02d-2: a longer source re-renders by itself after a receiver-side change
 
 The builder's report. The order is `docs/work-orders/W3-02d2-auto-rerender.md`. Branch
-`claude/w3-02d2-auto-rerender`, from `main` at `fd2d60d`, with `main` at `28e9c79` (RP-01b) merged in.
+`claude/w3-02d2-auto-rerender`, from `main` at `fd2d60d`, with `main` at `28e9c79` (RP-01b) and then at `9e1ff27` (BC-4 ordered, documents only) merged in.
 
 **Status:** built, and stopped on one question for the orchestrator: the timing (below) puts a render from the kept
 stage of a ten-minute source at about half the whole render's time in the page, and once above half. The order's
@@ -128,12 +128,14 @@ case for lowering it).
    `git diff origin/main --stat -- engine audio.js voice-channel.js steam-sender.js constants.js` prints nothing;
    `git diff origin/main -- audio-worker.js` shows the one field (`startedFrom`, the line that takes it, and its
    comment); `git diff origin/main --stat -- tests/` shows `tests/browser.verify.js` only.
-3. `node tests/cache-number.mjs origin/main --report`: "cached files changed since origin/main (28e9c79):
-   app/core.js, app/render.js, app/source.js, audio-worker.js" and "cache number against origin/main (28e9c79): the
+3. `node tests/cache-number.mjs origin/main --report`: "cached files changed since origin/main (9e1ff27):
+   app/core.js, app/render.js, app/source.js, audio-worker.js" and "cache number against origin/main (9e1ff27): the
    number is v42, not above v42: it must rise". The builder did not set it.
 4. `git diff origin/main --stat` shows `README.md`, `app/core.js`, `app/render.js`, `app/source.js`,
    `audio-worker.js`, `docs/PAGE.md`, `tests/browser.verify.js` and this report: all in "May touch".
-5. This report.
+5. This report. The suites ran on the tree after the merge of `28e9c79`; the merge of `9e1ff27` after them brought
+   documents only (`docs/`), so no file a suite runs changed. CI ran on `6ce8050` (the first merge), whose files
+   outside `docs/` are the final head's: `verify` succeeded.
 
 ### The breaks
 
