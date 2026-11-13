@@ -25,10 +25,10 @@
 //   gain    engineGain (tests/gain-exact.mjs's    a second route (receiverAutoGain against the
 //           transcription) on the CELT stand-in   transcription): the rule, the last packet apart, the
 //                                                 lengths within one packet
-//   ceiling a clamped tone rendered at volume     the reading of 16-bit, 24-bit and float stereo files,
-//           0.15 and 0.5 (TF2Audio.process)       the plateau found and its value counted, both pass
-//                                                 lines; the record's 4895 to 4896 and 16320 are the
-//                                                 render's 4896 and 16320 here (finding 30, as built)
+//   ceiling a render's clamped voice with a hum    the reading of 16-bit, 24-bit, float, stereo and
+//           and noise added before the clip, on    tagged files; the largest and smallest found, the
+//           TF2Audio's own mixer functions, at     samples on the largest counted, both pass lines; the
+//           volume 0.15 and 0.5                    voice alone (its 255/256) stays under the ceiling
 //   clock   a render with timeline 'game' at      the render, the line-up and the clock's verdicts:
 //           66.67 frames a second against the     the 'game' render drops one sample a packet as read,
 //           default render                        so its clock comes from the rule as built, not from
@@ -50,14 +50,17 @@
 //     "differs" with the reason. celt also takes Set I's case with
 //     --any-rate.
 // [8] ceiling, [9] clock, [10] demo: each on its stand-in prints "as
-//     expected"; with the tops three steps up (and two), a sample three steps
-//     over the ceiling, a take 100 parts in a million faster, the stand-in
+//     expected"; with the ceiling two and three steps up and down, a sample
+//     three steps over it, a take 100 parts in a million faster, the stand-in
 //     judged at another packet rate, a phrase numbered from 7, a frame of
-//     another kind or a rate record of 48000, "differs"; on zeros, a voice
-//     too quiet to clamp, a take too short or unrelated, a demo with no voice,
-//     with one phrase or of vaudio_celt, "differs" with the reason. demo on
-//     tests/demo/synthetic.dem prints none of its header's fields, its print
-//     line or its SteamIDs.
+//     another kind, of two channels or of two frames, a rate record of 48000
+//     or two records, "differs"; on zeros, the voice alone, too few samples on
+//     the ceiling, a take too short or unrelated, a demo with no voice, with
+//     one phrase or of vaudio_celt, "differs" with the reason. The window the
+//     clock prints is pinned. demo on tests/demo/synthetic.dem prints none of
+//     its header's fields, its print line or its SteamIDs; the stand-in demos
+//     carry markers in their server info and a string table too, and the
+//     recordings of ceiling and clock in LIST/INFO and bext chunks.
 // [6] Nothing leaves the PC: the text of the script, of every file under
 //     tests/reproduce/, of the clips' generator, of every file a run loaded
 //     and of the engine's files holds no network module, child process,
@@ -186,8 +189,20 @@ function wavBytes(samples, rate, extra = null) {
   return Buffer.concat([head.subarray(0, 36), chunk, data, body]);
 }
 // A recording of the output as a recorder writes it: channels (in 16-bit
-// steps) interleaved, as 16- or 24-bit integers or 32-bit floats.
-function writeOutput(name, channels, rate, bits, float = false) {
+// steps) interleaved, as 16- or 24-bit integers or 32-bit floats. With
+// `tagged`, a LIST/INFO chunk (a title and an artist) and a bext chunk (a
+// description and an originator) carrying markers lie before the samples, as
+// a recorder may write them.
+const TAGS = [`${MARK}-Title`, `${MARK}-Artist`, `${MARK}-Description`, `${MARK}-Originator`];
+function tagChunks() {
+  const info = (id, text) => { const t = Buffer.from(`${text}\0`, 'latin1'), c = Buffer.alloc(8 + t.length + (t.length & 1)); c.write(id, 0, 'latin1'); c.writeUInt32LE(t.length, 4); t.copy(c, 8); return c; };
+  const list = Buffer.concat([Buffer.from('INFO', 'latin1'), info('INAM', TAGS[0]), info('IART', TAGS[1])]);
+  const bext = Buffer.alloc(602);
+  bext.write(TAGS[2], 0, 'latin1'); bext.write(TAGS[3], 256, 'latin1');
+  const chunk = (id, b) => { const h = Buffer.alloc(8); h.write(id, 0, 'latin1'); h.writeUInt32LE(b.length, 4); return Buffer.concat([h, b, Buffer.alloc(b.length & 1)]); };
+  return Buffer.concat([chunk('LIST', list), chunk('bext', bext)]);
+}
+function writeOutput(name, channels, rate, bits, float = false, tagged = false) {
   const n = channels[0].length, step = bits / 8, body = Buffer.alloc(n * channels.length * step);
   for (let i = 0; i < n; i++) {
     channels.forEach((c, k) => {
@@ -197,13 +212,13 @@ function writeOutput(name, channels, rate, bits, float = false) {
       else body.writeIntLE(Math.round(c[i] * 256), o, 3);
     });
   }
-  const head = Buffer.alloc(44);
-  head.write('RIFF', 0, 'latin1'); head.writeUInt32LE(36 + body.length, 4); head.write('WAVEfmt ', 8, 'latin1');
+  const tags = tagged ? tagChunks() : Buffer.alloc(0), head = Buffer.alloc(44);
+  head.write('RIFF', 0, 'latin1'); head.writeUInt32LE(36 + tags.length + body.length, 4); head.write('WAVEfmt ', 8, 'latin1');
   head.writeUInt32LE(16, 16); head.writeUInt16LE(float ? 3 : 1, 20); head.writeUInt16LE(channels.length, 22); head.writeUInt32LE(rate, 24);
   head.writeUInt32LE(rate * channels.length * step, 28); head.writeUInt16LE(channels.length * step, 32); head.writeUInt16LE(bits, 34);
   head.write('data', 36, 'latin1'); head.writeUInt32LE(body.length, 40);
   const file = at(name);
-  fs.writeFileSync(file, Buffer.concat([head, body]));
+  fs.writeFileSync(file, Buffer.concat([head.subarray(0, 36), tags, head.subarray(36), body]));
   return file;
 }
 
@@ -230,9 +245,11 @@ function crc32(d) {
 // A Steam voice payload: the SteamID, a sample-rate record, the Opus frames
 // (or `silence` samples of a silence record), the CRC-32.
 function steamPayload(steamId, frames, rate = 24000, silence = 0) {
+  const rates = Array.isArray(rate) ? rate : [rate];
   const body = [], id = Buffer.alloc(8);
   id.writeBigUInt64LE(BigInt(steamId));
-  body.push(...id, 11, rate & 255, rate >> 8);
+  body.push(...id);
+  for (const r of rates) body.push(11, r & 255, r >> 8);
   if (silence) body.push(0, silence & 255, silence >> 8);
   else {
     const opus = [];
@@ -265,6 +282,24 @@ function demoFile(packets) {
 }
 const demoMsg = {
   print: (text) => (w) => { w.write(7, 6); w.string(text); },
+  // Server info as demo.js reads it at protocol 24: the fields it skips,
+  // the tick length, then the game folder, the map, the sky and the server's
+  // name.
+  serverInfo: (map, server) => (w) => {
+    w.write(8, 6); w.write(24, 16); w.write(0, 32); w.write(0, 1); w.write(1, 1); w.write(0, 32); w.write(24, 16);
+    for (let k = 0; k < 4; k++) w.write(0, 32);
+    w.write(24, 16);
+    const f = Buffer.alloc(4); f.writeFloatLE(0.015); w.data(f);
+    w.write(0, 8); w.string('tf'); w.string(map); w.string('sky'); w.string(server); w.write(0, 1);
+  },
+  // A string table whose one entry is a player's name (protocol 24: the
+  // data's length in bits as a varint).
+  userTable: (player) => (w) => {
+    const data = Buffer.from(`${player}\0`, 'latin1'), bits = data.length * 8;
+    w.write(12, 6); w.string('userinfo'); w.write(256, 16); w.write(1, 9);
+    for (let v = bits; ; v = Math.floor(v / 128)) { const more = v >= 128; w.write((v % 128) | (more ? 128 : 0), 8); if (!more) break; }
+    w.write(0, 1); w.write(0, 1); w.data(data);
+  },
   voiceInit: (codec) => (w) => { w.write(14, 6); w.string(codec); w.write(255, 8); w.write(codec === 'steam' ? 24000 : 22050, 16); },
   voice: (client, payload) => (w) => { w.write(15, 6); w.write(client, 8); w.write(0, 8); w.write(payload.length * 8, 16); w.data(payload); }
 };
@@ -505,35 +540,68 @@ try {
 
   console.log('\n[8] ceiling');
   {
-    // A 1 kHz tone at 0.3 of full scale with pauses: the receiver's gain
-    // clamps it, so the render's flat tops are the voice's top in the mix.
+    // The stand-in: the game's mixer on its own functions (TF2Audio.mixEntry,
+    // mixOut and createDeviceStage, as built from finding 30), not the
+    // check's arithmetic. The voice is a render's gain output for a 1 kHz tone
+    // at 0.3 with pauses, which the gain clamps; the game's own sound is a
+    // 157 Hz hum at 2,000 steps with seeded noise of 600 under it, added to
+    // the voice at 255/256 before the clip, so the sum passes 32767 and is
+    // flattened at the ceiling. Then `volume`, the 16 bits, and 48000 Hz.
     const sr = 48000, tone = Float32Array.from({ length: 4 * sr }, (_, i) => (i % sr < .7 * sr && i > .2 * sr ? .3 * Math.sin(2 * Math.PI * 1000 * i / sr) : 0));
-    const at15 = (await A.process(asBuffer(tone, sr), { codec: 'steam', volume: 0.15 })).samples, at5 = (await A.process(asBuffer(tone, sr), { codec: 'steam', volume: 0.5 })).samples;
-    const steps = (y) => Float64Array.from(y, (v) => Math.round(v * 32768));
-    const s15 = steps(at15), s5 = steps(at5);
+    let voice = null;
+    await A.process(asBuffer(tone, sr), { codec: 'steam', onGain: (g) => { voice = Float32Array.from(g); } });
+    let seed = 3;
+    const noise = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296) * 2 - 1;
+    const game = Int32Array.from(voice, (_, i) => Math.round(2000 * Math.sin(2 * Math.PI * 157 * i / 44100) + 600 * noise()));
+    const output = (volume, withGame = true) => {
+      const mix = Int32Array.from(voice, (v, i) => A.mixOut(A.mixEntry(Math.round(v * 32768), 255) + (withGame ? game[i] : 0), volume));
+      const device = A.createDeviceStage(sr), a = device.push(mix), z = device.flush(), out = new Float64Array(a.length + z.length);
+      out.set(a); out.set(z, a.length);
+      return out;
+    };
+    const s15 = output(0.15), s5 = output(0.5);
     const f15 = writeOutput('ceiling_015.wav', [s15, s15], sr, 24);
     const r = run('ceiling', f15, '--volume', '0.15');
-    check('on its stand-in (a clamped tone rendered at volume 0.15, written as 24-bit stereo): as expected, flat tops at 4,896 of 4,895.85, largest 4,896 under 4,915',
-      passes(r) && /flat tops at 4,896, expected 4895\.85 within one step: as expected/.test(r.out) && /largest sample 4,896, expected at most 4,915 within one step: as expected/.test(r.out), show(r));
+    const onTop = (x) => Number(((/exactly on the largest: ([\d,]+)/.exec(x.out) || [])[1] || '0').replace(/,/g, ''));
+    check('on its stand-in (a clamped voice with the game\'s sound under it, the sum clipped, at volume 0.15, written as 24-bit stereo): as expected, largest 4,915 and smallest -4,915',
+      passes(r) && /largest sample 4,915, expected 4,915 within one step: as expected/.test(r.out) && /smallest sample -4,915, expected -4,915 within one step: as expected/.test(r.out) && onTop(r) >= 100, `${show(r)}; ${onTop(r)} on the largest`);
     const r5 = run('ceiling', writeOutput('ceiling_05.wav', [s5], sr, 16), '--volume', '0.5');
-    check('... at volume 0.5, written as 16-bit mono: as expected, flat tops at 16,320 under 16,384',
-      passes(r5) && /flat tops at 16,320, expected 16319\.50/.test(r5.out) && /expected at most 16,384/.test(r5.out), show(r5));
+    check('... at volume 0.5, written as 16-bit mono: as expected, largest 16,384', passes(r5) && /largest sample 16,384, expected 16,384/.test(r5.out), show(r5));
     check('... written as 32-bit float: as expected', passes(run('ceiling', writeOutput('ceiling_float.wav', [s15], sr, 32, true), '--volume', '0.15')));
-    const up = Float64Array.from(s15, (v) => (Math.abs(v) === 4896 ? v + 3 * Math.sign(v) : v));
-    const high = run('ceiling', writeOutput('ceiling_top3.wav', [up], sr, 16), '--volume', '0.15');
-    check('the flat tops moved three steps up (4,899): differs, naming the volume they give', fails(high, /flat tops are not at 32639 x volume: they give a volume of 0\.1501/) && /flat tops at 4,899, expected 4895\.85 within one step: differs/.test(high.out), show(high));
-    const up2 = Float64Array.from(s15, (v) => (Math.abs(v) === 4896 ? v + 2 * Math.sign(v) : v));
-    check('... two steps up (4,898), still outside one step: differs', fails(run('ceiling', writeOutput('ceiling_top2.wav', [up2], sr, 16), '--volume', '0.15'), /flat tops are not at 32639 x volume/));
+    const tagged = run('ceiling', writeOutput('ceiling_tagged.wav', [s15, s15], sr, 16, false, true), '--volume', '0.15');
+    check('... written with LIST/INFO and bext chunks carrying a title, an artist, a description and an originator: as expected, none of them printed',
+      passes(tagged) && TAGS.every((t) => !tagged.out.includes(t)), show(tagged));
+    const leftOnly = run('ceiling', writeOutput('ceiling_left.wav', [s15, new Float64Array(s15.length)], sr, 16), '--volume', '0.15');
+    check('... in stereo with a silent second channel: as expected (the first channel is read)', passes(leftOnly), show(leftOnly));
+    const alone = run('ceiling', writeOutput('ceiling_voice_alone.wav', [output(0.15, false)], sr, 16), '--volume', '0.15');
+    check('the voice alone, with no other sound (its tops at 4,896, its 255/256): differs, the sound stays under the ceiling',
+      fails(alone, /stays under the game's ceiling/) && /largest sample 4,896/.test(alone.out), show(alone));
+    const shift = (x, by) => Float64Array.from(x, (v) => (Math.abs(v) === 4915 ? v + by * Math.sign(v) : v));
+    const up3 = run('ceiling', writeOutput('ceiling_up3.wav', [shift(s15, 3)], sr, 16), '--volume', '0.15');
+    check('the ceiling three steps up (4,918): differs, "pass the game\'s ceiling"', fails(up3, /pass the game's ceiling/), show(up3));
+    const up2 = run('ceiling', writeOutput('ceiling_up2.wav', [shift(s15, 2)], sr, 16), '--volume', '0.15');
+    check('... two steps up (4,917): differs', fails(up2, /pass the game's ceiling/), show(up2));
+    const down3 = run('ceiling', writeOutput('ceiling_down3.wav', [Float64Array.from(s15, (v) => Math.max(-4912, Math.min(4912, v)))], sr, 16), '--volume', '0.15');
+    check('the ceiling three steps down (4,912): differs, the sound stays under the ceiling', fails(down3, /stays under the game's ceiling/), show(down3));
+    const down2 = run('ceiling', writeOutput('ceiling_down2.wav', [Float64Array.from(s15, (v) => Math.max(-4913, Math.min(4913, v)))], sr, 16), '--volume', '0.15');
+    check('... two steps down (4,913): differs', fails(down2, /stays under the game's ceiling/), show(down2));
+    const lowSide = run('ceiling', writeOutput('ceiling_low_side.wav', [Float64Array.from(s15, (v) => Math.max(-4912, v))], sr, 16), '--volume', '0.15');
+    check('the top at 4,915 and the bottom held at -4,912, three steps short: differs', fails(lowSide, /stays under the game's ceiling/) && /smallest sample -4,912, expected -4,915 within one step: differs/.test(lowSide.out), show(lowSide));
     const spike = Float64Array.from(s15); spike[sr] = 4918;
     const over = run('ceiling', writeOutput('ceiling_over.wav', [spike], sr, 16), '--volume', '0.15');
-    check('one sample three steps over the ceiling (4,918): differs, "pass the game\'s ceiling"', fails(over, /pass the game's ceiling/) && /largest sample 4,918, expected at most 4,915/.test(over.out), show(over));
+    check('one sample three steps over the ceiling (4,918): differs, "pass the game\'s ceiling"', fails(over, /pass the game's ceiling/) && /largest sample 4,918/.test(over.out), show(over));
     const wrong = run('ceiling', f15, '--volume', '0.2');
-    check('the stand-in at 0.15 checked as volume 0.2: differs', fails(wrong, /--volume is not the game's value|flat tops are not at 32639 x volume/), show(wrong));
+    check('the stand-in at 0.15 checked as volume 0.2: differs', fails(wrong, /stays under the game's ceiling/), show(wrong));
     const zero = run('ceiling', writeOutput('ceiling_zeros.wav', [new Float64Array(sr)], sr, 16), '--volume', '0.15');
     check('a file of zeros: differs, "no sound"', fails(zero, /no sound/), show(zero));
-    const quiet = Float64Array.from((await A.process(asBuffer(Float32Array.from(tone, (v) => v / 10), sr), { codec: 'steam', volume: 0.15, maxGain: 1 })).samples, (v) => Math.round(v * 32768));
-    const unclamped = run('ceiling', writeOutput('ceiling_quiet.wav', [quiet], sr, 16), '--volume', '0.15');
-    check('a voice too quiet to be clamped (the tone at a tenth, voice_maxgain 1): differs, "no flat top"', fails(unclamped, /no flat top/), show(unclamped));
+    // Too few on the top: the stand-in held under 4,914, with 99 samples at
+    // 4,915 and -4,915 (one fewer than the check asks).
+    const few = Float64Array.from(s15, (v) => Math.max(-4914, Math.min(4914, v)));
+    for (let k = 0; k < 99; k++) { few[1000 + 400 * k] = 4915; few[1200 + 400 * k] = -4915; }
+    const tooFew = run('ceiling', writeOutput('ceiling_few.wav', [few], sr, 16), '--volume', '0.15');
+    check('99 samples on the ceiling, one fewer than the check asks: differs, "too few to show a clip"', fails(tooFew, /only 99 samples sit exactly on the largest, fewer than 100/), show(tooFew));
+    few[50000] = 4915;
+    check('... and 100: as expected', passes(run('ceiling', writeOutput('ceiling_few100.wav', [few], sr, 16), '--volume', '0.15')));
     const noVolume = run('ceiling', f15);
     check('no --volume: cannot check, exit 2', noVolume.status === 2 && /give --volume/.test(noVolume.out), show(noVolume));
   }
@@ -564,19 +632,23 @@ try {
     // The stand-in's packets a second, as the page has the stranger count
     // them: packets over the seconds their decoded sound lasts.
     const ch = game.codecInfo.channel, played = ch.spurts.reduce((n, s) => n + s.end - s.start, 0), packetsPerSecond = +(ch.packets / played).toFixed(1);
-    const fTake = writeOutput('clock_take.wav', [take, take], sr, 24), fSource = writeOutput('clock_source.wav', [source], sr, 16);
+    const fTake = writeOutput('clock_take.wav', [take, take], sr, 24, false, true), fSource = writeOutput('clock_source.wav', [source], sr, 16);
     const r = run('clock', fTake, fSource);
     const clockOf = (x) => Number(((/plays ([+-][\d,]+) parts/.exec(x.out) || [])[1] || '').replace(/,/g, ''));
-    check('on its stand-in (a \'game\' render at 66.67 frames a second against the default render): as expected, within the record\'s +397 to +416',
-      passes(r) && /expected \+397 to \+416/.test(r.out), `${show(r)}; clock ${clockOf(r)}`);
+    check('on its stand-in (a \'game\' render at 66.67 frames a second against the default render): as expected, within +386 to +427 (the record\'s +397 to +416 widened by 11)',
+      passes(r) && /expected \+386 to \+427/.test(r.out), `${show(r)}; clock ${clockOf(r)}`);
     const withPackets = run('clock', fTake, fSource, '--packets', String(packetsPerSecond));
     check(`... with --packets ${packetsPerSecond}, the stand-in's own packets a second: as expected, judged around ${packetsPerSecond} over 44100`,
       passes(withPackets) && new RegExp(`${packetsPerSecond} packets a second over 44100 is`).test(withPackets.out), show(withPackets));
+    const e = packetsPerSecond / 44100 * 1e6, window = `expected ${'+' + Math.round(e - 17)} to ${'+' + Math.round(e + 24)}`;
+    check(`... its window from 17 under to 24 over ${e.toFixed(1)} (6 and 13, widened by 11): "${window}"`, withPackets.out.includes(window), window);
+    check('the take, written with LIST/INFO and bext chunks carrying markers: none of them in what clock prints, with or without --packets',
+      [r, withPackets].every((x) => TAGS.every((t) => !x.out.includes(t))));
     // The take on a clock 100 parts in a million faster still.
     const fast = TF2Reference.warp(Float32Array.from(take), sr, { offsetSeconds: 0, scale: 0.9999 }, sr, take.length);
     const fFast = writeOutput('clock_fast.wav', [Float64Array.from(fast, Math.round)], sr, 16);
     const quick = run('clock', fFast, fSource);
-    check('the take made 100 parts in a million faster: differs, outside the record\'s range, asking for --packets', fails(quick, /outside the record's range: .*--packets/) && clockOf(quick) > 416, `${show(quick)}; clock ${clockOf(quick)}`);
+    check('the take made 100 parts in a million faster: differs, outside the range, asking for --packets', fails(quick, /outside the record's range, widened for this check's spread: .*--packets/) && clockOf(quick) > 427, `${show(quick)}; clock ${clockOf(quick)}`);
     const quick2 = run('clock', fFast, fSource, '--packets', String(packetsPerSecond));
     check('... and with --packets: differs', fails(quick2, /is not about/), show(quick2));
     const wrongRate = run('clock', fTake, fSource, '--packets', '22.3');
@@ -616,6 +688,9 @@ try {
     const phrases = [phrase(60, 40), phrase(45, 99), phrase(30, 99)];
     encoder.free();
     const ID = '4503603922337795';
+    // The map, the server's name and a player's name, in the demo's messages.
+    const DEMO_TAGS = [`${MARK}-ServerMap`, `${MARK}-ServerName`, `${MARK}-PlayerName`];
+    const demoRuns = runs.length;
     const messagesOf = (frames, { firstSeq = 0, rate = 24000, end = true } = {}) => {
       const out = [];
       for (let k = 0; k < frames.length;) {
@@ -628,7 +703,8 @@ try {
       return out;
     };
     const demoOf = (phraseMessages, options = {}) => {
-      const packets = [{ tick: 50, messages: [demoMsg.print(`${MARKERS[1]} joined the game`), demoMsg.voiceInit(options.codec || 'steam')] }];
+      const packets = [{ tick: 50, messages: [demoMsg.serverInfo(DEMO_TAGS[0], DEMO_TAGS[1]), demoMsg.userTable(DEMO_TAGS[2]),
+        demoMsg.print(`${MARKERS[1]} joined the game`), demoMsg.voiceInit(options.codec || 'steam')] }];
       let tick = 100;
       for (const list of phraseMessages) { for (const m of list) { packets.push({ tick, messages: [demoMsg.voice(1, m)] }); tick += 4; } tick += 60; }
       return demoFile(packets);
@@ -650,6 +726,12 @@ try {
     stereo[2][3][0] |= 4;   // the same configuration, marked as two channels
     const two = run('demo', writeDemo('standin_stereo.dem', demoOf(stereo.map((p) => messagesOf(p)))));
     check('one frame\'s TOC marked two channels: differs', fails(two, /1 frame is not a 20 ms hybrid Opus frame/), show(two));
+    const twoFrames = phrases.map((p) => p.map((d) => d.slice()));
+    twoFrames[0][12][0] |= 1;   // the same configuration, frame-count code 1: two frames in the packet
+    const code1 = run('demo', writeDemo('standin_code1.dem', demoOf(twoFrames.map((p) => messagesOf(p)))));
+    check('one frame\'s TOC with frame-count code 1: differs', fails(code1, /1 frame is not a 20 ms hybrid Opus frame/), show(code1));
+    const twoRates = run('demo', writeDemo('standin_tworates.dem', demoOf([messagesOf(phrases[0]), messagesOf(phrases[1], { rate: [24000, 24000] }), messagesOf(phrases[2])])));
+    check('one phrase\'s messages with two sample-rate records of 24000: differs', fails(twoRates, /15 voice messages do not carry one sample-rate record of 24000 Hz/), show(twoRates));
     const r48 = run('demo', writeDemo('standin_48k.dem', demoOf([messagesOf(phrases[0]), messagesOf(phrases[1], { rate: 48000 }), messagesOf(phrases[2])])));
     check('one phrase\'s messages with a sample-rate record of 48000: differs', fails(r48, /15 voice messages do not carry one sample-rate record of 24000 Hz/), show(r48));
     const none = run('demo', writeDemo('novoice.dem', demoOf([])));
@@ -667,6 +749,9 @@ try {
     const secrets = ['Synthetic test', 'ctf_2fort', '4503603922337793', '4503603922337794', 'hello'];
     check('tests/demo/synthetic.dem: read, a verdict given (differs: its second phrase is numbered from 7), and none of its header fields, its print or its SteamIDs printed',
       fails(syn) && secrets.every((x) => !syn.out.includes(x)) && /voice messages read: 5 of 6/.test(syn.out), show(syn));
+    const demoOut = runs.slice(demoRuns);
+    check(`the demos' map, server name and player name (in their messages) and header fields appear in no output of demo (${demoOut.length} runs: the stand-in, every break and floor)`,
+      demoOut.length >= 12 && demoOut.every((x) => !hasMarker(x.out)), demoOut.filter((x) => hasMarker(x.out)).map((x) => x.args).join('; '));
     const leaked = runs.filter((x) => x.out.includes(ID) || secrets.some((s) => x.out.includes(s)));
     check('no run of this suite prints a SteamID of the stand-ins or a header field of the fixture', leaked.length === 0, leaked.map((x) => x.args).join('; '));
   }

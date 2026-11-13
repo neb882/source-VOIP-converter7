@@ -15,15 +15,17 @@
 // accuracy suite does: phrase by phrase, one clock for the whole take. The
 // clock is how much faster file 1 plays, in parts in a million.
 //
-// Expected, without --packets: +397 to +416, the range of the plain takes in
-// the table of docs/ACCURACY.md (measured; finding 24: 17.8 packets a second
-// over 44100 is 403, computed). With --packets P (the packets a second the
-// game's console gave, docs/REPRODUCE.md says how): P / 44100 in parts in a
-// million, from 6 under to 13 over, which is that table's range around
-// finding 24's 403 (computed from the record's figures; a choice of this
-// check). The take at 22.3 packets a second read +510 (measured) where 506 is
-// computed, inside that window. A recording too short or too quiet to track
-// is "differs" with the reason.
+// Expected, without --packets: +386 to +427. That is +397 to +416, the range
+// of the plain takes in the table of docs/ACCURACY.md (measured; finding 24:
+// 17.8 packets a second over 44100 is 403, computed), widened by 11 on each
+// side for the spread of this check's reading against the accuracy suite's
+// on the same takes (-11 to +10 on fourteen takes, measured 2026-11-13 by the
+// orchestrator, privately; a choice of this check). With --packets P (the
+// packets a second the game's console gave, docs/REPRODUCE.md says how):
+// P / 44100 in parts in a million, from 6 under to 13 over, which is that
+// table's range around finding 24's 403 (computed from the record's
+// figures), widened by the same 11: from 17 under to 24 over. A recording
+// too short or too quiet to track is "differs" with the reason.
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -33,10 +35,12 @@ import { describeOutput, differs, cannot, fmt, numberOption, parseArgs, readOutp
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TF2Reference = createRequire(import.meta.url)('../../reference.js');
 
-// The record's range for the plain takes (docs/ACCURACY.md's table), and the
-// window around P / 44100 with --packets (the same range around 403).
+// The record's range for the plain takes (docs/ACCURACY.md's table), the
+// window around P / 44100 with --packets (the same range around 403), and
+// the widening of both by this check's spread against the accuracy suite.
 export const RANGE = [397, 416];
 export const WINDOW = [-6, 13];
+export const SPREAD = 11;
 // The fewest one-second windows that must line up for the clock to count
 // (ten seconds of voice; a choice of this check).
 export const MIN_WINDOWS = 20;
@@ -90,17 +94,17 @@ export default {
     if (seg.b === 1 / tracked.coarse.scale) throw differs('the windows that line up span too little time to measure the clock: record more of the source, with the voice loud enough to hear over the game');
     if (windows < MIN_WINDOWS) throw differs(`only ${fmt(windows)} one-second windows line up, fewer than ${MIN_WINDOWS} (a choice of this check): record more of the source, with the voice loud enough to hear over the game`);
     const clock = Math.round(seg.clockPpm);
-    let lo = RANGE[0], hi = RANGE[1], from;
-    if (packets === null) from = 'the range of the record\'s plain takes (docs/ACCURACY.md)';
+    let lo = RANGE[0] - SPREAD, hi = RANGE[1] + SPREAD, from;
+    if (packets === null) from = `the record's range of ${signed(RANGE[0])} to ${signed(RANGE[1])} (docs/ACCURACY.md), widened by ${SPREAD} for the spread of this check's reading against the accuracy suite's`;
     else {
       const e = packets / VOICE_RATE * 1e6;
-      lo = Math.round(e + WINDOW[0]); hi = Math.round(e + WINDOW[1]);
-      from = `${packets} packets a second over 44100 is ${signed(Math.round(e))}, from 6 under to 13 over`;
+      lo = Math.round(e + WINDOW[0] - SPREAD); hi = Math.round(e + WINDOW[1] + SPREAD);
+      from = `${packets} packets a second over 44100 is ${signed(Math.round(e))}; from ${-WINDOW[0]} under to ${WINDOW[1]} over, widened by ${SPREAD}`;
     }
     const ok = report.figure(`clock: file 1 plays ${signed(clock)} parts in a million faster than the render, expected ${signed(lo)} to ${signed(hi)} (${from})`, clock >= lo && clock <= hi);
     if (!ok) {
       throw differs(packets === null
-        ? `the clock ${signed(clock)} is outside the record's range: count the packets a second in the game's console (docs/REPRODUCE.md, "clock") and give them as --packets`
+        ? `the clock ${signed(clock)} is outside the record's range, widened for this check's spread: count the packets a second in the game's console (docs/REPRODUCE.md, "clock") and give them as --packets`
         : `the clock ${signed(clock)} is not about ${packets} packets a second over 44100`);
     }
   }
