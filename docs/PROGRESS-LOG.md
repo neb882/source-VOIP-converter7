@@ -488,3 +488,17 @@ Miles (not in TF2): the exact decoder; the encoder's real start-up block; what a
 Replaced or removed (waiting_on_the_owner, the Miles take):
 
 2026-11-12, the owner: may record a vaudio_miles take in Source SDK Base 2006 or 2007 this weekend (docs/owner-runs.md has the procedure). One clean take of the test signal would settle the output chain and the opening block; a second with pauses, the resets. The owner was told which of the profile's stand-ins could be heard: on a plain render only the borrowed mixer and output could be.
+
+## 2026-11-13, at RP-01a's merge
+
+Replaced or removed (in_flight, RP-01, its state):
+
+planned and ruled on 2026-11-13; the plan review by the builders' model came back the same day: build after edits. The orchestrator edits the order in place before any builder starts
+
+Replaced or removed (in_flight, RP-01a (merged; the entry is removed)):
+
+a builder is at work since 2026-11-13 (branch claude/rp-01a-reproduce-script). The script's frame, the two clips' generator, the checks gain, celt and speex on stand-ins, the suite reproduce, docs/REPRODUCE.md, and section 14's measurements entered in the record. No recording goes into the repository in this part.
+
+Replaced or removed (next, W3-22 (moved to in_flight)):
+
+{"order": "W3-22", "file": "docs/work-orders/W3-22-miles-words.md", "after": "nothing; a small order", "line": "words only: the sentence that the codec was never checked against a running engine is replaced in the page, the README, the record, the vendored codec's README, three comments and the suite that pins it; the sitting entered in the record; the profile's behaviour is left (the receiver's two resets before a second press are measured, not read)."}

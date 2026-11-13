@@ -352,6 +352,30 @@ text was saved by copying it from Steam's console window, or from the file `cons
 of Steam's install, which holds the same lines with the stamps; that file also holds account names and addresses
 (measured).
 
+### The script run on the game's files (2026-11-13)
+
+Added 2026-11-13 at RP-01a's merge. The orchestrator ran `tests/reproduce.mjs`, as merged, on the recordings the
+game wrote in Sets H, I, M and O, which are private (measured; nothing of the files is here, only the script's
+counts). Each run ended "as expected". The earlier counts of findings 26 and 31 were made with other code and
+count the last packet in; the script counts it apart.
+
+| Set | Check | Result |
+| --- | --- | --- |
+| H | `celt` | 291,839 of 291,840 samples before the last packet equal, 1 one step off; in the last packet 0 of 512 differ |
+| H | `celt --high` | 291,765 of 291,840 equal, 75 one step off, none further |
+| H | `gain` | 0 of 291,840 differ before the last packet; 511 of 512 in the last packet, which differs between two presses |
+| I | `celt --any-rate`, with the 11025 Hz clip | 145,407 of 145,408 equal, 1 one step off |
+| I | `gain` | 0 of 145,408 differ before the last packet |
+| M | `speex` at `voice_maxgain` 1 | 145,840 of 145,840 compared samples equal; the recording ends before the render |
+| M | `speex` at `voice_maxgain` 10 | 145,966 of 145,966 equal |
+| O | `speex` at `voice_maxgain` 1 | 145,966 of 145,966 equal |
+| M, O | `gain` on the `vaudio_speex` pairs | 0 differ before the last 160 samples |
+| M and O | `inputs --against` the captured input | 145,964 of 145,964 equal to the clip from its third sample, then two zeros |
+
+A recording of another codec given to `speex` is refused (measured on one such file). These runs show that the
+script lines a file up as the game wrote it, which the suite's stand-ins cannot. Nobody else can repeat them until
+the recordings are published (order RP-01, part e).
+
 ### What was read
 
 The reports in `docs/reports/` say what was read from which file and where. Nothing of the files is in this repository. They were read as data with a disassembler and never run, and no leaked source was used. *Corrected by the owner's rule of 2026-11-11 (CLAUDE.md): since then a module may also be run, in a CPU emulator first, on signals of our own; TF2's `vaudio_speex` module (Set O) and the `vaudio_miles` plug-in's VR12 (W3-20a) were run that way. Its output is a measurement; nothing of the modules is copied.* Public sources were set beside them: libopus, CELT, Speex and FFmpeg's libswresample.

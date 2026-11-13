@@ -13,10 +13,12 @@ statement: the record does not give the default, and [FINDINGS.md, entry
 10](FINDINGS.md#10-the-older-engine-codecs) gives it as read): the checks of Steam's side (`hold`, `gate`,
 `queue`) are not built yet.
 
-Each check's section says "not yet run on a recording of the game" until the script itself has been run on one.
-The figures it expects come from the owner's runs of the same comparison, made with other code (findings 26 and
-31). A stand-in that this repository makes passes every check (the suite `reproduce`), but a stand-in cannot show
-that the script lines up a file as the game wrote it.
+Each check below was run on the owner's recordings of the game on 2026-11-13, with the script as it stands here,
+and gave "as expected" (measured; the record's entry "The script run on the game's files"). Each section gives
+that run's figures beside the record's older ones, which were made with other code (findings 26 and 31). Those
+recordings are not published yet (order RP-01e), so nobody else can repeat that run today: what CI runs is the
+suite `reproduce`, on stand-ins that this repository makes, and a stand-in cannot show that the script lines up a
+file as the game wrote it.
 
 ## What you need
 
@@ -120,7 +122,8 @@ the 13.2 s clip fits.
 
 ## gain
 
-**not yet run on a recording of the game**
+**Run on the game's recordings on 2026-11-13** (measured): in Set H's pair 0 of 291,840 samples before the last
+packet differ; in Set I's pair 0 of 145,408; in the `vaudio_speex` pairs of Sets M and O, 0.
 
 **The claim.** The receiver's gain works on the decoded voice in blocks of 128 samples: each block sets the next
 block's target, `min(voice_maxgain, 32767 / (mean + voice_avggain × (peak − mean)))`, the gain ramps toward it in
@@ -146,7 +149,9 @@ pair.
 
 ## celt
 
-**not yet run on a recording of the game**
+**Run on the game's recordings on 2026-11-13** (measured, the last packet apart): Set H under `vaudio_celt`, 291,839 of
+291,840 samples equal; under `vaudio_celt_high`, 291,765 of 291,840; Set I with `--any-rate`, 145,407 of 145,408.
+Every other sample is one step off.
 
 **The claim.** `vaudio_celt` and `vaudio_celt_high` are the public CELT 0.11 source at the commit this repository
 pins, built with its pitch pre-filter and post-filter, at complexity 5, with 16-bit entry points. `vaudio_celt` is
@@ -180,7 +185,9 @@ order RP-01, not a figure of the record), and counts the last packet apart.
 
 ## speex
 
-**not yet run on a recording of the game**
+**Run on the game's recordings on 2026-11-13** (measured): Set M at `voice_maxgain 1`, 145,840 of 145,840 compared
+samples equal (the recording ends before the render does), and at 10, 145,966 of 145,966; Set O at 1, 145,966 of
+145,966. The captured input, with `inputs --against`: 145,964 of 145,964, then two zeros.
 
 **The claim.** TF2's 32-bit game runs `vaudio_speex` (measured, finding 31). It is Speex 1.0.2 or 1.0.1,
 narrowband at quality 4, 20 bytes a frame, enhancement on, fed the engine's 11025 Hz sound with no resampling

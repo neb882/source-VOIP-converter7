@@ -295,3 +295,12 @@ the game wrote (celt, gain, speex and `inputs --against` on Sets H, I, M and O);
   changed; the number stays v39`.
 - The diff and the commit messages were scanned again: no recordings, personal details, SteamIDs, paths or model
   names but the trailer lines.
+
+## The orchestrator's private run (2026-11-13; figures only)
+
+Added at the merge, by the orchestrator. The script at `4d91f75` was run on the game's own recordings of Sets H,
+I, M and O, which the builder and the reviewer never opened. Every run ended "as expected"; the counts are in the
+record ([tests/REFERENCE_2026.md](../../tests/REFERENCE_2026.md), "The script run on the game's files"). With
+that, each of `gain`, `celt` and `speex` has passed the first of the two proofs the order's section 7 asks for,
+and the page's marks "not yet run on a recording of the game" were replaced with that run's counts in the same
+merge. The second proof, the suite on the published files, is part f, after part e.
