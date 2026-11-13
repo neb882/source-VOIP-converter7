@@ -68,6 +68,30 @@ the new sentence and against the old ones, that `docs/owner-runs.md` no longer s
 entry 11 and has the one-press step, that `docs/PAGE.md` describes the note as it stands, and that `app/render.js`
 holds the new console line and not the old one.
 
+## The review and the second rulings
+
+The review found no code defect and no render moved, and six points of wording and tests. The orchestrator ruled
+on them in the order (its last section, items 8 to 13; main at e05aa11). Item 13 is the orchestrator's.
+
+| Item | Place | Done |
+| --- | --- | --- |
+| 8 | `docs/owner-runs.md`, the table at the head, the `vaudio_miles` row | the State cell says it was run once, on 2026-11-13, in Source SDK Base 2006, with a file as the microphone and with speech, and not in the 2007 engine, with a second player or with a lost packet. The suite's test is `!/nobody has run/i` |
+| 9 | `docs/VOICE-PATH.md`, the codec table's `miles` row | "not checked against the game" gives way to `docs/ACCURACY.md`'s standing, its figure copied: the codec stage against one sitting of Source SDK Base 2006 (not TF2) with a file as the microphone, 143,796 of 145,800 decoded samples equal (measured 2026-11-13); the profile as the page runs it not checked |
+| 10 | `app/console.js`, the help of `sv_voicecodec`; `constants.js`, the comment at the head of the profiles | "unverified" gives way to "its codec checked against one recording of a 2006 engine, the rest of the profile not". `status: 'unverified'` and its pin stay. No test pinned the help string. The suite `miles` checks both: the new words present, "unverified" absent from the help string and from the comment's sentence on `miles` (the list of status values below it keeps the word) |
+| 11 | `tests/miles.verify.mjs` | the older sentence ("nothing of a running engine with this codec has been recorded") is looked for in every place, the record and `tests/LEGACY_CODECS.md` included, in the text left after each marked correction is taken out; in the record the sentence a correction follows goes with it |
+| 12 | `tests/LEGACY_CODECS.md`, `tests/REFERENCE_2026.md`, this report | "the public implementation" for "the vendored build"; "gives the first press of one sitting" in the model table's row; the second correction under "What remains unverified" says "reset once before the press" and "exactly"; the done-means 2 row's line number is the current one |
+
+The breaks, each run against `node tests/miles.verify.mjs` and restored: "Otherwise nobody has run it." added to the
+section, and the table's old cell put back (item 8); the help string put back to "unverified", and "unverified"
+added beside the new words (item 10); the comment put back, and "and unverified" added (item 10); the older sentence
+added unmarked in `tests/LEGACY_CODECS.md`, and the record's correction after it deleted (item 11). Each of the eight
+fails the suite: `third set, missed or not found: 0`. The twenty earlier breaks still fail it: `missed or not
+found: 0`, `second set, missed or not found: 0`.
+
+Runs after the fix: `node tests/run.mjs miles site harness recordings reproduce` gives `5 of 5 suites passed.`; the
+browser suite under the lock (`flock /tmp/tf2ve-heavy.lock pnpm test:browser`) gives `417 browser checks passed` and
+`1 of 1 suites passed. 242.8 s summed`. `sw.js` and `tests/predictions/` are untouched.
+
 ## Commits
 
 | Commit | What |
@@ -77,7 +101,10 @@ holds the new console line and not the old one.
 | `63107a0` | the report as first written, at the stop |
 | `a801df6`, `f327396` | merges of `origin/main` (RP-01a; then the rulings) |
 | `718c21c` | the seven places as ruled, and the suite's new checks |
-| (this report's update) | |
+| `fd58690` | the report after the rulings |
+| `c6db78b`, `cf222c3` | merges of `origin/main` (RP-01e's first step; then the review's rulings) |
+| `e9100ba` | the review's points, rulings 8 to 12 |
+| (this report's second update) | |
 
 ## Runs
 
@@ -87,7 +114,7 @@ After the fix (head `718c21c`, with this report on top):
 | --- | --- | --- |
 | 1 | `node tests/miles.verify.mjs` | `77 miles checks passed` |
 | 1, the breaks | a script in the builder's scratch folder puts each place back to its old words in turn (README, LEGACY_CODECS, the vendor README, the head comments of `vendor/voxware-vr12/index.mjs` and the suite, the `miles` comment of `constants.js`, each of the record's two corrections, `docs/VOICE-PATH.md`, `docs/owner-runs.md` (its sentence, "Nobody has run this." added back, its step 5 reworded), the `opus-codec.mjs` comment (replaced, and the old sentence added beside the new), `docs/PAGE.md`'s description, the console line in `app/render.js` (put back, and changed by one word)), adds the old sentence back beside the new one in the README, and changes the note's third sentence by one word and back to the old sentence | each of the twenty breaks fails the suite: `missed or not found: 0` and `second set, missed or not found: 0` |
-| 2 | `grep -rn --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=predictions "has not been checked against any recording of a running engine" .` | `tests/REFERENCE_2026.md:1320` (the kept, corrected text; the other kept one is wrapped), `tests/miles.verify.mjs:735` and `:745` (the suite's test data), and the earlier reports, logs and orders: `docs/PROGRESS-LOG.md:260`, `docs/reports/W3-20b-miles-profile.md:56`, `docs/work-orders/W3-20b-miles-profile.md:292` and `:328`, `docs/work-orders/W3-22-miles-words.md:68`, and this report's own line quoting the command |
+| 2 | `grep -rn --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=predictions "has not been checked against any recording of a running engine" .` | `tests/REFERENCE_2026.md:1411` (the kept, corrected text; the other kept one is wrapped; it was line 1320 before the merge of main at 4b0bf77), `tests/miles.verify.mjs:735` and `:745` (the suite's test data), and the earlier reports, logs and orders: `docs/PROGRESS-LOG.md:260`, `docs/reports/W3-20b-miles-profile.md:56`, `docs/work-orders/W3-20b-miles-profile.md:292` and `:328`, `docs/work-orders/W3-22-miles-words.md:68`, and this report's own line quoting the command |
 | 3 | `flock /tmp/tf2ve-heavy.lock pnpm test` | `26 of 26 suites passed. 909.1 s summed, 909.1 s of wall time, 1 at a time.` |
 | 3 | `flock /tmp/tf2ve-heavy.lock pnpm test:browser`, with `CHROMIUM_EXECUTABLE` set as the brief says | `417 browser checks passed`; `1 of 1 suites passed. 262.9 s summed` (the run before it hung, below) |
 | 3, hashes | `git diff origin/main...HEAD --name-only` | seventeen files, none of them a recorded hash; `sw.js` untouched |
