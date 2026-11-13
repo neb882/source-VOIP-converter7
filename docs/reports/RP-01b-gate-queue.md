@@ -168,4 +168,23 @@ tolerance of G4. The page cites the record's entry and does not give 3,358.
 
 ## Runs
 
-(filled in below at the hand-back)
+- `flock /tmp/tf2ve-heavy.lock node tests/run.mjs reproduce site harness recordings miles steam-sender`: "6 of 6
+  suites passed"; `reproduce units passed 63.1`.
+- `node tests/run.mjs voice-channel` under the lock on `main` (`f855dd2`) and on the branch after the move, the times
+  cut: `diff` shows nothing (108.8 s and 101.7 s). The replay-only mode, `TF2VE_VOICE_REPLAY_ONLY=1 node
+  tests/voice-channel.verify.mjs --fixture <file>`, on a fixture of the suite's two logs (300 and 66.67 frames a
+  second) written with `log-to-fixture.mjs`: the same table before and after ("replay passed").
+- `node tests/reproduce.mjs inputs <folder>`: three files, `steam_mic_24000.wav` 679,200 samples, 1,358,444 bytes,
+  SHA-256 `3e02aaa5…8e873fde`, "as expected"; the two older clips' lines are the same as on `main`, line for line.
+- `pnpm test` under the lock on `17da848`: "27 of 27 suites passed. 1069.0 s summed"; `reproduce` 68.9 s,
+  `voice-channel` 95.7 s. The browser suite was not run here; CI ran it.
+- CI: run 43398554959 on `17da848`: `verify` success, all five jobs success. Its `units` log: "steam_mic_24000.wav
+  has the record's SHA-256 and length [3e02aaa585001e56…, 1358444 bytes]", `== reproduce: passed, 39.2 s`. This
+  report's last lines follow in a push that changes only `docs/`, which starts no run.
+- `node tests/cache-number.mjs origin/main --report`: "cache number against origin/main (f855dd2): no cached file
+  changed; the number stays v41".
+- `git diff origin/main --stat`: only files the order allows; `git diff origin/main -- tests/REFERENCE_2026.md`:
+  added lines only; `git diff origin/main -- steam-sender.js voice-channel.js engine sw.js
+  tests/voicequeue/log-to-fixture.mjs tests/voicequeue/reference-channel.mjs`: nothing.
+- The branch's diff and its commit messages were scanned for recordings, personal details, real SteamIDs, paths and
+  model names: none but the trailer lines.
