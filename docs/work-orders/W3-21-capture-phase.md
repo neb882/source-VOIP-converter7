@@ -1,6 +1,6 @@
 # W3-21: the phase of Steam's capture steps against the sound
 
-**Status 2026-11-13: being built** (the builder stopped once with two questions; the rulings are at the end). Written by the orchestrator from the investigation of 2026-11-13
+**Status 2026-11-13: merged** (the builder stopped once with two questions; the rulings are at the end; reviewed and read a second time, [the report](../reports/W3-21-capture-phase.md)). Written by the orchestrator from the investigation of 2026-11-13
 ([the report](../reports/W3-02c2-render-channel.md), "The investigation that followed").
 
 **Kind:** a change to how a `steam` render is computed. **Roles:** `tf-builder` (effort high), then `tf-reviewer`

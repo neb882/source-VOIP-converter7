@@ -186,9 +186,10 @@ async function steamSection() {
   }
   // The gate off: a sender setting; the same path after it.
   {
+    // The spurt starts at -2400 less the capture's lead (W3-21), read from the sender's info().
     const x = talk(4, 5), r = await render(x, { gate: false }), s = senderOf(x, { gate: false });
-    check('the gate off: one spurt from -2400, sender.gate false, codecInfo.gate null, one resampler call a message that holds samples',
-      r.codecInfo.spurts === 1 && r.codecInfo.sender.spurts[0].start === -2400 && r.codecInfo.sender.gate === false
+    check('the gate off: one spurt from -2400 - lead, sender.gate false, codecInfo.gate null, one resampler call a message that holds samples',
+      r.codecInfo.spurts === 1 && r.codecInfo.sender.spurts[0].start === -2400 - s.info.lead && s.info.lead > 0 && r.codecInfo.sender.gate === false
       && r.codecInfo.gate === null && r.codecInfo.resampler.calls === holding(s.msgs) && r.codecInfo.sender.messages === s.msgs.length,
       `${r.codecInfo.resampler.calls} calls, ${s.msgs.length} messages`);
   }
@@ -290,9 +291,11 @@ async function steamSection() {
     check('once per message: one resampler call for each message that holds samples (silence records among them)',
       r.codecInfo.resampler.calls === holding(s.msgs) && s.msgs.some((m) => m.silence !== undefined) && r.codecInfo.resampler.kernel === Swr.DEFAULT_KERNEL,
       `${r.codecInfo.resampler.calls} calls, ${s.msgs.length} messages`);
-    const exact = talk(4, 17).subarray(0, 96000), g = senderOf(exact, { seed: 0xC0FFEE, gate: false }), last = g.msgs[g.msgs.length - 1];
+    // 2400 + lead + the source a whole number of frames (W3-21: seed 0xC0FFEE's lead is 49, so
+    // 95,951 samples; 96,000 with no lead).
+    const exact = talk(4, 17).subarray(0, 96000 - Sender.createClock({ seed: 0xC0FFEE }).lead), g = senderOf(exact, { seed: 0xC0FFEE, gate: false }), last = g.msgs[g.msgs.length - 1];
     const rg = await render(exact, { seed: 0xC0FFEE, gate: false });
-    check('once per message: the gate off, 96,000 samples and seed 0xC0FFEE end on an empty end message, which makes no call',
+    check('once per message: the gate off, 96,000 samples less the lead (95,951) and seed 0xC0FFEE end on an empty end message, which makes no call',
       last.end && last.last === last.first - 1 && last.pcm.length === 0 && rg.codecInfo.resampler.calls === g.msgs.length - 1,
       `${rg.codecInfo.resampler.calls} calls, ${g.msgs.length} messages`);
     const three = bursts(8, [0.5, 3, 5.5], 1, -60), h = hooked();
@@ -962,7 +965,7 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
   // state it leaves (rule C) is shown on the codec module's stream with a
   // second spurt put after it.
   {
-    const exact = talk(4, 17).subarray(0, 96000), o = { seed: 0xC0FFEE, gate: false };
+    const o = { seed: 0xC0FFEE, gate: false }, exact = talk(4, 17).subarray(0, 96000 - senderOf(talk(4, 17), o).info.lead);   // as above
     const { msgs } = senderOf(exact, o), k = msgs.length - 1, marker = msgs[k];
     const calls = [], plain = await render(exact, o);
     const r = await render(exact, { ...o, loseMessage: (i) => { calls.push(i); return i === k; } });
@@ -1270,7 +1273,7 @@ async function liveSteamSection() {
         const eq = equalsRender(live, ren);
         check(`the live chain is the render with ${name} (blocks of ${plan})`,
           eq.diff === -1 && eq.n > 0.9 * ren.laid.length && eq.packets && eq.codes && eq.counted && live.stats.droppedLate === 0 && live.stats.movedLate === 0
-          && (o.gate !== false || (ren.info.sender.spurts.length === 1 && ren.info.sender.spurts[0].start === -S.preroll && live.gateDb === null))
+          && (o.gate !== false || (ren.info.sender.spurts.length === 1 && ren.info.sender.spurts[0].start === -S.preroll - Sender.createSender({ seed, gate: false }).info().lead && live.gateDb === null))
           && (o.agc !== false || clipped),
           `${eq.n} samples, first difference at ${eq.diff}; gate ${live.gateDb}${o.agc === false ? `; the render clips: ${clipped}` : ''}`);
       }
@@ -1639,6 +1642,41 @@ async function liveSteamSection() {
         same(runs.null, runs.undefined) && same(runs["''"], runs.undefined) && same(runs["'-46'"], runs['-46']) && !same(runs['-46'], runs.undefined)
         && peakAbs(runs.undefined[2]) > 0.05);
     }
+  }
+  // W3-21: the capture's lead moves the steps, not the sound. For seeds 1 to 20, a speech-like
+  // source at 44.1 kHz: where the gain's output (the mix point) lies against the source, by
+  // correlation within 60 samples and a parabola through the peak, in process(), createRender
+  // (blocks of 4096) and the live chain (blocks of 441). Measured on main before W3-21 (every
+  // seed: 23.804 samples in the renders, 23.902 in the live chain); with the lead each lies
+  // within a sample of that (23.66 to 24.70 measured): the spurts' anchors are rounded to the
+  // voice rate's samples (round((start - lookahead) x 147 / 80)), where a start that is no
+  // longer on the 31.25 ms grid falls between them (inferred). A shift by the lead would be up
+  // to 749 x 147 / 80 = 1,376 samples.
+  {
+    const SR = 44100, src = speechLike(4, SR, -20), lags = [];
+    const lagOf = (y) => {
+      const at = (d) => { let dot = 0; for (let i = SR / 2; i < Math.min(src.length, y.length) - SR / 2; i++) dot += src[i] * y[i + d]; return dot; };
+      let best = -Infinity, k = 0;
+      for (let d = -60; d <= 60; d++) { const v = at(d); if (v > best) { best = v; k = d; } }
+      if (Math.abs(k) === 60) return Infinity;
+      const a = at(k - 1), b = best, e = at(k + 1);
+      return k + 0.5 * (a - e) / (a - 2 * b + e);
+    };
+    for (let seed = 1; seed <= 20; seed++) {
+      const g1 = [], g2 = [], g3 = [];
+      await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam', seed, onGain: (g) => g1.push(Float32Array.from(g)) });
+      const r = await TF2Audio.createRender({ sampleRate: SR, length: src.length, numberOfChannels: 1 }, { codec: 'steam', seed, onGain: (g) => g2.push(Float32Array.from(g)) });
+      for (let o = 0; o < src.length; o += 4096) await r.push(src.subarray(o, o + 4096));
+      await r.finish();
+      const chain = await TF2Audio.createLiveChain({ codec: 'steam', seed, onGain: (g) => { if (g.length) g3.push(Float32Array.from(g)); } }, SR);
+      try { for (let o = 0; o < src.length; o += 441) await chain.process(src.subarray(o, o + 441)); } finally { chain.free(); }
+      lags.push([lagOf(join(g1)), lagOf(join(g2)), lagOf(join(g3))]);
+    }
+    const MAIN = [23.804, 23.804, 23.902];
+    const off = lags.flatMap((l) => l.map((v, k) => v - MAIN[k]));
+    check('seeds 1 to 20: the render, the stream render and the live chain lie at the mix point within one sample of where they lay before W3-21 (the capture\'s lead moves no sound)',
+      off.every((d) => Math.abs(d) < 1) && lags.every(([a, b]) => a === b),
+      `${Math.min(...lags.flat()).toFixed(3)} to ${Math.max(...lags.flat()).toFixed(3)} samples; before: 23.804, 23.804 and 23.902`);
   }
   // steam_48 keeps the frame path: its live output is pinned bit for bit.
   // The hashes were made on main before W3-11b (2026-11-10) and re-recorded
