@@ -89,7 +89,7 @@ orchestrator's private investigation of the owner's older engine files; the fact
 | Settings | the codec is always VR12 (the plug-in's other two are never asked for); the `quality` argument is never read; no rate or width is read or set | read |
 | Selection | in the 2006 and 2007 engines `sv_voicecodec` defaults to `vaudio_speex`, and its value is loaded as a library by name, any name, with no list and no fall-back, so `vaudio_miles` was accepted; if loading fails, voice is disabled with a message | read |
 | Call | a packet is the codec's output for one call: whole 12-byte frames end to end; samples that do not fill a frame stay in the codec object; one call takes at most 1024 samples | read, both engines |
-| Frames per packet | how many a packet held in a running engine: two from a full call, three with left-overs, is a guess from the sizes | not known |
+| Frames per packet | how many a packet held in a running engine: two from a full call, three with left-overs, is a guess from the sizes. *Corrected by W3-22 (2026-11-13): in one sitting of Source SDK Base 2006 a packet held one frame of 360 samples in 2,741 of 2,746 messages and two frames in the other five* | measured in one sitting (was: not known) |
 | Codec objects | the sender's encoder and each receive channel are separate codec objects, each with both halves; the receiver's reset decodes silence coded by its own object's encoder | read, both engines |
 | Sender | every `+voicerecord` press resets the encoder's codec object (the wrapper's reset); a release sends one more packet with the final flag: a part frame padded with zeros, nothing kept | read, both engines |
 | Receiver | a packet from a speaker with no channel gets one: its codec object reset, its buffer emptied, the gain reset to unity, playback after 0.2 s; a packet from a speaker with a channel is decoded at once, with no reset. A channel is freed when its buffer has run dry; there is no timer. So after a pause longer than what the receiver had buffered the next spurt starts from reset on both sides, the gain at unity; after a shorter one only the sender has been reset | read, both engines; that the buffer holds about the 0.2 s wait in practice is a guess |
@@ -125,8 +125,9 @@ orchestrator's private investigation of the owner's older engine files; the fact
   reproduce the plug-in's two transforms operation for operation.
 - **In the app** (W3-20b: the `miles` profile, `constants.js`; `opus-codec.mjs`, `vr12RoundTrip` and
   `createVr12Stream`). `vaudio_miles` is not a Team Fortress 2 codec: it is a codec of the Source engine family that
-  could be selected in the Source engines of 2006 and 2007, and current TF2 ships its files and refuses the name. It
-  has not been checked against any recording of a running engine. The profile is the codec stage of those engines set
+  could be selected in the Source engines of 2006 and 2007, and current TF2 ships its files and refuses the name. Its
+  codec stage was checked against one sitting of a 2006 engine on 2026-11-13; the profile as the app runs it was not.
+  The profile is the codec stage of those engines set
   into the app's chain: the sender resamples to 11025 Hz as for `speex`; two codec objects, the sender's and the
   receiver's, each reset at the render's start (the key press and the channel's assignment), with a framer on each;
   each sample made 16 bits as for `speex` (to nearest, ties to even, clamped) and cut to 8 by the module; the receiver's
@@ -167,9 +168,19 @@ orchestrator's private investigation of the owner's older engine files; the fact
     -62.7. In its spurts (-20.0 dBFS) the decoder gives -22.6 (`speex`: -19.3). A steady voiced sound at 140 Hz
     decodes at -16.9 dBFS for 0 in (clipped at the capture), -13.3 for -12, -25.5 for -24, -41.2 for -36, -56.5 for
     -42, -61.4 for -48 and -63.9 for -60; below about -50 dBFS RMS (its peak under 256) only its signs are left.
-- **What remains unknown:** how many frames a packet held in a running engine; the encoder's real start-up block
-  (uninitialised memory in all three wrappers); what a listener heard at a lost packet, beyond that the decoder is not
-  called; the old engines' mixer and output stage. Nothing of a running engine with this codec has been recorded.
+- **Against a running engine** (measured 2026-11-13, one sitting of the owner's in Source SDK Base 2006; private,
+  numbers only; finding 31 has it whole). With a 13 s clip of ours as the microphone, the public implementation,
+  reset once before the press, gives 143,796 of the game's 145,800 decoded samples exactly and 144,952 within one
+  step. A second press, at `voice_maxgain 10`, comes out in 143,913 of 145,800 samples after the gain when the
+  receiver's codec is reset twice before it and the sender's once. The `miles` profile itself was not run against
+  the sitting.
+- **What remains unknown:** the encoder's real start-up block (uninitialised memory in all three wrappers); why the
+  first frames after a silence of 0.5 s or more differ in that sitting (the public implementation, or the opening block
+  the module does not set); why the receiver's codec is reset twice before a second press (measured, not read); what a
+  listener heard at a lost packet, beyond that the decoder is not called; the old engines' mixer and output stage; the
+  profile as the app runs it, whose talk-start resets, held gain and lost frame are stand-ins. *Corrected by W3-22
+  (2026-11-13): this bullet also named how many frames a packet held in a running engine, and ended "Nothing of a
+  running engine with this codec has been recorded."*
 
 ## The receiver gain's blocks (W3-19)
 

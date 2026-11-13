@@ -101,7 +101,7 @@ The codec menu has six profiles in two groups. Four are in Team Fortress 2, and 
 | vaudio_celt_high (44 kHz mode) | `celt_44` | yes | CELT 0.11 in its 44100 Hz mode on 22050 Hz sound | 46.4 ms, 128 bytes, band to about 10 kHz | measured: the decoder's output, all but 75 of 292,864 samples (finding 31) |
 | vaudio_speex (Speex, 11 kHz) | `speex` | yes, in the 32-bit game only | Speex 1.0.2 on 11025 Hz sound | 14.51 ms, 20 bytes, band to 5.5 kHz | measured: the decoder's output after the gain, 145,966 of 145,966 samples in TF2's 32-bit game (Set O, finding 31) |
 | Fullband Opus: not in the game | `steam_48` | no, never | libopus 1.1.5 | 48000 Hz, 20 ms, 64 kbit/s | none: the app's own extra |
-| vaudio_miles: not in TF2 (VR12) | `miles` | no, never | Voxware VR12 on 11025 Hz sound | 32.65 ms, 12 bytes, 2940 bit/s | not checked against the game |
+| vaudio_miles: not in TF2 (VR12) | `miles` | no, never | Voxware VR12 on 11025 Hz sound | 32.65 ms, 12 bytes, 2940 bit/s | the codec stage against one sitting of Source SDK Base 2006 (not TF2) with a file as the microphone: 143,796 of 145,800 decoded samples equal (measured 2026-11-13); the profile as the page runs it not checked |
 
 The figures of the game's codecs are in [FINDINGS.md, entry 10](FINDINGS.md#10-the-older-engine-codecs).
 
@@ -117,7 +117,7 @@ The figures of the game's codecs are in [FINDINGS.md, entry 10](FINDINGS.md#10-t
 
 **`steam_48`, not in Team Fortress 2.** Opus at 48000 Hz and 64 kbit/s with the frame gate, a float decoder and the app's own resampler. It is the app's own guess at Steam voice with a full band (guessed), and nothing in it was measured against a game.
 
-**`miles`, not in Team Fortress 2.** `vaudio_miles` could be selected in the Source engines of 2006 and 2007; current TF2 ships its files and refuses the name ([FINDINGS.md, entry 11](FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2)). The codec stage is those engines' as read: each sample cut to its top 8 bits, then VR12, 360 samples in 12 bytes. The codec itself is a public implementation, vendored in `vendor/voxware-vr12/`. It has not been checked against any recording of a running engine. Four things in the profile are stand-ins (guessed): the encoder's start-up block is coded as zeros, a new phrase resets both the encoder and the decoder, the gain is held through time in which nothing was sent, and a lost frame plays as zeros. Everything after the gain is TF2's of today, which is not what those engines had. [tests/LEGACY_CODECS.md](../tests/LEGACY_CODECS.md#vaudio_miles) has the detail.
+**`miles`, not in Team Fortress 2.** `vaudio_miles` could be selected in the Source engines of 2006 and 2007; current TF2 ships its files and refuses the name ([FINDINGS.md, entry 11](FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2)). The codec stage is those engines' as read: each sample cut to its top 8 bits, then VR12, 360 samples in 12 bytes. The codec itself is a public implementation, vendored in `vendor/voxware-vr12/`. Its codec stage was checked against one sitting of a 2006 engine on 2026-11-13; the profile as the app runs it was not. Four things in the profile are stand-ins (guessed): the encoder's start-up block is coded as zeros, a new phrase resets both the encoder and the decoder, the gain is held through time in which nothing was sent, and a lost frame plays as zeros. Everything after the gain is TF2's of today, which is not what those engines had. [tests/LEGACY_CODECS.md](../tests/LEGACY_CODECS.md#vaudio_miles) has the detail.
 
 ## Rooms
 

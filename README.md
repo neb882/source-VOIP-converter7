@@ -61,7 +61,7 @@ The codec menu has two groups, "Team Fortress 2" and "Not in Team Fortress 2". A
 
 "Sample for sample" means all samples but a few that are one step off; the counts are in [docs/VOICE-PATH.md](docs/VOICE-PATH.md#codecs). For the three older codecs only the decoded voice was recorded, not what a listener hears.
 
-`vaudio_miles` is not a Team Fortress 2 codec: current TF2 ships its files and refuses the name. It has not been checked against any recording of a running engine. Its entry is in [docs/FINDINGS.md](docs/FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2), and [tests/LEGACY_CODECS.md](tests/LEGACY_CODECS.md) has what is known of the older codecs.
+`vaudio_miles` is not a Team Fortress 2 codec: current TF2 ships its files and refuses the name. Its codec stage was checked against one sitting of a 2006 engine on 2026-11-13; the profile as the app runs it was not. Its entry is in [docs/FINDINGS.md](docs/FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2), and [tests/LEGACY_CODECS.md](tests/LEGACY_CODECS.md) has what is known of the older codecs.
 
 ## What we found
 
@@ -77,7 +77,7 @@ Each line is one entry of [docs/FINDINGS.md](docs/FINDINGS.md), which gives the 
 8. [The mixer and the output](docs/FINDINGS.md#8-the-mixer-and-the-output) clip at ±32767 before `volume`, and Windows converts the result to the device's rate by linear interpolation (read; the conversion measured).
 9. [Rooms](docs/FINDINGS.md#9-rooms) take a share of every voice where the map sets one: 26 parts of 256 for a numbered room, 5 to 72 for the automatic room (read; measured in three sets).
 10. [The older engine codecs](docs/FINDINGS.md#10-the-older-engine-codecs) run at 22050 and 11025 Hz, and Speex is fed 11025 Hz sound though it is made for 8000 Hz (read; measured).
-11. [`vaudio_miles`](docs/FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2), never in TF2, is Voxware VR12 behind a cut to 8 bits (read; no recording of a running engine).
+11. [`vaudio_miles`](docs/FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2), never in TF2, is Voxware VR12 behind a cut to 8 bits (read; its codec measured against one sitting of a 2006 engine).
 
 The same document says what rests on one PC and what others had published before.
 
@@ -88,7 +88,7 @@ The same document says what rests on one PC and what others had published before
 - **When a phrase starts.** A render keeps the source's own timing; the game starts some phrases early. On the owner's speech take the model of the game's queue gets 47% of the 9 changes between phrases right, as a mean over many draws of the sender's clock, with a start error of 122 ms (a private check). Part of this cannot be closed, because where the sender's clock stood while the talker spoke is not in a recording.
 - **The receiver's queue.** Replayed over the game's logged packets, with the mixer's demand taken from the log, the module gives the logged queue on every tick (measured, Set G). A render runs it when `opts.timeline` is `'game'`; the page does not offer that yet (W3-02d, not built yet).
 - **Jitter.** The jitter setting is a fit to one recording. The game's own behaviour, whole messages delayed and bunched, is not built yet.
-- **The one codec in the menu that comes from older Source engines** and was never in TF2. No recording of a running engine exists to check it against.
+- **The one codec in the menu that comes from older Source engines** and was never in TF2. Its codec stage was checked against one recording of a 2006 engine; the profile as the app runs it was not.
 
 **The finish line.** The tool is finished when every stage of the modern preset is either equal to a take sample for sample or has its remaining difference measured and explained. The research beside it (the older codecs beyond TF2's, bad connections in depth) has no finish line and is a second track.
 

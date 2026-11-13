@@ -1,6 +1,6 @@
 # W3-22: the words on `vaudio_miles` after the 2006 sitting
 
-**Status 2026-11-13: not started.** Written by the orchestrator.
+**Status 2026-11-13: merged** (built, stopped once, reviewed; the rulings are at the end; [the report](../reports/W3-22-miles-words.md)). Written by the orchestrator.
 
 **Kind:** words, the suite that pins them, and the record. No render changes: no recorded hash may move.
 **Roles:** `tf-builder` (effort high), then `tf-reviewer`. **Branch:** `claude/w3-22-miles-words`, from `main`.

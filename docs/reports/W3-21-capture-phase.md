@@ -323,3 +323,27 @@ is not shown by this run, and the shift stays not explained.
   branch's name.
 - The CI result on this round's head is in the hand-back.
 
+## The orchestrator's private runs (2026-11-13)
+
+Run after the merge against the owner's recordings, which are not public. Only figures are given, and every
+figure here is measured.
+
+- **The side of the lead.** The investigation's comparison put the source 318 samples later against the capture's
+  steps, which is what this order builds. With it the sender alone starts the eight phrases before Set D's 440 ms
+  pauses 24.5 ms before or 6.7 ms after the gate model's start, and the demo's phrases start at those two values.
+  The record's finding 28 has the figures.
+- **Before and after, against three takes.** One script rendered each take's source with `timeline: 'game'` at 300
+  frames a second and Steam's own threshold at the sender's seeds 1 to 30, on main before the merge (`e05aa11`) and
+  after it, and counted the seeds in which the render has the take's kind of change at each change between phrases.
+
+  | Take | Changes | Before | After | Every change right, before | After |
+  | --- | ---: | ---: | ---: | ---: | ---: |
+  | `net_baseline` | 12 | 291 of 360 | 327 of 360 | 15 of 30 | 21 of 30 |
+  | `sender_A` | 16 | 282 of 480 | 290 of 480 | 0 | 1 |
+  | the speech take | 9 | 155 of 270 | 155 of 270 | 0 | 0 |
+
+- **What it shows.** The phase helps at the 240 ms pauses of the network take. At the ten changes around the 420
+  and 440 ms pauses of `sender_A` it moves which changes a render gets right (2, 2, 8, 8, 23, 6, 6, 22, 15, 15 of
+  30 before; 14, 14, 8, 8, 15, 13, 13, 11, 9, 9 after) and the total hardly (107 of 300 against 114). The
+  investigation named the capture's phase as the cause of the shortfall there; these runs show it is a small part
+  of it, and the rest is open.

@@ -136,7 +136,8 @@ Most controls have a console name; how long the sender's Steam has run and the l
 The **Voice codec** menu has two groups. "Team Fortress 2": Steam voice, `vaudio_celt`, `vaudio_celt_high`,
 `vaudio_speex`. "Not in Team Fortress 2": Fullband Opus (`steam_48`, not in TF2) and `vaudio_miles` (not in TF2;
 a codec of the Source engines of 2006 and 2007). Each entry of the second group says so itself, and with
-`vaudio_miles` chosen a note under the menu says it is not a TF2 codec and not checked against any recording. What
+`vaudio_miles` chosen a note under the menu says it is not a TF2 codec, that its codec was checked against one
+recording of a 2006 engine, and that the rest of the profile was not. What
 each codec runs, and its standing, is in the README's codec table and in [VOICE-PATH.md](VOICE-PATH.md).
 
 **What this browser remembers.** In its own storage, and nowhere else:

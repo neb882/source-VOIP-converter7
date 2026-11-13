@@ -5,7 +5,8 @@ nominal 8000 Hz, which the module reaches through a Miles Sound System plug-in. 
 (selectable in the Source engines of 2006 and 2007, where the default was already `vaudio_speex`); current TF2 ships it
 and refuses it**: its 32-bit folder has the module, Miles and the plug-in, and asked for the name it prints
 "Voice_Init Failed: invalid voice codec vaudio_miles." (`tests/REFERENCE_2026.md` finding 31). The app's `miles`
-profile loads it when that profile is first used (W3-20b). It has not been checked against any recording of a running engine.
+profile loads it when that profile is first used (W3-20b). Its codec stage was checked against one sitting of a 2006
+engine on 2026-11-13; the profile as the app runs it was not.
 
 ## Where it comes from
 
@@ -105,6 +106,6 @@ clipped signals; the figures for all eight signals the plug-in and the wrapper w
 The plug-in is x87 code that inherits the caller's precision. It gives the same output at 53-bit and at 64-bit
 precision on every vector, so this build's double arithmetic needs nothing more (measured).
 
-Not known: nothing of a running engine with this codec has been recorded; the encoder's real start-up block
-(uninitialised memory in all three wrappers); how many frames a packet held in a running engine; what the listener
-heard at a lost packet, beyond that the decoder is not called.
+Not known: the encoder's real start-up block (uninitialised memory in all three wrappers); what the listener heard at
+a lost packet, beyond that the decoder is not called; why the first frames after a long silence differ from the 2006
+engine's in its one recorded sitting (`tests/REFERENCE_2026.md` finding 31 has that sitting).
