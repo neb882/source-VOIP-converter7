@@ -1310,6 +1310,8 @@ function timelineChecks() {
   }
   {
     // A pre-roll before sample 0 is sound, not a record: the first message's source is negative.
+    // Seed 4's capture has a lead of 599 samples (W3-21): the pre-roll starts at -2400 - 599
+    // = -2999, at 44.1 kHz -5511, -0.125 s (-2400, -4410 and -0.1 s before W3-21).
     const r = engineRun({ loud: [[0, 1]], seconds: 3, fps: 300, seed: 4 });
     const msg = (tick, n, source) => ({ tick, pcm: new Float32Array(n).fill(0.5), source });
     // By hand, a pre-roll of 0.2 s, so that some of it is heard after output 0 (W3-02c-1's zero
@@ -1317,8 +1319,8 @@ function timelineChecks() {
     const hand = [msg(0, 7056, -8820)];
     for (let t = 4; t <= 120; t += 4) hand.push(msg(t, 1764, -8820 + 7056 + 1764 * (t / 4 - 1)));
     const h = timelineRun(hand, { fps: 300, length: 44100 * 3 });
-    check('a spurt that starts before sample 0 (its pre-roll) is sound: one spurt from -0.1 s (by hand, -0.2 s); where its pre-roll is heard after output 0 the source map says -1',
-      r.messages[0].start === -2400 && r.pushed[0].source === -4410 && r.info.spurts.length === 1 && r.info.spurts[0].start === -0.1 && r.info.spurts[0].opened
+    check('a spurt that starts before sample 0 (its pre-roll and the capture\'s lead) is sound: one spurt from -5511 / 44100 s (by hand, -0.2 s); where its pre-roll is heard after output 0 the source map says -1',
+      r.messages[0].start === -2400 - 599 && r.pushed[0].source === -5511 && r.info.spurts.length === 1 && r.info.spurts[0].start === -5511 / 44100 && r.info.spurts[0].opened
       && h.info.spurts.length === 1 && h.info.spurts[0].start === -0.2 && h.samples[441] !== 0 && h.info.source[0] === -1 && h.info.source[10] > 0,
       `slot 0 plays ${h.samples[441]} and maps to ${h.info.source[0]}; slot 10 to ${h.info.source[10]}`);
     // The stand-in's messages are spec 4's: zeros, 882 a frame, round(samples x 44100 / 24000)
@@ -1382,12 +1384,13 @@ function timelineChecks() {
     check('300 fps: the first spurt opens a channel, its offsetStartMs between -45 and +50', first.every((s) => s.opened && s.offsetStartMs >= -45 && s.offsetStartMs <= 50),
       `${range(first.map((s) => s.offsetStartMs))} ms; dropped ${range(first.map((s) => s.droppedMs))} ms`);
     const own = runs.map((r) => r.sp[2]).filter((s) => s.own);
-    // 42 of these 50 seeds: in the other 8 the chunk after the final one is active (the ENDED
+    // 35 of these 50 seeds: in the other 15 the chunk after the final one is active (the ENDED
     // state: no record), so the timeline keeps one spurt. The seeds are fixed: the count is exact.
     // (On W3-02b's clock it was 38 of 50, starting -20 to +60 ms; re-derived for W3-16's clock,
-    // whose capture steps are read up to 44 ms after their time.)
-    check('300 fps: after 500 ms the next spurt is one of its own in 42 of the 50 seeds, and then is appended, starting -46 to +35 ms from the source (W3-02b: 0 to +80)',
-      own.length === 42 && own.every((s) => !s.opened && s.offsetStartMs >= -46 && s.offsetStartMs <= 35), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
+    // whose capture steps are read up to 44 ms after their time, 42 of 50; with the capture's
+    // phase of W3-21, 35 of 50, starting -20.7 to +23.1 ms.)
+    check('300 fps: after 500 ms the next spurt is one of its own in 35 of the 50 seeds (the seeded runs with the capture\'s phase; 42 before W3-21), and then is appended, starting -46 to +35 ms from the source (W3-02b: 0 to +80)',
+      own.length === 35 && own.every((s) => !s.opened && s.offsetStartMs >= -46 && s.offsetStartMs <= 35), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
     const last = runs.map((r) => r.sp[3]);
     check('300 fps: after 1200 ms it opens a channel and loses 30 to 170 ms to overflow', last.every((s) => s.own && s.opened && s.droppedMs >= 30 && s.droppedMs <= 170),
       `${range(last.map((s) => s.droppedMs))} ms; starts ${range(last.map((s) => s.offsetStartMs))} ms`);
@@ -1403,9 +1406,11 @@ function timelineChecks() {
     const runs = sweep([0.9, 0.6, 1.2], 300);
     collect(runs, 300);
     const after = runs.map((r) => r.sp[1]), app = after.filter((s) => !s.opened);
-    // 160 to 310 ms early since W3-16's clock (190 to 330 before); moved by W3-02c-1's zero.
-    check('300 fps: after 900 ms the spurt is appended in at least 45 seeds, and then starts 205 to 356 ms early (W3-02b: 160 to 310)',
-      after.every((s) => s.own) && app.length >= 45 && app.every((s) => s.offsetStartMs >= -356 && s.offsetStartMs <= -205), `${app.length} of 50; ${range(app.map((s) => s.offsetStartMs))} ms`);
+    // 160 to 310 ms early since W3-16's clock (190 to 330 before); moved by W3-02c-1's zero to
+    // 205 to 356; with the capture's phase of W3-21, 199.1 to 374.1 in the seeded runs (48 of
+    // 50 appended), bounded at 199 and 375.
+    check('300 fps: after 900 ms the spurt is appended in at least 45 seeds, and then starts 199 to 375 ms early (the seeded runs with the capture\'s phase; 205 to 356 before W3-21; W3-02b: 160 to 310)',
+      after.every((s) => s.own) && app.length >= 45 && app.every((s) => s.offsetStartMs >= -375 && s.offsetStartMs <= -199), `${app.length} of 50; ${range(app.map((s) => s.offsetStartMs))} ms`);
     const slow = sweep([0.9, 0.6, 1.2], 66.67);
     collect(slow, 66.67);
     check('67 fps: the same spurt opens a channel (the queue holds only 0.25 s), starting -60 to +50 ms from the source',
@@ -1417,13 +1422,24 @@ function timelineChecks() {
     // mean offsetStartMs is within the block grid's half block (5.8 ms) of 0, and with the
     // grid's own move taken out ((D - 44100 x (latency + arrival)) / 44.1 ms) the two rates'
     // spurts average to the arrival constant's precision.
+    //
+    // W3-21 (the capture's phase): the bound with the grid taken out was 0.1 ms, the precision
+    // of a constant fitted on these very seeds. It is now 3 standard errors of this run's mean
+    // (by spurt; about 1.95 ms), and the spurts are not independent within a seed. Measured
+    // 2026-11-13 over seeds 1 to 400 by block of seeds (1-200, 51-200, 201-400), the mean with
+    // the grid out lies between +0.4 and +3.6 ms, at lead 0 and with the lead alike (seeds 1 to
+    // 50: +0.02 at lead 0, -0.30 with the lead); the lead moves it by -0.3 to -0.75 ms, paired
+    // by seed (docs/reports/W3-21-capture-phase.md).
+    // The count opened at 300 fps was 205 before W3-21 and is 206 with the seeded runs' phase.
     const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length;
+    const se = (v) => { const m = mean(v); return Math.sqrt(v.reduce((a, x) => a + (x - m) ** 2, 0) / (v.length - 1) / v.length); };
     const grid = (fps) => (zeroOf(100, fps) - 44100 * (latency(100, fps) + ARRIVAL_MS / 1000)) / 44.1;
     const m300 = mean(opened[300]), m67 = mean(opened[66.67]);
-    const pooled = mean([...opened[300].map((x) => x + grid(300)), ...opened[66.67].map((x) => x + grid(66.67))]);
-    check('an opened spurt\'s offsetStartMs averages within 5.8 ms of 0 at 300 and at 67 fps (layouts P and Q, seeds 1 to 50), and to within 0.1 ms with the block grid taken out',
-      opened[300].length === 205 && opened[66.67].length === 250 && Math.abs(m300) <= 5.8 && Math.abs(m67) <= 5.8 && Math.abs(pooled) <= 0.1,
-      `300 fps ${m300.toFixed(2)} ms over ${opened[300].length}, 67 fps ${m67.toFixed(2)} ms over ${opened[66.67].length}; the grid moves them ${grid(300).toFixed(2)} and ${grid(66.67).toFixed(2)}; both, grid out: ${pooled.toFixed(3)} ms`);
+    const both = [...opened[300].map((x) => x + grid(300)), ...opened[66.67].map((x) => x + grid(66.67))];
+    const pooled = mean(both), bound = Math.max(0.1, 3 * se(both));
+    check(`an opened spurt's offsetStartMs averages within 5.8 ms of 0 at 300 and at 67 fps (layouts P and Q, seeds 1 to 50), and with the block grid taken out (measured ${pooled.toFixed(3)} ms) to within 3 standard errors of these 50 seeds, whose spurts are not independent within a seed (${bound.toFixed(2)} ms); on seeds 1 to 400 the mean lies between +0.4 and +3.6 ms by block of seeds (1-200, 51-200, 201-400; measured 2026-11-13)`,
+      opened[300].length === 206 && opened[66.67].length === 250 && Math.abs(m300) <= 5.8 && Math.abs(m67) <= 5.8 && Math.abs(pooled) <= bound,
+      `300 fps ${m300.toFixed(2)} ms over ${opened[300].length}, 67 fps ${m67.toFixed(2)} ms over ${opened[66.67].length}; the grid moves them ${grid(300).toFixed(2)} and ${grid(66.67).toFixed(2)}; both, grid out: ${pooled.toFixed(3)} ms, 3 standard errors ${(3 * se(both)).toFixed(3)} ms`);
     // The same spurts in W3-02c-2's frame: each source the position of its first captured
     // sample less the codec's look-ahead, round((start - 156) x 44100 / 24000) (engineRun's
     // messages, pushed again here with that source), and the timeline told so by codecDelay.
@@ -1441,10 +1457,11 @@ function timelineChecks() {
     for (const fps of [300, 66.67]) for (const lay of [layout([0.3, 0.5, 1.2]), layout([0.9, 0.6, 1.2])]) for (let seed = 1; seed <= 50; seed++) inFrame[fps].push(...shifted(lay, fps, seed));
     const gridC = (fps) => (zeroOf(100, fps, OPUS_DELAY) - 44100 * (latency(100, fps) + ARRIVAL_MS / 1000 + OPUS_DELAY)) / 44.1;
     const c300 = mean(inFrame[300]), c67 = mean(inFrame[66.67]);
-    const pooledC = mean([...inFrame[300].map((x) => x + gridC(300)), ...inFrame[66.67].map((x) => x + gridC(66.67))]);
-    check('with sources earlier by the codec\'s 156 samples and codecDelay 156 / 24000, the same spurts average within 5.8 ms of 0 at 300 and 67 fps, and to within 0.1 ms with the grid taken out',
-      inFrame[300].length === 205 && inFrame[66.67].length === 250 && Math.abs(c300) <= 5.8 && Math.abs(c67) <= 5.8 && Math.abs(pooledC) <= 0.1,
-      `300 fps ${c300.toFixed(2)} ms, 67 fps ${c67.toFixed(2)} ms; the grid moves them ${gridC(300).toFixed(2)} and ${gridC(66.67).toFixed(2)}; both, grid out: ${pooledC.toFixed(3)} ms`);
+    const bothC = [...inFrame[300].map((x) => x + gridC(300)), ...inFrame[66.67].map((x) => x + gridC(66.67))];
+    const pooledC = mean(bothC), boundC = Math.max(0.1, 3 * se(bothC));
+    check(`with sources earlier by the codec's 156 samples and codecDelay 156 / 24000, the same spurts average within 5.8 ms of 0 at 300 and 67 fps, and with the grid taken out (measured ${pooledC.toFixed(3)} ms) to within 3 standard errors of these 50 seeds (${boundC.toFixed(2)} ms), as above`,
+      inFrame[300].length === 206 && inFrame[66.67].length === 250 && Math.abs(c300) <= 5.8 && Math.abs(c67) <= 5.8 && Math.abs(pooledC) <= boundC,
+      `300 fps ${c300.toFixed(2)} ms, 67 fps ${c67.toFixed(2)} ms; the grid moves them ${gridC(300).toFixed(2)} and ${gridC(66.67).toFixed(2)}; both, grid out: ${pooledC.toFixed(3)} ms, 3 standard errors ${(3 * se(bothC)).toFixed(3)} ms`);
   }
   console.log('The timeline: the 400 ppm (one 60 s spurt, seeds 1 to 10)');
   {
