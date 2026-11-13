@@ -1,6 +1,6 @@
 # RP-01b: the checks `gate` and `queue` of the reproduce-it script, and what happens to `hold`
 
-**Status 2026-11-13: planned, read by a plan reviewer (build after edits; the edits are the last section), not built.** It supersedes part b of
+**Status 2026-11-13: built; run by the orchestrator on the private logs (every real log as expected); reviewed (merge after fixes: the last section); the builder is on the fix round.** It supersedes part b of
 [RP-01](RP-01-reproduce-it.md) (its sections 3 to 5, 9 and 15). Written by a planner's pass on `main` at
 `695a584` ([the planning report](../reports/RP-01b-plan.md)). The planner read the repository only: it opened no
 recording, no log and no file of the owner's install.
@@ -813,4 +813,65 @@ it (the private look) holds too.
     counts three "as expected" lines for `inputs`.
 16. **If the budget runs short,** cut in this order: the five-line search, the reading of UTF-16, then the
     information lines that are not figures. The report says what was cut.
+
+## After the build, the private run and the review (2026-11-13, the orchestrator)
+
+The builder stopped on one question. The orchestrator ran both checks as built (the branch at `81a6d46`) on the
+owner's private logs, and a reviewer read the build: merge after fixes. This section is the fix round.
+
+### The private run (measured, private; counts only)
+
+- `gate`, the console text alone: "as expected" on all four texts (789, 590, 1,979 and 2,706 chunk lines; G1
+  to G3 on every line but the one of one sample and, for G3, the one that prints 1.00).
+- `gate` with each of Set J's two clips: G4 and G5 on every walked line (392 of 392 and 396 of 396 on Set J's
+  copied text; 392 of 392 and 996 of 996 on the log file, which holds the second clip's evening run too). The
+  first clip gives 0.9998% as the highest exact mean that failed and 1.0315% as the lowest that passed, the
+  record's figures.
+- `queue` on Set G's six parts, each with its frame rate and, for the marked log, `--section`: Q1 on every
+  tick, 9,808 in all. First falls of the queue, in tick lines from the channel's packet: at 300 frames a second
+  30 lines in 19 channels, 31 in 8 and 32 in 1; at 66.67, 7 in 2; at 100, 10 in 4. The log with marked parts and
+  no `--section` gives the "marked parts" reason.
+- **A frame rate given too low passes Q1** (the builder's question, confirmed): the first part, logged at 300,
+  judged at `--fps 100` says "as expected"; the 66.67 part judged at 60 says "as expected". The 100 part judged
+  at 300 differs ("the queue moved during the wait").
+
+### The ruling on the question: a second figure
+
+Q1 alone tests the wait only from below. So `queue` gets a second figure, Q2, from what the check already
+counts (the tick lines from a channel's packet to the first fall of its queue; W is the wait in ticks):
+
+- channels whose queue never fell (a log cut while a channel waits) are counted apart and judged by neither
+  part of Q2;
+- every other channel's first fall is on line W, W + 1, W + 2 or W + 3 (a choice: the private logs have W to
+  W + 2 in 34 channels; one more line is allowed because a packet that refills a full ring hides the mixer's
+  pull from the log, which is inferred);
+- at least one channel's first fall is on line W or W + 1 (measured: so in each of Set G's six parts).
+
+"As expected" needs Q1 and Q2. When Q2 fails, the reason gives the wait and the lines the channels took, and
+says that the frame rate given may be lower than the game's. The break "the 300 log judged at `--fps 66.67`"
+then differs, and it goes back into the suite beside the reverse one. If a stand-in of the suite does not meet
+Q2 at its own frame rate, that is a stop.
+
+The page says what Q2 still lets through: a rate one tick of wait low (10 frames a second at
+`voice_buffer_ms` 100) passes, and nothing was measured above 300 frames a second.
+
+### The review's findings, all taken
+
+1. **The walk's end at the typed command and at the console's answer is tested.** Removing both ends left the
+   suite green. A case in part [12]: after the walked lines, `] mic_inputfile ""` and `"mic_inputfile" = ""`,
+   then about 40 microphone lines; "as expected", with those lines counted as not walked. A second copy with
+   the answer line alone.
+2. **The place search sets a one-sample line apart, as the walk does:** such a line moves the place on by its
+   length and rules no place out. A stand-in copy with one chunk split into one sample and the rest, inside the
+   walk, run with and without its `loaded` line. (Dropping the one-sample rule from the walk left the suite
+   green.)
+3. **G4's "the count equal" is tested:** a break on the copy given with file 2 that moves one count of high
+   samples from n to n + 1 on a line whose third mark is set. **The reading of big-endian UTF-16 is dropped:**
+   the order and ruling 8 name a byte-order mark and the owner's files were ASCII; the reader takes UTF-16
+   little-endian with its mark, and the page says to save the text as plain text.
+4. **The words.** The page's "What a pass shows" for `queue` says the ring, the wait, the sample a packet and
+   the grace are shown where the log holds them, and that a fault which prints 0 is not shown. The sentence "0
+   means this log cannot tell that fault from the rule" is printed only when Q1 holds.
+5. **The search is capped.** It may use at most 200 chunk lines (a choice); past that the check says
+   "differs", that the text does not say where in the clip it starts, and how many places still fit.
 
