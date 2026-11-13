@@ -27,6 +27,7 @@ import speex from './reproduce/speex.mjs';
 import ceiling from './reproduce/ceiling.mjs';
 import clock from './reproduce/clock.mjs';
 import demo from './reproduce/demo.mjs';
+import gate from './reproduce/gate.mjs';
 import queue from './reproduce/queue.mjs';
 
 // Every check, in the page's order. A check not built yet has no run(), and
@@ -38,7 +39,7 @@ export const CHECKS = [
   celt,
   speex,
   { name: 'hold', summary: 'Steam\'s hold after speech and its clock', steps: 'docs/REPRODUCE.md, "The hold and Steam\'s clock", gives steps by hand, with Steam\'s console and the game\'s' },
-  { name: 'gate', part: 'RP-01b', summary: 'Steam\'s sender gate, chunk by chunk' },
+  gate,
   queue,
   ceiling,
   clock,

@@ -38,10 +38,19 @@
 //           frames at Steam's settings in Steam's numbering, and that nothing of the header or a
 //           payload, numbered from 0 per phrase   SteamID is printed; one frame, record or number
 //                                                 changed differs
+//   queue   a console log written by the synthetic the tool's reading, and that the two models of the
+//           log's writer from the second model of channel agree on every tick (the suite voice-channel
+//           the channel (reference-channel.mjs),  holds that too); not that the game prints the lines
+//           at 300 and 66.67 frames a second      so; a queue line 2 bytes off differs
+//   gate    Steam's console text written here:    the check's reading and its rule agree with the
+//           a file input's chunks over two passes app's sender on every chunk, and its walk through
+//           of the 24 kHz clip, the numbers the   the clip with the suite's sums; not that Steam
+//           suite's own sums, the marks the built prints the lines so; a mark, a number, a length
+//           sender's (steam-sender.js)            or a line changed differs
 //
-// [1] The list: every check by name, those not built yet saying so and
-//     exiting other than 0.
-// [2] inputs: the pins, the verdict, --against.
+// [1] The list: every check by name, hold saying "not built yet" with no
+//     order and exiting 3; gate's and queue's usage lines.
+// [2] inputs: the pins (the 24 kHz clip's too), the verdict, --against.
 // [3] gain, [4] celt, [5] speex: each on its stand-in prints "as expected";
 //     with one sample moved by three steps "differs" and an exit other than
 //     0; on a file of zeros, on one too short, on one that ends more than a
@@ -61,6 +70,22 @@
 //     its header's fields, its print line or its SteamIDs; the stand-in demos
 //     carry markers in their server info and a string table too, and the
 //     recordings of ceiling and clock in LIST/INFO and bext chunks.
+// [11] queue: its stand-ins at 300 and 66.67 frames a second (CRLF and line
+//     feeds, marker lines in place of the unrelated ones, and both in one log
+//     of marked parts read with --section) print "as expected", the faults as
+//     information (the ring's print 0 at 66.67); a queue line 2 bytes off at
+//     four kinds of line, the 66.67 log judged at 300, a pull line, a second
+//     speaker, the packet lines alone, 99 tick lines, a queue that never
+//     falls, no voice line, a line cut short, marked parts without --section:
+//     "differs"; bad options: "cannot check".
+// [12] gate: its stand-in, copied text, console_log.txt with stamps and mixed
+//     line ends, line feeds alone and UTF-16, prints "as expected" alone and
+//     with the clip; with lines worked by hand (327 and 328, 4914, 4915,
+//     -4915, one sample) too; a first mark flipped, a third mark or a count
+//     changed, a mean raised to 1.01 differ alone; a mean or a peak moved, a
+//     length moved, a 1.00 line's mark against the clip, a line removed and
+//     another clip differ with the clip; the quiet lines alone, no chunk
+//     line, 49 chunk lines, a line with text after its count: "differs".
 // [6] Nothing leaves the PC: the text of the script, of every file under
 //     tests/reproduce/, of the clips' generator, of every file a run loaded
 //     and of the engine's files holds no network module, child process,
@@ -87,6 +112,7 @@ import { createRequire } from 'node:module';
 import { ENGINE_FILES, loadEngine } from './lib/engine.cjs';
 import { synthesize, UNRELATED } from './voicequeue/synthetic-log.mjs';
 import { createReferenceChannel } from './voicequeue/reference-channel.mjs';
+import { steamClipSamples, steamClipWav } from './reproduce/steam-clip.mjs';
 
 const TF2Reference = createRequire(import.meta.url)('../reference.js');
 
@@ -96,10 +122,13 @@ const SCRIPT = path.join(here, 'reproduce.mjs');
 
 // The record's checksums of the two clips the game was fed
 // (tests/REFERENCE_2026.md, "The file-input runs, measured again
-// (2026-11-13)"), and their lengths.
+// (2026-11-13)"), and their lengths; and the 24 kHz clip's, computed by order
+// RP-01b's planning run (the record's entry "The checks gate and queue
+// (2026-11-13)"), not yet played into Steam.
 const PINNED = {
   'voice_input_22050.wav': { sha256: 'fc1c6cbd9aabd8ed1b64d4381eae3c2f56dce23eff36e14ba7d9f67dc5505a58', samples: 291942, bytes: 583928 },
-  'voice_input_11025.wav': { sha256: 'bd31df844cee4b38fe705be1fbdfb1b17acb9f161f9314b06b1eb2ba0d560dbd', samples: 145966, bytes: 291976 }
+  'voice_input_11025.wav': { sha256: 'bd31df844cee4b38fe705be1fbdfb1b17acb9f161f9314b06b1eb2ba0d560dbd', samples: 145966, bytes: 291976 },
+  'steam_mic_24000.wav': { sha256: '3e02aaa585001e562e133aea7985bce4208563e39c00655d153f34b88e873fde', samples: 679200, bytes: 1358444 }
 };
 
 // The marker strings stand where a private detail would be. Any of them in
@@ -353,16 +382,21 @@ try {
     const built = CHECKS.filter((c) => c.run).map((c) => c.name), later = CHECKS.filter((c) => !c.run).map((c) => c.name);
     const named = CHECKS.every((c) => new RegExp(`^  ${c.name} `, 'm').test(r.out));
     check('node tests/reproduce.mjs lists every check by name and exits 0', r.status === 0 && named, `${CHECKS.length} checks`);
-    check('the built checks are inputs, gain, celt, speex, queue, ceiling, clock and demo; hold and gate are listed as not built yet',
-      built.join(' ') === 'inputs gain celt speex queue ceiling clock demo' && later.join(' ') === 'hold gate'
+    check('the built checks are inputs, gain, celt, speex, gate, queue, ceiling, clock and demo; hold is listed as not built yet',
+      built.join(' ') === 'inputs gain celt speex gate queue ceiling clock demo' && later.join(' ') === 'hold'
       && later.every((n) => new RegExp(`^  ${n} +not built yet: `, 'm').test(r.out)));
+    check('gate and queue are listed with their usage lines', /^ +node tests\/reproduce\.mjs gate <Steam's console text>$/m.test(r.out)
+      && /^ +node tests\/reproduce\.mjs gate <Steam's console text> <the 24 kHz WAV that mic_inputfile played>$/m.test(r.out)
+      && /^ +node tests\/reproduce\.mjs queue <the game's console log> --fps <frames a second> \[--section <marker>\] \[--buffer-ms <voice_buffer_ms>\]$/m.test(r.out));
+    const hold = run('hold');
+    check('hold exits 3 and names no order: "not built yet", and where the page gives its steps by hand', hold.status === 3 && /^hold: not built yet: .*No order builds it yet; docs\/REPRODUCE\.md, "The hold and Steam's clock"/.test(hold.out) && !/order undefined|RP-01/.test(hold.out), show(hold));
     const bad = later.map((n) => [n, run(n)]).filter(([n, x]) => x.status === 0 || !x.out.includes(`${n}: not built yet`));
     check('each check not built yet prints "<check>: not built yet" and exits other than 0', bad.length === 0, bad.map(([n]) => n).join(', '));
     const u = run(MARKERS[5]);
     check('a name that is no check is refused with exit 2 and the list, the name not repeated', u.status === 2 && /not the name of a check/.test(u.out) && !hasMarker(u.out));
   }
 
-  console.log('\n[2] inputs: the two clips');
+  console.log('\n[2] inputs: the three clips');
   {
     const out = path.join(folder, `${MARKERS[2]}-clips`);
     const r = run('inputs', out);
@@ -374,9 +408,10 @@ try {
       check(`${f.name} has the record's SHA-256 and length`, f.sha === f.want.sha256 && f.b.length === f.want.bytes && (f.b.length - 44) / 2 === f.want.samples,
         `${f.sha.slice(0, 16)}…, ${f.b.length} bytes`);
     }
-    check('the command prints each checksum with "as expected" and exits 0', passes(r) && (r.out.match(/SHA-256 [0-9a-f]{64}, expected [0-9a-f]{64}: as expected/g) || []).length === 2, show(r));
-    check('the files are the generator module\'s bytes, a plain 44-byte header and the samples',
-      files.every((f, k) => f.b.equals(clipWav([22050, 11025][k]))) && files.every((f) => f.b.readUInt32LE(40) === f.b.length - 44));
+    check('the command prints each checksum with "as expected" (three) and exits 0', passes(r) && (r.out.match(/SHA-256 [0-9a-f]{64}, expected [0-9a-f]{64}: as expected/g) || []).length === 3, show(r));
+    check('the files are the generator modules\' bytes, a plain 44-byte header and the samples',
+      files.every((f, k) => f.b.equals(k < 2 ? clipWav([22050, 11025][k]) : steamClipWav())) && files.every((f) => f.b.readUInt32LE(40) === f.b.length - 44));
+    check('the 24 kHz clip is 16-bit mono at 24000 Hz in its header', files[2].b.readUInt16LE(22) === 1 && files[2].b.readUInt32LE(24) === 24000 && files[2].b.readUInt16LE(34) === 16);
     check('nothing in the output names the folder written to', !r.out.includes(out) && !hasMarker(r.out));
 
     const clip = clipSamples(11025), capture = new Int16Array(clip.length);
@@ -399,7 +434,7 @@ try {
     const extra = run('inputs', '--against', writeWav('voice_micdata_extra.wav', padded(capture, capture.length + 100), 11025));
     check('--against the capture with 100 samples more: differs, on the length', fails(extra) && /length: 146,066 samples, expected 145,966, the clip's: differs/.test(extra.out), show(extra));
     const lines = [], wrong = { ...EXPECTED, 11025: { ...EXPECTED[11025], sha256: '0'.repeat(64) } };
-    const ok = verdicts(Object.keys(PINNED).map((name, k) => ({ rate: [22050, 11025][k], name, bytes: clipWav([22050, 11025][k]) })), { line: (t) => lines.push(t), figure: (t, v) => { lines.push(`${t}: ${v ? 'as expected' : 'differs'}`); return v; } }, wrong);
+    const ok = verdicts(Object.keys(PINNED).slice(0, 2).map((name, k) => ({ rate: [22050, 11025][k], name, bytes: clipWav([22050, 11025][k]) })), { line: (t) => lines.push(t), figure: (t, v) => { lines.push(`${t}: ${v ? 'as expected' : 'differs'}`); return v; } }, wrong);
     check('the clips\' verdict, given a wrong expected SHA-256 for the 11025 Hz clip, says "differs" on that clip and "as expected" on the other',
       !ok && /expected 0{64}: differs$/.test(lines[3]) && /: as expected$/.test(lines[1]), lines[3]);
   }
@@ -862,6 +897,171 @@ try {
     check('no --fps, --fps 5 or 1001, --buffer-ms 0, two files, no file, a missing file: cannot check, exit 2', refused.length === 0, refused.map(([w, x]) => `${w}: ${show(x)}`).join('; '));
     const longer = run('queue', f67, '--fps', '66.67', '--buffer-ms', '200');
     check('--buffer-ms 200 on the 66.67 stand-in (a wait of 14 ticks where the log\'s was 7): differs', fails(longer), show(longer));
+  }
+
+  console.log('\n[12] gate');
+  {
+    // The stand-in: Steam's console text written here, by a route that uses
+    // nothing of tests/reproduce/gate.mjs or steam-console.mjs. The chunks
+    // are a file input's: a first chunk of 6000 samples, then seeded read
+    // intervals of 48.0 to 63.7 ms times 24000, truncated, over two passes of
+    // the generated clip. A line's numbers are the suite's own sums over the
+    // clip, printed with the suite's own formatting. Its marks come from the
+    // built sender (steam-sender.js), not from a rule written here: one sender
+    // a chunk, given that chunk as its first read with lead 0 (later reads of
+    // 750 samples), and the chunk pushed; the first mark is whether a spurt
+    // opened, the third the same with meanMin far above any mean, the second
+    // the first where the third is off and 100 x sum >= 32767 x length where
+    // it is on. The clock refuses a chunk over 2250 samples, so the first
+    // chunk, which is silence, has spaces typed for its marks. A pass shows
+    // that the check's reading and its rule agree with the app's sender on
+    // every chunk; it does not show that Steam prints these lines so.
+    const { createSender } = createRequire(import.meta.url)('../steam-sender.js');
+    const clip = steamClipSamples(), N = clip.length;
+    const senderOpens = (chunk, meanMin) => {
+      let reads = 0;
+      const clock = { next: () => { const k = reads++; return { time: 0.05 * k, since: 0.05 * k, samples: k === 0 ? chunk.length : 750 }; } };
+      const s = createSender({ clock, lead: 0, meanMin });
+      s.push(chunk);
+      return s.info().spurts.length > 0;
+    };
+    const sums = (pos, len) => { let sum = 0, peak = 0, high = 0; for (let i = 0; i < len; i++) { const a = Math.abs(clip[(pos + i) % N]); sum += a; if (a > peak) peak = a; if (a >= 4915) high++; } return { sum, peak, high }; };
+    const printed = (marks, len, { sum, peak, high }) => ({ marks, ms: (len / 24).toFixed(2), avg: (len ? sum / len / 32767 * 100 : 0).toFixed(2), max: (peak / 32768 * 100).toFixed(3), high: String(high) });
+    let seed = 7;
+    const random = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+    const chunks = [];   // { kind: 'chunk', ... } and { kind: 'looped' }
+    for (let pos = 0, total = 0, first = true; total < 2 * N; first = false) {
+      const len = first ? 6000 : Math.trunc((0.048 + 0.0157 * random()) * 24000);
+      if (pos + len > N) chunks.push({ kind: 'looped' });
+      const s = sums(pos, len);
+      let marks = '   ';
+      if (!first) {
+        const samples = Int16Array.from({ length: len }, (_, i) => clip[(pos + i) % N]);
+        const active = senderOpens(samples), peak = senderOpens(samples, 1e12), mean = peak ? 100 * s.sum >= 32767 * len : active;
+        marks = `${active ? '+' : ' '}${mean ? '+' : ' '}${peak ? '+' : ' '}`;
+      }
+      chunks.push({ kind: 'chunk', ...printed(marks, len, s) });
+      pos = (pos + len) % N; total += len;
+    }
+    const PATH = `C:\\${MARKERS[0]}\\${MARK}-Clip.wav`;
+    const HEAD = [`Logged in as ${MARK}-Account`, `] mic_inputfile ${PATH}`, `"mic_inputfile" = "${PATH}"`, `Connected to ${MARK}-Address:27017`];
+    const LOADED = `loaded voice input file ${PATH}, ${N} samples (${(N / 24000).toFixed(1)} seconds)`;
+    const TAIL = [`${MARK}-Account is now offline`];
+    const chunkText = (c) => `[${c.marks}] [${c.ms.padStart(6)} msec] avgsample ${c.avg.padStart(6)} | max ${c.max.padStart(7)} | high samples ${c.high.padStart(4)}`;
+    const toLines = (list) => list.map((c) => (c.kind === 'chunk' ? chunkText(c) : c.kind === 'looped' ? `voice input file ${PATH} looped` : c.text));
+    // Lines worked by hand, with their marks typed: constant chunks of 327 and
+    // 328 (both print 1.00; the first fails, the second passes), single
+    // samples of 4914, 4915 and -4915 in 1500 zeros, a chunk of one sample.
+    const constant = (v, len) => ({ sum: v * len, peak: v, high: v >= 4915 ? 1 : 0 });
+    const HAND = [printed('   ', 1500, constant(327, 1500)), printed('++ ', 1500, constant(328, 1500)), printed('   ', 1500, { sum: 4914, peak: 4914, high: 0 }),
+      printed('+ +', 1500, { sum: 4915, peak: 4915, high: 1 }), printed('+ +', 1500, { sum: 4915, peak: 4915, high: 1 }), printed('   ', 1, { sum: 0, peak: 0, high: 0 })].map((c) => ({ kind: 'chunk', ...c }));
+    const textOf = (list, { stamps = false, end = '\r\n', loaded = true, hand = false, head = HEAD } = {}) => {
+      let lines = [...head, ...(hand ? toLines(HAND) : []), ...(loaded ? [LOADED] : []), ...toLines(list), ...TAIL];
+      if (stamps) lines = lines.map((l, i) => `[2026-01-02 03:${String(4 + Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}] ${l}`);
+      // console_log.txt ends most lines with CRLF and some with a line feed alone (measured).
+      return lines.map((l, i) => l + (end === 'mixed' ? (i % 7 === 3 ? '\n' : '\r\n') : end)).join('');
+    };
+    const writeText = (name, text, utf16 = false) => { const f = at(name); fs.writeFileSync(f, utf16 ? Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from(text, 'utf16le')]) : Buffer.from(text, 'latin1')); return f; };
+    const clipFile = at('steam_mic_24000.wav');
+    fs.writeFileSync(clipFile, steamClipWav());
+    const lineCount = chunks.filter((c) => c.kind === 'chunk').length, loops = chunks.filter((c) => c.kind === 'looped').length;
+    const kinds = new Set(chunks.filter((c) => c.kind === 'chunk').map((c) => c.marks));
+    const at100 = chunks.filter((c) => c.kind === 'chunk' && c.avg === '1.00').length;
+    check(`the stand-in: ${lineCount} chunk lines over two passes (${loops} looped lines), all four kinds of bracket, ${at100} that print a mean of 1.00`,
+      lineCount > 900 && loops === 2 && ['+++', '++ ', '+ +', '   '].every((k) => kinds.has(k)) && kinds.size === 4 && at100 > 5);
+    const G = (x, g) => (new RegExp(`${g}, [^\\n]*: ([\\d,]+) of ([\\d,]+), expected all: (as expected|differs)`).exec(x.out) || []).slice(1).join(' ');
+    const copies = [
+      ['the text copied from the console (CRLF, no stamps)', writeText('steam_console.txt', textOf(chunks))],
+      ['console_log.txt (stamps, CRLF and some line feeds alone)', writeText('console_log.txt', textOf(chunks, { stamps: true, end: 'mixed' }))],
+      ['the text with line feeds alone', writeText('steam_console_lf.txt', textOf(chunks, { end: '\n' }))],
+      ['the text saved as UTF-16 with a byte-order mark', writeText('steam_console_utf16.txt', textOf(chunks), true)]
+    ];
+    for (const [what, f] of copies) {
+      const one = run('gate', f), two = run('gate', f, clipFile);
+      check(`on ${what}, file 1 alone: as expected, G1 to G3 on every line`, passes(one) && ['G1', 'G2', 'G3'].every((g) => /^(\d[\d,]*) \1 as expected$/.test(G(one, g))), `${show(one)}; G1 ${G(one, 'G1')}`);
+      check(`... with the clip as file 2: as expected, G4 and G5 on every line walked, two passes`, passes(two) && ['G4', 'G5'].every((g) => /^(\d[\d,]*) \1 as expected$/.test(G(two, g))) && /passes through the clip that the walk made: 2; looped lines in the walked text: 2/.test(two.out)
+        && /the generated steam_mic_24000\.wav: yes/.test(two.out), `${show(two)}; G4 ${G(two, 'G4')}`);
+    }
+    const base = copies[0][1], r1 = run('gate', base), r2 = run('gate', base, clipFile);
+    check('the information lines: the four brackets counted, the peaks 4,914 without the third mark and 4,915 with it, chunks passed by their peak alone, the means nearest 1.0% on either side',
+      /brackets: \[\+\+\+\] [\d,]+, \[\+\+ \] [\d,]+, \[\+ \+\] [\d,]+, \[   \] [\d,]+/.test(r1.out) && /the highest peak without the third mark: 4,914 samples \(14\.996\); the lowest with it: 4,915 samples \(14\.999\)/.test(r1.out)
+      && /chunks that passed by their peak alone: [1-9]/.test(r1.out) && /the highest exact mean without the second mark: 0\.99\d\d%; the lowest with it: 1\.00\d\d%/.test(r2.out), (/the highest exact[^\n]*/.exec(r2.out) || [''])[0]);
+    const hand = writeText('steam_console_hand.txt', textOf(chunks, { hand: true }));
+    const h1 = run('gate', hand), h2 = run('gate', hand, clipFile);
+    check('with the lines worked by hand before the loaded line (327 and 328, single samples of 4914, 4915 and -4915, one sample): as expected alone and with the clip; one more line of one sample and two more of 1.00',
+      passes(h1) && passes(h2) && /lines of one sample \(0\.04 ms\), counted apart from every figure: 1; lines that print a mean of 1\.00, counted apart from G3: (\d+)/.test(h1.out)
+      && Number(/counted apart from G3: (\d+)/.exec(h1.out)[1]) === at100 + 2, `${show(h1)}; ${show(h2)}`);
+
+    // The breaks, each on one line of the stand-in.
+    const variant = (change) => { const list = chunks.map((c) => ({ ...c })); change(list); return list; };
+    const idx = (test, from = 0) => chunks.findIndex((c, i) => i >= from && c.kind === 'chunk' && test(c));
+    const flip = (m, k) => m.slice(0, k) + (m[k] === '+' ? ' ' : '+') + m.slice(k + 1);
+    const mid = Math.floor(chunks.length / 2);
+    const breaks = [
+      ['one first mark flipped', variant((l) => { const i = idx((c) => c.marks === '+++', mid); l[i].marks = flip(l[i].marks, 0); }), 'G1'],
+      ['one third mark set on a line with no high sample', variant((l) => { const i = idx((c) => c.marks === '   ' && c.high === '0' && Number(c.avg) > 0.2, mid); l[i].marks = '+ +'; }), 'G2'],
+      ['one count of high samples set to 0 on a line that passed by its peak', variant((l) => { const i = idx((c) => c.marks === '+ +'); l[i].high = '0'; }), 'G2'],
+      ['one printed mean raised from under 1.00 to 1.01, its marks kept', variant((l) => { const i = idx((c) => c.marks === '   ' && Number(c.avg) >= 0.95 && Number(c.avg) < 1); l[i].avg = '1.01'; }), 'G3']
+    ];
+    for (const [what, list, g] of breaks) {
+      const x = run('gate', writeText(`steam_console_${g}_${breaks.findIndex(([w]) => w === what)}.txt`, textOf(list)));
+      check(`${what}: differs, ${g}`, fails(x, new RegExp(`${g} does not hold`)) && /differs$/.test(G(x, g)), show(x));
+    }
+    // Breaks that only the clip can see (G4 and G5): as expected with file 1
+    // alone, differs with the clip.
+    const clipOnly = [
+      ['a printed mean far from 1.00 moved by 0.02, its marks kept', variant((l) => { const i = idx((c) => Number(c.avg) > 5, mid); l[i].avg = (Number(l[i].avg) + 0.02).toFixed(2); }), 'G4'],
+      ['a printed peak under 14.9 moved by 0.010', variant((l) => { const i = idx((c) => Number(c.max) > 1 && Number(c.max) < 14.9, mid); l[i].max = (Number(l[i].max) + 0.01).toFixed(3); }), 'G4'],
+      ['one length moved by 0.04 ms', variant((l) => { const i = idx((c) => c.marks === '+++', mid); l[i].ms = (Number(l[i].ms) + 0.04).toFixed(2); }), 'G4'],
+      ['one line that prints 1.00 with its second mark (and so its first) against the clip\'s', variant((l) => { const i = idx((c) => c.avg === '1.00' && c.marks[2] === ' '); l[i].marks = flip(flip(l[i].marks, 0), 1); }), 'G5']
+    ];
+    for (const [what, list, g] of clipOnly) {
+      const f = writeText(`steam_console_${g}_clip_${clipOnly.findIndex(([w]) => w === what)}.txt`, textOf(list));
+      const alone = run('gate', f), x = run('gate', f, clipFile);
+      check(`${what}: as expected with file 1 alone, differs with the clip on ${g}`, passes(alone) && fails(x, new RegExp(`${g} does not hold`)) && /differs$/.test(G(x, g)), `${show(alone)}; ${show(x)}`);
+    }
+    const removed = variant((l) => { l.splice(idx((c) => c.marks === '+++', mid), 1); });
+    const rm = run('gate', writeText('steam_console_removed.txt', textOf(removed)), clipFile);
+    check('one chunk line removed from the middle, with the clip: differs, G4', fails(rm, /G4/), show(rm));
+    const shorter = at('steam_mic_short.wav');
+    fs.writeFileSync(shorter, wavBytes(clip.subarray(0, N - 28800), 24000));
+    const other = run('gate', base, shorter);
+    check('another clip as file 2 (the clip less its last 1.2 s): differs, the text is not of that clip', fails(other, /not of that clip/), show(other));
+    const reversed = at('steam_mic_reversed.wav');
+    fs.writeFileSync(reversed, wavBytes(Int16Array.from(clip).reverse(), 24000));
+    const rev = run('gate', base, reversed);
+    check('another clip of the same length (the clip reversed): differs, G4', fails(rev, /G4/) && /the generated steam_mic_24000\.wav: no/.test(rev.out), show(rev));
+    const at22 = run('gate', base, writeWav('steam_mic_22050.wav', clip.subarray(0, 22050), 22050));
+    check('a clip at 22050 Hz: differs, naming 24000 Hz and the plain header', fails(at22, /not a 16-bit mono WAV at 24000 Hz/), show(at22));
+    const tagged = run('gate', base, writeWav('steam_mic_tagged.wav', clip, 24000, Buffer.from(`INFOINAM\u0010\u0000\u0000\u0000${MARKERS[3]}`)));
+    check('the clip with a LIST chunk before its samples (not the plain 44-byte header): differs', fails(tagged, /plain 44-byte header/), show(tagged));
+    // A second try in one Steam session: no loaded line, the text starting at
+    // a later chunk; the place is found by the chunk lines.
+    const later = chunks.slice(idx((c) => true, 40));
+    const noLoad = run('gate', writeText('steam_console_noload.txt', textOf(later, { loaded: false })), clipFile);
+    check('a text with no loaded line, starting at a later chunk: as expected with the clip, the place found by its chunk lines', passes(noLoad) && /the place in file 2 was found by its first \d+ chunk lines/.test(noLoad.out), show(noLoad));
+    const noLoadOther = run('gate', writeText('steam_console_noload2.txt', textOf(later, { loaded: false })), reversed);
+    check('... given the reversed clip: differs, no place fits', fails(noLoadOther, /no place in file 2 fits/), show(noLoadOther));
+    // The floors.
+    const quiet = run('gate', writeText('steam_console_quiet.txt', textOf(chunks.filter((c) => c.kind === 'chunk' && c.marks === '   '))));
+    check('the quiet lines alone: differs, no chunk on each side of 1.0%', fails(quiet, /no chunk on each side of 1\.0%/), show(quiet));
+    const noChunk = run('gate', writeText('steam_console_none.txt', textOf([])));
+    check('no chunk line: differs, naming @voice_spew_activity_check 1', fails(noChunk, /no chunk lines: type @voice_spew_activity_check 1/), show(noChunk));
+    const firstN = (n) => { const out = []; for (const c of chunks) { if (out.filter((x) => x.kind === 'chunk').length === n) break; out.push(c); } return out; };
+    const r49 = run('gate', writeText('steam_console_49.txt', textOf(firstN(49))));
+    check('49 chunk lines: differs, fewer than 50 (a choice of this check)', fails(r49, /only 49 chunk lines, fewer than 50/), show(r49));
+    check('... and 50: as expected', passes(run('gate', writeText('steam_console_50.txt', textOf(firstN(50))))));
+    const trailing = variant((l) => { const i = idx((c) => true, mid); l[i] = { kind: 'text', text: `${chunkText(l[i])} ${MARK}-After` }; });
+    const tr = run('gate', writeText('steam_console_trailing.txt', textOf(trailing)));
+    check('a chunk line with text after its count: differs, by its line number, the text not printed', fails(tr, /file 1: line \d+ begins as a chunk line and does not read as one/) && !hasMarker(tr.out), show(tr));
+    const binary = at('steam_console_binary.txt');
+    fs.writeFileSync(binary, Buffer.concat([Buffer.from([0, 255, 1, 2, 3, 0x89]), Buffer.from(`${MARK}-Header`), Buffer.alloc(300, 7)]));
+    check('a file that is not text: differs, no chunk lines', fails(run('gate', binary), /no chunk lines/));
+    const refused = [['no file', []], ['three files', [base, clipFile, clipFile]], ['a missing file', [path.join(folder, `${MARKERS[2]}-missing.txt`)]], ['an option', [base, '--fps', '300']]]
+      .map(([what, args]) => [what, run('gate', ...args)]).filter(([, x]) => x.status !== 2 || verdict(x) !== 'cannot check');
+    check('no file, three files, a missing file, an option gate does not take: cannot check, exit 2', refused.length === 0, refused.map(([w, x]) => `${w}: ${show(x)}`).join('; '));
+    const missingClip = run('gate', base, path.join(folder, `${MARKERS[2]}-missing.wav`));
+    check('a missing clip: cannot check, exit 2', missingClip.status === 2 && /file 2 cannot be read/.test(missingClip.out), show(missingClip));
   }
 
   console.log('\n[6] Nothing leaves the PC');
