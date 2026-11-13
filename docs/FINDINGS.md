@@ -28,6 +28,8 @@ A rule that was read holds for the files it was read from. A Steam or game updat
 | rooms | the game's preset file, its sound mixer file and its 40 soundscape scripts | not given | 2026-11-10 |
 | `vaudio_miles` (never in TF2) | the engines of Source SDK Base 2006 and 2007 with their wrappers and plug-in, and the module TF2 ships | engines 2009-12-04 and 2010-02-01; wrappers 2006-05-22 and 2008-07-11; TF2's module 2024-01-17 | 2026-11-11 |
 
+The record's section [The files that were read](../tests/REFERENCE_2026.md#the-files-that-were-read) names each of these files with its build and, where the reports give it, its SHA-256, so that a reader with the same file can look for the same rule.
+
 The recordings fall in two periods. Sets A to F were recorded from 2026-09-24 to 2026-09-27. Sets G to O were made on 2026-11-10 and 2026-11-11, most of them with the game's and Steam's own debug output; Set K is recordings of the game's output.
 
 ## The voice path

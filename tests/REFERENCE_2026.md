@@ -380,19 +380,99 @@ the recordings are published (order RP-01, part e).
 
 The reports in `docs/reports/` say what was read from which file and where. Nothing of the files is in this repository. They were read as data with a disassembler and never run, and no leaked source was used. *Corrected by the owner's rule of 2026-11-11 (CLAUDE.md): since then a module may also be run, in a CPU emulator first, on signals of our own; TF2's `vaudio_speex` module (Set O) and the `vaudio_miles` plug-in's VR12 (W3-20a) were run that way. Its output is a measurement; nothing of the modules is copied.* Public sources were set beside them: libopus, CELT, Speex and FFmpeg's libswresample.
 
-| What | Read from | Report |
-| --- | --- | --- |
-| the receiver's queue and gain, the engine's side of sending, the debug variables, the codec table | the game's engine module and its `vaudio_celt` module, from the owner's install | W3-03 |
-| the mixer and the output | the same engine module | W3-07 |
-| the CELT build | the `vaudio_celt` module, a second one from another Source game, and the public CELT source | W3-08 |
-| Steam's sender and decoder | the owner's Steam client library and Valve's public copy of it; Valve's public resampler library; the public Linux client | W3-09 |
-| Speex | a `vaudio_speex` module from another Source game, supplied by the owner | W3-09 |
-| the hold's arithmetic, the file input's chunk, the decoder's buffers | the owner's Steam client library | W3-16 read (`docs/reports/W3-16-steam-hold-read.md`) |
-| where Steam's clock counts from | the timer library of Valve's public client package. The owner's own copy was not at hand | W3-16 read |
-| the room effect: the slots, the processors, the voice's share, the automatic room | the engine module; the game's preset file, its sound mixer file and its 40 soundscape scripts, from the owner's install; Valve's public SDK for the client's side | W3-15, then two second reads, each written before W3-15's text was opened (`docs/reports/W3-17-room-dsp-second-read.md`, `docs/reports/W3-17-amp-mdy-second-read.md`). The second reads win where they differ |
-| what turns the room off, and the menu option that does it | the engine module and the game's menu module | W3-18 |
+| What | Read from | Report | Files |
+| --- | --- | --- | --- |
+| the receiver's queue and gain, the engine's side of sending, the debug variables, the codec table | the game's engine module and its `vaudio_celt` module, from the owner's install | W3-03 | F1, F2 |
+| the mixer and the output | the same engine module | W3-07 | F1 |
+| the CELT build | the `vaudio_celt` module, a second one from another Source game, and the public CELT source | W3-08 | F2, F3 |
+| Steam's sender and decoder | the owner's Steam client library and Valve's public copy of it; Valve's public resampler library; the public Linux client | W3-09 | F4, F5, F7, F8, F9 |
+| Speex | a `vaudio_speex` module from another Source game, supplied by the owner | W3-09 | F10 |
+| the hold's arithmetic, the file input's chunk, the decoder's buffers | the owner's Steam client library | W3-16 read (`docs/reports/W3-16-steam-hold-read.md`) | F4 |
+| where Steam's clock counts from | the timer library of Valve's public client package. The owner's own copy was not at hand | W3-16 read | F6 |
+| the room effect: the slots, the processors, the voice's share, the automatic room | the engine module; the game's preset file, its sound mixer file and its 40 soundscape scripts, from the owner's install; Valve's public SDK for the client's side | W3-15, then two second reads, each written before W3-15's text was opened (`docs/reports/W3-17-room-dsp-second-read.md`, `docs/reports/W3-17-amp-mdy-second-read.md`). The second reads win where they differ | F1, F19, F21, F22, F23 |
+| what turns the room off, and the menu option that does it | the engine module and the game's menu module | W3-18 | F1, F20 |
 
 W3-14 opened no file: it rests on Set J's logs and recordings and on the project's own modules.
+
+#### The files that were read
+
+Added 2026-11-13 by order RP-01, part d (`docs/work-orders/RP-01-reproduce-it.md`, section 6). One row a file,
+with an id that never changes once given; the column "Files" of the table above and the lines at the end of this
+section point to the rows. Only names, builds, dates and hashes are here: nothing of a file's bytes. "Built" is the
+file's own build date as the record or a report gives it (its link date). "Build, as its owner can read it",
+"Taken", a SHA-256 no report gives and a name the reports do not state are the orchestrator's, from the private
+record. Where the reading was the orchestrator's own investigation, the report named is the one that gives what it
+found. W3-15b is the report the table above calls W3-18, and "BC plan" is `docs/reports/bad-connections-plan.md`.
+
+**Status:** the orchestrator's cells are pending.
+
+| Id | File | From | Build, as its owner can read it | Built | Taken | SHA-256 | Read for | Report |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F1 | `bin/x64/engine.dll` | the owner's TF2, 64-bit | pending | 2026-10-05 | pending | `4802a74ce0abb1175851d00e37fc88609085a96238aa52ac0eb224ae4a08ec80` | 2, 4, 8, 9, 10, 14, 21 to 27, 29 (what the game takes of a message), 30, 31, 32 | W3-03, W3-07, W3-09, W3-10, W3-15, W3-15b, W3-17, BC plan |
+| F2 | `bin/x64/vaudio_celt.dll` | the owner's TF2, 64-bit | pending | 2026-09-30 | pending | `255cf0836a11118195c9129869b7a0e5a15123c99054409b93e379a66e07a66e` | 31 | W3-03, W3-08 |
+| F3 | a second `vaudio_celt` module, its file name pending | another Source game of the owner's, which one pending; 32-bit | pending | pending | pending | pending | 31 | W3-08 |
+| F4 | `steamclient64.dll` | the owner's Steam, 64-bit | pending | 2026-10-13 | pending | `e9045710ec7ee47d7b7488d1c5dda2d933dec7e251e965967a5c48f4df68eb4e` | 5, 11, 12, 16, 27, 28, 29 | W3-09, W3-16, BC plan |
+| F5 | `steamclient64.dll` | `bins_win64.zip`, Valve's public client package | pending | 2026-10-21 | pending | `253e0a11a4415b38c78a42f7bdd6ecc426455f06c1ba6453a48090df3142dbbc` | 28 (the same constants) | W3-09 |
+| F6 | `tier0_s64.dll` | Valve's public client package; the owner's own copy was not read | pending | 2026-10-21 | pending | `8559e6bd32eb3fddd95079633272866deb292211ec4f7e69aeb0ec48fdafef72` | 28 (where the clock counts from) | W3-16 |
+| F7 | `video64.dll` | `bins_win64.zip`, Valve's public client package | pending | pending | pending | `e84cb3391b4206feb03e1162b0d6815316905034a7ae190c66d0fa7fb00d48ba` | 29 (the resampler object) | W3-09 |
+| F8 | `libswresample-6.dll` | `bins_codecs_win64.zip`, Valve's public codec package | pending | pending | pending | `2ed49e82c7cab6b197b5229759c4d4e1a9eaa74fa5a8303680b34436de74d399` | 29 (the resampler's defaults and version) | W3-09 |
+| F9 | `linux64/steamclient.so` | `bins_sdk_ubuntu12.zip`, Valve's public Linux package | pending | pending | pending | `3e32119f473cb9c2615e1b282da8498b9986378e8b71537a4aed9f77e7b797e0` | 16, 28 (the libopus version string) | W3-09 |
+| F10 | `vaudio_speex.dll` | another Source game of the owner's, 32-bit | pending | 2026-05-20 | pending | `70d6643250a2010e79b79d727f9256a60f29317e5e2ad257d0721081afa9227f` | 31 | W3-09 |
+| F11 | TF2's own `vaudio_speex` module, its file name pending | the owner's TF2, 32-bit | pending | pending | pending | pending | 31 (run, Set O) | none: the record, Set O |
+| F12 | TF2's 32-bit engine, its file name pending | the owner's TF2, 32-bit | 11191711, the build the game reported in Set O | pending | pending | pending | 31 (the four codec names) | none: the record, Set O |
+| F13 | `vaudio_miles.dll` (never a TF2 codec) | the owner's TF2, 32-bit | pending | 2024-01-17 | pending | pending | 31 | W3-20a |
+| F14 | the Miles files beside F13, their names pending | the owner's TF2, 32-bit | pending | pending | pending | pending | 31 | W3-20a |
+| F15 | the engine of Source SDK Base 2006, its file name pending | the owner's Source SDK Base 2006 | pending | 2009-12-04 | pending | pending | 24, 31 | W3-20a, W3-20b |
+| F16 | the engine of Source SDK Base 2007, its file name pending | the owner's Source SDK Base 2007 | pending | 2010-02-01 | pending | pending | 24, 31 | W3-20a, W3-20b |
+| F17 | the `vaudio_miles` wrapper of F15, its file name pending | the owner's Source SDK Base 2006, with the plug-in Miles 6.6a | pending | 2006-05-22 | pending | pending | 31 | W3-20a, W3-20b |
+| F18 | the `vaudio_miles` wrapper of F16, its file name pending | the owner's Source SDK Base 2007, with the plug-in Miles 6.6a | pending | 2008-07-11 | pending | pending | 31 | W3-20a, W3-20b |
+| F19 | `client.dll` | the owner's TF2; 64 or 32 bit pending | pending | pending | pending | pending | 32 (its strings only) | W3-15, W3-15b |
+| F20 | `GameUI.dll` | the owner's TF2 | pending | pending | pending | pending | 32 (the menu option that turns the room off) | W3-15b |
+| F21 | `scripts/dsp_presets.txt` | the owner's TF2, the game's own archive | pending | pending | pending | pending | 30, 32 | W3-15, W3-17 |
+| F22 | `scripts/soundmixers.txt` | the owner's TF2, the game's own archive | pending | pending | pending | pending | 30 (the two-speaker level), 32 | W3-15 |
+| F23 | the 40 `scripts/soundscapes*.txt`, as one row | the owner's TF2, the game's own archive | pending | pending | pending | pending | 32 | W3-15 |
+
+What the reports give short of a full SHA-256, for the orchestrator to set beside the private record: F3's begins
+`4d142d06` and ends `0fd8a294` (W3-08); F19's begins `b6f45c74` (W3-15); F21 is 46,419 bytes, with the CRC-32
+2441946680 that the game's archive index gives (W3-15, and the order W3-17); F11 differs from F10 in 50 bytes of
+code, all address operands (Set O). F23's SHA-256 is to be that of the sorted list of the 40 files' names and
+SHA-256s. F14 stands for the Miles files that TF2's 32-bit folder ships beside F13, which the record does not name.
+
+Not rows: Valve's public SDK, which is source and is cited by its commit; the public sources of libopus, CELT,
+Speex and FFmpeg; `XAudio2_7.dll`, whose conversion is measured and not read; and W3-14, which opened no file.
+The reads of finding 8 that the record cites as "the plan, reads 1, 2, 4 and 7" are the BC plan's, which names F1
+and F4 for its addresses and not for each read; which file each read is in is pending. Findings 1, 3, 6, 7, 13,
+15, 17, 18, 19 and 20 rest on no reading of their own.
+
+A reader whose file has the same SHA-256 holds the bytes the finding was read from, and can look for the same rule
+with a disassembler and the report's account of it. A later build has another hash: the game and Steam update, and
+a hash that differs refutes nothing. The checks of [docs/REPRODUCE.md](../docs/REPRODUCE.md) say whether the
+behaviour is still the same.
+
+Each finding marked read, with the files it was read from:
+
+- Finding 2: F1.
+- Finding 4: F1.
+- Finding 5: F4.
+- Finding 8: F1.
+- Finding 9: F1.
+- Finding 10: F1.
+- Finding 11: F4.
+- Finding 12: F4.
+- Finding 14: F1.
+- Finding 16: F4, F9.
+- Finding 21: F1.
+- Finding 22: F1.
+- Finding 23: F1.
+- Finding 24: F1, F15, F16.
+- Finding 25: F1.
+- Finding 26: F1.
+- Finding 27: F1, F4.
+- Finding 28: F4, F5, F6, F9.
+- Finding 29: F1, F4, F7, F8.
+- Finding 30: F1, F21, F22.
+- Finding 31: F1, F2, F3, F10, F11, F12, F13, F14, F15, F16, F17, F18.
+- Finding 32: F1, F19, F20, F21, F22, F23.
 
 ## Findings
 
