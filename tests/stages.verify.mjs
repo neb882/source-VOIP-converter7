@@ -467,10 +467,11 @@ console.log('\n[3] The keys');
       await A.process(written, { ...opts, stages: warm, sourceKey: 'u' });
       const r = await A.process(written, { ...opts, retime: true, stages: warm, sourceKey: 'u' });
       const got = taken(warm), h = await hashes(r);
-      unread.push({ name, ok: got.a === 0 && got.b === 0 && h === await freshOf({ ...opts, retime: true }) && h === await freshOf(opts), counts: counts(warm) });
+      const same = h === await freshOf({ ...opts, retime: true }) && h === await freshOf(opts);
+      unread.push({ name, ok: got.a === 0 && got.b === 0 && same, same, counts: counts(warm) });
     }
     check('retime, which the engine no longer reads, with warm stages of the same source: neither A nor B is taken, and the render is a fresh render\'s and the render without it (celt_22 and `steam`)',
-      unread.every((u) => u.ok), unread.map((u) => `${u.name}: ${u.ok ? 'as fresh' : 'differs'}, ${u.counts}`).join('; '));
+      unread.every((u) => u.ok), unread.map((u) => `${u.name}: ${u.same ? 'as fresh' : 'differs'}, ${u.counts}`).join('; '));
     // steam's B keeps the sender's messages without their pcm, the encoder's
     // input, which nothing after B reads (the second reader's finding 5).
     const messages = steamStages.b.value.messages;
