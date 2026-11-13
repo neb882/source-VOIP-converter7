@@ -114,8 +114,10 @@ without a name is named by its place. `pnpm test` runs the same checks on a log 
 
 **The check `queue`.** `node tests/reproduce.mjs queue <log> --fps <frames a second> --section <marker>`
 ([docs/REPRODUCE.md, "queue"](../../docs/REPRODUCE.md#queue)) runs this tool and the same replay on one part of a log,
-and prints figures only: the ticks on which the rule gives the logged queue, expected all, and each fault's
-mismatching ticks as information, since a log shows a fault only where the thing happened. The replay and the
+and prints figures only: the ticks on which the rule gives the logged queue, expected all; the tick lines from
+each channel's packet to the first fall of its queue, which must lie just after the wait, so that a frame rate given
+too low is caught; and each fault's mismatching ticks as information, since a log shows a fault only where the thing
+happened. The replay and the
 synthetic log's writer live in `replay.mjs` and `synthetic-log.mjs` here, which the suite `voice-channel` and the check
 both load.
 

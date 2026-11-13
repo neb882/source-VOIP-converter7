@@ -74,8 +74,9 @@
 // [11] queue: its stand-ins at 300 and 66.67 frames a second (CRLF and line
 //     feeds, marker lines in place of the unrelated ones, and both in one log
 //     of marked parts read with --section) print "as expected", the faults as
-//     information (the ring's print 0 at 66.67); a queue line 2 bytes off at
-//     four kinds of line, the 66.67 log judged at 300, a pull line, a second
+//     information (the ring's print 0 at 66.67), Q2 on both; a queue line 2
+//     bytes off at four kinds of line, the 66.67 log judged at 300, the 300
+//     log judged at 66.67 and at 280 (Q2), a pull line, a second
 //     speaker, the packet lines alone, 99 tick lines, a queue that never
 //     falls, no voice line, a line cut short, marked parts without --section:
 //     "differs"; bad options: "cannot check".
@@ -84,8 +85,11 @@
 //     with the clip; with lines worked by hand (327 and 328, 4914, 4915,
 //     -4915, one sample) too; a first mark flipped, a third mark or a count
 //     changed, a mean raised to 1.01 differ alone; a mean or a peak moved, a
-//     length moved, a 1.00 line's mark against the clip, a line removed and
-//     another clip differ with the clip; the quiet lines alone, no chunk
+//     length moved, a count moved, a 1.00 line's mark against the clip, a
+//     line removed and another clip differ with the clip; the walk ends at
+//     mic_inputfile typed or answered; a one-sample line inside the walk and
+//     at the head of the place search; the search capped at 200 lines; the
+//     quiet lines alone, no chunk
 //     line, 49 chunk lines, a line with text after its count: "differs".
 // [6] Nothing leaves the PC: the text of the script, of every file under
 //     tests/reproduce/, of the clips' generator, of every file a run loaded
@@ -831,6 +835,10 @@ try {
     check('... with line feeds alone: as expected', passes(run('queue', writeLog('voice_q67_lf.log', s67.lines, '\n'), '--fps', '66.67')));
     check('... the channels by their lines before the queue fell: 7 at 66.67 frames a second (the wait), 30 at 300',
       /first fall of their queue: 7 lines in \d+/.test(r67.out) && /first fall of their queue: 30 lines in \d+/.test(r300.out), `${(/first fall[^\n]*/.exec(r67.out) || [''])[0]}`);
+    const q2 = (x) => (/Q2, [^\n]*/.exec(x.out) || [''])[0];
+    check('Q2 on both stand-ins at their own frame rates: every first fall on line W to W + 3, one on W or W + 1',
+      /Q2, channels whose queue first fell on tick line 30 to 33 after their packet: (\d+) of \1, expected all; one on line 30 or 31: yes, expected yes: as expected/.test(r300.out)
+      && /Q2, channels whose queue first fell on tick line 7 to 10 after their packet: (\d+) of \1, expected all; one on line 7 or 8: yes, expected yes: as expected/.test(r67.out), `${q2(r300)} | ${q2(r67)}`);
     // Both parts in one log, each after a marker line of the suite's own
     // word, as `echo` writes it; the word is the stranger's and is never
     // printed.
@@ -865,6 +873,15 @@ try {
     });
     const fast = run('queue', f67, '--fps', '300');
     check('the 66.67 log judged at --fps 300 (a wait of 30 where the log\'s was 7): differs', fails(fast), show(fast));
+    const slow = run('queue', f300, '--fps', '66.67');
+    check('the 300 log judged at --fps 66.67 (a wait of 7 where the log\'s was 30): differs on Q2, naming the wait and the lines, Q1 as expected',
+      fails(slow, /Q2 does not hold: the wait at the frame rate given is 7 ticks, and the queues first fell on line 30 in \d+ channels; the frame rate given may be lower than the game's/)
+      && /Q1, [^\n]*: as expected/.test(slow.out), show(slow));
+    const slower = run('queue', f300, '--fps', '280');
+    check('... judged at --fps 280 (a wait of 28, two ticks short): differs on Q2', fails(slower, /Q2 does not hold/), show(slower));
+    const q1Fails = run('queue', writeLog('voice_q_changed_2.log', (() => { const c = s300.lines.slice(), m = changedLines[2][1]; c[m.line] = `Voice - chan 0, ent 1, bufsize: ${m.b + 2}`; return c; })()), '--fps', '300');
+    check('the sentence "0 means this log cannot tell that fault from the rule" is printed only when Q1 holds', fails(q1Fails, /rule mismatches the log/) && !/0 means/.test(q1Fails.out)
+      && /0 means/.test(r300.out), show(q1Fails));
     const pull = s300.lines.slice();
     pull.splice(marks[opening + 40].line, 0, 'Voice - mixed 512 samples from channel 0');
     const pulls = run('queue', writeLog('voice_q_pull.log', pull), '--fps', '300');
@@ -930,18 +947,18 @@ try {
     const printed = (marks, len, { sum, peak, high }) => ({ marks, ms: (len / 24).toFixed(2), avg: (len ? sum / len / 32767 * 100 : 0).toFixed(2), max: (peak / 32768 * 100).toFixed(3), high: String(high) });
     let seed = 7;
     const random = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
-    const chunks = [];   // { kind: 'chunk', ... } and { kind: 'looped' }
+    // One chunk line at a place of the clip, its marks from the sender.
+    const chunkAt = (pos, len) => {
+      const s = sums(pos, len);
+      const samples = Int16Array.from({ length: len }, (_, i) => clip[(pos + i) % N]);
+      const active = senderOpens(samples), peak = senderOpens(samples, 1e12), mean = peak ? 100 * s.sum >= 32767 * len : active;
+      return { kind: 'chunk', pos, len, ...printed(`${active ? '+' : ' '}${mean ? '+' : ' '}${peak ? '+' : ' '}`, len, s) };
+    };
+    const chunks = [];   // { kind: 'chunk', pos, len, ... } and { kind: 'looped' }
     for (let pos = 0, total = 0, first = true; total < 2 * N; first = false) {
       const len = first ? 6000 : Math.trunc((0.048 + 0.0157 * random()) * 24000);
       if (pos + len > N) chunks.push({ kind: 'looped' });
-      const s = sums(pos, len);
-      let marks = '   ';
-      if (!first) {
-        const samples = Int16Array.from({ length: len }, (_, i) => clip[(pos + i) % N]);
-        const active = senderOpens(samples), peak = senderOpens(samples, 1e12), mean = peak ? 100 * s.sum >= 32767 * len : active;
-        marks = `${active ? '+' : ' '}${mean ? '+' : ' '}${peak ? '+' : ' '}`;
-      }
-      chunks.push({ kind: 'chunk', ...printed(marks, len, s) });
+      chunks.push(first ? { kind: 'chunk', pos, len, ...printed('   ', len, sums(pos, len)) } : chunkAt(pos, len));
       pos = (pos + len) % N; total += len;
     }
     const PATH = `C:\\${MARKERS[0]}\\${MARK}-Clip.wav`;
@@ -1014,7 +1031,8 @@ try {
       ['a printed mean far from 1.00 moved by 0.02, its marks kept', variant((l) => { const i = idx((c) => Number(c.avg) > 5, mid); l[i].avg = (Number(l[i].avg) + 0.02).toFixed(2); }), 'G4'],
       ['a printed peak under 14.9 moved by 0.010', variant((l) => { const i = idx((c) => Number(c.max) > 1 && Number(c.max) < 14.9, mid); l[i].max = (Number(l[i].max) + 0.01).toFixed(3); }), 'G4'],
       ['one length moved by 0.04 ms', variant((l) => { const i = idx((c) => c.marks === '+++', mid); l[i].ms = (Number(l[i].ms) + 0.04).toFixed(2); }), 'G4'],
-      ['one line that prints 1.00 with its second mark (and so its first) against the clip\'s', variant((l) => { const i = idx((c) => c.avg === '1.00' && c.marks[2] === ' '); l[i].marks = flip(flip(l[i].marks, 0), 1); }), 'G5']
+      ['one line that prints 1.00 with its second mark (and so its first) against the clip\'s', variant((l) => { const i = idx((c) => c.avg === '1.00' && c.marks[2] === ' '); l[i].marks = flip(flip(l[i].marks, 0), 1); }), 'G5'],
+      ['one count of high samples moved from n to n + 1 on a line whose third mark is set', variant((l) => { const i = idx((c) => c.marks[2] === '+' && Number(c.high) > 0, mid); l[i].high = String(Number(l[i].high) + 1); }), 'G4']
     ];
     for (const [what, list, g] of clipOnly) {
       const f = writeText(`steam_console_${g}_clip_${clipOnly.findIndex(([w]) => w === what)}.txt`, textOf(list));
@@ -1043,6 +1061,35 @@ try {
     check('a text with no loaded line, starting at a later chunk: as expected with the clip, the place found by its chunk lines', passes(noLoad) && /the place in file 2 was found by its first \d+ chunk lines/.test(noLoad.out), show(noLoad));
     const noLoadOther = run('gate', writeText('steam_console_noload2.txt', textOf(later, { loaded: false })), reversed);
     check('... given the reversed clip: differs, no place fits', fails(noLoadOther, /no place in file 2 fits/), show(noLoadOther));
+    // The walk ends at the typed command and at the console's answer: after
+    // the walked lines, mic_inputfile set to nothing and 40 lines of another
+    // place (a microphone's, as far as the clip can tell), which would not fit
+    // the walk.
+    const micLines = chunks.slice(idx((c) => true, 100)).filter((c) => c.kind === 'chunk').slice(0, 40);
+    const ended = (lines) => run('gate', writeText(`steam_console_end_${lines.length}.txt`, textOf([...chunks, ...lines.map((text) => ({ kind: 'text', text })), ...micLines])), clipFile);
+    const typedEnd = ended(['] mic_inputfile ""', '"mic_inputfile" = ""']), answerEnd = ended(['"mic_inputfile" = ""']);
+    check('the walk ends at the typed command and the answer: 40 chunk lines after them are not walked, as expected with the clip',
+      passes(typedEnd) && /chunk lines not walked, judged by file 1's figures alone: 40$/m.test(typedEnd.out) && /G1, [^\n]*: 1,053 of 1,053/.test(typedEnd.out), show(typedEnd));
+    check('... and at the answer alone', passes(answerEnd) && /chunk lines not walked, judged by file 1's figures alone: 40$/m.test(answerEnd.out), show(answerEnd));
+    // A chunk inside the walk split into one sample and the rest, as Set J
+    // printed one: the one-sample line prints a mean of 0.00, no mark and no
+    // high sample, and moves the walk and the search on by one sample.
+    const k = idx((c) => c.marks === '+++' && Math.abs(clip[c.pos]) > 1000), whole = chunks[k];
+    const split = [...chunks.slice(0, k), { kind: 'chunk', pos: whole.pos, len: 1, ...printed('   ', 1, { sum: 0, peak: Math.abs(clip[whole.pos]), high: 0 }) }, chunkAt(whole.pos + 1, whole.len - 1), ...chunks.slice(k + 1)];
+    const withLoad = run('gate', writeText('steam_console_split.txt', textOf(split)), clipFile);
+    check('a chunk split into one sample and the rest, inside the walk: as expected with the clip, the one-sample line counted apart',
+      passes(withLoad) && /chunk lines walked through file 2: [\d,]+, of which 1 of one sample, counted apart/.test(withLoad.out), show(withLoad));
+    const noLoadSplit = run('gate', writeText('steam_console_split_noload.txt', textOf(split.slice(k), { loaded: false })), clipFile);
+    check('... the text from that one-sample line on, with no loaded line: as expected, the place found by the search, which the one-sample line does not rule out',
+      passes(noLoadSplit) && /the place in file 2 was found by its first \d+ chunk lines, at sample ([\d,]+)/.test(noLoadSplit.out)
+      && Number(/at sample ([\d,]+)/.exec(noLoadSplit.out)[1].replace(/,/g, '')) === whole.pos, show(noLoadSplit));
+    // The search is capped: the clip twice over as file 2, so that every line
+    // fits two places.
+    const twice = at('steam_mic_twice.wav');
+    fs.writeFileSync(twice, wavBytes(Int16Array.from({ length: 2 * N }, (_, i) => clip[i % N]), 24000));
+    const capped = run('gate', writeText('steam_console_noload_all.txt', textOf(chunks, { loaded: false })), twice);
+    check('a text with no loaded line against the clip twice over: differs after 200 chunk lines, which still fit 2 places',
+      fails(capped, /does not say where in the clip it starts: its first 200 chunk lines \(at most 200, a choice of this check\) still fit 2 places/), show(capped));
     // The floors.
     const quiet = run('gate', writeText('steam_console_quiet.txt', textOf(chunks.filter((c) => c.kind === 'chunk' && c.marks === '   '))));
     check('the quiet lines alone: differs, no chunk on each side of 1.0%', fails(quiet, /no chunk on each side of 1\.0%/), show(quiet));

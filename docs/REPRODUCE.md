@@ -315,7 +315,7 @@ it holds is a choice of order RP-01b; it has not been played into Steam (not bui
 4. Type `+voicerecord` in the game's console and press Enter. Wait 60 s, two passes of the clip. Type
    `-voicerecord` and press Enter. One press is enough.
 5. **Save the text.** Select all of the Console tab's text, copy it, and paste it into a text file in the
-   repository's folder, for example `steam_console.txt`. Or take `console_log.txt` from the `logs` folder of Steam's
+   repository's folder, saved as plain text, for example `steam_console.txt`. Or take `console_log.txt` from the `logs` folder of Steam's
    install, which holds the same lines with a stamp in front of each (measured: the record's entry "Steam's chunk
    line"). **This text holds account names and addresses: give it to the script and post only what the script
    prints.**
@@ -379,8 +379,8 @@ order). A clip of another length than the `loaded` line names is not the clip St
 **A second press in one Steam session.** Steam prints the `loaded` line when it loads the file, at the first read
 after the key goes down; the same path typed again does not load it again, and the file's place carries on from one
 press to the next (read, W3-14's order). With no `loaded` line in the text, the script finds the place in the clip
-by the first chunk lines and says so. If they fit several places, it asks for `mic_inputfile ""` and the path
-again, or a restart of Steam, and a new press.
+by the first chunk lines and says so. If they still fit several places after 200 lines (a choice of this check), it
+asks for `mic_inputfile ""` and the path again, or a restart of Steam, and a new press.
 
 **What a pass shows, and what it does not.** A pass shows that Steam's verdicts follow the rule with the app's two
 limits, and with the clip that Steam's numbers are the clip's. It says nothing of the hold after the last loud chunk
@@ -472,13 +472,27 @@ whole part.
 
 **What the script checks.** It reads the part with `tests/voicequeue/log-to-fixture.mjs`, whose rules and refusals
 are in [tests/voicequeue/](../tests/voicequeue/README.md), and replays it through `voice-channel.js` as the suite
-`voice-channel` does. **Q1** is the ticks on which the rule gives the logged queue, expected all. It also prints
-each fault's mismatching ticks ("0 means this log cannot tell that fault from the rule"), the channels by the tick
-lines before their queue first fell, the packets of whole 882-sample frames and the others (silence records and
-empty packets), and the pulls read from the log that are not whole blocks of 512 samples.
+`voice-channel` does.
 
-**What to expect.** Q1 on every tick. The lines before the queue fell: 7 at 67 frames a second, 10 at 100, 30 to
-32 at 300 (measured, Set G, finding 23).
+- **Q1** is the ticks on which the rule gives the logged queue, expected all. It tests the wait only from below: the
+  replay takes the mixer's demand from the log, so a channel that the rule lets play early, with the mixer taking
+  nothing, matches every tick, and a frame rate given lower than the game's passes Q1 (measured 2026-11-13 by the
+  orchestrator, private; the record's entry "The checks gate and queue").
+- **Q2** tests the wait from above, by the tick lines from each channel's packet to the first fall of its queue, W
+  being the wait the frame rate given makes: every channel whose queue fell first fell on line W to W + 3, and at
+  least one on line W or W + 1. The band of W + 3 is a choice of this check: Set G's logs have W to W + 2 in 34
+  channels (measured, finding 23), and one line more is allowed because a packet that refills a full ring hides the
+  mixer's pull from the log (inferred). At least one channel on W or W + 1 is so in each of Set G's six parts
+  (measured 2026-11-13 by the orchestrator, private; the record's entry "The checks gate and queue"). A channel whose
+  queue never fell (a log cut while it waits) is counted apart.
+
+"As expected" needs Q1 and Q2. The script also prints each fault's mismatching ticks (and, when Q1 holds, "0 means
+this log cannot tell that fault from the rule"), the channels by the tick lines before their queue first fell, the
+packets of whole 882-sample frames and the others (silence records and empty packets), and the pulls read from the
+log that are not whole blocks of 512 samples.
+
+**What to expect.** Q1 on every tick, and Q2. The lines before the queue fell: 7 at 67 frames a second, 10 at 100,
+30 to 32 at 300 (measured, Set G, finding 23).
 
 **What the script refuses.** A log with fewer than 100 tick lines (a choice of this check), or in which no channel's
 queue ever fell (no channel played), cannot show the rule: "differs", with the reason. A log with marked parts needs
@@ -487,12 +501,16 @@ and does not read as one stop the reading with the line's number.
 
 **A different result.** A failing Q1 names the first tick that mismatches and asks for the frame rate to be checked:
 a PC that did not hold its `fps_max`, or one frame of 0.1 s or more during a wait, ends a wait early (read, finding
-23). A frame rate given higher than the game's stops the reading at the first queue that falls during its wait.
+23). A frame rate given higher than the game's stops the reading at the first queue that falls during its wait. A
+failing Q2 gives the wait and the lines on which the queues first fell, and says that the frame rate given may be
+lower than the game's.
 
 **What a pass shows, and what it does not.** A pass shows the ring, the wait, the one sample a packet and the grace
-against the queue the game logged. The replay takes the mixer's demand from the log, so it does not test when the
-mixer pulls (finding 22). For the same reason Q1 does not catch a frame rate given lower than the game's: compare
-the lines before the queue fell with the wait the script prints. The suite's stand-in is a log written from a second
+against the queue the game logged, each where the log holds it: a fault that prints 0 is not shown by that log. The
+replay takes the mixer's demand from the log, so it does not test when the mixer pulls (finding 22). Q2 lets through
+a frame rate whose wait is one tick short of the game's: at `voice_buffer_ms` 100 that is a rate 10 frames a second
+low (computed: the wait is one tick per 10 frames a second). Nothing was measured above 300 frames a second. The
+suite's stand-in is a log written from a second
 model of the channel and replayed through the first, so a pass there shows the reading and that the two models
 agree, not that the game prints these lines so. The packet counts through Steam's resampler are not checked (not
 built yet): the record's port of that resampler gives the logged count of all 2,372 packets of Set G that are not

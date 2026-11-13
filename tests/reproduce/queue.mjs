@@ -20,6 +20,13 @@
 // 0 there is not a failure (order RP-01b, "Why the pass line is not the old
 // one").
 //
+// Q1 tests the wait only from below: a frame rate given lower than the game's
+// passes it, since the log's demand is 0 while the true wait runs on. Q2
+// tests it from above, from the tick lines between a channel's packet and the
+// first fall of its queue: every channel whose queue fell first fell on line
+// W to W + SLACK (W the wait), and at least one on W or W + 1 (measured: so in
+// each of Set G's six parts; the record's entry "The checks gate and queue").
+//
 // A log with fewer than MIN_TICKS tick lines (a choice of this check), or in
 // which no channel's queue ever fell (no channel played), cannot show the
 // rule and is "differs". Nothing of the log is printed: its lines are counted,
@@ -32,6 +39,11 @@ import { cannot, differs, fmt, numberOption, parseArgs, readBytes } from './comm
 // The fewest tick lines a log must hold: a choice of this check (1.5 s of
 // ticks; the record's shortest part has 511).
 export const MIN_TICKS = 100;
+// Q2's band: a channel's queue first falls W to W + SLACK tick lines after its
+// packet, W the wait (a choice of order RP-01b's fix round: Set G's logs have W
+// to W + 2 in 34 channels, measured; one more line because a packet that
+// refills a full ring hides the mixer's pull from the log, inferred).
+export const SLACK = 3;
 const CAP = 44100;            // the ring, in bytes (finding 22)
 const FRAME = 882;            // one 20 ms frame of Steam voice at 44100 Hz (finding 25)
 const BLOCK = 512;            // the mixer's block (finding 22)
@@ -124,9 +136,14 @@ export default {
     if (!fell.length) {
       throw differs('no channel played: the queue never fell, so the log cannot show the rule; hold the key for a few seconds and speak');
     }
-    const e = row.engine;
+    const e = row.engine, W = stats.waitTicks;
     const ok = report.figure(`Q1, ticks on which the rule gives the logged queue: ${fmt(e.ticks - e.bad)} of ${fmt(e.ticks)}, expected all`, e.bad === 0);
-    report.info('each fault of the rule, put in on purpose, with the ticks it mismatches (0 means this log cannot tell that fault from the rule):');
+    // Q2: the wait seen from above. Every channel whose queue fell first fell
+    // W to W + SLACK tick lines after its packet, and at least one on W or
+    // W + 1 (channels whose queue never fell are counted apart).
+    const inBand = fell.filter((c) => c.fell >= W && c.fell <= W + SLACK).length, early = fell.some((c) => c.fell <= W + 1 && c.fell >= W);
+    const ok2 = report.figure(`Q2, channels whose queue first fell on tick line ${W} to ${W + SLACK} after their packet: ${fmt(inBand)} of ${fmt(fell.length)}, expected all; one on line ${W} or ${W + 1}: ${early ? 'yes' : 'no'}, expected yes`, inBand === fell.length && early);
+    report.info(`each fault of the rule, put in on purpose, with the ticks it mismatches${ok ? ' (0 means this log cannot tell that fault from the rule)' : ''}:`);
     for (const f of row.faults) report.info(`  ${f.label}: ${fmt(f.bad)}`);
     if (!ok) {
       const off = row.faults.filter((f) => /^wait [+-] 1$/.test(f.label) && f.bad === 0).map((f) => (f.label === 'wait + 1' ? 'longer' : 'shorter'));
@@ -136,6 +153,10 @@ export default {
         throw differs(`${where}; with the wait one tick ${off.join(' or ')} it mismatches nowhere: check the frame rate given with --fps, and look for ${steady}`);
       }
       throw differs(`${where}: look for ${steady}, a frame rate other than the one given, or a second speaker; if none of these, the finding is wrong for your PC`);
+    }
+    if (!ok2) {
+      const took = [...byLines].sort((a, b) => a[0] - b[0]).map(([n, k]) => `line ${n} in ${plural(k, 'channel', 'channels')}`).join(', ');
+      throw differs(`Q2 does not hold: the wait at the frame rate given is ${plural(W, 'tick', 'ticks')}, and the queues first fell on ${took}; the frame rate given may be lower than the game's: give the number the counter showed`);
     }
   }
 };

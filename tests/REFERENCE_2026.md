@@ -478,6 +478,13 @@ times, never the 9th" counts all 37.
 - `tests/voicequeue/log-to-fixture.mjs` reads the two logs that hold one run each at `--fps 300` without a stop, with
   no pull off the 512-sample blocks. The third log holds marked parts; it was read by `--section` when the fixture was
   made, and not read again that day.
+- **The check `queue` as first built, run on the six parts** (the branch at `81a6d46`; added at RP-01b's fix round):
+  Q1 on every tick, 9,808 in all. The first falls of the queue, in tick lines from the channel's packet: at 300 frames
+  a second 30 lines in 19 channels, 31 in 8 and 32 in 1; at 66.67, 7 in 2; at 100, 10 in 4; so in each of the six
+  parts at least one channel's queue first fell on line W or W + 1, W the wait. A frame rate given too low passes Q1:
+  the first part, logged at 300, judged at `--fps 100`, and the 66.67 part judged at 60, both say "as expected"; the
+  100 part judged at 300 differs. That is why the check has a second figure, Q2 (the order's section "After the
+  build, the private run and the review").
 
 **On the model** (computed by the suite `reproduce`, `tests/reproduce.verify.mjs`, on stand-ins it writes; not the
 game):
@@ -488,8 +495,10 @@ game):
   alone; with the clip, the highest exact mean without the second mark 0.9996% and the lowest with it 1.0002%.
 - `queue`'s stand-ins are console logs written from the second model of the channel
   (`tests/voicequeue/reference-channel.mjs`) and replayed through `voice-channel.js`: at 300 frames a second 90 packets
-  and 473 ticks with no mismatching tick, every fault mismatching somewhere; at 66.67, 90 packets and 377 ticks with no
-  mismatching tick, the ring's two faults mismatching nowhere.
+  and 473 ticks with no mismatching tick, every fault mismatching somewhere, and the queues of 4 of 4 channels first
+  falling on line 30; at 66.67, 90 packets and 377 ticks with no mismatching tick, the ring's two faults mismatching
+  nowhere, and 5 of 5 channels first falling on line 7 or 8. Judged at `--fps 66.67`, the 300 log passes Q1 and
+  fails Q2; judged at 280 (a wait two ticks short) it fails Q2.
 
 ### What was read
 

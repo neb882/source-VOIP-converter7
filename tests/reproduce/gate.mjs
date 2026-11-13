@@ -35,7 +35,8 @@
 //      whose exact mean lies within a millionth of a percent of 1.0% is
 //      counted apart (the code compares in 32-bit floats; read).
 // When the text has no `loaded` line at all, the place in the clip is found
-// by the first five chunk lines (more, while five fit several places).
+// by the first five chunk lines (more, while five fit several places, up to
+// 200, a choice of this check).
 //
 // Expected (measured, Set J, finding 28): all 789 verdicts follow the rule;
 // 788 of 789 lines carry the clip's numbers, the one other a chunk of one
@@ -81,9 +82,11 @@ function fits(c, len, m) {
 }
 
 // The place in the clip where the chunk lines fit, by their first five (more
-// while five fit several places): { at, used } or { places } when none or
-// several fit. Sums and counts by prefix over the clip twice; the peak only
-// where they fit.
+// while five fit several places, up to MAX_SEARCH): { at, used } or {
+// places, used } when none or several fit. A line of one sample moves the
+// place on by its length and rules no place out, as in the walk. Sums and
+// counts by prefix over the clip twice; the peak only where they fit.
+export const MAX_SEARCH = 200;   // a choice of this check
 function search(lines, clip) {
   const n = clip.length, S = new Float64Array(2 * n + 1), H = new Int32Array(2 * n + 1);
   for (let i = 0; i < 2 * n; i++) { const a = Math.abs(clip[i % n]); S[i + 1] = S[i] + a; H[i + 1] = H[i] + (a >= PEAK_MIN ? 1 : 0); }
@@ -91,14 +94,15 @@ function search(lines, clip) {
   for (const c of lines) {
     const len = lengthOf(c);
     const ok = (p) => {
+      if (c.ms === ONE_SAMPLE || len === 0) return true;
       const at = (p + offset) % n, sum = S[at + len] - S[at], high = H[at + len] - H[at];
       if (high !== c.high || Math.abs(c.avg / 100 - (len ? sum / len / 32767 * 100 : 0)) > 0.01 + 1e-9) return false;
-      return len === 0 || fits(c, len, measure(clip, at, len));
+      return fits(c, len, measure(clip, at, len));
     };
     if (places === null) { places = []; for (let p = 0; p < n; p++) if (ok(p)) places.push(p); }
     else places = places.filter(ok);
     offset += len; used++;
-    if (used >= 5 && places.length <= 1) break;
+    if ((used >= 5 && places.length <= 1) || used >= MAX_SEARCH) break;
   }
   return places && places.length === 1 ? { at: places[0], used } : { places: places ? places.length : 0, used };
 }
@@ -188,7 +192,7 @@ function withClip(file, chunks, marks, report) {
     if (!first) throw differs('the text holds no loaded line and no five chunk lines in a row to place in file 2: it does not start before the file was loaded; set mic_inputfile to "" and back, or restart Steam, and press again');
     const found = search(chunks.slice(first.from, first.to), clip);
     if (found.at === undefined) {
-      throw differs(found.places ? `the text holds no loaded line, and its first ${found.used} chunk lines fit ${fmt(found.places)} places in file 2: set mic_inputfile to "" and back, or restart Steam, so that Steam prints the loaded line, and press again`
+      throw differs(found.places ? `the text holds no loaded line and does not say where in the clip it starts: its first ${found.used} chunk lines (at most ${MAX_SEARCH}, a choice of this check) still fit ${fmt(found.places)} places in file 2; set mic_inputfile to "" and back, or restart Steam, so that Steam prints the loaded line, and press again`
         : 'the text is not of that clip: no place in file 2 fits its printed numbers (or the text does not start after the file was loaded)');
     }
     report.info(`the text holds no loaded line: the place in file 2 was found by its first ${found.used} chunk lines, at sample ${fmt(found.at)}`);

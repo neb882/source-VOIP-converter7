@@ -28,8 +28,9 @@
 // three characters, each + or a space, then " [") and does not read as one
 // whole stops the reading with its line number and no text: ConsoleError.
 //
-// The bytes: UTF-16 with a byte-order mark (an editor may save the text so;
-// Steam's own files are plain ASCII, measured), else one character a byte, a
+// The bytes: UTF-16 little-endian with its byte-order mark (an editor may
+// save the text so; Steam's own files are plain ASCII, measured), else one
+// character a byte, a
 // UTF-8 byte-order mark dropped. Lines end in a line feed, with or without a
 // carriage return before it, both in one file (measured in console_log.txt).
 export class ConsoleError extends Error {}
@@ -45,11 +46,6 @@ const TYPED = /^\] mic_inputfile(?: |$)/;
 export function decode(bytes) {
   const b = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length);
   if (b.length >= 2 && b[0] === 0xFF && b[1] === 0xFE) return b.subarray(2, b.length - (b.length & 1)).toString('utf16le');
-  if (b.length >= 2 && b[0] === 0xFE && b[1] === 0xFF) {
-    const s = Buffer.from(b.subarray(2, b.length - (b.length & 1)));
-    s.swap16();
-    return s.toString('utf16le');
-  }
   const start = b.length >= 3 && b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF ? 3 : 0;
   return b.subarray(start).toString('latin1');
 }
