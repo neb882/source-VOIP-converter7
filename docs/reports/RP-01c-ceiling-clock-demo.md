@@ -321,3 +321,18 @@ orchestrator's, made in the coordinator's addendum of 2026-11-13, and this part 
   starts no run.
 - The branch's diff and its commit messages were scanned for recordings, personal details, real SteamIDs, paths and
   model names: none but the trailer lines. The SteamIDs in the suite are universe 0.
+
+## The orchestrator's private run (2026-11-13)
+
+Run on the merged script against the owner's recordings and Set D's demo, which are not public. Figures only, all
+measured; the record's entry "The script's later checks run on the game's files" has the table.
+
+- `demo`: as expected on Set D's demo (1,816 voice messages, 5,109 frames).
+- `ceiling`: as expected on ten of seventeen recordings; the seven others differ for reasons the check names (too
+  few samples on the ceiling in three, never reaching it in one, samples above it in three older recordings).
+- `clock`: as expected on ten of seventeen, reading +402 to +418; four outside the range as the accuracy table has
+  them, one of which is as expected with `--packets 22.3`; three with too little to line up.
+- The first run, on the build before the fix round, is what changed `ceiling` and `clock` (the order's section 18).
+
+The marks "Not yet run on a recording of the game" on the page's three sections were replaced by these figures.
+

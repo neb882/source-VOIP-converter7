@@ -376,6 +376,30 @@ A recording of another codec given to `speex` is refused (measured on one such f
 script lines a file up as the game wrote it, which the suite's stand-ins cannot. Nobody else can repeat them until
 the recordings are published (order RP-01, part e).
 
+### The script's later checks run on the game's files (2026-11-13)
+
+Added 2026-11-13 at RP-01c's merge. The orchestrator ran the checks `ceiling`, `clock` and `demo` of
+`tests/reproduce.mjs`, as merged, on seventeen of the owner's recordings of the PC's output (the takes of the
+accuracy table but one, decoded to WAV) and on Set D's demo, all private (measured; only the script's counts are
+here). A first run, before the merge, changed two of the checks: the order's section 18.
+
+| Check | On | Result |
+| --- | --- | --- |
+| `demo` | Set D's demo | as expected: 1,816 voice messages, 5,109 frames, every frame a 20 ms hybrid frame of one channel, every message with one 24000 Hz record, 693 one-byte frames, 20 end markers, 19 of 19 phrases after an end marker at frame number 0 and the first phrase at 0 |
+| `ceiling` | seventeen recordings, each with its `volume` | as expected on ten: the largest sample exactly round(32767 x `volume`) (4,915 at 0.15 in nine, 3,604 at 0.11 in one), the smallest the same with a minus, 100 to 179,781 samples on the largest. Differs on seven: three reach the ceiling exactly with 10, 38 and 74 samples on it (under the check's floor of 100), one made at `voice_maxgain 1` never reaches it (largest 3,010), and three recordings of Sets A and E hold samples above the ceiling for the `volume` noted for them (largest 5,095 and 6,800; two are kept as MP3) |
+| `clock` | the same seventeen, each with its source | as expected on ten, reading +402 to +418 parts in a million. Outside the range on four, as the accuracy table has them: +499 (`voice_maxgain 1`; as expected with `--packets 22.3`), +449, +284 and +726 (loss and jitter). Too little lined up on three |
+
+- **The flat tops of a recording are the mixer's, not the voice's.** In every recording that reaches it, the
+  largest sample is exactly round(32767 x `volume`), and in the takes of the loud test signal there is no pile at
+  the voice's own 4,895 to 4,896: the counts by step from 4,880 to 4,909 are level (about 1,800 a step in one take)
+  and the ceiling holds 121,716. The clip acts on the sum of the voice and the game's other sound (finding 30), so
+  the map's sound spreads a held voice over many steps and what passes the clip is flattened on the ceiling. The
+  voice's 255/256 of finding 30 was measured another way, as the median of the middle samples of the clipped 1 kHz
+  plateaus of one take; this run does not repeat that measurement.
+- **`clock` against the accuracy suite.** On the fourteen takes where both gave a figure the check's reading
+  differs from the table's by -11 to +10 parts in a million, so the check's window is the table's range of +397 to
+  +416 widened by 11.
+
 ### What was read
 
 The reports in `docs/reports/` say what was read from which file and where. Nothing of the files is in this repository. They were read as data with a disassembler and never run, and no leaked source was used. *Corrected by the owner's rule of 2026-11-11 (CLAUDE.md): since then a module may also be run, in a CPU emulator first, on signals of our own; TF2's `vaudio_speex` module (Set O) and the `vaudio_miles` plug-in's VR12 (W3-20a) were run that way. Its output is a measurement; nothing of the modules is copied.* Public sources were set beside them: libopus, CELT, Speex and FFmpeg's libswresample.

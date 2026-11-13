@@ -1,10 +1,10 @@
 # RP-01: a page a stranger can check findings from, the files behind the read findings, and which recordings are published
 
-**Status 2026-11-13: parts a and d are merged** (reports: [RP-01a](../reports/RP-01a-reproduce-script.md),
-[RP-01d](../reports/RP-01d-files-and-manifest.md); the script's `gain`, `celt` and `speex` also passed the
-orchestrator's private run on the game's files). Of part e, the files table is filled and merged; the step that
-publishes the recordings is prepared and waits for the owner's word (section 17), and part f waits with it. Part
-c can go ahead; part b waits for a planner's pass (section 15). Sections 14 (the
+**Status 2026-11-13: parts a, c and d are merged** (reports: [RP-01a](../reports/RP-01a-reproduce-script.md),
+[RP-01c](../reports/RP-01c-ceiling-clock-demo.md), [RP-01d](../reports/RP-01d-files-and-manifest.md); every built
+check was also run privately by the orchestrator on the game's files, and section 18 says what that run changed in
+part c). Of part e, the files table is filled and merged; the step that publishes the recordings is prepared and
+waits for the owner's word (section 17), and part f waits with it. Part b waits for a planner's pass (section 15). Sections 14 (the
 orchestrator's rulings) and 15 (after the plan review) hold where an earlier section differs; sections 7, 8 and 9
 were edited in place to agree with them.
 

@@ -23,7 +23,8 @@ and no script yet.
 stands here, and gave "as expected" (measured; the record's entry "The script run on the game's files"). Their
 sections give that run's figures beside the record's older ones, which were made with other code (findings 26 and
 31). Those recordings are not published yet (order RP-01e), so nobody else can repeat that run today. `ceiling`,
-`clock` and `demo` have not been run on a recording of the game at all. What CI runs is the suite `reproduce`, on
+`clock` and `demo` were run on the owner's recordings of the PC's output and on one demo the same day (measured;
+their sections give the figures), and those files stay private. What CI runs is the suite `reproduce`, on
 stand-ins that this repository makes, and a stand-in cannot show that the script lines up a file as the game wrote
 it.
 
@@ -231,8 +232,9 @@ O; the record's entry "The file-input runs, measured again").
 
 ## With a recorder of the PC's output
 
-**Not yet run on a recording of the game.** The script's `ceiling` and `clock` have run on stand-ins (the suite
-`reproduce`); the record's older figures below were measured with other code.
+**Run on the game's recordings on 2026-11-13** (measured; the record's entry "The script's later checks run on the
+game's files"). `ceiling` and `clock` were run on seventeen of the owner's recordings of the PC's output, which are
+private; each section below gives the outcome. The record's older figures were measured with other code.
 
 `ceiling` and `clock` read a recording of what the PC plays while the game plays your voice back to you. The record's
 takes were made this way (the record's "Reproduce" and Set B; [owner-runs.md](owner-runs.md), "A take of the test
@@ -295,7 +297,13 @@ Start the recorder. Type `+voicerecord` in the console and press Enter, start th
 
 ## ceiling
 
-**Not yet run on a recording of the game.**
+**Run on the game's recordings on 2026-11-13** (measured, on seventeen recordings, each with its own `volume`). Ten
+came out "as expected": the largest sample exactly round(32767 x `volume`) (4,915 at `volume 0.15` in nine, 3,604
+at 0.11 in one), the smallest the same with a minus, and 100 to 179,781 samples on the largest. Seven came out
+"differs", each with a reason the check names: three reach the ceiling exactly with 10, 38 and 74 samples on it,
+under the check's floor of 100; one, made at `voice_maxgain 1`, never reaches it (its largest sample is 3,010); and
+three older recordings hold samples above the ceiling for the `volume` noted for them (largest 5,095 and 6,800), two
+of them kept as MP3, which does not keep sample values.
 
 **The claim.** The game adds all its sound, the voice and the rest, clips the sum at ±32767, applies `volume` and
 rounds to 16 bits, in that order (read, finding 30). So no sample of its output passes round(32767 × `volume`), the
@@ -332,7 +340,11 @@ mixer limiting the tops (Set K, finding 32).
 
 ## clock
 
-**Not yet run on a recording of the game.**
+**Run on the game's recordings on 2026-11-13** (measured, on seventeen recordings with the source each played). Ten
+came out "as expected", reading +402 to +418 parts in a million. Four read outside the range, as the record's table
+has them, and were told to give `--packets`: +499 (the take at `voice_maxgain 1`; with `--packets 22.3`, the
+record's inferred figure for it, it is "as expected" in +489 to +530), +449 and +284 (takes with loss) and +726
+(the take with jitter). Three had too little to line up: two under heavy loss and one of 7 s.
 
 **The claim.** The engine copies each packet into its queue one sample short: the packet's first sample is left out
 (read, finding 24). So the game plays the voice faster than its source by the packets a second over 44100. Steam
@@ -399,8 +411,10 @@ game joins.
 
 ## demo
 
-**Not yet run on a recording of the game.** The script's `demo` has run on stand-ins and on
-`tests/demo/synthetic.dem` only, not on a demo the game's server wrote.
+**Run on a demo the game's server wrote, on 2026-11-13** (measured, Set D's demo, which is private): "as
+expected". 1,816 voice messages and 5,109 frames, every frame a 20 ms hybrid frame of one channel, every message
+with one 24000 Hz record, 693 one-byte frames, 20 end markers, the first phrase at frame number 0 and 19 of 19
+phrases after an end marker at 0.
 
 **The claim.** Steam's voice packets are 20 ms Opus frames in hybrid mode with a 12 kHz band, one channel, at
 24000 Hz (measured, Set D's demo, finding 11; the encoder's settings read, finding 28). Where the encoder sends no
