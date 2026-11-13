@@ -16,7 +16,7 @@ is not corrected later, except a dated note where an order's state changed. Wher
 The other documents in this folder are for someone using the page: [PAGE.md](PAGE.md) (the page's tools),
 [LIVE.md](LIVE.md) (the live monitor), [VOICE-PATH.md](VOICE-PATH.md) (what each stage does to the sound),
 [ACCURACY.md](ACCURACY.md) (how close the app is to the game, stage by stage), [FINDINGS.md](FINDINGS.md) (how
-Source's voice path works, as read and measured), and [owner-runs.md](owner-runs.md) (the owner's procedures for
+Source's voice path works, as read and measured), [REPRODUCE.md](REPRODUCE.md) (how to check findings on your own PC), and [owner-runs.md](owner-runs.md) (the owner's procedures for
 the recordings still wanted).
 
 ## The status line
