@@ -506,3 +506,33 @@ Replaced or removed (next, W3-22 (moved to in_flight)):
 Replaced or removed (live, last_merge, now kept as the tail of the new text):
 
 (the W3-02c-2 text stays in place after the RP-01a sentence)
+
+## 2026-11-13, when the three builders handed back
+
+Replaced or removed (in_flight, W3-21, its state):
+
+a builder is at work since 2026-11-13 (branch claude/w3-21-capture-phase); it stopped once and was ruled on (the order's last section)
+
+Replaced or removed (in_flight, W3-22, its state):
+
+a builder is at work since 2026-11-13 (branch claude/w3-22-miles-words)
+
+Replaced or removed (in_flight, RP-01d, its state):
+
+a builder is at work since 2026-11-13 (branch claude/rp-01d-files-and-manifest)
+
+## 2026-11-13, at RP-01d's merge
+
+Replaced or removed (in_flight, RP-01d (merged; the entry is removed)):
+
+built 2026-11-13 (branch claude/rp-01d-files-and-manifest, CI green); a reviewer is at work. Then part e, the orchestrator's. The table of the files the read findings were read from (the cells the public reports give; the orchestrator's cells pending), the manifest's frame with no rows, tests/recordings/inspect.mjs, the suite recordings, and the new wording of the hard rule written out for part e. The orchestrator hashed and dated the private files for its cells on 2026-11-13 (kept privately until part e).
+
+Replaced or removed (in_flight, RP-01, its state):
+
+part a merged 2026-11-13 (the script's frame, the two clips' generator, the checks inputs, gain, celt and speex, the suite reproduce, docs/REPRODUCE.md); part d is next (the files behind the read findings, the manifest's frame, the suite recordings), then e (the orchestrator's alone: the nine recordings, the hard rule's amendment) and f; part c after; part b after a planner's pass
+
+## 2026-11-13, when part e's publishing step was held
+
+Replaced or removed (in_flight, RP-01, its state):
+
+parts a and d merged 2026-11-13; part e is next and is the orchestrator's alone (the pending cells of the files table from the private inventory; the nine recordings, each after its check and a read of its header; the manifest's rows; the hard rule's amendment), through a pull request and CI; then f (the suite on the published files), c, and b after a planner's pass
