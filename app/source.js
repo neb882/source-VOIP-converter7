@@ -34,6 +34,8 @@ function mountSource(mono, sampleRate, name, left = null, { render = true, video
   state.processedBuffer = null;
   state.renderedSource = null;
   state.renderedKey = null;
+  // W3-02d-2: no render of this source is on screen, so the worker holds none of its stages.
+  state.workerKeepsShown = false;
   state.decodedSource = { sampleRate, duration, length: mono.length,
     numberOfChannels: 1, getChannelData: () => mono, left };
   state.dryBlob = URL.createObjectURL(TF2Audio.encodeWav(mono, sampleRate));
