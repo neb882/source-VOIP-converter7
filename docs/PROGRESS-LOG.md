@@ -541,3 +541,9 @@ parts a and d merged 2026-11-13; part e is next and is the orchestrator's alone 
 
 - W3-21, state replaced: "built 2026-11-13 (branch claude/w3-21-capture-phase, CI green); a reviewer and a second reader are at work. The builder's point for judgment: the render's sound lies within one sample of main's place, not at the same whole sample in every seed"
 - W3-22, state replaced: "the builder stopped on seven places the order did not list; ruled on 2026-11-13 (the order's last section) and resumed (branch claude/w3-22-miles-words)"
+
+## 2026-11-13: W3-21 merged, its in-flight entry replaced
+
+- W3-21, state replaced: "built 2026-11-13 (branch claude/w3-21-capture-phase, CI green); reviewed, verdict merge, no fault in the code; a second reader's points on wording and tests went to the builder with the reviewer's as one fix round, which is running. Both readers: with the lead forced to 0 every recorded value of main comes back; the sound's place moves by less than one sample (measured)."
+- W3-21, note replaced: "The sender's capture steps take the phase its clock already draws. With the lead forced to 0 every recorded value comes back (measured by the builder), so nothing but the phase moves. After it merges: the orchestrator's private runs on a 'game' render again, at Steam's own threshold."
+- live.cache replaced: 39

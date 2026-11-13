@@ -109,3 +109,30 @@ stopped as the order asks. Ruled, place by place:
 The builder's edits to two further lines of `README.md` that said no recording of a running engine exists are
 kept. After these, done-means 2's search finds the old sentence only in the suite's own test data, the record's
 kept and corrected text, `tests/predictions/`, and the earlier reports, logs and orders.
+
+## Rulings of 2026-11-13, after the review
+
+The review found no line of code changed and no render moved, and four places that still tell a reader the codec
+was never checked, in other words than the old sentence's. Ruled:
+
+8. `docs/owner-runs.md`, the table at the head: the State cell of the `vaudio_miles` row says what was run
+   (once, 2026-11-13, Source SDK Base 2006, a file as the microphone and speech) and what was not (the 2007
+   engine, a second player, a lost packet). The suite's test for "nobody has run" ignores case and the word
+   after it.
+9. `docs/VOICE-PATH.md`, the codec table's row for `miles`: its standing against the game follows
+   `docs/ACCURACY.md`'s row, figure and standing unchanged: the codec stage measured against one sitting of
+   Source SDK Base 2006, not TF2; the profile as run not checked.
+10. `app/console.js`, the help string of `sv_voicecodec`, and `constants.js`, the comment at the head of the
+    profiles: "unverified" gives way to "its codec checked against one recording of a 2006 engine, the rest of
+    the profile not". `app/console.js` joins the order's files for that string alone. The value
+    `status: 'unverified'` in `constants.js` is data a test pins and stays. If a test pins the help string, the
+    pin follows it.
+11. The suite's exemption for the older sentence ("nothing of a running engine with this codec has been
+    recorded") is narrowed to what its comment says: the sentence is looked for in the text left after each
+    marked correction is taken out, in the record and in `tests/LEGACY_CODECS.md`.
+12. Three passages say what entry 11 says and no more: "the public implementation" where "the vendored build"
+    stands in `tests/LEGACY_CODECS.md`; "the first press of one sitting" where the record gives 143,796 of
+    145,800 for "one sitting"; and "reset once" with "exactly" in the record's second correction. The report's
+    line number for the record's kept text is brought up to date.
+13. The dated note in `tests/predictions/PREDICTIONS.md` for the two hashed files changed in comments only
+    (`constants.js`, `opus-codec.mjs`) is the orchestrator's, written at the merge.

@@ -14,6 +14,11 @@
  *     samples; none at all for the first read or two). A read is { time, since, samples }:
  *     its time on the clock (since plus a seeded phase on the float's grid), its time from
  *     the render's start, and its chunk's length.
+ *   - The capture runs free of the sound played into it (inferred; docs/work-orders/W3-21-
+ *     capture-phase.md): the sender reads `lead` zeros (0 to 749, from the clock's c0) before the
+ *     source's first sample, so the steps' edges lie c0 after the multiples of 31.25 ms of
+ *     the source. The times it counts from the render's start (since) are the reads' less
+ *     lead / 24000 s, and the positions it reports are in samples of the source.
  *   - Steam's clock is seconds since Steam started (uptime, then the read's time), narrowed to
  *     a 32-bit float at every read: nowF.
  *   - The gate judges each chunk whole: active when the mean of |x| is at least 327.67 or a
@@ -33,8 +38,8 @@
  *     read (counted from the render's start), and on a later tick than the message before
  *     (the engine adds at most one packet a tick).
  *
- * createClock({ seed }) -> { next() }: one read, { time, since, samples }, per call.
- * createSender({ seed, clock, uptime, gate, meanMin }) -> { push(int16), finish(), info() }.
+ * createClock({ seed }) -> { next(), lead }: one read, { time, since, samples }, per call.
+ * createSender({ seed, clock, lead, uptime, gate, meanMin }) -> { push(int16), finish(), info() }.
  * No imports; runs as a page script, in a worker and under Node.
  */
 (function (root) {
@@ -121,6 +126,7 @@
   //     a[j] = max(a[j-1], c0 + (j + 1) x 0.03125 + 0.013 x B()), a[-1] = -Infinity
   //   next(): n = the steps with a[j] <= r not yet taken; { time: phase + r, since: r,
   //     samples: 750 n }; then r = r + (0.0480 + (0.0637 - 0.0480) x A())
+  //   lead = (750 - round(c0 x 24000)) mod 750 (the W3-21 order; read only, drawn from nothing)
   // With 13 ms of lateness under one step, a read 48 to 63.7 ms after the last finds one to
   // three steps (a chunk is at most 2250 samples); only a read before the first step is ready
   // finds none. The clock knows nothing of uptime: the sender adds it.
@@ -134,9 +140,16 @@
     const phase = S.phaseSpan * A();
     let r = S.readMax * A();
     const c0 = STEP * B();
+    // The capture's phase against the sound, in samples (W3-21): the steps' edges lie c0
+    // after the multiples of 31.25 ms of the source when the sender puts this many zeros
+    // before it. Read only; drawing it takes nothing from A or B. Chosen: nothing read or
+    // measured ties the capture's phase to c0 (itself the clock's own uniform draw over one
+    // step, chosen); c0 is a source of one uniform number that draws nothing new.
+    const lead = (S.grid - Math.round(c0 * S.rate)) % S.grid;
     let j = 0;
     let ready = Math.max(-Infinity, c0 + (j + 1) * STEP + S.captureLate * B());   // a[0]
     return Object.freeze({
+      lead,
       next() {
         let n = 0;
         while (ready <= r) {
@@ -153,7 +166,9 @@
   // opts: seed (the clock's), clock (an object whose next() gives reads in place of the
   // seeded clock: { time, since, samples }, time in seconds from the render's start, finite
   // and not below the last; since the same without any phase, finite (left out: time);
-  // samples a whole number from 0 to 2250), uptime (seconds the sender's Steam had been
+  // samples a whole number from 0 to 2250; the reads count the lead's zeros), lead (the
+  // zeros read before the source, a whole number from 0 to 749: the seeded clock's draw when
+  // left out, 0 with a caller's clock; given, it overrides either), uptime (seconds the sender's Steam had been
   // running when the render begins, 0 to 4,000,000; default 777600: it is added to every
   // read's time before the narrowing to a float, and changes the hold only), gate (false:
   // every chunk that is not empty counts as active, and a read with no samples does
@@ -170,14 +185,15 @@
   // A message is { tick, spurt, first, last, start, end, pcm }: the game tick it reaches the
   // receiver on; the spurt's number (from 0); its first and last frame, numbered through the
   // whole render (last = first - 1 for an end marker alone); start, the source sample of frame
-  // first's first sample (negative in a pre-roll before sample 0, which is zeros); end, whether
-  // it carries the end marker; pcm, its frames' samples (an Int16Array of 480 a frame, the
-  // padding of a last frame included). Or { tick, silence }: the silence record, in samples.
+  // first's first sample (negative in a pre-roll or the lead before sample 0, which are
+  // zeros); end, whether it carries the end marker; pcm, its frames' samples (an Int16Array of
+  // 480 a frame, the padding of a last frame included). Or { tick, silence }: the silence
+  // record, in samples.
   //
-  // info(): { spurts: [{ start, frames, preroll }], chunks, messages, uptime }: each spurt's
-  // start, its frame count and the pre-roll it was given; the chunks read that were not
-  // empty; the messages sent; the uptime it ran with. It keeps at most 2400 + 2250 + 479
-  // samples of sound.
+  // info(): { spurts: [{ start, frames, preroll }], chunks, messages, uptime, lead }: each
+  // spurt's start (in samples of the source), its frame count and the pre-roll it was given;
+  // the chunks read that were not empty; the messages sent; the uptime and the lead it ran
+  // with. It keeps at most 2400 + 2250 + 479 samples of sound.
   function createSender(opts) {
     const o = opts || {};
     const S = STEAM_SENDER, FRAME = S.frame;
@@ -192,6 +208,13 @@
     if (o.clock === undefined) clock = createClock({ seed: o.seed });
     else if (o.clock && typeof o.clock.next === 'function') clock = o.clock;
     else throw new RangeError('the clock must be an object with next()');
+    if (o.lead !== undefined && !(Number.isInteger(o.lead) && o.lead >= 0 && o.lead < S.grid)) {
+      throw new RangeError(`lead must be a whole number of samples from 0 to ${S.grid - 1}`);
+    }
+    // The zeros the capture takes before the source's first sample (W3-21): the seeded
+    // clock's draw, or a caller's (0 with a caller's clock when none is given).
+    const lead = o.lead !== undefined ? o.lead : o.clock === undefined ? clock.lead : 0;
+    const LEAD_S = lead / S.rate;
 
     const past = new Int16Array(S.preroll);     // the last silent sound, oldest first
     const chunk = new Int16Array(MAX_CHUNK);     // the capture since the last frame
@@ -216,7 +239,7 @@
         if (!Number.isInteger(samples) || samples < 0 || samples > MAX_CHUNK) throw new RangeError(`the clock's samples must be a whole number from 0 to ${MAX_CHUNK}`);
         lastTime = time;
         nowF = Math.fround(uptime + time);
-        since = x.since === undefined ? time : x.since;
+        since = (x.since === undefined ? time : x.since) - LEAD_S;
         if (samples > 0) { target = read + samples; return; }
         emptyRead(out);
       }
@@ -270,7 +293,7 @@
 
     function openSpurt(chunkStart, pre) {
       spurt++;
-      spurtStart = chunkStart - pre;
+      spurtStart = chunkStart - pre - lead;      // in samples of the source
       spurtFrames = 0;
       spurts.push({ start: spurtStart, frames: 0, preroll: pre });
     }
@@ -315,10 +338,8 @@
       }
     }
 
-    function push(samples) {
-      if (finished) throw new Error('push() after finish()');
-      if (!(samples instanceof Int16Array)) throw new TypeError('push() takes an Int16Array of 24 kHz samples');
-      const out = [];
+    // The capture of samples, which follow what was read before; messages go into out.
+    function feed(out, samples) {
       let i = 0;
       while (i < samples.length) {
         const want = target - read;
@@ -331,13 +352,20 @@
           nextRead(out);
         }
       }
+    }
+
+    function push(samples) {
+      if (finished) throw new Error('push() after finish()');
+      if (!(samples instanceof Int16Array)) throw new TypeError('push() takes an Int16Array of 24 kHz samples');
+      const out = pending.splice(0);
+      feed(out, samples);
       return out;
     }
 
     function finish() {
       if (finished) return [];
       finished = true;
-      const out = [];
+      const out = pending.splice(0);
       if (!gate) {
         // The next frame reads the rest of the source as its chunk and is the last: what is
         // kept is padded to a frame and sent with the end marker (alone, if nothing is left).
@@ -367,11 +395,16 @@
     }
 
     function info() {
-      return { spurts: spurts.map((s) => ({ start: s.start, frames: s.frames, preroll: s.preroll })), chunks, messages, uptime };
+      return { spurts: spurts.map((s) => ({ start: s.start, frames: s.frames, preroll: s.preroll })), chunks, messages, uptime, lead };
     }
 
-    // The first read: the state is silent, so a read with no samples sends nothing.
-    nextRead([]);
+    // The first read: the state is silent, so a read with no samples sends nothing. Then the
+    // lead's zeros, read as sound before the source; what they make (only with the gate off
+    // and a caller's clock whose first read is shorter than the lead) comes with the first
+    // push() or finish().
+    const pending = [];
+    nextRead(pending);
+    if (lead) feed(pending, new Int16Array(lead));
 
     return Object.freeze({ push, finish, info });
   }

@@ -415,9 +415,11 @@ if (runs(5)) {
     const opens = info.spurts.filter((s) => s.opened);
     // Each run starts within 150 ms of an opened spurt's start (the source's sample).
     const placed = runs.length === opens.length && runs.every((u, k) => Math.abs(u.first - opens[k].start * 44100) < 0.15 * 44100);
-    check(`seed ${seed}: opens 3 and gainResets 3; the voice is zero but one run after each open, at most 127 samples long with at least 40 not zero; the appended spurt adds none`,
-      info.opens === 3 && info.gainResets === 3 && info.appended === 1 && placed && runs.every((u) => u.last - u.first + 1 <= 127 && u.count >= 40),
-      `${runs.length} runs: ${runs.map((u) => `${u.last - u.first + 1} long, ${u.count} not zero`).join('; ')}; opens ${info.opens}, gainResets ${info.gainResets}`);
+    // W3-21: with the capture's phase seed 8's channel appends no spurt (info.appended 0; 1
+    // before W3-21); every other seed's appends one.
+    check(`seed ${seed}: opens 3 and gainResets 3; the voice is zero but one run after each open, at most 127 samples long with at least 40 not zero; the appended spurt adds none${seed === 8 ? ' (seed 8 with the capture\'s phase: none appended)' : ''}`,
+      info.opens === 3 && info.gainResets === 3 && info.appended === (seed === 8 ? 0 : 1) && placed && runs.every((u) => u.last - u.first + 1 <= 127 && u.count >= 40),
+      `${runs.length} runs: ${runs.map((u) => `${u.last - u.first + 1} long, ${u.count} not zero`).join('; ')}; opens ${info.opens}, gainResets ${info.gainResets}, appended ${info.appended}, placed ${placed}`);
   }
   console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
 }
