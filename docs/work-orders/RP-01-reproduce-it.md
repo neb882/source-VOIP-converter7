@@ -1,7 +1,8 @@
 # RP-01: a page a stranger can check findings from, the files behind the read findings, and which recordings are published
 
-**Status 2026-11-13: not started**, every part (RP-01a to RP-01f, section 9); after the orchestrator's rulings on
-section 12 and a plan review by a different model (`docs/PIPELINE.md`).
+**Status 2026-11-13: ruled on, not started**, every part (RP-01a to RP-01f, section 9). The orchestrator's rulings
+are section 14; **read it first: where it differs from sections 7, 8, 9, 12 and 13, section 14 holds.** A plan review
+by a different model (`docs/PIPELINE.md`) comes before part a.
 
 *Written 2026-11-13 by a planner's pass on `main` at `d27727c` (cache v39). The planner read the repository only:
 it opened no recording and no file of the owner's install. What it knows of the private files is an inventory of
@@ -568,3 +569,122 @@ by a different model before part a starts, as `docs/PIPELINE.md` asks of every p
    `docs/ACCURACY.md` gives +510. The page needs one of them, with the reason for the other.
 8. **Whether `inputs` gives the same bytes on every Node.** The planner did not build the generator. Part a pins
    the checksums and CI runs them; a Node whose arithmetic differs would show there.
+
+## 14. Rulings of 2026-11-13 (the orchestrator)
+
+Made after reading the private record for section 13. Every figure here is measured on 2026-11-13 unless it is
+marked otherwise. Where this section differs from an earlier one, this section holds.
+
+### The inventory the plan was given was wrong in two places
+
+The orchestrator's inventory called Sets J and K file-input sets of a synthetic signal. They are not.
+
+- **Set J's two clips are cut from the owner's speech** (read in the private notes of the run). Set J and Set L,
+  which used the same clips, are never published: not the clips, not the game's recordings of them, not the logs.
+- **Set K was spoken into the microphone** (read in the private notes of the run). All of Set K is out, the
+  decoded-voice files with the device recordings. Section 13's items 2 and 5 fall away, and so does course (b).
+
+So no recording of the modern path can be published today: every Steam take in the record carries the owner's
+voice. What would change that is a new run by the owner with a clip made by a script of ours through Steam's
+`mic_inputfile` and `voice_recordtofile` at `voice_maxgain 1`. It is asked for in `docs/owner-runs.md` by part e
+and blocks nothing here.
+
+### The inputs (section 13, item 1)
+
+Sets H, I, M and O used two clips, both made by one short script on 2026-11-10: three 1 kHz tone bursts, a sweep
+from 300 Hz to 3 kHz over 3 s, six bursts of an 11-harmonic 150 Hz tone with pauses of 0.2, 0.3, 0.44, 0.6, 1.0
+and 0.5 s, and two 500 Hz bursts; 13.2 s; plain 44-byte header, 16-bit mono.
+
+| Clip | Rate | Samples | Bytes | SHA-256 |
+| --- | --- | --- | --- | --- |
+| the clip of Set H | 22050 Hz | 291,942 | 583,928 | `fc1c6cbd9aabd8ed1b64d4381eae3c2f56dce23eff36e14ba7d9f67dc5505a58` |
+| the clip of Sets I, M and O | 11025 Hz | 145,966 | 291,976 | `bd31df844cee4b38fe705be1fbdfb1b17acb9f161f9314b06b1eb2ba0d560dbd` |
+
+The script was run again in Python 3.11 and, ported line for line, in Node 22: each gives both files with the
+SHA-256 of the file the game was fed. So rule 1 can be met. The Node port goes into the repository as
+`tests/recordings/make-inputs.mjs` in part d (the orchestrator hands the builder its text; it holds nothing of the
+owner's), and the suite `recordings` pins the two checksums. This also answers item 8 for these two files on the
+one Node tried; CI is the second.
+
+### Which files are candidates, and the proof each needs
+
+Thirteen files of Sets H, I, M and O, nine different contents. All are 16-bit mono with a plain 44-byte header and a
+length of exactly 44 bytes plus two a sample, so none holds a metadata chunk and none is rewritten: a published file
+is the game's file byte for byte. The `ffmpeg` step of section 7 is dropped.
+
+| Set | What the game ran | Files (samples) |
+| --- | --- | --- |
+| H | TF2, `vaudio_celt` at `voice_maxgain 1` and 10, `vaudio_celt_high` at 1; the 22050 Hz clip | three decoded-voice files (292,352; 292,352; 292,864) |
+| I | HL2DM asked for Speex and fell back to `vaudio_celt`, which read the 11025 Hz clip as 22050 Hz | two decoded-voice files at 22050 Hz (145,920; 146,432). They are CELT at double speed and are named so |
+| M | HL2DM's 32-bit game, `vaudio_speex`, `voice_maxgain 1` and 10; the 11025 Hz clip | two decoded-voice files (145,920; 146,080) and the captured input (145,966; the two takes' are one file) |
+| O | TF2's 32-bit game, the same | two decoded-voice files (146,080 each; the one at `voice_maxgain 10` is Set M's file byte for byte) and the captured input (Set M's file byte for byte) |
+
+Rule 2 of section 7 is made stricter. A file goes out only if the orchestrator shows in part e, with code on
+`main`, that it is what the repository makes of the generated clip: at least 999 samples in 1,000 equal, the
+others counted in the manifest's row. A file that fails stays out and the row says why. That test needs no ear
+and leaves no room for a voice. For the captured input it is already made: it is the 11025 Hz clip from its third
+sample on in 145,964 of 145,964 samples, then two zeros; the game stopped capturing where the clip ended.
+
+### Section 12, choice by choice
+
+| Choice | Ruling |
+| --- | --- |
+| Where the page lives | `docs/REPRODUCE.md`. |
+| What the script runs in | Node alone. |
+| The device recordings | Course (a): none. Course (b) cannot be weighed, Set K being the owner's voice. |
+| Where the files live | **In the repository**, `tests/recordings/files/`, nine files, 3.5 MB together. This session has no tool that creates a release or uploads an asset, and waiting on the owner for an upload is a block the owner asked not to have. A release's one gain was a history without the files; at 3.5 MB, for files that cannot be taken back once public wherever they lie, that gain is small. Section 7's "Where the files live", the release's name and `fetch.mjs` are dropped. The manifest keeps its rows and gives a path in place of an address. |
+| CI on the published files | Part f wires `celt`, `gain` and `speex` on the files in the repository. No fetch, so part f is about 2 hours. |
+| The three test signals as played | Not published. The scripts make them. |
+| Reports from strangers | An issue on the repository. |
+| Whom to hand first | `hold`, on a Steam started that day. |
+| `demo` in the script | In, under "With a server". |
+| Set J's chunk lengths | Not published. Nothing of Set J is. |
+| Addresses | None in section 6's table. For the reports, see below. |
+
+### Section 13, the rest
+
+- **Item 3, Steam's chunk line.** With numbers of our invention, a line is
+  `[+++] [ 20.00 msec] avgsample   1.23 | max  12.345 | high samples   45`. The first bracket holds three
+  characters, each `+` or a space (`[+++]`, `[++ ]`, `[+ +]` and `[   ]` occur); then the length with two decimals,
+  the mean with two, the peak with three, and a whole number; the spaces before each number vary with its width.
+  In Steam's own log file each line begins with a stamp, `[2026-01-02 03:04:05] `, and the text copied from the
+  console window has none. One pattern, the stamp optional, fits 3,358 of 3,358 chunk lines in three files.
+  How the text was saved: copied from Steam's console window, or the file `console_log.txt` in the `logs` folder
+  of Steam's install, which holds the same lines with the stamps. That file also holds account names and
+  addresses: the page tells a stranger to keep it and to give the script the file, not to post it. When Steam
+  started: the page's sure way is to restart Steam and note the time. For an old Steam, Windows gives the start of
+  the process (`(Get-Process steam).StartTime` in PowerShell); that is a public facility and was not tried here,
+  and the page says so.
+- **Item 4, the game's steps.** The clip was put, as `voice_input.wav`, in the game's folder, the one that holds
+  the game's executable, and `voice_decompressed.wav` and `voice_micdata.wav` appeared in the same folder: the
+  private notes say so for Set H, and the run sheets of Sets M and O asked for the same place and the files came
+  back (so "measured" for TF2's folder; for the two 32-bit games the notes do not name the folder, and the page
+  says "the game's folder" with "if nothing happens, try the `tf` or `hl2mp` folder inside it"). Set H's
+  `voice_micdata.wav` was not kept. The key in the sheets was typed, `+voicerecord` and after 15 s
+  `-voicerecord`, which needs no key bound. No server variable was set: `sv_allow_voice_from_file` defaults to 1 (read in the game's own `find voice`
+  output). Set H ran in TF2's ordinary game on a local server. Sets M and O needed the 32-bit game, started as
+  `hl2mp.exe -force32bit -game hl2mp -console` and `tf.exe -force32bit -game tf -console`, because the 64-bit game
+  cannot load the Speex module and falls back to CELT without saying so in the recording (Set I is that fall-back).
+  In every set `sv_voicecodec` was set before the map, then `voice_loopback 1`, `voice_inputfromfile 1`,
+  `voice_recordtofile 1` and `voice_maxgain 1` or 10, and the voice key was down for about 15 s.
+- **Item 6, addresses in the reports.** They stay. An address says where in a file a thing was read; it is not a
+  byte or an instruction of the file, and beside the file's SHA-256 it is what lets someone with the same build
+  check the read. The hard rule keeps bytes, instructions, listings and copied tables out, as before.
+- **Item 7, the clock of the `voice_maxgain 1` take.** The page gives +510 parts in a million, the accuracy
+  suite's reading in `docs/ACCURACY.md` (measured). 22.3 packets a second over 44,100 samples a second is 506
+  (computed), and finding 24's 505 is that figure or an earlier reading of the take (inferred; the record does not
+  say which). Part a changes finding 24's sentence to give both, each with its standing.
+- **The rows of section 6 with no file stated** (F3, F11, F12, F15 to F18, and finding 8's reads) and the hashes
+  for F13, F14 and F19 to F23 stay part e's.
+
+### The parts, as ruled
+
+Parts a, b and c as written. Part d adds `tests/recordings/make-inputs.mjs` and its two pinned checksums, and drops
+everything about a release. Part e is the orchestrator's: the nine files copied into `tests/recordings/files/`, a
+manifest row and the proof above for each, the hard rule in `CLAUDE.md` amended in the same change (section 8's
+draft, with "files under `tests/recordings/files/`, each listed in the manifest" in place of the release's
+assets), and the change goes through a pull request and CI like any change to `tests/`. Part f without the fetch.
+Until part e is merged the hard rule stands as written and nothing of the takes is public.
+
+Also ruled: the path into the private repository that the W3-08 order carried is removed from it in the change
+that brings this order to `main`.

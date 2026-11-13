@@ -36,7 +36,7 @@ different compiler allows, and the same for `celthigh_gain1.wav`?
 ## Files and data
 
 May touch: `docs/reports/W3-08-celt-encoder.md` only. The reference recordings and the log are private
-(`/home/user/tf2-voice-takes/set-H-celt-file-input/`, input `to-run/voice_input.wav`): read-only, nothing from them
+(Set H of the private repository, and the clip the game was fed): read-only, nothing from them
 in the repository but numbers. The game file is never executed and nothing of it is copied into a repository. No
 leaked engine source.
 
