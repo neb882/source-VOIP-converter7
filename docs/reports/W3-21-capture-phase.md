@@ -3,7 +3,7 @@
 The builder's report. The order is `docs/work-orders/W3-21-capture-phase.md`, with the orchestrator's two rulings of
 2026-11-13 (below), which win over its text. Branch `claude/w3-21-capture-phase`, from `main` at `af1c4e1` (cache v39).
 
-**Status:** built. RESULTS_STATUS
+**Status:** built. Every check of the order's "Done means" was run. All pass but one point, which holds only within a sample: the sound's lag at the mix point (done-means 2) is `main`'s by the whole-sample peak in 15 of 20 seeds and one sample more in 5. That one sample comes from rounding the anchor (inferred), and why is below. Each new check was shown to fail with the code it covers broken.
 
 ## The rulings this build follows
 
@@ -21,7 +21,15 @@ The build stopped twice and was ruled on both times (2026-11-13):
 
 ## Commits
 
-COMMITS_TABLE
+| Commit | What |
+| --- | --- |
+| `1ba6894` | `steam-sender.js`: the lead; `tests/steam-sender.verify.mjs`: the second copy takes it, the re-pinned values, the new checks |
+| `1656762` | `tests/voice-channel.verify.mjs`: seed 4's pins, the seeded statistics, the zero check's bound |
+| `eff939c` | `tests/render-stream.verify.mjs`: the 50 cases' hashes and the history note |
+| `0cc274d` | `tests/steam.verify.js` (the gate-off starts and source) and `tests/render-channel.verify.mjs` (seed 8) |
+| `c83dec3` | `tests/REFERENCE_2026.md` (finding 28), `tests/predictions/PREDICTIONS.md`, `docs/ACCURACY.md` |
+| `89b6683` | `tests/steam.verify.js`: the sound at the mix point (done-means 2) |
+| `e80a06d`, `d2665c8` and after | this report; `origin/main` merged (RP-01a and the order's rulings) |
 
 ## The rule as built
 
@@ -71,7 +79,58 @@ The ticks between messages, the silence records and the 17.90 messages a second 
 `codecInfo` and gain hashes of 49 moved, and the `codecInfo` hash only of the empty source (the chunk its lead's
 zeros make). The first 12 characters of each:
 
-RS_TABLE
+| Case | WAV, old to new | codecInfo, old to new | gain output, old to new |
+| --- | --- | --- | --- |
+| steam | `bb7ef37d9d65` to `425c012e59ae` | `4992fbdbd3ef` to `a47b6c428d0c` | `58c2c5c4a9d2` to `563d66526152` |
+| steam, gate off | `6e461e765c97` to `b79a0095e357` | `e1fee0afcc93` to `cd4059e403a4` | `47a1391636a1` to `77679c0789b4` |
+| steam, gate on at -30 dBFS | `45eda63a770c` to `634a8add0f62` | `a925df4dc580` to `94ffa390cfd5` | `7189011696a8` to `e8e46a166d70` |
+| steam, high-pass 250 Hz and low-pass 3500 Hz | `b9e5adab6d0a` to `f66c6c59b750` | `be86cbc6a614` to `f0e60509be59` | `a48a816f067b` to `7b337e4e39c9` |
+| steam, mic gain 4 (capture clipping) | `3eca5251d655` to `35c0a5edb23c` | `a079b08a14d4` to `656fc2fe4297` | `80d66d33e1f5` to `a17ed830a1e3` |
+| steam, auto-gain off | `164d52e0c980` to `0788808deeda` | `d4f9815a5782` to `de3d85de3e4c` | `7793f0856b6c` to `9fcdf4965de0` |
+| steam, voice_scale 0.5 | `6402ef67462b` to `480c84f1306e` | `e102db2318a5` to `e791ed03f2d6` | `e701a59e4d62` to `abfba531a69f` |
+| steam, voice_avggain 0.25 | `aa415b8c6342` to `71e6f5e25f97` | `e102db2318a5` to `e791ed03f2d6` | `789ddec205ab` to `b4b0131756d5` |
+| steam, loss 15%, jitter 50 ms, net_split 40 ms | `8c2989c0a634` to `851350d329c3` | `631209b3abc6` to `6c210e8940cf` | `1ffca9327d61` to `26faab1ba90f` |
+| steam, source at 44100 Hz | `57399adf16ef` to `b090235c8331` | `d911f7b597eb` to `5f2093e17682` | `b484bf7e8e0e` to `738eb36b8984` |
+| steam, source at 96000 Hz | `e135aa8e27b5` to `78a9098e0ca7` | `e6f329418ead` to `cb0fcf7faafe` | `ff5a5f15c5fb` to `9acc67088d22` |
+| steam, source at 22050 Hz | `f89979184968` to `c63bb3460c60` | `37e827b164ce` to `4f8bf12cd60f` | `98732c1bcae5` to `608f5f8f3c2e` |
+| steam, 1,000,003 samples (a prime) at 48 kHz | `9fa59334706f` to `924c2005038c` | `d0f1b8278359` to `7693b2fb3293` | `59a59a3dd774` to `e8ba93a8a7d5` |
+| steam, 1 s pushed a sample at a time | `7e3bb253d9a2` to `1d825c8196d0` | `8b1fd91dd197` to `3b05b305a695` | `6dcad2dc5ace` to `9185183acac0` |
+| steam, six minutes | `4d2dba65f5ea` to `17ff4250d7a5` | `5a8ab9cae5cc` to `ecbd41be1e20` | `6e8b9dac8520` to `01bc8c0740b4` |
+| steam, jitter 500 ms (late frames play as silence) | `38c43494a760` to `7a84d9b55600` | `cb26383f153e` to `7fd1c7b9f1b6` | `9d4c60bf8618` to `d26dcad0c05b` |
+| steam, snd_bits 4 (SILK frames) | `ff80b3c0ba5e` to `405cfa452821` | `0f3e32b5a394` to `90752a2c322c` | `df32d452cba5` to `51a314158057` |
+| steam, source at 24 kHz | `76c8e189892a` to `046a1199d830` | `1baeda17efb0` to `4f8276463d25` | `0923ce2fff4d` to `99276e7b0692` |
+| steam, volume 1, voice_maxgain 3 | `840051d93a5c` to `0ad7c9bff192` | `ad208ca860fd` to `a26aab671b17` | `461e531f514e` to `b115cd2170a5` |
+| steam, volume 0.3 (a volume whose product rounds) | `7ce019df36b8` to `3bf9a489dd0b` | `ad208ca860fd` to `a26aab671b17` | `92643715eabd` to `d7ca57fe6b6a` |
+| steam, auto-gain off, voice_scale 3 | `f4bcb71b9b5b` to `da673383e1d3` | `e6a5f35e19d6` to `ee181ca25aba` | `2f2373fd6de3` to `d74f421b1bf9` |
+| steam, dsp_room 1 (no effect) | `b673515cfa58` to `2e4881230bb5` | `ad208ca860fd` to `a26aab671b17` | `92643715eabd` to `d7ca57fe6b6a` |
+| steam, custom room at mix 0 (no effect) | `b673515cfa58` to `2e4881230bb5` | `ad208ca860fd` to `a26aab671b17` | `92643715eabd` to `d7ca57fe6b6a` |
+| odd options | `711b9f02e372` to `25002ac78175` | `a61dc90c3f4c` to `1f5f97dab4ce` | `d82ae8d81584` to `a04d7965764a` |
+| steam, empty source | not moved | `09ce131d4df4` to `a8aaa71a8541` | not moved |
+| steam, gate off, loss 80%, seed 1 (long runs lost inside a spurt) | `a9d6a68e9942` to `c88912d5ff3e` | `e08891a43e75` to `8369938e2df3` | `79627dd24ca2` to `3f03f512d92d` |
+| steam, gate off, loss 40%, seed 3 (long runs lost inside a spurt) | `beb16e00e214` to `659877898664` | `46a8eb84bb98` to `22c357527d3d` | `5f786410f15e` to `6525c4623fe7` |
+| steam, 192004 samples at 24000 Hz (an output length of 352807.35) | `f0a8821f065a` to `db4c97e7032a` | `4ff570d0b80d` to `18e20f044956` | `a82b7c82a271` to `a3761720d2c6` |
+| steam, 256007 samples at 32000 Hz (an output length of 352809.65) | `246207f88911` to `1028ff4f55bd` | `924b7ab9c414` to `a43cf5907c0c` | `24ea514ae6b6` to `d7238bd19fd0` |
+| steam, 302401 samples at 37800 Hz (an output length of 352801.17) | `558c0e3b035f` to `e3532619ff89` | `28af3a677cef` to `8b991b8e07bc` | `a73c7d15d47d` to `f5661a015077` |
+| steam, 88203 samples at 11025 Hz (an output length of 352812.00) | `ce5956fa7724` to `f986906be8e4` | `63be92b7f61d` to `c21e5ea94043` | `bd2d74515725` to `3fdec844d41b` |
+| steam, room: preset 6 | `15aeef0b9e35` to `ae520e3a97cf` | `63114f6dded2` to `156a761064f9` | `041a0f6a6c6b` to `45119698b162` |
+| steam, room: preset 17 (random taps) | `d669ba894aba` to `4414f4f3e223` | `e9d20c28085b` to `6ffc24712276` | `041a0f6a6c6b` to `45119698b162` |
+| steam, room: automatic, tunnel | `248168cbb57f` to `7acd6966ffa7` | `3e5ab9576fa7` to `46e530ef6e37` | `041a0f6a6c6b` to `45119698b162` |
+| steam, room: automatic, great_hall | `decaaea48dba` to `59992681c65d` | `4348cfae1a41` to `6688f28df042` | `041a0f6a6c6b` to `45119698b162` |
+| steam, room: automatic, set_c_room | `14124e8f7ee0` to `0824116c8a87` | `587a68a88697` to `a84b1afd8c41` | `041a0f6a6c6b` to `45119698b162` |
+| steam, under water | `3651d212e783` to `23756d866856` | `b9e2c3d92c48` to `ed3a699a7894` | `041a0f6a6c6b` to `45119698b162` |
+| steam, under water, preset 6 | `ed5ab9d7fb1c` to `3753eee04d1a` | `fa6bf944d100` to `f59e46a6e481` | `041a0f6a6c6b` to `45119698b162` |
+| steam, custom room at mix 0.3 | `8ccb91c1b005` to `d3daf78a6fae` | `52f7534ca038` to `835d169325e2` | `041a0f6a6c6b` to `45119698b162` |
+| steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms | `96c72a5678d1` to `81dcafd4f8e5` | `3a464c80004c` to `a7e430f6cfd7` | `dd4e9f10b3d6` to `7e4a24e1a6b3` |
+| steam, room: preset 17 (random taps), seed 7 | `ce6aed2c10bf` to `41d01e9476f8` | `d01e1ea35b43` to `28d88b4c65c1` | `d2c879b48361` to `ce4c69a3bb9f` |
+| steam, room: preset 6, device at 96000 Hz | `a66810f6d38f` to `702e6b2546da` | `63114f6dded2` to `156a761064f9` | `041a0f6a6c6b` to `45119698b162` |
+| steam, dsp_room 137 (no room) | `61a61407a1d1` to `1f5a480181f4` | `88cd058f344e` to `b7fef488e643` | `041a0f6a6c6b` to `45119698b162` |
+| steam, timeline game | `22b155824ca3` to `07b120e216fb` | `fedefd44a406` to `8a25c06f1d99` | `37fe57f3e70d` to `4c9e3a714e5a` |
+| steam, timeline game at 66.67 fps | `ad1cfe8ebeef` to `9bc778b77e21` | `bf9907faa513` to `d300088812a9` | `4ac4eee9c0bb` to `d41873a68707` |
+| steam, timeline game, gate off | `f89cbe08aa5e` to `aa5e30bf5d30` | `019d7a9446c4` to `251b697774da` | `1737150b0913` to `2d766c34b2cc` |
+| steam, timeline game, loss 15%, jitter 50 ms | `a42317ed5a11` to `6fef3ffd71a7` | `dc6a8b6dd5ea` to `d409363d140b` | `058c282c23aa` to `a4fff0acbfea` |
+| steam, timeline game, auto-gain off, voice_scale 0.5 | `b1d6dc99a856` to `3897ca305578` | `d068730fc43e` to `41d484b1afc3` | `51718e3101a9` to `90f9a0af8b84` |
+| steam, timeline game, device at 44100 Hz | `1638690040e0` to `46e7354c06d6` | `fedefd44a406` to `8a25c06f1d99` | `37fe57f3e70d` to `4c9e3a714e5a` |
+| steam, timeline game, room: preset 6, seed 7 | `92a7e5f58cd1` to `8f5fb47b06d1` | `28075a1e3fef` to `527e01a3a706` | `375d70eb06e2` to `9637b96443ca` |
 
 No case of another profile moved, nor `steam, codec bypassed`, the two received-voice cases, or the two sources
 silent but for a quarter frame at the end (gated whole either way).
@@ -108,7 +167,7 @@ the checks on it (`tests/retiming.mjs --engine` in `voice-channel.verify.mjs`) p
   (removed; it was never committed): all 83 cases give their recorded `GOLDEN` and `GAIN_GOLDEN` hashes. With the
   lead, the 50 cases above move.
 - **`main`'s whole `pnpm test`** in a worktree of `origin/main` with this branch's `steam-sender.js`, its seeded lead
-  forced to 0 (`const lead = o.lead !== undefined ? o.lead : 0`): PROOF_RESULT
+  forced to 0 (`const lead = o.lead !== undefined ? o.lead : 0`): `25 of 25 suites passed. 894.8 s summed` (every suite but the browser's, as recorded on `main`).
 - With lead 0 forced the W3-16 schedule comes back, as a committed check: `REF_MESSAGES` as W3-16 recorded it, the
   spurts from 21600 and 71250, 72 chunks.
 
@@ -135,7 +194,7 @@ its standard error over every opened spurt (by spurt).
 
 ## Done means
 
-1. **`node tests/run.mjs steam-sender`** passes: SS_RESULT. The new checks, each shown to fail with the code it covers
+1. **`node tests/run.mjs steam-sender`** passes: `120 steam sender checks passed`. The new checks, each shown to fail with the code it covers
    broken (seven breaks, below):
    - the lead is `(750 - round(c0 x 24000)) mod 750` for seeds 1 to 1,000, by a second computation from the second
      copy's own `c0`; over seeds 1 to 100,000 no value from 0 to 749 is missing (each comes 97 to 171 times);
@@ -163,20 +222,20 @@ its standard error over every opened spurt (by spurt).
    samples, `round((start - lookahead) x 147 / 80)`, and a start that is no longer on the 31.25 ms grid falls
    between them; a shift by the lead would be up to 1,376 samples. So the order's "to the sample" holds to within the
    rounding of the anchor, not to the plain peak in every seed. The check is in `tests/steam.verify.js`, bound at one
-   sample against `main`'s figures; it fails with the start left unshifted LAG_BREAK.
-3. **`flock /tmp/tf2ve-heavy.lock pnpm test`**: PNPM_RESULT. **The browser suite**: BROWSER_RESULT.
-   `node tests/cache-number.mjs origin/main --report`: `CACHE_LINE`
-4. **`git diff origin/main --stat`**: DIFF_STAT
+   sample against `main`'s figures; it fails with the start left unshifted (seen: `-56.731 to Infinity samples`, with the gate-off checks failing beside it).
+3. **`flock /tmp/tf2ve-heavy.lock pnpm test`**: `25 of 25 suites passed. 900.0 s summed, 900.0 s of wall time, 1 at a time.` (before the merge of `origin/main`); after the merge the `units` group, with RP-01a's new `reproduce` suite, `21 of 21 suites passed`. **The browser suite**: `browser  browser  passed  240.2`, `1 of 1 suites passed`.
+   `node tests/cache-number.mjs origin/main --report`: `cache number against origin/main (ed14c5b): the number is v39, not above v39: it must rise (node tests/cache-number.mjs origin/main --set)`
+4. **`git diff origin/main --stat`**: after the merge, `steam-sender.js`, `docs/ACCURACY.md`, `docs/reports/W3-21-capture-phase.md`, `tests/REFERENCE_2026.md`, `tests/predictions/PREDICTIONS.md`, `tests/render-channel.verify.mjs`, `tests/render-stream.verify.mjs`, `tests/steam-sender.verify.mjs`, `tests/steam.verify.js` and `tests/voice-channel.verify.mjs`. Each is in "May touch" or was allowed by the rulings. `sw.js` is not touched: no file was added
 5. This report.
 
 ## CI
 
-CI_RESULT
+The result of the `tests` workflow on the branch is in the hand-back (it names the commit tested); this report is written before the push.
 
 ## Scanned
 
 The branch's diff against `origin/main` and its commit messages were scanned for recordings, personal details, real
-SteamIDs and model names: SCAN_RESULT
+SteamIDs and model names: none, apart from the attribution trailers.
 
 ## Not done, or not checked
 
