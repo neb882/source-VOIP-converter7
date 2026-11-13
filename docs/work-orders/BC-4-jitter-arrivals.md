@@ -569,3 +569,48 @@ Each has the planner's recommendation in the section named.
 7. `jitterMs` stays off `STAGE_OPTIONS.afterB` ("Where this meets W3-02d-2").
 8. The two accuracy rows keep their settings and gain a note ("The records").
 9. Two parts, BC-4a and BC-4b.
+
+## The orchestrator's private look and rulings (2026-11-13)
+
+**Check (i), run on Set C's jitter and baseline takes** (measured, private; the takes stay private). The guide is
+`main`'s render of the network test signal at volume 0.15 on the file's own timing, no room, no loss, no jitter.
+Events by finding 8's method as the BC-1 premise made it again; each event's delay before and after at
+one-sample resolution as item 3 of check (i) says, with shorter windows near a burst's edges.
+
+- **The 12 s of pink noise.** The baseline has 8 events and the jitter take 10. Seven of each sit at the same
+  places (within 30 ms) with the same lengths, have no step (all within 0.15 ms of 0) and carry sound at the
+  guide's level (-2.1 to +0.9 dB). They are the method's own false events, not jitter. The jitter take's three
+  others are downward steps: -46.0 ms in the segment's first window, -32.2 and -38.7 ms inside it. No event of
+  either take has an upward step.
+- **The chirp.** No event in either take.
+- **The eight 1.2 s bursts.** The baseline has 4 events, all downward steps (-11.0 to -36.8 ms). The jitter take
+  has 8 downward steps, 15.5 to 70.4 ms (three of them in one burst within 0.16 s, about 70 ms in all), in five of
+  the eight bursts, each 0.03 to 0.46 s after the burst's start, and one event at a burst's first window that is
+  not read.
+- **In the window the order chose** (from 1 s after the segment's start): 2 skips, 70.8 ms of sound in 10.7 s of
+  noise, 6.6 ms a second, 0.19 a second of 10 ms or more; the baseline none. The prototype gives 1.2 ms a second
+  more skipped and 0.05 to 0.09 a second more skips of 10 ms or more: the take's are three to five times the
+  model's (measured against measured on the prototype).
+
+**Ruling on check (i): it confirms.** Every event the jitter take has beyond the method's false events is a
+skip. BC-4a is built as written. Finding 9 says what its events are, with these counts, and that the take's
+skips are several times the model's in size and number (the difference measured, not explained; block 2's log
+is the next evidence).
+
+**Two corrections to the order's checks, binding on the builder and on check (ii):**
+
+1. An event with no step counts against the model only if the baseline (or the baseline render, for renders) has
+   no event at the same place within 30 ms. The method's false events recur at fixed places.
+2. Check (ii) measures the bursts too, from 60 ms after each burst's start: that is where most of the skips are,
+   in the take with jitter and in the one without. Its tolerances on the skips are judged in the noise and in the
+   bursts separately, and the bursts' figures are reported beside the noise's.
+
+**The record's question.** The jitter take's own `net_graph` photograph shows a ping of 210 ms with lag 100 and
+jitter 50 on, about 336 frames a second, and the baseline's 14 ms at 295 (read off the owner's photographs). So
+the 204 to 210 ms was read with jitter on. The same photographs show 59.0 packets a second in and 58.9 out with
+lag on, against 67.8 and 66.9 without (read off them, not explained). The model's "one packet a tick on each
+crossing" stands as inferred; the plan reviewer says whether the lower rate weakens it, and block 2's log would
+show it.
+
+**The rulings wanted before the build.** All nine as the planner recommends. On item 7: W3-02d-2's order says
+"BC-4 moves `jitterMs`"; that sentence is corrected when W3-02d-2 is merged, not left for BC-4a's report.
