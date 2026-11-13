@@ -302,6 +302,56 @@ The same night as Set L: Steam newly started, a real microphone, the first chunk
 game's first packets logged (finding 16). Not recorded here: the settings beyond these, and the files' formats,
 lengths and checksums.
 
+### The file-input runs, measured again (2026-11-13)
+
+Added 2026-11-13 by RP-01a, from the orchestrator's reading of the private notes, run sheets, files and logs of the
+file-input sets for order RP-01 (`docs/work-orders/RP-01-reproduce-it.md`, section 14). Each statement carries its
+standing. Nothing of the files is here, only these figures.
+
+**The two clips.** Sets H, I, M and O used two clips, both made by one short script on 2026-11-10: half a second
+of silence, three 1 kHz tone bursts, a sweep from 300 Hz to 3 kHz over 3 s, six bursts of an 11-harmonic 150 Hz
+tone with pauses of 0.2, 0.3, 0.44, 0.6, 1.0 and 0.5 s, and two 500 Hz bursts; 13.2 s; 16-bit mono with a plain
+44-byte header. The script was run again in Python 3.11 and, ported line for line, in Node 22: each gives both
+files with the SHA-256 of the file the game was fed (measured). The Node port is
+[`tests/recordings/make-inputs.mjs`](recordings/make-inputs.mjs), and `node tests/reproduce.mjs inputs` writes
+both and checks their SHA-256.
+
+| Clip | Rate | Samples | Bytes | SHA-256 |
+| --- | --- | --- | --- | --- |
+| the clip of Set H | 22050 Hz | 291,942 | 583,928 | `fc1c6cbd9aabd8ed1b64d4381eae3c2f56dce23eff36e14ba7d9f67dc5505a58` |
+| the clip of Sets I, M and O | 11025 Hz | 145,966 | 291,976 | `bd31df844cee4b38fe705be1fbdfb1b17acb9f161f9314b06b1eb2ba0d560dbd` |
+
+**The captured input.** Sets M and O's `voice_micdata.wav` (one file for both sets, 145,966 samples) is the
+11025 Hz clip from its third sample on in 145,964 of 145,964 samples, then two zeros: the game stopped capturing
+where the clip ended (measured). Set H's `voice_micdata.wav` was not kept.
+
+**The game's folder.** The clip was put, as `voice_input.wav`, in the game's folder, the one that holds the game's
+executable, and `voice_decompressed.wav` and `voice_micdata.wav` appeared in the same folder: measured for TF2's
+folder (Set H's private notes). For the two 32-bit games the notes do not name the folder; the run sheets of Sets
+M and O asked for the same place and the files came back.
+
+**The steps as run.** In every set `sv_voicecodec` was set before the map, then `voice_loopback 1`,
+`voice_inputfromfile 1`, `voice_recordtofile 1` and `voice_maxgain 1` or 10, and the voice key was down for about
+15 s. The key was typed, `+voicerecord` and after 15 s `-voicerecord`, which needs no key bound (measured: the run
+sheets). Set H ran in TF2's ordinary game on a local server. No server variable was set:
+`sv_allow_voice_from_file` defaults to 1 (read in the game's own `find voice` output). The game writes
+`voice_decompressed.wav` again at every release of the key, so a file is copied away before the next press
+(measured again on 2026-11-13, when a sitting was lost to it).
+
+**The 32-bit games.** Sets M and O needed the 32-bit game, started as `hl2mp.exe -force32bit -game hl2mp -console`
+and `tf.exe -force32bit -game tf -console` (measured: the run sheets), because the 64-bit game cannot load the
+Speex module and falls back to CELT without saying so in the recording (Set I is that fall-back; finding 31).
+
+**Steam's chunk line.** With numbers of our invention, a line is
+`[+++] [ 20.00 msec] avgsample   1.23 | max  12.345 | high samples   45`. The first bracket holds three
+characters, each `+` or a space (`[+++]`, `[++ ]`, `[+ +]` and `[   ]` occur); then the length with two decimals,
+the mean with two, the peak with three, and a whole number; the spaces before each number vary with its width. In
+Steam's own log file each line begins with a stamp, `[2026-01-02 03:04:05] `, and the text copied from the console
+window has none. One pattern, the stamp optional, fits 3,358 of 3,358 chunk lines in three files (measured). The
+text was saved by copying it from Steam's console window, or from the file `console_log.txt` in the `logs` folder
+of Steam's install, which holds the same lines with the stamps; that file also holds account names and addresses
+(measured).
+
 ### What was read
 
 The reports in `docs/reports/` say what was read from which file and where. Nothing of the files is in this repository. They were read as data with a disassembler and never run, and no leaked source was used. *Corrected by the owner's rule of 2026-11-11 (CLAUDE.md): since then a module may also be run, in a CPU emulator first, on signals of our own; TF2's `vaudio_speex` module (Set O) and the `vaudio_miles` plug-in's VR12 (W3-20a) were run that way. Its output is a measurement; nothing of the modules is copied.* Public sources were set beside them: libopus, CELT, Speex and FFmpeg's libswresample.
@@ -750,6 +800,8 @@ At 300 frames a second, TF2's default cap, a spurt opens with 160 ms at once (fi
 The engine copies a decoded packet into the ring through an interpolator that writes one sample fewer than it was given: the packet's first sample is in effect left out (read, W3-03). The engines of Source SDK Base 2006 and 2007 have the same rule, at a step of exactly 1.0: read, and run, where ten packets of 360 samples put 3,590 samples in the buffer (added 2026-11-11, W3-20b). In the logs every packet of N samples that neither overflows nor meets a pull raises the queue by exactly 2 × (N − 1) bytes (measured, Set G; a replay that keeps the sample fails).
 
 Steam hands voice out in about 17.8 packets a second (finding 25), so playback gains about 0.04% on the sender: 17.8 / 44100 is 403 ppm. This is the "clock" of the accuracy suite, 404 to 406 ppm on most takes. It is not a recorder's clock, and it follows the packet rate: the one take at 505 ppm had 22.3 packets a second. The playback does not get shorter: the mixer plays in real time and the queue gets shallower.
+
+*Corrected by RP-01a (2026-11-13): that take's clock is +510 parts in a million in the accuracy suite's reading (measured; `take3_voice_maxgain_1` in the table of `docs/ACCURACY.md`). 22.3 packets a second over 44,100 samples a second is 506 (computed). The 505 above is that figure or an earlier reading of the take (inferred; the record does not say which).*
 
 ### 25. Steam's packets as the receiver gets them
 

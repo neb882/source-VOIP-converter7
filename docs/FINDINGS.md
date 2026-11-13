@@ -13,6 +13,8 @@ Every statement carries one of four words.
 
 A figure marked "computed" is plain arithmetic on a rule that was read.
 
+[REPRODUCE.md](REPRODUCE.md) says how to check some of these findings on your own PC with the game and one script, and which checks are not built yet.
+
 A rule that was read holds for the files it was read from. A Steam or game update can change it, so each entry gives the date of the reading. After an update, one short take through the existing comparison checks the path again; [owner-runs.md](owner-runs.md) says how. The table below gives the build date of each file where the report of the reading gives one.
 
 | What was read | The file, in words | Built | Read on |
@@ -235,7 +237,7 @@ For Speex the build also computes as the module's compiler did: the module's ari
 
 **Not settled.** Those recordings are the decoded voice after the gain, not the game's output: no recording of what a listener hears under these codecs exists. What a listener hears after a lost Speex frame was not read and not measured. No recording of `vaudio_celt_high` at `voice_maxgain 10` exists.
 
-**Check it yourself.** Set `sv_voicecodec` before the map loads. `voice_showincoming 1` then prints packets of 512 samples for `vaudio_celt`, 1024 for `vaudio_celt_high` and multiples of 160 for `vaudio_speex`. `voice_inputfromfile 1` takes a file as the microphone: it must be named `voice_input.wav`, 16-bit mono at the codec's rate with a plain 44-byte header, and lie in the game's working directory (read; that this is the folder of the game's executable is inferred). The game skips the file's first two samples (read; seen in Set H). `voice_recordtofile 1` writes the decoded voice.
+**Check it yourself.** Set `sv_voicecodec` before the map loads. `voice_showincoming 1` then prints packets of 512 samples for `vaudio_celt`, 1024 for `vaudio_celt_high` and multiples of 160 for `vaudio_speex`. `voice_inputfromfile 1` takes a file as the microphone: it must be named `voice_input.wav`, 16-bit mono at the codec's rate with a plain 44-byte header, and lie in the game's working directory (read), which is the folder of the game's executable (measured for TF2 in Set H; the record's entry "The file-input runs, measured again"). The game skips the file's first two samples (read; seen in Set H). `voice_recordtofile 1` writes the decoded voice.
 
 **Record.** Finding 31, and [tests/LEGACY_CODECS.md](../tests/LEGACY_CODECS.md) for what public sources say.
 
