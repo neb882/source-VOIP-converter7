@@ -3,10 +3,10 @@
 The builder's report. The order is `docs/work-orders/W3-02d2-auto-rerender.md`. Branch
 `claude/w3-02d2-auto-rerender`, from `main` at `fd2d60d`, with `main` at `28e9c79` (RP-01b) and then at `9e1ff27` (BC-4 ordered, documents only) merged in.
 
-**Status:** built, and stopped on one question for the orchestrator: the timing (below) puts a render from the kept
-stage of a ten-minute source at about half the whole render's time in the page, and once above half. The order's
-"Stop and ask" names that case: the limit of rule D (`AUTO_RENDER_KEPT_MS`, 30,000) is the orchestrator's to set
-again. Everything else is built, its checks pass, and each break of the order's table was made (below).
+**Status:** built, and fixed after the review (the section "The fix round" at the end). The build stopped on one
+question: the timing (below) put a render from the kept stage of a ten-minute source at about half the whole render's
+time in the page, once above half. Ruling 17 answered it: `AUTO_RENDER_KEPT_MS` stays 30,000. Each break of the
+order's table was made (below).
 
 ## What changed
 
@@ -109,15 +109,19 @@ timing to the game's, run 3). On the main thread the same render took 0.36 to 0.
 six times slower would take about 56 to 84 s for the engine's part of a ten-minute re-render, which rule D would
 mark (its first render would be over the limit too).
 
+**A wait inside these times** (found by the reviewer). The script changed a setting while the worker still ran the
+previous render's meter (about 4.0 s after a ten-minute first render), so the kept-stage times of the first table
+include that wait. With the worker free the reviewer measured a whole render of 33.1 s and renders from the kept
+stage of 13.9 and 12.5 s (0.38 to 0.42 of it), and 15.4 s right after another render (one run, headless Chromium on
+the build machine). `renderedTook` includes such waits too, so rule D errs toward marking.
+
 **What it does not show.** A phone's memory limit, its heat, another browser's engine, a tab in the background, and
 whether the share would differ on another machine. The first render's time includes the first seconds' render; the
 renders after a change make none.
 
 **The stop.** The order's "Stop and ask" and the brief name a kept-stage render of a ten-minute source that takes
 more than half the whole render's time in the page. Here it took about half: 0.45 to 0.50 for volume in every run,
-and 0.47 to 0.54 for Phrase timing to the game's. The limit stays at 30,000 on the branch; whether it stands is the
-orchestrator's to say. The timing does not show the kept-stage render taking far less than the whole (ruling 8's
-case for lowering it).
+and 0.47 to 0.54 for Phrase timing to the game's. Ruling 17: the limit stays at 30,000.
 
 ## Done means
 
@@ -133,7 +137,7 @@ case for lowering it).
    number is v42, not above v42: it must rise". The builder did not set it.
 4. `git diff origin/main --stat` shows `README.md`, `app/core.js`, `app/render.js`, `app/source.js`,
    `audio-worker.js`, `docs/PAGE.md`, `tests/browser.verify.js` and this report: all in "May touch".
-5. This report. The suites ran on the tree after the merge of `28e9c79`; the merge of `9e1ff27` after them brought
+5. This report. (Before the fix round:) the suites ran on the tree after the merge of `28e9c79`; the merge of `9e1ff27` after them brought
    documents only (`docs/`), so no file a suite runs changed. CI ran on `6ce8050` (the first merge), whose files
    outside `docs/` are the final head's: `verify` succeeded.
 
@@ -172,12 +176,54 @@ the kept capture signal, not from the kept codec result.
 
 ## Not done, or uncertain
 
-- **A demo's sender settings.** `settingsKey` leaves a demo's sender settings out of its key (`DEMO_IGNORES`), while
-  the engine's key for the kept capture signal holds some of them (mic gain, the filters, the capture channel). A
-  demo longer than 60 s whose mic gain was changed (no render: the key does not move) and then its volume would render
-  by itself from the start rather than from the kept capture signal. A demo has no codec stage of the page's to keep,
-  and rule D bounds the render. Inferred from the code; not measured, and no check covers it.
-- **The first seconds.** A render from the kept capture signal (a source with the codec skipped, or a demo) of a source
-  over 30 s makes first seconds, as an automatic render of a source of 31 to 60 s already does. A render from the kept
-  codec result makes none (`audio-worker.js`). Read from the code; the suite checks the second only.
+- **A demo's sender settings** were not held by the build; the fix round's point 3 holds them (below).
+- **The first seconds.** A render from the kept capture signal of a source over 30 s with the codec skipped makes
+  first seconds, as an automatic render of a source of 31 to 60 s already does. A demo makes none (`previewAllowed`
+  refuses a demo's received voice), and a render from the kept codec result makes none (`audio-worker.js`). Read from
+  the code; the suite checks the last only. *Corrected in the fix round: this item first said a demo makes them.*
 - **The timing** is one machine's, and its ten-minute share sits at the edge the order names (above).
+
+## The fix round (2026-11-13)
+
+The order's section "After the review", its five points, and ruling 17 (the limit stays 30,000; the constant is
+unchanged). `main` at `39bdd8e` (documents only) was merged in first.
+
+| Point | What was done |
+| --- | --- |
+| 1. Ruling 18 | `reconcileRender` starts a longer source's render by itself with `fromKept`; `startRender` carries it (through `renderAfter` and the batch's retry; the button, a new source and a source of 60 s or less never carry it); `runRender` passes it to `runAudioProcess` and `processInWorker`. In `prepare`, before the source is posted, such a render with `state.workerKeepsShown` false throws `keptLostError()`, an `AbortError` with the flag `keptLost`. `pumpPageWorker`'s catch settles the job, frees the queue, and keeps the worker for that error (it is sound). `runAudioProcess` rethrows an `AbortError`, and when the worker breaks during such a render it throws `keptLostError()` in place of the compatibility path. `runRender`'s catch has one branch for the flag: the mark cleared, the console line "S_StopSound: the render by itself did not run: the worker no longer holds what the render on screen left. Render makes it.", no `cancelledKey`; its `finally`'s `reconcileRender` marks the render. A change made while such a render waits to start (`renderAfter`) is not decided again, so a render that would now need a new encode clears the mark at its start and is refused too |
+| 2. Three checks | the first render's `renderedFrom` is null and the press in the reviewer's sequence `'a'`, as values; `vad_threshold` -30 (a name the key on screen does not hold) marks and starts none (`changedAfterCodecOnly` already read both keys' names); the page opened from `file://` with the codec skipped: the render is made on the page's thread, and a changed volume marks it and starts none |
+| 3. A demo's sender settings | `demoSenderValues()`: the `DEMO_IGNORES` values of the page's options for a demo, as JSON (null for another source); `presentRender` keeps the render on screen's in `state.renderedSender`; `rendersFromKept` refuses a difference, and `runRender` clears the mark when a render starts with other values. Checks on a synthetic Steam demo of 64.6 s, written by the suite (`longDemo`, the layout of `tests/demo.verify.mjs`): a changed volume starts one render, from the kept capture signal; then mic gain 2 and volume: marked, none starts |
+| 4. The words | `docs/PAGE.md`: the render by itself starts from the codec's result, and with the codec skipped from the kept capture signal with first seconds; a demo's voice from the kept capture signal with none (`previewAllowed` refuses a demo, as PAGE.md's "The first seconds" says; the order's text gives a demo first seconds, which the code does not); it runs only in the worker that holds those stages. "In about a third of a first render's time" became about half a whole render's time in the page, 0.38 to 0.54 (measured in headless Chromium on the build machine). README step 3: a change on the receiver's side alone plays no first seconds with the codec on, and plays them with the codec skipped. [Browser 8] part 4's comment: jitter is read in the codec stage today (on `AFTER_A`, not `AFTER_B`) |
+| 5. The timing | the paragraph "A wait inside these times", beside the table, with the reviewer's figures |
+
+### The checks of ruling 18
+
+On the rig of "a worker that does not answer a cancel" ([Browser 10], `speedKeptLost`, right after it): a 61 s source;
+volume changed, and changed again while that render runs. The worker is ended at the cancel's bound (1415 ms), and the
+render queued for the second change is refused: no render is shown, no line "from the start", the render is marked,
+no `cancelledKey`, nothing on the page's thread, and the console has the line. The worker's `onerror` can be raised
+in the suite: the test calls the page's own handler on the worker during a render by itself. Nothing renders on the
+page's thread, and the render is marked.
+
+### The fix round's breaks
+
+Made as in the first round (the files taken back with `git checkout` after each), through the harness.
+
+| Break | As made | The checks that failed |
+| --- | --- | --- |
+| the flag ignored in `prepare` | the line in `prepare` taken out | the worker ended at the bound (the queued render ran and was shown; no line); then the onerror check, whose press now started from the kept codec result |
+| the worker breaking sends the render to the page's thread | the `fromKept` line in `runAudioProcess`'s catch taken out | the onerror check ("Audio worker unavailable; using compatibility path", one render shown) |
+| `startedFrom` taken after the render | the line moved below `TF2Audio.process` in `audio-worker.js` | the first render's `startedFrom` (b, not null); the press in the reviewer's sequence (b, not a) |
+| rule B over the names of the key on screen only | `Object.keys(a)` in place of both keys' names | `vad_threshold` -30 (one render started, from the kept capture signal) |
+| the mark set without the worker | `workerKeepsShown = !made.live` | `file://` with the codec skipped (one render started on the page's thread) |
+| a demo's sender values ignored | the line in `rendersFromKept` taken out | the demo with mic gain changed (one render started; ruling 18 then refused it, since `runRender` cleared the mark) |
+
+### Done means, again
+
+`CHROMIUM_EXECUTABLE=… flock /tmp/tf2ve-heavy.lock node tests/run.mjs browser` on the fixed tree: "== browser: passed,
+417.2 s". `flock /tmp/tf2ve-heavy.lock pnpm test`: "27 of 27 suites passed" (the runner's own line). `git diff origin/main --stat -- engine audio.js voice-channel.js steam-sender.js
+constants.js` prints nothing; `git diff origin/main -- audio-worker.js` shows the one field as before;
+`git diff origin/main --stat -- tests/` shows `tests/browser.verify.js` only. `node tests/cache-number.mjs origin/main --report`: "cached files changed since
+origin/main (39bdd8e): app/core.js, app/render.js, app/source.js, audio-worker.js" and "cache number against
+origin/main (39bdd8e): the number is v42, not above v42: it must rise". `git diff origin/main --stat` shows the same
+eight files as before, all in "May touch".
