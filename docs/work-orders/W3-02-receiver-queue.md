@@ -1445,6 +1445,8 @@ There is nothing private to run.
 
 ## W3-02e: the page: the codec lane's marks and the real-take check
 
+> **Superseded 2026-11-13 by [W3-02ef-lane-and-flat-rule.md](W3-02ef-lane-and-flat-rule.md).** This section is kept as it was written and is no longer the order to build from.
+
 **Branch:** `claude/w3-02e-timeline-views`, from `main` **after W3-02d**. **Time budget:** half a day.
 **Files:** `app/visualizer.js`, `app/realtake.js`, `app/netgraph.js` (only if it reads the frame log), `sw.js`
 (the cache version), `tests/browser.verify.js`. Nothing else.
@@ -1471,6 +1473,8 @@ the real-take text no longer names 256 samples); `pnpm test`; CI. A screenshot o
 the report. Nothing private.
 
 ## W3-02f: the flat rule retired
+
+> **Superseded 2026-11-13 by [W3-02ef-lane-and-flat-rule.md](W3-02ef-lane-and-flat-rule.md).** This section is kept as it was written and is no longer the order to build from.
 
 **Branch:** `claude/w3-02f-retire-flat-rule`, from `main` **after W3-02d** (the page no longer sends `retime`)
 and when no other `audio.js` order is open. **Time budget:** 2 hours. **Files:** `audio.js` (`RETIME`,
