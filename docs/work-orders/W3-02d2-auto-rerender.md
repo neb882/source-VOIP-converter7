@@ -219,3 +219,14 @@ measurements in place of the processor throttle; the one field `audio-worker.js`
 15. The timing is the two measurements of "The timing". The browser's processor throttle is not used for the
     page's own render, since it does not slow the worker (measured, the table under "Why").
 16. `audio-worker.js` may add the one field to its `result` reply. Nothing else in that file changes.
+
+### Ruled after the build (2026-11-13, the orchestrator)
+
+17. **`AUTO_RENDER_KEPT_MS` stays 30,000.** The builder stopped on the stop condition: in the page, a render from
+    the kept stage of a ten-minute source took 0.45 to 0.54 of the whole render (five runs; once 16.6 s against
+    31.0 s), about half, not two to three times faster as "What D compares" put it (measured by the builder in
+    headless Chromium on the build machine; the report has the table). The limit is a limit on the automatic
+    render's own time. At about half, an automatic render after a whole render under 30 s takes at most about
+    16 s, and one after a render from the kept stage under 30 s takes at most about 30 s, a few seconds more when
+    the timeline goes from the file's to the game's. Both are what ruling 8 meant. "Two to three times" in "What
+    D compares" reads "about twice (0.45 to 0.54 of the whole render, measured in the page)".
