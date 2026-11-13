@@ -3,8 +3,9 @@
 The builder's report. The order is `docs/work-orders/W3-22-miles-words.md`; every figure added comes from
 `docs/FINDINGS.md` entry 11 on `main` (c8d812b). Branch `claude/w3-22-miles-words`.
 
-**Status:** built as the order lists it, and stopped on one question (below, "The question"): the old sentence also
-stands in places the order does not list, so its second "Done means" is not met.
+**Status:** built. The first build stopped on one question (below, "The stop and the rulings"): the old sentence
+also stood in places the order did not list. The orchestrator ruled on them on 2026-11-13 (the order's last section,
+main at 26c31dc), and the fix applies the rulings place by place.
 
 ## What changed
 
@@ -45,23 +46,27 @@ Each is in `docs/FINDINGS.md` entry 11, line 255 ("Against a running engine"), m
 or more differ; why the receiver's codec is reset twice; the profile as the app runs it; the lost packet and those
 engines' mixer and output.
 
-## The question
+## The stop and the rulings
 
-The old sentence, or a statement it carried, stands in places the order does not list. The order says to stop on
-that, so these are left as they were.
+The first build stopped because the old sentence, or a statement it carried, stood in seven places the order did not
+list. The rulings, and what the fix did with each:
 
-| Place | What it says | What it would become |
+| Place | It said | Ruled, and done |
 | --- | --- | --- |
-| `docs/VOICE-PATH.md`, the `miles` paragraph | "It has not been checked against any recording of a running engine." word for word | the new sentence |
-| `tests/README.md`, "Suites that read documents" | that the miles suite checks four documents for the old sentence, quoted | what the suite checks now: the new sentence in seven places, the old one only in the record's corrections |
-| `tests/predictions/PREDICTIONS.md`, the note of 2026-11-11 for W3-20b | "it has not been checked against any recording of a running engine" | a note of a past change, dated; probably left as history, but it is not under `docs/` |
-| `docs/PAGE.md`, the codec menu | the note "says it is not a TF2 codec and not checked against any recording" | that the note says its codec was checked against one recording of a 2006 engine and the rest of the profile was not |
-| `docs/owner-runs.md`, "`vaudio_miles` in an engine of 2006 or 2007" | "Nobody has run this." (its first sentence on the profile is still true) | that one sitting of 2006 was run on 2026-11-13, and what it left open |
-| `opus-codec.mjs`, the comment above `VR12_RATE` | "Unverified: nothing of a running engine with this codec has been recorded." | the new sentence (a comment) |
-| `app/render.js`, the render's console line, pinned by `tests/browser.verify.js` | "S_Voice: vaudio_miles is not a TF2 codec (Source engines of 2006 and 2007); not checked against any recording" | code that runs, which the order forbids: a line such as "...; its codec checked against one 2006 sitting, the profile not" would need the order to allow it |
+| `docs/VOICE-PATH.md`, the `miles` paragraph | the old sentence, word for word | the new sentence, word for word |
+| `tests/README.md`, "Suites that read documents" | that the miles suite checks four documents for the old sentence | what the suite checks now |
+| `tests/predictions/PREDICTIONS.md`, the note of 2026-11-11 | the old sentence | left: a dated note, true of its day; done-means 2's search leaves `tests/predictions/` out |
+| `docs/PAGE.md`, the codec menu | the note says it is "not checked against any recording" | the note says it is not a TF2 codec, that its codec was checked against one recording of a 2006 engine, and that the rest of the profile was not |
+| `docs/owner-runs.md`, "`vaudio_miles` in an engine of 2006 or 2007" | the old sentence's claim, and "Nobody has run this." | the new sentence; what was run (one sitting of Source SDK Base 2006 on 2026-11-13, a file as the microphone at `voice_maxgain` 1 and 10, and a shorter one of speech), what it settled by reference to `docs/FINDINGS.md` entry 11, and what it did not run (the 2007 engine, a second player, a lost packet); the steps lacked it, so they gain step 5: one press a file, since the game writes its two files again at every release of the key |
+| `opus-codec.mjs`, the comment above `VR12_RATE` | "Unverified: nothing of a running engine with this codec has been recorded." | the new sentence; comment lines only |
+| `app/render.js`, the console line for `vaudio_miles`, pinned in `tests/browser.verify.js` | "...; not checked against any recording" | "S_Voice: vaudio_miles is not a TF2 codec (Source engines of 2006 and 2007); its codec was checked against one recording of a 2006 engine; the rest of the profile was not". The browser suite now pins the line whole (anchored at its end). It is a string the console shows: no sample and no recorded hash moved |
 
-The order's second "Done means" grep finds the old sentence on one line in `docs/VOICE-PATH.md` and one in
-`tests/predictions/PREDICTIONS.md`; the wrapped one in `tests/README.md` it does not find.
+The two further `README.md` lines the first build changed are kept, as ruled.
+
+The suite `miles` now also checks `docs/VOICE-PATH.md`, `docs/owner-runs.md` and the comment above `VR12_RATE` for
+the new sentence and against the old ones, that `docs/owner-runs.md` no longer says nobody has run it and points to
+entry 11 and has the one-press step, that `docs/PAGE.md` describes the note as it stands, and that `app/render.js`
+holds the new console line and not the old one.
 
 ## Commits
 
@@ -69,28 +74,37 @@ The order's second "Done means" grep finds the old sentence on one line in `docs
 | --- | --- |
 | `ae6d05c` | the words, the record and the suite's checks |
 | `c6b042a` | the miles suite takes the profiles' file name from the helper's list (`ENGINE_FILES[0]`): the harness keeps `constants.js` out of the suites' quoted strings, and the first full run failed on it |
-| (this report) | |
+| `63107a0` | the report as first written, at the stop |
+| `a801df6`, `f327396` | merges of `origin/main` (RP-01a; then the rulings) |
+| `718c21c` | the seven places as ruled, and the suite's new checks |
+| (this report's update) | |
 
 ## Runs
 
+After the fix (head `718c21c`, with this report on top):
+
 | Done means | Command | Last lines |
 | --- | --- | --- |
-| 1 | `node tests/run.mjs miles` | `74 miles checks passed`; `1 of 1 suites passed.` |
-| 1, the breaks | a script in the builder's scratch folder puts each place back to the old sentence in turn (README, LEGACY_CODECS, the vendor README, the head comments of `vendor/voxware-vr12/index.mjs` and the suite, the `miles` comment of `constants.js`, each of the record's two corrections), adds the old sentence back beside the new one in the README, and changes the note's third sentence by one word ("recording" to "take") and back to the old sentence | each of the eleven breaks fails the suite; `missed or not found: 0` |
-| 2 | `grep -rn "has not been checked against any recording of a running engine"` | finds `docs/VOICE-PATH.md:120` and `tests/predictions/PREDICTIONS.md:176`, which the order does not list (above), and besides them only the suite's own test data, `docs/reports/W3-20b-miles-profile.md`, `docs/PROGRESS-LOG.md`, the orders W3-20b and W3-22 and the record's kept text (wrapped, so on line 1244 only) |
-| 3 | `flock /tmp/tf2ve-heavy.lock pnpm test` | `25 of 25 suites passed. 882.0 s summed` (the run before the second commit: `24 of 25 suites passed; FAILED: harness`) |
-| 3 | `flock /tmp/tf2ve-heavy.lock pnpm test:browser`, with `CHROMIUM_EXECUTABLE` set as the brief says | `417 browser checks passed`; `1 of 1 suites passed. 241.8 s summed` |
-| 3, hashes | `git diff origin/main...HEAD --stat` | ten files, none of them a recorded hash; `sw.js` untouched |
-| 4 | `node tests/cache-number.mjs origin/main --report` | `cached files changed since origin/main (ed14c5b): constants.js, index.html, vendor/voxware-vr12/index.mjs` / `cache number against origin/main (ed14c5b): the number is v39, not above v39: it must rise (node tests/cache-number.mjs origin/main --set)` |
-| 5 | by reading | the table "The figures added" |
+| 1 | `node tests/miles.verify.mjs` | `77 miles checks passed` |
+| 1, the breaks | a script in the builder's scratch folder puts each place back to its old words in turn (README, LEGACY_CODECS, the vendor README, the head comments of `vendor/voxware-vr12/index.mjs` and the suite, the `miles` comment of `constants.js`, each of the record's two corrections, `docs/VOICE-PATH.md`, `docs/owner-runs.md` (its sentence, "Nobody has run this." added back, its step 5 reworded), the `opus-codec.mjs` comment (replaced, and the old sentence added beside the new), `docs/PAGE.md`'s description, the console line in `app/render.js` (put back, and changed by one word)), adds the old sentence back beside the new one in the README, and changes the note's third sentence by one word and back to the old sentence | each of the twenty breaks fails the suite: `missed or not found: 0` and `second set, missed or not found: 0` |
+| 2 | `grep -rn --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=predictions "has not been checked against any recording of a running engine" .` | `tests/REFERENCE_2026.md:1320` (the kept, corrected text; the other kept one is wrapped), `tests/miles.verify.mjs:735` and `:745` (the suite's test data), and the earlier reports, logs and orders: `docs/PROGRESS-LOG.md:260`, `docs/reports/W3-20b-miles-profile.md:56`, `docs/work-orders/W3-20b-miles-profile.md:292` and `:328`, `docs/work-orders/W3-22-miles-words.md:68`, and this report's own line quoting the command |
+| 3 | `flock /tmp/tf2ve-heavy.lock pnpm test` | `26 of 26 suites passed. 909.1 s summed, 909.1 s of wall time, 1 at a time.` |
+| 3 | `flock /tmp/tf2ve-heavy.lock pnpm test:browser`, with `CHROMIUM_EXECUTABLE` set as the brief says | `417 browser checks passed`; `1 of 1 suites passed. 262.9 s summed` (the run before it hung, below) |
+| 3, hashes | `git diff origin/main...HEAD --name-only` | seventeen files, none of them a recorded hash; `sw.js` untouched |
+| 4 | `node tests/cache-number.mjs origin/main --report` | `cached files changed since origin/main (4b0bf77): app/render.js, constants.js, index.html, opus-codec.mjs, vendor/voxware-vr12/index.mjs` / `cache number against origin/main (4b0bf77): the number is v39, not above v39: it must rise (node tests/cache-number.mjs origin/main --set)` |
+| 5 | by reading | the table "The figures added"; the fix adds no figure but dates and gains already in entry 11 |
 | 6 | by reading | `vaudio_miles` is named as not in TF2 in each added passage, or in the paragraph that holds it; no finding is called new |
+
+At the stop (head `c6b042a`): `pnpm test` gave `25 of 25 suites passed. 882.0 s summed` (and before `c6b042a`,
+`24 of 25 suites passed; FAILED: harness`), and the browser suite `417 browser checks passed`, 241.8 s.
 
 Before the push the branch's diff and commit messages were scanned for recordings, personal details, SteamIDs and
 model names: none, apart from the commit trailers the brief gives.
 
 ## Not done or uncertain
 
-- The places in "The question" are left until the orchestrator rules.
+- One browser run after the fix hung for 19 minutes at the old share links check (rooms), with no output and no
+  load; it was stopped and run again (below). The run before the fix passed that check.
 - `README.md` lines 80 and 91 were not in the order's list of sentences; they are in a file it allows, and each said
   that no recording of a running engine exists. A reviewer may want them back as they were.
 - `tests/LEGACY_CODECS.md` gets a bullet of three sentences, and its "What remains unknown" bullet is rewritten with
