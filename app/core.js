@@ -160,6 +160,9 @@ const state = {
   // the start; undefined for a render not made in the worker).
   renderedTook: null,
   renderedFrom: undefined,
+  // W3-02d-2: for a demo, its sender settings (DEMO_IGNORES) as the render on
+  // screen was made with them (demoSenderValues, app/render.js); null otherwise.
+  renderedSender: null,
   // W3-02d-2: the page's worker still holds the stages the render on screen
   // left (set when presentRender shows a render made there; cleared when a
   // render starts whose settings differ from the one on screen's in a name
