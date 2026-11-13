@@ -50,6 +50,16 @@ All in `steam-sender.js`; no file under `engine/` changed.
 - `info()` gains `lead`.
 - What the lead's zeros make before the first push (only with the gate off and a caller's clock whose first reads
   are shorter than the lead) comes back from the first `push()` or `finish()`.
+- The tie of the lead to `c0` is chosen: nothing read or measured ties the capture's phase to the clock's first read;
+  `c0` (itself the clock's own uniform draw over one step, chosen) is a source of one uniform number that draws
+  nothing new. That Steam's capture runs free of the sound is inferred (`docs/reports/W3-16-second-read.md` read
+  that Steam rounds nothing to steps and takes whatever the read position gained; how the position moves is
+  inferred; one phase through a session is measured on Set D alone).
+- A real phase is set when the capture device starts at a key press (W3-09 read that the device is started at a
+  press after the capture has fully stopped), so one uniform phase a render is the model of a held key or an open
+  microphone; a phase drawn again at each press is not built yet.
+- With the gate off a render now sends up to 31 ms more zeros before the source; that is a convention of the app's
+  own setting, not something read of Steam.
 
 Why the engine needs no change: the render's give-out bound (`steamGiveOut`, a message starts at most a chunk and
 the pre-roll before the last sample pushed) holds in samples of the source as it held in the sender's own count;
@@ -187,7 +197,7 @@ its standard error over every opened spurt (by spurt).
 
 - The suite's own figure moves from +0.021 to -0.298 ms (measured). `ARRIVAL_MS` stays 50.5.
 - Paired by seed, the lead lowers the mean by 0.32, 0.64, 0.75 and 0.52 ms in the four rows: the same sign every time
-  (measured; not explained). A capture step is 31.25 ms.
+  (measured; not explained).
 - At lead 0, on `main` as it stands, the mean is +1.0 to +3.6 ms on the larger blocks: the constant was fitted on
   seeds 1 to 50, and the spurts of one seed are not independent, so the standard errors above understate the spread
   between blocks. Measuring it again is an order of its own (the orchestrator's).
@@ -242,7 +252,11 @@ SteamIDs and model names: none, apart from the attribution trailers.
 - The private runs against the takes (the accuracy rows, the Set D and Set G replays, the speech take, the loss
   takes, at Steam's own threshold) are the orchestrator's and were not made.
 - The arrival constant is not measured again (the orchestrator's later order).
-- The lead's paired effect of about -0.6 ms on the zero is measured, not explained.
+- The lead's paired effect of about -0.3 to -0.9 ms on the zero is measured, not explained (the fix round's run
+  below does not support the second reader's likely cause).
+- `c0` still delays every step's readiness by `c0` after the step ends (rule 2 keeps this so that the arrival figure
+  stands), where a free-running capture has a step ready when it ends. It is for the order that measures the arrival
+  figure again.
 - The sound's position is checked on one speech-like source at 44.1 kHz and 20 seeds; other rates and sources were
   not checked for it.
 - README.md is unchanged: its one sentence on the read clock ("the times of Steam's reads" among what is fitted)
@@ -256,3 +270,49 @@ SteamIDs and model names: none, apart from the attribution trailers.
 4. The lag check of done-means 2 and its one-sample bound.
 5. The words in `tests/REFERENCE_2026.md`, finding 28: the standings, and no figure from a private file beyond the
    order's.
+
+## Fix round (2026-11-13)
+
+The review said merge, with no defect in the code, and the second read found the arithmetic sound. Both asked for
+wording and two small test changes. No recorded value moved, and `steam-sender.js` changed in comments only.
+
+**CI of the head before this round:** run 43366044216 on `f38878d`, `verify` success (units, engine, render,
+stages and browser all success).
+
+**Tests.**
+- `tests/steam-sender.verify.mjs`: the openings' shares (0.790 / 0.165 / 0.045) are this build's own output. The row
+  is now named for that: values recorded with the capture's lead, a guard against regression, not a comparison
+  with the prototype. The second copy agrees with the module on all 400 seeds already, so working the shares out
+  through it would not be a second route.
+- `tests/voice-channel.verify.mjs`: the zero check says its standard error is taken by spurt and prints the one by
+  seed (1.404 ms from each seed's mean over its spurts; the second reader measured 1.444 ms). Beside it, a paired
+  check: on seeds 1 to 50, each seed's zero with the lead less its zero at lead 0, within 3 standard errors by seed
+  of 0. It reads -0.325 ms with a standard error of 0.580 by seed (the second reader's figures). With each read's
+  `since` left unshifted it reads +16.078 ms (standard error 1.419) and fails. `engineRun` in
+  `tests/voicequeue/synthetic-results.mjs` takes a `lead` for it; left out, it is the seeded draw as before.
+
+**Words.** In `tests/REFERENCE_2026.md` (finding 28), the predictions' note and `docs/ACCURACY.md`:
+- that the capture runs free is inferred everywhere, with what was read;
+- `c0`'s range and the lead's tie to it are chosen;
+- the two means of Set D show a phase other than zero but cannot tell 318 from its mirror or from a uniform draw. The
+  second read's rows are cited as its own: 318 gives 79.903 and 37.810, 432 gives 79.903 and 37.788, the seeded draw
+  79.871 and 37.833, against 79.63 and 37.5. They were not run again here. 318 and its side rest on the start offset alone;
+- the arrival figure was not changed, and its measurement moved (measured, not explained);
+- the second reader's likely cause is given as inferred;
+- one phase a render is the model of a held key;
+- the gate-off zeros are a convention of the app;
+- the predictions' note says how a spurt is laid on a whole sample.
+
+**The cause, tested** (the optional run; measured on the model, seeds 1 to 200, the suite's layouts P and Q, each
+seed's mean over its opened spurts with the lead less the same at lead 0):
+
+| Signal level | 300 fps | 66.67 fps |
+| --- | --- | --- |
+| 1000 (the suite's) | -0.350 ms, standard error 0.366 by seed | -0.912 ms, 0.390 |
+| 6000 (above 4915: a part step of sound always opens the gate) | -0.616 ms, 0.325 | -0.317 ms, 0.348 |
+
+The shift does not vanish above 4915. So the second reader's cause (a part step failing the gate at the suite's level)
+is not shown by this run, and the shift stays not explained.
+
+**Checks of this round:** FIX_CHECKS
+

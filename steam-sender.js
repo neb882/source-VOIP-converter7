@@ -14,8 +14,8 @@
  *     samples; none at all for the first read or two). A read is { time, since, samples }:
  *     its time on the clock (since plus a seeded phase on the float's grid), its time from
  *     the render's start, and its chunk's length.
- *   - The capture runs free of the sound played into it (docs/work-orders/W3-21-capture-
- *     phase.md): the sender reads `lead` zeros (0 to 749, from the clock's c0) before the
+ *   - The capture runs free of the sound played into it (inferred; docs/work-orders/W3-21-
+ *     capture-phase.md): the sender reads `lead` zeros (0 to 749, from the clock's c0) before the
  *     source's first sample, so the steps' edges lie c0 after the multiples of 31.25 ms of
  *     the source. The times it counts from the render's start (since) are the reads' less
  *     lead / 24000 s, and the positions it reports are in samples of the source.
@@ -142,7 +142,9 @@
     const c0 = STEP * B();
     // The capture's phase against the sound, in samples (W3-21): the steps' edges lie c0
     // after the multiples of 31.25 ms of the source when the sender puts this many zeros
-    // before it. Read only; drawing it takes nothing from A or B.
+    // before it. Read only; drawing it takes nothing from A or B. Chosen: nothing read or
+    // measured ties the capture's phase to c0 (itself the clock's own uniform draw over one
+    // step, chosen); c0 is a source of one uniform number that draws nothing new.
     const lead = (S.grid - Math.round(c0 * S.rate)) % S.grid;
     let j = 0;
     let ready = Math.max(-Infinity, c0 + (j + 1) * STEP + S.captureLate * B());   // a[0]
