@@ -547,9 +547,20 @@ async function main() {
     const dead = await TF2Audio.process(mkBuffer(src, SR), { ...opts, lossPct: 100 });
     check('100% loss -> silence', rms(dead.samples) < 1e-6, `rms ${rms(dead.samples).toExponential(2)}`);
 
-    const jproc = await TF2Audio.process(mkBuffer(src, SR), { ...opts, lossPct: 0, jitterMs: 100 });
-    check('jitterMs wired into process(): late frames concealed or silent', diffRms(jproc.samples, none.samples) > 1e-4
+    // BC-4: the late-frame fit stays on the other codecs (celt_22 here); on Steam voice
+    // jitter is when messages reach the game's voice queue, so on the file's own timing a
+    // render at any jitter is the render at jitter 0.
+    const cnone = await TF2Audio.process(mkBuffer(src, SR), { ...celt, lossPct: 0 });
+    const jproc = await TF2Audio.process(mkBuffer(src, SR), { ...celt, lossPct: 0, jitterMs: 100 });
+    check('jitterMs wired into process() on celt_22: late frames concealed or silent', diffRms(jproc.samples, cnone.samples) > 1e-4
       && jproc.codecInfo.lostFrames + jproc.codecInfo.underrunFrames > 0, `${jproc.codecInfo.lostFrames} concealed, ${jproc.codecInfo.underrunFrames} silent`);
+    const sameAt = [];
+    for (const jitterMs of [10, 100, 500]) {
+      const r = await TF2Audio.process(mkBuffer(src, SR), { ...opts, lossPct: 0, jitterMs });
+      sameAt.push(r.samples.length === none.samples.length && r.samples.every((v, i) => Object.is(v, none.samples[i])) && r.codecInfo.underrunFrames === 0);
+    }
+    check('Steam voice on the file\'s own timing: a render at jitter 10, 100 and 500 ms is the render at jitter 0, sample for sample, with no late frame',
+      sameAt.every(Boolean), sameAt.join(', '));
   }
 
   console.log('\n[10] Input and option robustness');

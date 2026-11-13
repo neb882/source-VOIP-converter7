@@ -9,11 +9,11 @@
     hardClip, joinSamples, microYield, mulberry32, resampleSinc, sincLength } = E.dsp;
   const { createGain, decodedFromFrames, gainLead, receiverAutoGain } = E.gain;
   const { createMixStage, createOutStage, deviceRateOf, joinInts } = E.mix;
-  const { buildLossMask, retimeSpurts, steamLoser } = E.network;
+  const { buildLossMask, retimeSpurts, steamArrivalPlan, steamLoser } = E.network;
   const { DEFAULT_SENDER_GATE, celtModeRate, gateThresholdDb, loadOpusModule, profileEq, receivedCodecInfo } = E.codec;
   const { resolveRoom, roomPreset, tailAtDevice } = E.room;
-  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamCapture, steamChannel, steamCodecInfo, steamGameTimeline,
-    steamModules, steamPlayedInfo, steamSenderOptions, steamTimeline } = E.steam;
+  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel,
+    steamCodecInfo, steamGameTimeline, steamModules, steamPlayedInfo, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
   /* The stages a render keeps (W4-01b)                                 */
@@ -45,7 +45,10 @@
   // codec stage (the receiver's gain, re-timing, the room, volume, the
   // device, the game's timeline: the channel takes B's messages and decoded
   // packets and changes nothing in them). An option used at or before B must
-  // not be on this list.
+  // not be on this list. jitterMs is not on it: the other profiles draw their
+  // late frames in the codec stage. On `steam` it is used only after B (the
+  // arrival times, BC-4), and readOptions puts it in the keys as 0 there, so
+  // a changed jitter on `steam` starts from B.
   const AFTER_B_OPTIONS = ['voiceScale', 'agc', 'avgGain', 'maxGain', 'retime', 'volume',
     'room', 'underwater', 'listenerPos', 'dspRoom', 'customEnv', 'deviceRate', 'timeline', 'fps', 'bufferMs'];
   // The options used only after A: those, and the sender's and the
@@ -65,11 +68,13 @@
   // The keeping's own options, in neither key.
   const STAGE_CONTROLS = ['stages', 'sourceKey', 'signal'];
   // Every option process() reads, in readOptions: the codec, the capture's,
-  // the sender's and the network's, the tests' hooks into the codec stage,
-  // and those used only after B, the observers and the controls.
+  // the sender's and the network's, the tests' hooks into the codec stage
+  // and the channel (arriveAt, BC-4: a function, so a render given it keeps
+  // and takes nothing), and those used only after B, the observers and the
+  // controls.
   const READ_OPTIONS = ['codec', 'enableWarble', 'received', 'micGain', 'captureChannel', 'hp', 'lp',
     'bits', 'lossPct', 'jitterMs', 'gate', 'gateThresholdDb', 'steamUptime', 'seed', 'frameMs',
-    'loseMessage', 'swrKernel', 'onDecoded', 'onResampled', ...AFTER_B_OPTIONS, ...STAGE_OBSERVERS, ...STAGE_CONTROLS];
+    'loseMessage', 'arriveAt', 'swrKernel', 'onDecoded', 'onResampled', ...AFTER_B_OPTIONS, ...STAGE_OBSERVERS, ...STAGE_CONTROLS];
 
   // The options as process() reads them, each read once (`o`, a record of
   // its own) and converted as the stages use it, in the order the engine
@@ -117,16 +122,21 @@
     // and cannot run (steamGameTimeline). fps and bufferMs are handed to the
     // channel as they were given.
     const game = steamGameTimeline(o.timeline, { codecKey, codec, enableCodec, received, retime: o.retime });
+    // opts.arriveAt (BC-4), or a RangeError where it cannot run.
+    const arriveAt = steamArriveAt(o.arriveAt, game);
+    // Steam's sender and decoder run (the steam path): jitter draws no late
+    // frame there (BC-4), so the codec stage does not use it.
+    const steamPath = enableCodec && !received && codec.senderGate?.rule === 'steam';
     const used = {
       codec: Object.keys(CODEC_PROFILES).find((name) => CODEC_PROFILES[name] === codec),
       enableWarble: enableCodec, received: !!received, micGain, captureChannel, hp, lp,
-      bits, lossPct, jitterMs, gate: gateOn, gateThresholdDb: gateThresholdDb(o.gateThresholdDb, null),
+      bits, lossPct, jitterMs: steamPath ? 0 : jitterMs, gate: gateOn, gateThresholdDb: gateThresholdDb(o.gateThresholdDb, null),
       steamUptime: o.steamUptime == null ? null : o.steamUptime, seed, frameMs: framesPerPacket,
-      loseMessage: o.loseMessage, swrKernel: o.swrKernel, onDecoded: o.onDecoded, onResampled: o.onResampled
+      loseMessage: o.loseMessage, arriveAt, swrKernel: o.swrKernel, onDecoded: o.onDecoded, onResampled: o.onResampled
     };
     return { o, codecKey, codec, seedNumber, seed, room, micGain, captureChannel, hp, lp, bits, lossPct, jitterMs,
       enableCodec, autoGain, gateSpec, gateOn, gateDb, avgGain, maxGain, voiceScale, volume, received, receivedInfo,
-      deviceRate, framesPerPacket, game, used };
+      deviceRate, framesPerPacket, game, arriveAt, used };
   }
 
   // A value as text for a key: two values give the same text only when they
@@ -291,10 +301,11 @@
   // sample (W4-01b, step 3), as tests/stages.verify.mjs shows for every
   // profile at these settings. Not for a demo's voice, with loss or jitter,
   // with talk-spurt re-timing, with a room that runs or under water (none
-  // of them was shown), nor at a device rate the test does not cover.
+  // of them was shown), with a test's hook (loseMessage, arriveAt), nor at a
+  // device rate the test does not cover.
   const PREVIEW_DEVICE_RATES = [44100, 48000];
   function previewAllowed(opts = {}) {
-    if (opts.received || opts.retime || typeof opts.loseMessage === 'function') return false;
+    if (opts.received || opts.retime || typeof opts.loseMessage === 'function' || opts.arriveAt != null) return false;
     if (clamp(finiteOr(opts.lossPct, 0), 0, 100) > 0 || clamp(finiteOr(opts.jitterMs, 0), 0, 500) > 0) return false;
     let room;
     try { room = roomPreset(opts); } catch (e) { return false; }
@@ -346,9 +357,30 @@
    *   loseMessage:  `steam` only, tests and replays (the page never sends
    *                 it): (index, message) => boolean, in place of the draw,
    *                 called once per sender message in order          [none]
+   *   arriveAt:     timeline 'game' only, tests and replays (the page never
+   *                 sends it; BC-4): (tick) => the tick the message the
+   *                 sender gave that tick reaches the voice channel, in place
+   *                 of the arrival model. It answers for every whole tick:
+   *                 it is asked for each tick from 0 to the render's last
+   *                 tick, once and in order, here and in createRender alike,
+   *                 and must return a whole number, 0 or more, that never
+   *                 falls (else a RangeError, one message for each). An
+   *                 answer far past the render's end costs time in
+   *                 proportion: the channel steps to it tick by tick (3.3 s
+   *                 for 1e8, measured). Given anywhere else, or not a
+   *                 function, a RangeError. The render keeps nothing in
+   *                 stages                                           [none]
    *   frameMs:      net_split packet duration (whole 20 ms frames); on
    *                 `steam` it no longer sets what a lost packet holds  [20]
-   *   jitterMs:     net_fakejitter in ms: late frames, measured          [0]
+   *   jitterMs:     net_fakejitter in ms, 0 to 500 (BC-4). On `steam` with
+   *                 timeline 'game': when each message reaches the voice
+   *                 channel, by net_fakelag's lists with the lag at twice
+   *                 the jitter, on the path of a listen server's own voice
+   *                 (steamArrivals: the lists' rule read, two of their
+   *                 choices made); nothing lost, the order kept, the least
+   *                 delay taken out and the rest heard. On `steam` with the
+   *                 source's timeline: nothing. On the other profiles: late
+   *                 frames, a fit (finding 9)                          [0]
    *   enableWarble: false bypasses the codec (filters/engine remain)    [true]
    *   gate:         Steam sender voice gate; null = profile default     [null]
    *   gateThresholdDb: gate opening level, frame RMS in dBFS [profile/-39.5];
@@ -386,7 +418,8 @@
    *                 fade, a gain reset at each channel opened). `steam` only,
    *                 with the codec on, no `received` and no `retime`; anywhere
    *                 else, and for any other value, a RangeError. The page
-   *                 does not offer it (W3-02d, not built yet)       ['source']
+   *                 renders Steam voice on it by default since W3-02d-1; this
+   *                 engine's own default is the source's        ['source']
    *   fps, bufferMs: with timeline 'game', the listener's frames a second
    *                 and voice_buffer_ms, handed to the channel as given (it
    *                 takes its own defaults and limits)           [300, 100]
@@ -427,7 +460,13 @@
    * With timeline 'game' codecInfo.frameLog and frameBytes are the frames as
    * played (steamPlayedInfo), codecInfo.sent the sender's (the 'source'
    * render's logs) and codecInfo.channel the channel's info; the counters
-   * and `network` are the source timeline's.
+   * and `network` are the source timeline's. With timeline 'game' and
+   * jitterMs above 0 or arriveAt (BC-4), codecInfo.arrivals = { jitterMs,
+   * fps, floorTicks, messages, meanMs, maxMs, sameTick }: the render's jitter
+   * and frame rate (as the model limits it), the least delay taken out (0
+   * under arriveAt), and over the messages pushed into the channel the mean
+   * and the most of the delay above it in ms and how many came on the tick
+   * of the message before; absent otherwise.
    */
   async function process(audioBuffer, opts = {}) {
     if (!audioBuffer || typeof audioBuffer.getChannelData !== 'function' ||
@@ -519,13 +558,17 @@
         const sender = SteamSender.createSender(settings.sender);
         const messages = sender.push(steamCapture(samples));
         for (const m of sender.finish()) messages.push(m);
-        // Loss takes whole messages (BC-1), one draw each; the per-frame mask
-        // keeps only the late frames (jitter), drawn as before with a loss of 0.
+        // Loss takes whole messages (BC-1), one draw each. Jitter draws no
+        // late frame here (BC-4): on the game's timeline it is when messages
+        // arrive, after B; on the source's it does nothing. The per-frame
+        // mask is made with a loss and a jitter of 0, so it is null and draws
+        // nothing (a test's own mask reaches the late-frame code through
+        // the codec module's makeLossMask).
         const loser = steamLoser(o, lossPct, seed);
         const trip = await opus.steamRoundTrip(messages, bitrate, {
           application: codec.application, signal: codec.signal, runtime: codec.encoder?.runtime,
           complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx,
-          makeLossMask: count => buildLossMask(count, framesPerPacket, 0, rand, jitterMs),
+          makeLossMask: count => buildLossMask(count, framesPerPacket, 0, rand, 0),
           lose: loser.lose,
           yieldControl: pause,
           onProgress: f => report(0.2 + 0.4 * f)
@@ -591,9 +634,12 @@
       const voiceLength = sincLength(codecLength, STEAM_RATE, STEAM_VOICE_RATE);
       // On the game's timeline (W3-02c-2) the receiver's voice channel plays
       // the packets, its gain object running on them, and steamTimeline is
-      // given no gain and no capacity: nothing is laid.
+      // given no gain and no capacity: nothing is laid. With jitter (or
+      // opts.arriveAt) each message reaches it on its arrival tick (BC-4),
+      // from the render's seed and the listener's frame rate.
+      const arrivals = r.game ? steamArrivalPlan({ jitterMs: r.jitterMs, fps: o.fps, seed: r.seed, arriveAt: r.arriveAt }) : null;
       const channel = r.game ? steamChannel({ length: voiceLength, lookahead: trip.lookahead, fps: o.fps, bufferMs: o.bufferMs,
-        autoGain, avgGain, maxGain, voiceScale }) : null;
+        autoGain, avgGain, maxGain, voiceScale, arrive: arrivals ? arrivals.at : null }) : null;
       const timeline = steamTimeline({ voiceLength, codecLength, lookahead: trip.lookahead, resampler,
         gain: autoGain && !channel ? createGain({ avgGain, maxGain, scale: voiceScale }) : null,
         capacity: channel ? undefined : voiceLength, onDecoded: o.onDecoded, onResampled: o.onResampled, channel });
@@ -605,8 +651,14 @@
           await pause();
         }
       }
-      // The channel's output: what every push gave and what finish() gives,
-      // in order, voiceLength samples.
+      // The arrival of every tick through the render's last, as createRender's
+      // last bound has it (every sample given to the sender, every message
+      // made), asked as createRender asks it; then the channel's output: what
+      // every push gave and what finish() gives, in order, voiceLength samples.
+      if (channel) {
+        const last = messages.length ? messages[messages.length - 1].tick : -1;
+        channel.ask(steamBoundTick(steamModules().sender.STEAM_SENDER, last, codecLength));
+      }
       const played = channel ? channel.finish() : null;
       steamVoice = channel ? channel.take() : timeline.take(voiceLength);
       if (channel && steamVoice.length !== voiceLength) {
@@ -614,6 +666,7 @@
       }
       codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate, lossSet), framesPerPacket };
       if (played) codecInfo = steamPlayedInfo(codecInfo, played, trip.lookahead);
+      if (arrivals) codecInfo.arrivals = { jitterMs: arrivals.jitterMs, fps: arrivals.fps, floorTicks: arrivals.floorTicks, ...channel.arrivals() };
       // The receiver's re-timing (finding 19), on the voice-rate timeline: the
       // laid spurts, moved earlier as the frame path moves its decoded sound;
       // the slots of 480 codec samples are 882 here.

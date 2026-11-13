@@ -19,9 +19,11 @@
     { "name": "net_loss15", "set": "C", "take": ["loss15.flac"], "random": true,
       "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "lossPct": 49.8, "room": { "auto": "set_c_room" } } },
     { "name": "net_jitter", "set": "C", "take": ["jitter.flac"], "random": true,
-      "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "jitterMs": 50, "room": { "auto": "set_c_room" } } },
+      "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "jitterMs": 50, "room": { "auto": "set_c_room" } },
+      "note": "Since BC-4a (2026-11-13) jitter on Steam voice is when messages reach the game's voice queue, and on the file's own timing, where this suite renders, it does nothing: this row compares the take with a render without jitter. The render through the queue is measured in the orchestrator's private run (REFERENCE finding 9)." },
     { "name": "net_combined", "set": "C", "take": ["combined.flac"], "random": true,
-      "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "lossPct": 37.0, "jitterMs": 50, "room": { "auto": "set_c_room" } } },
+      "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "lossPct": 37.0, "jitterMs": 50, "room": { "auto": "set_c_room" } },
+      "note": "Since BC-4a (2026-11-13) jitter on Steam voice is when messages reach the game's voice queue, and on the file's own timing, where this suite renders, it does nothing: this row compares the take with a render with the loss and without jitter. The render through the queue is measured in the orchestrator's private run (REFERENCE findings 8 and 9)." },
     { "name": "speech_loss10", "set": "C", "take": ["speech_loss10.flac"], "random": true,
       "source": "my_own_speech_raw_from_audacity.wav", "settings": { "volume": 0.15, "lossPct": 37.0, "room": { "auto": "set_c_room" } } },
 

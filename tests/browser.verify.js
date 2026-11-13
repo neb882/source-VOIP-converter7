@@ -1702,7 +1702,9 @@ async function verifySettingsWords(page) {
     && t.bits[0] === 'Bitrate, in sixteenths' && t.bits[1] === '16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex and vaudio_miles each have one bitrate and ignore this.'
     && t.frameMs[0] === 'Frames per packet, as ms' && t.frameMs[1] === 'How much voice one network packet carries. A lost packet loses all of it. Steam voice sends each of its messages as one packet and ignores this.'
     && t.loss[0] === 'Packets lost % net_fakeloss' && t.loss[1] === 'The share of voice packets that never arrive. Not the game\'s own number: its net_fakeloss 5 loses about 22% of them.'
-    && t.jitter[1] === 'Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that.'
+    // BC-4a: jitter on Steam voice is when packets reach the game's voice queue.
+    && t.jitter[1] === 'How far packets\' arrival times spread. On Steam voice it acts only through the game\'s voice queue: packets arrive later and in bunches; none is lost. '
+      + 'On the file\'s own timing, and so for a video or a demo\'s voice, it does nothing.'
     // W3-02d-1: Phrase timing and the game's voice queue's two settings.
     && t.timeline[0] === 'Phrase timing' && JSON.stringify(words.options.timeline) === '["The game\'s voice queue","The file\'s own timing"]'
     && t.timeline[1] === 'The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. '

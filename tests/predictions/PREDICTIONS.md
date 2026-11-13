@@ -193,6 +193,8 @@ Changed after registration, 2026-11-13, before any predicted take existed: `cons
 
 Changed after registration, 2026-11-13, before any predicted take existed: no hashed model file changed for W3-02d-1. The page's `renderOptions()` (`app/render.js`, not a hashed model file), from which `tests/accuracy.mjs` builds every prediction's options, now sends `timeline` `'game'` with `fps` and `bufferMs` on Steam voice and no longer sends `retime`. `tests/accuracy.mjs` sets `timeline` `'source'` and leaves `fps` and `bufferMs` out in its four renders, so every prediction renders as registered, and the note above that no prediction asks for `'game'` stays true. The predictions are scored as registered.
 
+Changed after registration, 2026-11-13, before any predicted take existed: `engine/network.js`, `engine/steam.js`, `engine/render.js`, `engine/render-stream.js`, `engine/live-chain.js` and `audio.js` changed for BC-4a, and `constants.js` in comments only. On the `steam` profile jitter no longer marks frames late: on the game's timeline (`opts.timeline` `'game'`) it sets the tick on which each message reaches the receiver's voice channel (`steamArrivals`, REFERENCE finding 9), and on the source's timeline it does nothing. `TF2Audio` gained `fakeLagList` and `steamArrivals`, and `process()` and `createRender` take `opts.arriveAt`, which only tests and replays send. No registered prediction has jitter (`tests/predictions/plan.json`), and `tests/accuracy.mjs` renders every prediction on the source's timeline, so every prediction renders as registered. The predictions are scored as registered.
+
 ## Results
 
 Not recorded yet.

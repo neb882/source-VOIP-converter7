@@ -513,10 +513,11 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats, 
   if (realOpus && codecInfo.dtxFrames) {
     logLine(`S_Voice: ${codecInfo.dtxFrames} inactive frames sent as DTX comfort noise`, 'sys');
   }
-  if (realOpus && codecInfo.sender && codecInfo.sender.rule === 'steam' && (codecInfo.lostFrames || codecInfo.underrunFrames)) {
+  if (realOpus && codecInfo.sender && codecInfo.sender.rule === 'steam') {
     // Steam's decoder conceals a gap when the next frame arrives (at most
-    // ten frames); frames lost at a spurt's end are never played.
-    logLine(`S_Voice: ${codecInfo.lostFrames} frames concealed, ${codecInfo.underrunFrames || 0} late frames played as silence; frames lost at a spurt's end are not played`, 'sys');
+    // ten frames); frames lost at a spurt's end are never played. Jitter
+    // makes no frame late on Steam voice (BC-4): its line is below.
+    if (codecInfo.lostFrames) logLine(`S_Voice: ${codecInfo.lostFrames} frames concealed; frames lost at a spurt's end are not played`, 'sys');
   } else if (realOpus && (codecInfo.lostFrames || codecInfo.underrunFrames)) {
     logLine(`S_Voice: ${codecInfo.lostFrames} frames lost and ${codecInfo.plc === 'zeros' ? 'played as zeros' : 'concealed'}, ${codecInfo.underrunFrames || 0} late frames played as silence`, 'sys');
   }
@@ -531,6 +532,13 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats, 
     logLine(`S_Voice: the game's voice queue at fps_max ${ch.fps}, voice_buffer_ms ${ch.bufferMs}: a new phrase waits ${ch.waitTicks} ticks `
       + `(${Math.round((ch.waitTicks - 1) * tick * 1000)} ms); ${ch.opens} phrase${ch.opens === 1 ? '' : 's'} opened the channel, `
       + `${ch.appended} joined a running one; ${Math.round(1000 * ch.droppedSamples / rate)} ms dropped to overflow`, 'sys');
+  }
+  // BC-4a: jitter on the game's voice queue: how late the packets came past
+  // the least delay (taken out), and how many came on the tick of the one
+  // before. What the queue made of them is on the line above.
+  if (codecInfo.arrivals) {
+    const a = codecInfo.arrivals;
+    logLine(`S_Voice: jitter: packets up to ${Math.round(a.maxMs)} ms late, ${a.sameTick} on a tick with another`, 'sys');
   }
 
   // A render that replaces a render of the same source keeps the place:

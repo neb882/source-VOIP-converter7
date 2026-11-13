@@ -96,7 +96,9 @@
     let stream = await opus.createSteamStream(bitrate, { application: codec.application, signal: codec.signal,
       runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
     const lookahead = stream.lookahead;
-    const nextMiss = streamLossMask(framesPerPacket, 0, rand, jitterMs);
+    // No late frame on `steam` (BC-4): the chain keeps the file's own timing,
+    // where jitter does nothing, as a render does.
+    const nextMiss = streamLossMask(framesPerPacket, 0, rand, 0);
     const loser = steamLoser(opts, lossPct, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
     let frame = 0, index = 0;
     const miss = (f) => {

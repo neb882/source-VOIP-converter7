@@ -39,8 +39,8 @@
  *   the clip, 16-bit rounding and the WAV, each whole and a piece at a time.
  * - engine/gain.js: the receiver's gain.
  * - engine/mix.js: the mixer and the output stage.
- * - engine/network.js: loss and late frames: the retiming, the loss masks,
- *   the steam profile's loss by message.
+ * - engine/network.js: loss and jitter: the retiming, the loss masks, the
+ *   steam profile's loss by message and its arrival times (BC-4).
  * - engine/codec.js: what the renderers share about a profile and its codec:
  *   the gate's defaults and threshold, the profile's filters, the frame
  *   codes, a demo's frame statistics, the call to the loader.
@@ -60,7 +60,7 @@
     resampleLinear, resampleSinc, streamFir, streamResampleSinc, toInt16 } = E.dsp;
   const { createGain, decodedFromFrames, receiverAutoGain, streamAutoGain } = E.gain;
   const { createDeviceStage, createOutputStage, mixClip, mixDevicePosition, mixEntry, mixOut, mixUpsample2 } = E.mix;
-  const { buildLossMask, steamMessageLoss, streamLossMask } = E.network;
+  const { buildLossMask, fakeLagList, steamArrivals, steamMessageLoss, streamLossMask } = E.network;
   const { roomPreset } = E.room;
   const { steamFits, steamGiveOut } = E.steam;
   const { AFTER_A_OPTIONS, AFTER_B_OPTIONS, READ_OPTIONS, STAGE_OBSERVERS, previewAllowed, process, stageKeys,
@@ -116,6 +116,10 @@
     applyBiquad,
     mulberry32,
     buildLossMask,
+    // jitter on `steam` as arrival times (BC-4): one of net_fakelag's lists,
+    // and the path of a listen server's own voice
+    fakeLagList,
+    steamArrivals,
     createLiveChain,
     createRender,
     roomPreset,

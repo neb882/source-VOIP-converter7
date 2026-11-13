@@ -9,12 +9,12 @@
     microYield, mulberry32, sampleStage, sincLength, sincStage } = E.dsp;
   const { createGain, decodedFromFrames, gainLead, streamAutoGain } = E.gain;
   const { createOutputStage, deviceRateOf, mixToFloat } = E.mix;
-  const { buildLossMask, steamLoser, streamLossMask } = E.network;
+  const { buildLossMask, steamArrivalPlan, steamLoser, streamLossMask } = E.network;
   const { DEFAULT_SENDER_GATE, FRAME_CODES, celtModeRate, gateThresholdDb, loadOpusModule, profileEq,
     receivedCodecInfo } = E.codec;
   const { resolveRoom, roomModule, tailAtDevice } = E.room;
-  const { STEAM_RATE, STEAM_VOICE_RATE, steamCapture, steamChannel, steamCodecInfo, steamGameTimeline, steamGiveOut,
-    steamModules, steamPlayedInfo, steamReach, steamSenderOptions, steamTimeline } = E.steam;
+  const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamCodecInfo,
+    steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
   /* A render a piece at a time                                         */
@@ -150,7 +150,8 @@
    * codecInfo; steamUptime is taken as process() takes it. retime is
    * rejected with a RangeError: not streamed (W3-02f removes the rule).
    * timeline 'game' (W3-02c-2) streams, and is refused where process()
-   * refuses it, before anything else is refused.
+   * refuses it, before anything else is refused; so does opts.arriveAt
+   * (BC-4), refused next.
    * Each push and finish must resolve before the next call.
    */
   async function createRender(source, opts = {}) {
@@ -192,6 +193,9 @@
     // The game's timeline (W3-02c-2), or a RangeError where it was asked for
     // and cannot run, as process() decides it (steamGameTimeline).
     const game = steamGameTimeline(opts.timeline, { codecKey, codec, enableCodec, received, retime: opts.retime });
+    // opts.arriveAt (BC-4), or a RangeError where it cannot run, as process()
+    // decides it (steamArriveAt).
+    const arriveAt = steamArriveAt(opts.arriveAt, game);
 
     // What process() would do that is not streamed: the flat re-timing rule,
     // with a room or without (W3-02f removes the rule).
@@ -222,12 +226,13 @@
       // Steam's sender and decoder through to the voice rate, the gain
       // included, as process() runs them: the same sender, stream, resampler,
       // gain and timeline, given the sound as it comes. The message draw is
-      // made once per message in the sender's order, and the late-frame mask
+      // made once per message in the sender's order, and the per-frame mask
       // a frame at a time in the sender's frame order (streamLossMask gives
-      // buildLossMask's values). A sample is given out once no later packet
-      // can reach it: past the open spurt's next packet, and a spurt not yet
-      // opened starts at most a chunk and the pre-roll before the last sample
-      // given to the sender.
+      // buildLossMask's values); as in process() it is made with a loss and a
+      // jitter of 0 and gives no late frame (BC-4). A sample is given out once
+      // no later packet can reach it: past the open spurt's next packet, and a
+      // spurt not yet opened starts at most a chunk and the pre-roll before
+      // the last sample given to the sender.
       const { sender: SteamSender, swr } = steamModules();
       if (codecRate !== STEAM_RATE || codec.voiceRate !== STEAM_VOICE_RATE || codec.decoderEq) {
         throw new Error('The steam rule runs at 24000 Hz into a 44100 Hz voice rate, with no decoder EQ.');
@@ -239,7 +244,7 @@
       voice = await opus.createSteamStream(bitrate, { application: codec.application, signal: codec.signal,
         runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
       const stream = voice;
-      const nextMiss = streamLossMask(framesPerPacket, 0, rand, jitterMs);
+      const nextMiss = streamLossMask(framesPerPacket, 0, rand, 0);
       const loser = steamLoser(opts, lossPct, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
       let frame = 0, given = 0, fed = 0, index = 0, lastTick = -1, voiceOut = 0;
       const miss = (f) => {
@@ -248,9 +253,11 @@
       };
       const resampler = opts.swrKernel !== undefined ? swr.createResampler({ kernel: opts.swrKernel }) : swr.createResampler();
       // On the game's timeline, process()'s channel, given the messages as
-      // they come; steamTimeline lays nothing.
+      // they come, each on its arrival tick from process()'s arrival model
+      // (BC-4: the same seed and frame rate); steamTimeline lays nothing.
+      const arrivals = game ? steamArrivalPlan({ jitterMs, fps: opts.fps, seed: finiteOr(opts.seed, 0xC0FFEE) >>> 0, arriveAt }) : null;
       const channel = game ? steamChannel({ length: voiceLength, lookahead: stream.lookahead, fps: opts.fps, bufferMs: opts.bufferMs,
-        autoGain, avgGain, maxGain, voiceScale }) : null;
+        autoGain, avgGain, maxGain, voiceScale, arrive: arrivals ? arrivals.at : null }) : null;
       const timeline = steamTimeline({ voiceLength, codecLength, lookahead: stream.lookahead, resampler,
         gain: autoGain && !channel ? createGain({ avgGain, maxGain, scale: voiceScale }) : null,
         onDecoded: opts.onDecoded, onResampled: opts.onResampled, channel });
@@ -261,7 +268,7 @@
           if ((++fed & 63) === 63) await microYield();
         }
       };
-      steam = { sender, settings, resampler, timeline, lossSet: loser.set, played: null };
+      steam = { sender, settings, resampler, timeline, lossSet: loser.set, played: null, arrivals, channel };
       // The game's timeline: after a chunk's messages, no later message has a
       // tick below max(lastTick + 1, ceil((given / 24000 + relay) / tick)), with
       // given the samples handed to the sender so far, and relay and tick the
@@ -269,9 +276,12 @@
       // capture step it takes (steam-sender.js), and a message's tick is
       // max(lastTick + 1, ceil((since + relay) / tick)): the sender's next read
       // takes samples from `given` on, so its since is at least given / 24000.
-      // The channel runs every block that starts before that tick.
+      // The channel runs every block that starts before that tick; with
+      // arrival times (BC-4) before the bound's arrival tick, which is a bound
+      // too, since no later message has a sender tick below the bound and the
+      // arrival tick never falls (steamChannel's advance maps it).
       const S = SteamSender.STEAM_SENDER;
-      const bound = () => Math.max(lastTick + 1, Math.ceil((given / S.rate + S.relay) / S.tick));
+      const bound = () => steamBoundTick(S, lastTick, given);
       stages.push({
         async push(x) {
           given += x.length;
@@ -287,6 +297,9 @@
         async flush() {
           await feed(sender.finish());
           if (channel) {
+            // The arrival of every tick through the render's last, as
+            // process() asks it, before the end.
+            channel.ask(bound());
             steam.played = channel.finish();
             const y = channel.take();
             voiceOut += y.length;
@@ -448,6 +461,10 @@
           codecInfo = { ...steamCodecInfo(codec, voice, steam.timeline, steam.sender, steam.settings, steam.resampler, bitrate, steam.lossSet),
             framesPerPacket };
           if (steam.played) codecInfo = steamPlayedInfo(codecInfo, steam.played, voice.lookahead);
+          if (steam.arrivals) {
+            codecInfo.arrivals = { jitterMs: steam.arrivals.jitterMs, fps: steam.arrivals.fps, floorTicks: steam.arrivals.floorTicks,
+              ...steam.channel.arrivals() };
+          }
         } else if (coder) codecInfo = { ...codecResultInfo(kind, voice, codec, coder.counts(), gate, gateOpts, bitrate, packetBytes, codecRate), framesPerPacket };
         release();
         state = 'finished';

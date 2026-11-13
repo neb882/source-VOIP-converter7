@@ -225,7 +225,7 @@ for (const [name, rate, opts, plan] of [
   ['celt_22, gate on, loss 15%, jitter 300 ms', 48000, { codec: 'celt_22', gate: true, lossPct: 15, jitterMs: 300 }, 'uneven'],
   ['celt_44, gate on, loss 15%', 48000, { codec: 'celt_44', gate: true, lossPct: 15 }, '960'],
   ['speex, gate on, loss 15%, jitter 300 ms', 48000, { codec: 'speex', gate: true, lossPct: 15, jitterMs: 300 }, 'uneven'],
-  ['steam, jitter 500 ms (late frames play as silence)', 48000, { jitterMs: 500 }, '960'],
+  ['steam, jitter 500 ms on the file\'s own timing (does nothing)', 48000, { jitterMs: 500 }, '960'],
   ['steam, snd_bits 4 (SILK frames)', 48000, { bits: 4 }, 'uneven'],
   ['steam_48, loss 10%, jitter 100 ms, snd_bits 10', 48000, { codec: 'steam_48', lossPct: 10, jitterMs: 100, bits: 10 }, '12345'],
   ['steam, source at 24 kHz', 24000, {}, 'uneven'],
@@ -485,6 +485,18 @@ addRoom('steam, timeline game, room: preset 6, seed 7', { timeline: 'game', room
 // back, all 83 cases. No case of another profile moved, nor 'steam, codec
 // bypassed', the received voice, or the two sources silent but for a
 // quarter frame at the end (gated whole either way).
+// BC-4a (on `steam` jitter draws no late frame: on the game's timeline it is
+// the tick each message reaches the voice channel, steamArrivals; on the
+// source's timeline it does nothing) re-recorded the WAV, codecInfo and
+// GAIN_GOLDEN hashes of the four `steam` cases with jitter, in a commit of
+// its own: 'steam, timeline game, loss 15%, jitter 50 ms', 'steam, loss 15%,
+// jitter 50 ms, net_split 40 ms', 'steam, listenerPos tunnel (preset 6), loss
+// 15%, jitter 50 ms', and 'steam, jitter 500 ms (late frames play as
+// silence)', renamed 'steam, jitter 500 ms on the file's own timing (does
+// nothing)', whose hashes are now those of 'steam, dsp_room 1 (no effect)',
+// the same source and settings without jitter. No other hash moved: no render
+// at jitter 0, no render of another profile (the celt_22, speex, steam_48 and
+// miles cases with jitter among them), and not 'odd options'.
 const GOLDEN = {
   // W3-02c-2: the renders on the game's timeline (opts.timeline 'game'), recorded once from
   // the run in which every check of tests/render-channel.verify.mjs passed, in a commit of
@@ -492,7 +504,7 @@ const GOLDEN = {
   "steam, timeline game": ["07b120e216fba62ab414bab15bfc4913d38fba26aa777579c690aea49cbba57b", "8a25c06f1d993999efabfc2a389c004a9f79a7c52926f9f3d89a25767bf28cc1"],
   "steam, timeline game at 66.67 fps": ["9bc778b77e21d641caa818b2982f332f52c626b334c21a4ad68a082e12f8edca", "d300088812a91a662500ee3b1b3f70210a50dce85d21b1060b94d48756b42790"],
   "steam, timeline game, gate off": ["aa5e30bf5d30ff3c93909072121605979846a918fc0c3b4b182f10c4617d0cb1", "251b697774da04ed9d68ba9fefd9ee7a8c9572ad43484634a00c6038e0f7406c"],
-  "steam, timeline game, loss 15%, jitter 50 ms": ["6fef3ffd71a71adccab2cc454e696847e1b22a2216b8092dbf6ca4cbc13b8de8", "d409363d140bc79e7c9db151a5ca485ce2f28b220b7682e6cc17078b978f1eed"],
+  "steam, timeline game, loss 15%, jitter 50 ms": ["2b845fd4afbc889f86a5b7f452df004bc20f5b6509ff371149a8f1c8eb23c706", "5d06b0ce38b9b8bb46ac0f3cb19c4053df98430fb4e4d790fd708966fbd49a52"],
   "steam, timeline game, auto-gain off, voice_scale 0.5": ["3897ca3055786a35b21e2c3e31f4148fffa1b2bdeea577e522e0332a259c3c5d", "41d484b1afc3331de9c1bfc78bc39162ca64d2eed8b0056c628afed319bbcdc4"],
   "steam, timeline game, device at 44100 Hz": ["46e7354c06d6861e3eefde14e6bd2aa81d1f82c91a834325a9ae8c6623e01ee3", "8a25c06f1d993999efabfc2a389c004a9f79a7c52926f9f3d89a25767bf28cc1"],
   "steam, timeline game, room: preset 6, seed 7": ["8f5fb47b06d1525971cc1ed83e16e8d079fa436fb0530881bf042978bcd1e463", "527e01a3a706601a0fafbed53bfa3aeb8c271977aeec19c2557665ad40ca6876"],
@@ -509,7 +521,7 @@ const GOLDEN = {
   "steam, auto-gain off": ["0788808deeda9af474ba43d577bc7d4606be1d5c7f8e4ddea8efd24557562548", "de3d85de3e4c3fd517125e5a24444cc7f0b201a205bc2dcbd4bf7970aeeb79a9"],
   "steam, voice_scale 0.5": ["480c84f1306e3a7533ce7f8b91778cdcf9b2370413ff33d81f762e22bc842deb", "e791ed03f2d6579873093980b972829bc436cc3e5f933bb516c09560305dfcff"],
   "steam, voice_avggain 0.25": ["71e6f5e25f977c7c9d19d302157a7f33b1cee698cf59a79657e0a8fa941de778", "e791ed03f2d6579873093980b972829bc436cc3e5f933bb516c09560305dfcff"],
-  "steam, loss 15%, jitter 50 ms, net_split 40 ms": ["851350d329c304c4cbd65c05280cf9087119c824821b375e3cae53f10ee3df45", "6c210e8940cf35a19e8e3853dd6ca15e2f489562c1eb02f8d588c78030416f02"],
+  "steam, loss 15%, jitter 50 ms, net_split 40 ms": ["2d0b861cad2fd6743402aebb4197fff88e07e36fef3769553b8097b2479ef790", "129195973b421a77dd19ce9aaccbece5cbbea732cebbd1dd5a217e2ffda08c14"],
   "steam, source at 44100 Hz": ["b090235c8331fa45f3e86d86928f885e02056799831376193ccd52fe51fd87f8", "5f2093e176826105af9e65fe5f07e0899f11770c037a321b658eb31558c738f3"],
   "steam, source at 96000 Hz": ["78a9098e0ca72b312023d1653635b83725e0035ad63486958bbfd9032120febb", "cb0fcf7faafe0c63c246cd79f95de940d1105d9bdf159a7deb17a7979b77b3bd"],
   "steam, source at 22050 Hz": ["c63bb3460c60dd8c061846a624b9f754d59161240b5aeba14874beb03c2cd6c8", "4f8bf12cd60f03c1043e86433d9f8005c80c128613b0e326de76735d8cce8ac3"],
@@ -520,7 +532,7 @@ const GOLDEN = {
   "celt_22, gate on, loss 15%, jitter 300 ms": ["302c6f9610826f85d913b4351aa261f4e4f7055003d12b0f8fab38b92c933012", "0b575fca37ebf68ae116815c18a1f77f11fd1a4990f620892c1aad3b28ec8c4b"],
   "celt_44, gate on, loss 15%": ["4857d88188fec06e658f6cf80a24a52c53e2cf129ac1a49d2700d1a208f1e8f6", "4face18f89426f7e520f9e687eef9ae7d0aa994fd11d0a71d0bdf3e730bb7aab"],
   "speex, gate on, loss 15%, jitter 300 ms": ["732897e85b9c12b748c4436f405a8495221a1094b253232696a8f229b4a5706e", "479d2149a32db551af6623328cbf7ed1e9c5b4579e5cfa102a2278201fc8578c"],
-  "steam, jitter 500 ms (late frames play as silence)": ["7a84d9b55600c1dc3aff1808be550cb01aab3bfff5fbfbfdace2d4addbb12142", "7fd1c7b9f1b69860a84e8e8f85888e759ceb63ca6a839a1c25284c4ee730deda"],
+  "steam, jitter 500 ms on the file's own timing (does nothing)": ["2e4881230bb5994e29ac9bee72cdd52792b33038b34cc47f1e555c3f65aa4e3e", "a26aab671b17e677745b7286f0a4bce695496d113208675de169f8eeaadd165b"],
   "steam, snd_bits 4 (SILK frames)": ["405cfa452821f2afcc5f94e8921ab8cb6f2749c2834a325a6e459412f8bb00d8", "90752a2c322c8ff797779f0b336f8db827ed4f7dd531c4484b2b2265a5fecfbe"],
   "steam_48, loss 10%, jitter 100 ms, snd_bits 10": ["5e5ce262e57ec4f9a06a7858a5f875b9a621b99f3cec7912c4460db26c6125b9", "06decdb78d78b561d40c522b901ddc0d374ff401fcd45a02676705bec3ea3a02"],
   "steam, source at 24 kHz": ["046a1199d8304460e68965d4c47131775f80f99fc0739c03c0764fa457aef70b", "4f8276463d2593c03caf8a0c208a8eaf2922f5566c0a25d00bfab4c7c4e679a4"],
@@ -568,7 +580,7 @@ const GOLDEN = {
   "steam, under water, preset 6": ["3753eee04d1ad9efae6789e068ce65725001a1405877311925f6e0abaf6e9f06", "f59e46a6e481e8b12bccb7493fea8bdab119dc935efca9691786f088d84bdb94"],
   "steam, custom room at mix 0.3": ["d3daf78a6faec0c266ec9a5f177f1754ff80fe7fd220cb2b44d4bb997b08b854", "835d169325e2b5044db6955c9feda280a2d3a183536d50305c449ef5ba7328fa"],
   "celt_22, room: preset 6": ["6a6382078f2f52bf57befe64b921ef36caa8f30e07317b18773422e096d98ccb", "ba4e531902cc0467c08d674a260cbcb33e010d08dc767681527122be8ce2beda"],
-  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": ["81dcafd4f8e5e61270591815e81184f8b785b231c118281047429bc2feffc70e", "a7e430f6cfd74f23006754306add34f955feacc0807b2b34b8f358bcdf79f543"],
+  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": ["b706b771be7a501b7ab39dd90b75a0b398af7d081a895abc6dbbe6dc69078bfc", "11482fab52fcb04ba121fc5137a67a5c5753828e54d344366645696604fbb1cf"],
   "steam, dsp_room 137 (no room)": ["1f5a480181f46c6e017cafcf448dd90df60a0a8fb6b79ce5540bfed4616b430b", "b7fef488e643b4d23b7e36c78128a5828de0afab77dc50006a7e7b83f4f284e4"],
   "steam, room: preset 17 (random taps), seed 7": ["41d01e9476f8626b50ac760d656d4e24e25df0bea8a1a264baf29f96c5b041c3", "28d88b4c65c1fa937cfc97b26b5a503a632f0f3369c1c76330d7a430e7d288b5"],
   "steam, room: preset 6, device at 96000 Hz": ["702e6b2546da09babd070212436e7aa217b642c09dede1b2c4a148f6022d061e", "156a761064f93154163918925159791e55db47a3de1fb83c372bbd9838e98fa9"]
@@ -588,7 +600,7 @@ const GAIN_GOLDEN = {
   "steam, timeline game": "4c9e3a714e5a012aa94bf8e553007356391c4a533797bc9950b8921bd9ce0fe0",
   "steam, timeline game at 66.67 fps": "d41873a687070d12d2bc3e522a2038aee66af37e91a3271719b1add7271ccb04",
   "steam, timeline game, gate off": "2d766c34b2cc2bcb17beb5c610c0680f7e16d02018f6ba27409b4ae72aeb0be2",
-  "steam, timeline game, loss 15%, jitter 50 ms": "a4fff0acbfea547a4c2b82f8fe6db643aceb75234e116770c2f5b633345d3da7",
+  "steam, timeline game, loss 15%, jitter 50 ms": "98b4b27a5b38dabf32cc324b3e8823c4549c39c4252d7081fb5badfee9d93235",
   "steam, timeline game, auto-gain off, voice_scale 0.5": "90f9a0af8b8492d104b646413a8f2d47abbbe16bde7f81da68a4bb3396e4f6bc",
   "steam, timeline game, device at 44100 Hz": "4c9e3a714e5a012aa94bf8e553007356391c4a533797bc9950b8921bd9ce0fe0",
   "steam, timeline game, room: preset 6, seed 7": "9637b96443caf569695a3ef9dfb8f68e15128daceae5aef9414f7dffa7c9f719",
@@ -605,7 +617,7 @@ const GAIN_GOLDEN = {
   "steam, auto-gain off": "9fcdf4965de08e10cadc992b2be26443c8ad9ddb18bac80ffcd216f82ed7f84f",
   "steam, voice_scale 0.5": "abfba531a69ff49660c65c84bc136e3b271c1f928ae41525ec47f892713a0126",
   "steam, voice_avggain 0.25": "b4b0131756d5c83591e90f05d734422e72696ade6670cd892cea50360dc551f4",
-  "steam, loss 15%, jitter 50 ms, net_split 40 ms": "26faab1ba90f8dfc70d44768f2e51de53a75e9a2df0bf8c2a490d0de53f931df",
+  "steam, loss 15%, jitter 50 ms, net_split 40 ms": "343ab293d7c817f958378fcd6a598dc95a594eff2c1ab9cf5e6ba33b3fc9a639",
   "steam, source at 44100 Hz": "738eb36b8984f8e14bcebf527a4fd3bfbd69fcd2698b41207707f2d1486751f6",
   "steam, source at 96000 Hz": "9acc67088d22434fb4e6ff86e996ec4bf563fa51ca8bde04a395a64aae224f5e",
   "steam, source at 22050 Hz": "608f5f8f3c2ed2b063a9c2d06322f52c697c05e693583012994b33fcad6ab0be",
@@ -616,7 +628,7 @@ const GAIN_GOLDEN = {
   "celt_22, gate on, loss 15%, jitter 300 ms": "49d594aa6f0caa9490066ed6ae1742c15063326002cd8836fd9d88f07c300f11",
   "celt_44, gate on, loss 15%": "a887ab28283d73ee61018636afe804942bf998c59a6ff75e8ec01f8885a40c6b",
   "speex, gate on, loss 15%, jitter 300 ms": "e7bfb2524f39f29b794443969bab51d41b797aacc4254d735d3803c768fa6aa1",
-  "steam, jitter 500 ms (late frames play as silence)": "d26dcad0c05b38d3d0b47e9437ac92cb2a4bc47839f58090a59b0a6765978ad6",
+  "steam, jitter 500 ms on the file's own timing (does nothing)": "d7ca57fe6b6a2561b6f9e5a4619c16fbc3e2a9490745356ae8c0e186fa27019b",
   "steam, snd_bits 4 (SILK frames)": "51a31415805709755787b52a9c0e80943dce51e737baced5454627fd182a14b6",
   "steam_48, loss 10%, jitter 100 ms, snd_bits 10": "60a29df9af7e58794da2e2a0f463a879d3e534cb393ef1fb4adf70c235145940",
   "steam, source at 24 kHz": "99276e7b0692d89c89f37310e72729449c04a59898888bcb59ea8ac0ad6d942c",
@@ -664,7 +676,7 @@ const GAIN_GOLDEN = {
   "steam, under water, preset 6": "45119698b16277ff866736b78a958b064cb681bc8778765c801372c2b9e57a37",
   "steam, custom room at mix 0.3": "45119698b16277ff866736b78a958b064cb681bc8778765c801372c2b9e57a37",
   "celt_22, room: preset 6": "9e9ff38ca1d70685f73688c24adb0c80b14b16ef97b801f57d93657b4244a878",
-  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": "7e4a24e1a6b3285e9259909e4d30039a45b2766711c534b820532c5279393b23",
+  "steam, listenerPos tunnel (preset 6), loss 15%, jitter 50 ms": "8231f91a179c26f274fd8ca46428a3d9ddc84f1729eb57028aaa276a1805804f",
   "steam, dsp_room 137 (no room)": "45119698b16277ff866736b78a958b064cb681bc8778765c801372c2b9e57a37",
   "steam, room: preset 17 (random taps), seed 7": "ce4c69a3bb9f95a300e6f6b26dc1ce1674dc5045975e488215fb84d38908c0b1",
   "steam, room: preset 6, device at 96000 Hz": "45119698b16277ff866736b78a958b064cb681bc8778765c801372c2b9e57a37"
@@ -832,8 +844,18 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
     'speex, gate on, loss 15%, jitter 300 ms', 'steam_48, loss 10%, jitter 100 ms, snd_bits 10']) {
     check(`${name}: frames are lost`, info(name).lostFrames > 0, `${info(name).lostFrames} lost, ${info(name).underrunFrames} late`);
   }
-  for (const name of ['steam, jitter 500 ms (late frames play as silence)', 'celt_22, gate on, loss 15%, jitter 300 ms', 'speex, gate on, loss 15%, jitter 300 ms']) {
+  for (const name of ['celt_22, gate on, loss 15%, jitter 300 ms', 'speex, gate on, loss 15%, jitter 300 ms']) {
     check(`${name}: some frames arrive too late and play as silence`, info(name).underrunFrames > 0, `${info(name).underrunFrames} late`);
+  }
+  // BC-4: on `steam` jitter is when messages reach the game's voice queue, and on the file's
+  // own timing it does nothing: the case renders as the same source and settings at jitter 0,
+  // made here (BC-4a's fix round, point 4).
+  {
+    const name = 'steam, jitter 500 ms on the file\'s own timing (does nothing)', c = CASES.find((k) => k.name === name);
+    const zero = await A.process(buffer(sources.get(name), c.rate), { ...c.opts, jitterMs: 0 });
+    check(`${name}: no late frame, and the WAV and codecInfo of a render of the same source and settings at jitter 0`,
+      info(name).underrunFrames === 0 && sha256(await wavBytes(renders.get(name).blob)) === sha256(await wavBytes(zero.blob))
+      && infoHash(info(name)) === infoHash(zero.codecInfo), `${info(name).underrunFrames} late`);
   }
   for (const name of ['celt_22, gate on, loss 15%, jitter 300 ms', 'celt_44, gate on, loss 15%', 'speex, gate on, loss 15%, jitter 300 ms']) {
     check(`${name}: the gate opens and closes on the codec's own frames`, info(name).spurts > 1 && info(name).gatedFrames > 0);

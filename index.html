@@ -151,7 +151,7 @@
           <div class="control">
             <label for="jitter">Jitter ms <code class="cvar">net_fakejitter</code></label>
             <input id="jitter" type="number" value="0" min="0" max="100" step="10" aria-describedby="jitter-help">
-            <p id="jitter-help" class="control-help">Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that.</p>
+            <p id="jitter-help" class="control-help">How far packets' arrival times spread. On Steam voice it acts only through the game's voice queue: packets arrive later and in bunches; none is lost. On the file's own timing, and so for a video or a demo's voice, it does nothing.</p>
           </div>
         </fieldset>
 
