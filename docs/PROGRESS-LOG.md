@@ -553,3 +553,9 @@ parts a and d merged 2026-11-13; part e is next and is the orchestrator's alone 
 - W3-22, state removed: "built 2026-11-13 with the seven rulings applied (branch claude/w3-22-miles-words, CI green); a reviewer is at work"
 - W3-22, note removed: "words only: the sentence that the codec was never checked against a running engine is replaced in the page, the README, the record, the vendored codec's README, three comments and the suite that pins it; the sitting entered in the record; the profile's behaviour is left (the receiver's two resets before a second press are measured, not read). The cache number rises at its merge; it merges after or before W3-21, one at a time."
 - live.cache replaced: 40
+
+## 2026-11-13: W3-21's private runs made, its in-flight entry removed
+
+- W3-21, state removed: "merged 2026-11-13 (794eefb, pull request #42, cache v40). The orchestrator's private runs against the takes, before and after, are running; their figures go into the record when read"
+- W3-21, note removed: "The sender's capture steps take the phase its clock already draws: it reads lead zeros (0 to 749 samples) before the source. With the lead forced to 0 every recorded value comes back (measured by the builder, the reviewer and the second reader), so nothing but the phase moves; the sound's place moves by less than one sample (measured). Left open in the record's finding 28: the arrival figure's measurement moved by about -0.3 to -0.75 ms with the lead (measured, not explained; the second reader's cause was run and not borne out); the constant was fitted on 50 seeds and needs measuring again over many (an order of its own, not written yet); a phase drawn again at each key press is not built yet."
+- RP-01c, state replaced: "a builder is at work since 2026-11-13 (branch claude/rp-01c-ceiling-clock-demo)"
