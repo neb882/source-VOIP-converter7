@@ -169,10 +169,11 @@ orchestrator's private investigation of the owner's older engine files; the fact
     decodes at -16.9 dBFS for 0 in (clipped at the capture), -13.3 for -12, -25.5 for -24, -41.2 for -36, -56.5 for
     -42, -61.4 for -48 and -63.9 for -60; below about -50 dBFS RMS (its peak under 256) only its signs are left.
 - **Against a running engine** (measured 2026-11-13, one sitting of the owner's in Source SDK Base 2006; private,
-  numbers only; finding 31 has it whole). With a 13 s clip of ours as the microphone, the vendored build, reset once
-  before the press, gives 143,796 of the game's 145,800 decoded samples exactly and 144,952 within one step. A second
-  press, at `voice_maxgain 10`, comes out in 143,913 of 145,800 samples after the gain when the receiver's codec is
-  reset twice before it and the sender's once. The `miles` profile itself was not run against the sitting.
+  numbers only; finding 31 has it whole). With a 13 s clip of ours as the microphone, the public implementation,
+  reset once before the press, gives 143,796 of the game's 145,800 decoded samples exactly and 144,952 within one
+  step. A second press, at `voice_maxgain 10`, comes out in 143,913 of 145,800 samples after the gain when the
+  receiver's codec is reset twice before it and the sender's once. The `miles` profile itself was not run against
+  the sitting.
 - **What remains unknown:** the encoder's real start-up block (uninitialised memory in all three wrappers); why the
   first frames after a silence of 0.5 s or more differ in that sitting (the public implementation, or the opening block
   the module does not set); why the receiver's codec is reset twice before a second press (measured, not read); what a

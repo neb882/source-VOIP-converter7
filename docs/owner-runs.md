@@ -13,7 +13,7 @@ sender's hold depends on it (finding 28), and the `volume` and voice settings us
 | --- | --- | --- |
 | The re-check after a Steam update | to run after each Steam update | whether Steam's voice path is still the one the app runs |
 | The key, for W3-11c | not run; W3-11c waits for it | how Steam's push-to-talk key starts and ends a phrase |
-| `vaudio_miles` in an engine of 2006 or 2007 | optional; nobody has run it | whether the `miles` profile (not in TF2) is what such an engine does |
+| `vaudio_miles` in an engine of 2006 or 2007 | run once, on 2026-11-13, in Source SDK Base 2006, with a file as the microphone and with speech; not run: the 2007 engine, a second player, a lost packet | whether the `miles` profile (not in TF2) is what such an engine does |
 | A take of the test signal | run for Sets B, C, D and F; for any new setting | how the game's output compares with a render, by the real-take check and the accuracy suite |
 | Steam with a file as the microphone (W3-14) | run 2026-11-10 (Set J) | done: Steam's packets, 16-bit decode and resampler kernel; it is the base of the re-check |
 | The rooms (W3-17) | run 2026-11-10 (Set K), retaken the same night | done, but for the tail's decay and why Set B is dry |

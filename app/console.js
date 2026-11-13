@@ -350,7 +350,7 @@ const cvars = {
   'net_split':       { help: 'How much voice one network packet carries. A lost packet loses all of it. Frames per packet, as ms: 20 is one frame, 40 two. On Steam\'s codec a packet is the sender\'s message, and this does not set what a lost packet holds. The app\'s name', link: 'frameMs' },
   'snd_codec':       { help: 'For comparison only: the sound goes to the receiver without being coded (0). 1 runs the codec. The app\'s name', link: 'warble_on' },
   'sv_voicecodec':   {
-    help: 'What the game sends voice with: steam (Steam voice, today\'s), celt_22 (vaudio_celt), celt_44 (vaudio_celt_high), speex (vaudio_speex), steam_48 (Fullband Opus: not in the game); miles (vaudio_miles of the Source engines of 2006 and 2007: not a TF2 codec, unverified)',
+    help: 'What the game sends voice with: steam (Steam voice, today\'s), celt_22 (vaudio_celt), celt_44 (vaudio_celt_high), speex (vaudio_speex), steam_48 (Fullband Opus: not in the game); miles (vaudio_miles of the Source engines of 2006 and 2007: not a TF2 codec, its codec checked against one recording of a 2006 engine, the rest of the profile not)',
     link: 'codec',
     normalize: (v) => CODEC_PROFILES[v] ? v : null
   },

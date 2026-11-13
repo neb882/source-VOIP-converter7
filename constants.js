@@ -243,8 +243,9 @@ const PRESET_ALIASES = { sewers: 'underwater' };
  * settings are read from the game's own module (W3-03) and their codec is
  * the game's build (W3-08); Speex's codec and settings are read from the
  * game's module (W3-09) and reproduce a 32-bit game's recording (W3-18).
- * `miles` is not a TF2 codec (the Source engines of 2006 and 2007) and is
- * unverified (W3-20b).
+ * `miles` is not a TF2 codec (the Source engines of 2006 and 2007): its codec
+ * checked against one recording of a 2006 engine, the rest of the profile not
+ * (W3-20b, W3-22).
  *
  *   engine      : 'celt011' for CELT 0.11 (frameSize samples per packetBytes
  *                 packet, scaled by snd_bits / 16); 'speex' for the game's

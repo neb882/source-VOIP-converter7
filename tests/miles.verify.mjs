@@ -755,13 +755,15 @@ console.log('\n[miles] 13. The words');
     'docs/owner-runs.md': flat(read('docs/owner-runs.md')),
     'opus-codec.mjs (the comment above VR12_RATE)': commentAbove('opus-codec.mjs', /^export const VR12_RATE\b/),
   };
-  // The record and LEGACY_CODECS keep this older sentence inside their
-  // corrections; no other place may hold it.
+  // The record and LEGACY_CODECS keep this older sentence only where a
+  // correction marks it: it is looked for in the text left after each marked
+  // correction is taken out (in the record the sentence it corrects, kept
+  // readable in front of it, goes with it).
   const OLD_TOO = /nothing of a running engine with this codec has been recorded/i;
+  const unmarked = (t) => t.replace(/(Nothing of a running engine with this codec has been recorded\. )?\*Corrected by W3-22 \(2026-11-13\):[^*]*\*/g, ' ');
   const wrong = Object.entries(places).filter(([f, t]) => {
     const rest = f === 'tests/REFERENCE_2026.md' ? t.split(kept).join(' ') : t;
-    const marked = f === 'tests/REFERENCE_2026.md' || f === 'tests/LEGACY_CODECS.md';
-    return t.length < 200 || !t.includes(SENTENCE) || OLD.test(rest) || (!marked && OLD_TOO.test(t));
+    return t.length < 200 || !t.includes(SENTENCE) || OLD.test(rest) || OLD_TOO.test(unmarked(t));
   }).map(([f]) => f);
   check(`the sentence on the 2006 sitting stands word for word, and the old sentence does not, in ${Object.keys(places).join(', ')}`,
     wrong.length === 0, wrong.length ? `wrong in ${wrong.join(', ')}` : '');
@@ -772,7 +774,7 @@ console.log('\n[miles] 13. The words');
     `${record.split(kept).length - 1} corrections`);
   const owner = places['docs/owner-runs.md'];
   check('docs/owner-runs.md says what the 2006 sitting ran, points to FINDINGS entry 11, and no longer says nobody has run it',
-    !/Nobody has run this/.test(owner) && /It was run once, on 2026-11-13: one sitting of Source SDK Base 2006/.test(owner)
+    !/nobody has run/i.test(owner) && /It was run once, on 2026-11-13: one sitting of Source SDK Base 2006/.test(owner)
       && owner.includes('(FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2)') && /One press a file/.test(owner));
   const page = flat(read('docs/PAGE.md'));
   check('docs/PAGE.md describes the note as it now stands',
@@ -782,6 +784,19 @@ console.log('\n[miles] 13. The words');
   check('the render\'s console line for vaudio_miles says its codec was checked against one recording of a 2006 engine and the rest of the profile was not',
     render.includes('\'S_Voice: vaudio_miles is not a TF2 codec (Source engines of 2006 and 2007); its codec was checked against one recording of a 2006 engine; the rest of the profile was not\'')
       && !/not checked against any recording/.test(render));
+  // W3-22, after the review: the help of sv_voicecodec and the comment at the
+  // head of the profiles say the same as the note, and not "unverified".
+  const consoleSrc = read('app/console.js');
+  const voicecodecHelp = /help: '(What the game sends voice with:[^\n]*?)',?\n/.exec(consoleSrc)?.[1] || '';
+  const profilesHead = (() => { const src = read(profiles), at = src.indexOf(' * Codec profiles.');
+    const text = at < 0 ? '' : flat(src.slice(at, src.indexOf('*/', at)).replace(/^\s*\*\s?/gm, ' '));
+    // Its sentence on miles (the list of status values below it keeps 'unverified').
+    return /`miles` is not a TF2 codec[^.]*\./.exec(text)?.[0] || ''; })();
+  const BOTH = 'its codec checked against one recording of a 2006 engine, the rest of the profile not';
+  check('the console\'s help for sv_voicecodec and the comment at the head of the profiles say its codec was checked against one recording of a 2006 engine, the rest of the profile not, and neither says unverified',
+    voicecodecHelp.length > 100 && voicecodecHelp.includes(BOTH) && !/unverified/i.test(voicecodecHelp)
+      && profilesHead.length > 100 && profilesHead.includes(BOTH) && !/unverified/i.test(profilesHead),
+    `${voicecodecHelp.slice(-120)} | ${profilesHead}`);
   const readme = read('README.md'), accuracy = /\n## Accuracy\n([\s\S]*?)(\n## |$)/.exec(readme)?.[1] || '';
   check('README\'s "Accuracy" section names neither the profile nor the codec', accuracy.length > 100 && !/miles|vr12|voxware/i.test(accuracy),
     `${accuracy.length} characters`);

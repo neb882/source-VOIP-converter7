@@ -101,7 +101,7 @@ The codec menu has six profiles in two groups. Four are in Team Fortress 2, and 
 | vaudio_celt_high (44 kHz mode) | `celt_44` | yes | CELT 0.11 in its 44100 Hz mode on 22050 Hz sound | 46.4 ms, 128 bytes, band to about 10 kHz | measured: the decoder's output, all but 75 of 292,864 samples (finding 31) |
 | vaudio_speex (Speex, 11 kHz) | `speex` | yes, in the 32-bit game only | Speex 1.0.2 on 11025 Hz sound | 14.51 ms, 20 bytes, band to 5.5 kHz | measured: the decoder's output after the gain, 145,966 of 145,966 samples in TF2's 32-bit game (Set O, finding 31) |
 | Fullband Opus: not in the game | `steam_48` | no, never | libopus 1.1.5 | 48000 Hz, 20 ms, 64 kbit/s | none: the app's own extra |
-| vaudio_miles: not in TF2 (VR12) | `miles` | no, never | Voxware VR12 on 11025 Hz sound | 32.65 ms, 12 bytes, 2940 bit/s | not checked against the game |
+| vaudio_miles: not in TF2 (VR12) | `miles` | no, never | Voxware VR12 on 11025 Hz sound | 32.65 ms, 12 bytes, 2940 bit/s | the codec stage against one sitting of Source SDK Base 2006 (not TF2) with a file as the microphone: 143,796 of 145,800 decoded samples equal (measured 2026-11-13); the profile as the page runs it not checked |
 
 The figures of the game's codecs are in [FINDINGS.md, entry 10](FINDINGS.md#10-the-older-engine-codecs).
 
