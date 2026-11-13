@@ -1214,6 +1214,8 @@ of the arrival tick, it is then read after the second place and BC-4 moves it.
 
 #### 9. W3-02c-3: the live chain
 
+> **Superseded 2026-11-13 by [W3-02c3-live-channel.md](W3-02c3-live-channel.md).** This section is kept as it was written and is no longer the order to build from.
+
 Not built until decision 1 is ruled. In `steamLiveChain` the packets go through `steamTimeline.add` with what was
 given out (`audio.js:2171`) and come back by `take` (2193); the room mix is `createLiveRoomMix` (610), in
 512-sample blocks from the chain's first mix sample; `spurtStarts()` is called at a spurt's opening message
@@ -1353,6 +1355,8 @@ BC-3's build is folded into c-2 and BC-4 stays an order of its own after it, as 
 - **W3-02g** lifts point 3's `received` case; the decoder's 17-frame cut is still its.
 
 ## W3-02d: the page: controls, the default, the words
+
+> **Superseded 2026-11-13 by [W3-02d-page-timeline.md](W3-02d-page-timeline.md).** This section is kept as it was written and is no longer the order to build from.
 
 **Branch:** `claude/w3-02d-timeline-page`, from `main` **after W3-02c**. **Time budget:** 1 day. Decided
 (PROGRESS, 2026-11-10): on the page the modern preset renders the game's timeline; a video keeps the source's;
