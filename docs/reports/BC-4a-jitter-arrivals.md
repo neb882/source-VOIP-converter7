@@ -298,7 +298,7 @@ passed, 396.0 s. The `git diff --stat` of `voice-channel.js`, `steam-sender.js`,
 `tests/accuracy.mjs` and `tests/predictions/predictions.json` prints nothing; `grep -n "does not offer it"
 engine/render.js` prints nothing. `node tests/cache-number.mjs origin/main --report`: "cache number against
 origin/main (179ea83): the number is v43, not above v43: it must rise (node tests/cache-number.mjs origin/main
---set)". CI on the fix round's head: CI_FIX.
+--set)". CI on the fix round's code (run 43472228902 on `157d8ef`): `verify` success, and the five jobs each success. This line's commit changes only `docs/` and starts no run.
 
 ## What was not done, or is uncertain
 
