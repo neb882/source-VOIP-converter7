@@ -65,7 +65,7 @@ The codec menu has two groups, "Team Fortress 2" and "Not in Team Fortress 2". A
 
 ## What we found
 
-Each line is one entry of [docs/FINDINGS.md](docs/FINDINGS.md), which gives the rule, its standing, the date of the reading and, where it can be done, how to check it on your own PC. [docs/REPRODUCE.md](docs/REPRODUCE.md) gives the steps and one script for the checks that are built: the older engine codecs and the receiver's gain.
+Each line is one entry of [docs/FINDINGS.md](docs/FINDINGS.md), which gives the rule, its standing, the date of the reading and, where it can be done, how to check it on your own PC. [docs/REPRODUCE.md](docs/REPRODUCE.md) gives the steps and one script for the checks that are built: the older engine codecs, the receiver's gain, the mixer's ceiling and the game's clock in a recording of the output, and Steam's packets in a SourceTV demo.
 
 1. [Steam's sender](docs/FINDINGS.md#1-steams-sender) sends a chunk of the microphone only when its mean level is at least 1.0% of full scale or one sample reaches 15% (read; measured).
 2. [The hold](docs/FINDINGS.md#2-the-hold-and-steams-clock) after speech is 0.4 s on a clock that gets coarser the longer Steam has run: 398 to 402 ms on a Steam started today, 500 to 750 ms from 24.3 to 48.5 days (read and computed; measured on a Steam of 4.8 minutes and on one of 23.9 days).

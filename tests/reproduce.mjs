@@ -24,6 +24,9 @@ import inputs from './reproduce/inputs.mjs';
 import gain from './reproduce/gain.mjs';
 import celt from './reproduce/celt.mjs';
 import speex from './reproduce/speex.mjs';
+import ceiling from './reproduce/ceiling.mjs';
+import clock from './reproduce/clock.mjs';
+import demo from './reproduce/demo.mjs';
 
 // Every check, in the page's order. `part` names the part of order RP-01 that
 // builds a check not built yet.
@@ -35,9 +38,9 @@ export const CHECKS = [
   { name: 'hold', part: 'RP-01b', summary: 'Steam\'s hold after speech and its clock' },
   { name: 'gate', part: 'RP-01b', summary: 'Steam\'s sender gate, chunk by chunk' },
   { name: 'queue', part: 'RP-01b', summary: 'the receiver\'s queue, from the game\'s console log' },
-  { name: 'ceiling', part: 'RP-01c', summary: 'the mixer\'s ceiling and volume, in a recording of the output' },
-  { name: 'clock', part: 'RP-01c', summary: 'the one sample a packet, in a recording of the output' },
-  { name: 'demo', part: 'RP-01c', summary: 'Steam\'s packets in a SourceTV demo' }
+  ceiling,
+  clock,
+  demo
 ];
 
 function list() {
