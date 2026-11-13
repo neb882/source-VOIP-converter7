@@ -61,8 +61,8 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | W3-02c-3 | the live monitor can run the game's voice queue | planned 2026-11-13 ([the order](work-orders/W3-02c3-live-channel.md), [the plan's report](reports/W3-02cd-plan.md)); not started | | | after BC-4 (ruled 2026-11-13) |
 | W3-02d-1 | the page renders on the game's timeline: three controls, the default, the words | built and merged 2026-11-13, cache v42 (the page's render runs the game's voice queue on Steam voice by default, at 300 frames a second; "The file's own timing" is one setting away) | [W3-02d-page-timeline.md](work-orders/W3-02d-page-timeline.md) | `docs/reports/W3-02d1-page-timeline.md` | W3-02d-2, W3-02e and W3-02f build on it |
 | W3-02d-2 | a longer source re-renders by itself after a change that needs no new encode | built and merged 2026-11-13, cache v43 (only where the page's worker still holds the render on screen's stages and that render took at most 30 s on this device; otherwise marked, as before) | [W3-02d2-auto-rerender.md](work-orders/W3-02d2-auto-rerender.md) | `docs/reports/W3-02d2-auto-rerender.md` | after W3-02d-1 |
-| W3-02e | the codec lane's marks, the real-take check | not started | | | after W3-02d-1 |
-| W3-02f | the flat rule retired | not started | | | after W3-02d-1 |
+| W3-02e | the codec lane's marks, the real-take check | planned again 2026-11-13 and plan-reviewed; being built | [W3-02ef-lane-and-flat-rule.md](work-orders/W3-02ef-lane-and-flat-rule.md) | [W3-02ef-plan.md](reports/W3-02ef-plan.md) | after W3-02d-1 |
+| W3-02f | the flat rule retired | built and merged 2026-11-13, cache v46 (no render's samples change) | [W3-02ef-lane-and-flat-rule.md](work-orders/W3-02ef-lane-and-flat-rule.md) | `docs/reports/W3-02f-retire-flat-rule.md` | after W3-02d-1 |
 | W3-02g | a demo's own packets | not started; needs a planner's pass | | | after W3-02c-2 and W3-02f |
 | W3-03 | the engine's binary read (investigation) | done | `4630e06` | W3-03-engine-binary.md | |
 | W3-04 | a file decoded at its own rate | built and merged | `f32ba0e`, v19, #7 | W3-04-native-rate-decode.md | |

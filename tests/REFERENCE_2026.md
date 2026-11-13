@@ -1075,6 +1075,8 @@ The render keeps the source's timeline by default, so the dry/wet A/B and the re
 
 *Corrected by W3-02d-1 (2026-11-13): the page's render on Steam voice now runs the game's voice queue by default (Phrase timing, `voice_timeline game`, at `fps_max` 300 and `voice_buffer_ms` 100); the file's own timing is one setting away (`voice_timeline source`), and a demo's voice, a video and the live monitor keep it. The page no longer offers the flat rule; `voice_retime` is an old name for `voice_timeline`.*
 
+*Corrected by W3-02f (2026-11-13): the flat rule is no longer in the engine; `tests/retiming.mjs` keeps a copy for scoring.*
+
 This flat rule is what the app runs today when the option is on. It cannot chain early starts, and the speech take has two chains (W3-01). The engine's queue (findings 22 to 25) is to take its place. It is built as a module, `voice-channel.js` (W3-02a), which no render uses yet. W3-02b added Steam's sender and the queue's timeline as modules. Since W3-11a the `steam` render makes its packets with that sender, but it still lays them on the source's timeline. Orders W3-02c and W3-02d put the queue into the render and the page, and W3-02f retires the flat rule. *Corrected by the plan review of W3-02c (2026-11-11): W3-02c is three orders, W3-02c-1 (the module as read; built and merged 2026-11-12, `a2b7dc9`, no render runs it yet), W3-02c-2 (the render) and W3-02c-3 (the live chain). The wording here waits for W3-02c-1's merge.* *Corrected by W3-02f (2026-11-13): the flat rule is no longer in the engine; `tests/retiming.mjs` keeps a copy for scoring.*
 
 ### 20. The Steam render's low frequencies lead the source by Opus's own phase
