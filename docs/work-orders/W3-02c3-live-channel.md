@@ -1,6 +1,6 @@
 # W3-02c-3: the live monitor can run the game's voice queue
 
-**Status 2026-11-13: planned, not built, and not scheduled.** The planner's recommendation is that this order
+**Status 2026-11-13: planned, not built; ruled by the orchestrator to be built after BC-4** (it stays on the list of builds; the reason is the planner's: BC-4 changes when packets arrive, so the monitor's hold-back would be derived twice). The planner's recommendation is that this order
 is not part of the finish line and is built only on the owner's word, after [W3-02d](W3-02d-page-timeline.md)
 and after BC-4 if BC-4 is built (the case each way is under "When to build it"). Written by a planner from the
 repository as it stands at `9d5113a` (cache v41). It takes the place of section 9 of W3-02c's amendment in

@@ -20,23 +20,23 @@
       "note": "The checks ceiling, clock and demo of tests/reproduce.mjs with their stand-ins and breaks, their sections of docs/REPRODUCE.md, the part 'With a server' and the steps-only entries. Each section says 'not yet run on a recording of the game' until the orchestrator's private run."
     },
     {
-      "order": "W3-02c-3 and W3-02d, a planner's pass",
-      "state": "a planner is at work since 2026-11-13 (branch claude/w3-02cd-plan)",
-      "note": "Two order files a builder can build from today's code: the live chain running the receiver's channel, and the page's control for the game's timeline with its default and words. Asked first: what a render on the game's timeline does to several minutes of unbroken sound at 66.67 and 300 frames a second, since the owner's clips are mostly music and that decides the default."
+      "order": "W3-02d",
+      "state": "planned 2026-11-13 (docs/work-orders/W3-02d-page-timeline.md, with the orchestrator's rulings at its end); a plan reviewer is reading it before a builder starts",
+      "note": "The page asks for the game's timeline by default (300 frames a second, voice_buffer_ms 100) through three controls: Listener's frame rate, Voice buffer, and Phrase timing in the place of Talk-spurt timing. The engine is not touched. A longer source re-renders by itself after a change that needs no new encode, when the render on screen took at most 30 s on this device. From the planning run (measured on the model; the rules are read; no take): unbroken sound for ten minutes at 300 frames a second shows no fade and no gap in 26 seeds (the first fade at 11.6 to 12.0 minutes); at 66.67 the level starts to dip after 0.4 to 3.2 minutes and from minute 7 two thirds of the sound is more than 3 dB down; a render on the game's timeline ends about 0.26 s ahead of a ten-minute source and drops 74 to 136 ms as the channel opens at 300."
     }
   ],
   "next": [
     {
       "order": "W3-02c-3",
-      "file": "docs/work-orders/W3-02-receiver-queue.md (the amendment, section 9)",
-      "after": "W3-02c-2 (merged 2026-11-12)",
-      "line": "the live chain runs the channel; the owner's question on its default is open (waiting_on_the_owner)."
+      "file": "docs/work-orders/W3-02c3-live-channel.md",
+      "after": "BC-4 (ruled 2026-11-13)",
+      "line": "the live monitor can run the game's voice queue behind a checkbox that is off on every load; planned 2026-11-13; built after BC-4, which changes when packets arrive."
     },
     {
       "order": "W3-02d",
-      "file": "docs/work-orders/W3-02-receiver-queue.md",
+      "file": "docs/work-orders/W3-02d-page-timeline.md",
       "after": "W3-02c-2 (merged 2026-11-12)",
-      "line": "the page's control, the default and the words; its note of 2026-11-12 lists what W4-01a and W4-01d added. Added 2026-11-12, agreed with the owner (whose clips are mostly music over a minute, so the 60 s limit of the automatic re-render marks most of them): a changed setting re-renders a longer source by itself when the change needs no new encode (the names of AFTER_B_OPTIONS: the render then starts from the kept stage B); a change that needs a new encode still waits for the button. Before the limit moves, time a re-render from the kept stage on a phone, and set the length limit from that figure. 2026-11-13: the question of the queue after a restart is answered (the channel's clock is not the cause; the sender's capture phase is, and it has an order of its own in this list), so it no longer holds the default; the private runs show the timeline right at 240 ms pauses and too quick to restart at 420 to 440 ms."
+      "line": "in flight since 2026-11-13 (in_flight)."
     },
     {
       "order": "BC-4",

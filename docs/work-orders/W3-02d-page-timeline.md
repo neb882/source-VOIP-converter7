@@ -318,3 +318,31 @@ key under `'source'` when the two numbers change. Old share links and old user p
 source after cancel, after a failed render, after a new file. Every figure in the page's new words against the
 table of "Why" and its standing. The words "not built yet" wherever W3-02c-3, W3-02e, W3-02g, BC-3 or BC-4 is
 named.
+
+## Rulings of 2026-11-13 (the orchestrator), before the build
+
+The planner's open decisions, ruled. Each stands as the order is written unless it says otherwise here.
+
+1. **The default** is the game's timeline at 300 frames a second with `voice_buffer_ms` 100, as the decision in
+   force has it. The planning run on unbroken sound keeps it: at 300 the queue does not thin a clip inside the
+   page's ten-minute limit (measured on the model).
+2. **"Talk-spurt timing"** gives way to "Phrase timing"; the page no longer sends `retime`; `voice_retime` stays
+   as an old name.
+3. **A remembered `retime` of 0** is dropped, so a returning visitor gets the new default.
+4. **The frame rate** is kept across presets, as the device's rate is. It is a property of the listener's PC.
+5. **`voice_buffer_ms`** is a control in the Receiver box, set to 100 by presets.
+6. **The presets with loss** render on the game's timeline too. One timeline for every `steam` render is easier
+   to understand than a timeline that changes with the loss setting, and the documents carry the figure that is
+   known to be off (16.4% silent against the take's 10.1% at 15% loss, measured; BC-3's check not done).
+7. **A source from a video file** keeps the file's own timing.
+8. **The automatic re-render of a longer source goes by the device's own time** (part 5, rule 2), not by a
+   length. This departs from the letter of the ruling of 2026-11-12 ("set the length limit from a phone's
+   timing") and keeps its purpose: no render the user did not ask for runs long on a slow device. No phone is at
+   hand, and the device's own time needs none. `AUTO_RENDER_KEPT_MS` is 30,000 unless the builder's timing table
+   shows a from-the-kept-stage render of a ten-minute source taking far less than the whole render, in which
+   case the builder says so and the orchestrator may lower it.
+9. **W3-02c-3** is built after BC-4, not before (BC-4 changes when packets arrive, so the monitor's hold-back
+   would be derived twice). It stays on the list of builds; it is not dropped.
+10. **The monitor's switch** (W3-02c-3's) is a checkbox, off on every load.
+
+A plan reviewer reads this order as its builder would before the build starts.

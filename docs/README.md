@@ -58,8 +58,8 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | W3-02c | the plan review: one order became three | done (the amendment and the rulings are in the order) | `abf872f`, `b63cc73` | none (the amendment is in the order) | |
 | W3-02c-1 | the module as read (the first pull, D on blocks, the zero, the interpolator) | built and merged (no render runs it yet) | `a2b7dc9`, #30 (no cache change) | W3-02c1-channel-as-read.md | W3-02c-2 builds on it |
 | W3-02c-2 | the render behind `opts.timeline`; BC-3's build | built and merged `73993cf`, cache v39, #38 (a render runs the channel when asked with `timeline: 'game'`; the page does not offer it) | [W3-02c2-render-channel.md](work-orders/W3-02c2-render-channel.md) | `docs/reports/W3-02c2-render-channel.md` | W3-02c-3 and W3-02d build on it; the orchestrator's private runs against the takes are in the report (2026-11-13) |
-| W3-02c-3 | the live chain runs the channel | not started | | | after W3-02c-2; an owner's question is open |
-| W3-02d | the page: controls, the default, the words | not started | | | after W3-02c-2 |
+| W3-02c-3 | the live monitor can run the game's voice queue | planned 2026-11-13 ([the order](work-orders/W3-02c3-live-channel.md), [the plan's report](reports/W3-02cd-plan.md)); not started | | | after BC-4 (ruled 2026-11-13) |
+| W3-02d | the page renders on the game's timeline: three controls, the default, the words, the re-render of longer sources | planned 2026-11-13 ([the order](work-orders/W3-02d-page-timeline.md)); a plan reviewer is reading it | | | after W3-02c-2 |
 | W3-02e | the codec lane's marks, the real-take check | not started | | | after W3-02d |
 | W3-02f | the flat rule retired | not started | | | after W3-02d |
 | W3-02g | a demo's own packets | not started; needs a planner's pass | | | after W3-02c-2 and W3-02f |
