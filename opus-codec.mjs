@@ -614,8 +614,9 @@ export async function createSpeexStream(sampleRate) {
 // that cut). Those engines capture, code, decode and play voice at 11025 Hz
 // for every codec and resample nothing, so VR12, an 8000 Hz codec, codes
 // 11025 Hz sound as if it were 8000 Hz: a frame lasts 32.65 ms and the wire
-// carries 2940 bit/s (read from those engines' files). Unverified: nothing of
-// a running engine with this codec has been recorded.
+// carries 2940 bit/s (read from those engines' files). Its codec stage was
+// checked against one sitting of a 2006 engine on 2026-11-13; the profile as
+// the app runs it was not.
 export const VR12_RATE = 11025;
 // The encode and decode pair's delay, dropped as the other engine codecs'
 // is. VR12 is a vocoder, so the delay shows only in the envelope; measured

@@ -82,11 +82,13 @@ last 0.67 s of one press. The app's push-to-talk is a stand-in until then (not b
 
 ## `vaudio_miles` in an engine of 2006 or 2007
 
-**What it would settle.** `vaudio_miles` is not a TF2 codec, and the `miles` profile has not been checked against
-any recording of a running engine. A recording from an engine that accepts the codec would show the rate it runs
+**What it would settle.** `vaudio_miles` is not a TF2 codec. Its codec stage was checked against one sitting of a 2006 engine on 2026-11-13; the profile as the app runs it was not. A recording from an engine that accepts the codec would show the rate it runs
 at (the decoded length for the file's length), how many frames a packet holds, the decoded samples against the
 profile's past the first frames, the gain's blocks, whether a short pause leaves the receiver's decoder as it was,
-and, with a second player and `net_fakeloss`, what a lost packet sounds like. Nobody has run this. The variables
+and, with a second player and `net_fakeloss`, what a lost packet sounds like. It was run once, on 2026-11-13: one
+sitting of Source SDK Base 2006 with a file as the microphone at `voice_maxgain` 1 and 10, and a shorter one of
+speech; what it settled is in [FINDINGS.md, entry 11](FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2).
+It did not run the 2007 engine, a second player or a lost packet. The variables
 below are registered in both engines with default 0 (read); what they do there was not run, and the file names are
 TF2's of today, not read for these builds. The original is in
 [work-orders/W3-20b-miles-profile.md](work-orders/W3-20b-miles-profile.md), "One day".
@@ -101,6 +103,8 @@ TF2's of today, not read for these builds. The original is in
    release; press again after a second, and once more after a pause of a tenth of a second.
 4. Keep `voice_decompressed.wav` and `voice_micdata.wav` if they appear, and the console log. Repeat at
    `voice_maxgain 10`. `voice_writevoices 1` may keep each channel's voice without a length limit.
+5. One press a file: the game writes its two files again at every release of the key, so copy them away before the
+   next press (`tests/REFERENCE_2026.md`, "The file-input runs, measured again").
 
 ## A take of the test signal
 

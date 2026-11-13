@@ -739,8 +739,9 @@ console.log('\n[miles] 13. The words');
   // The profiles' file is the first of the helper's list (the harness keeps
   // its name out of the suites).
   const profiles = ENGINE_FILES[0];
-  const milesComment = (() => { const lines = read(profiles).split('\n'), at = lines.findIndex(l => /^\s*miles: \{/.test(l));
-    let from = at; while (from > 0 && /^\s*\/\//.test(lines[from - 1])) from--; return comment(lines.slice(from, at).join('\n')); })();
+  // The comment block right above the first line that matches.
+  const commentAbove = (f, re) => { const lines = read(f).split('\n'), at = lines.findIndex(l => re.test(l));
+    let from = at; while (from > 0 && /^\s*\/\//.test(lines[from - 1])) from--; return at < 0 ? '' : comment(lines.slice(from, at).join('\n')); };
   const kept = 'It has not been checked against any recording of a running engine. *Corrected by W3-22 (2026-11-13): ' + SENTENCE + '*';
   const places = {
     'README.md': flat(read('README.md')),
@@ -748,12 +749,19 @@ console.log('\n[miles] 13. The words');
     'tests/REFERENCE_2026.md': flat(read('tests/REFERENCE_2026.md')),
     'vendor/voxware-vr12/README.md': flat(read('vendor/voxware-vr12/README.md')),
     'vendor/voxware-vr12/index.mjs (its head)': headComment('vendor/voxware-vr12/index.mjs'),
-    [`${profiles} (the miles profile's comment)`]: milesComment,
+    [`${profiles} (the miles profile's comment)`]: commentAbove(profiles, /^\s*miles: \{/),
     'tests/miles.verify.mjs (its head)': headComment('tests/miles.verify.mjs'),
+    'docs/VOICE-PATH.md': flat(read('docs/VOICE-PATH.md')),
+    'docs/owner-runs.md': flat(read('docs/owner-runs.md')),
+    'opus-codec.mjs (the comment above VR12_RATE)': commentAbove('opus-codec.mjs', /^export const VR12_RATE\b/),
   };
+  // The record and LEGACY_CODECS keep this older sentence inside their
+  // corrections; no other place may hold it.
+  const OLD_TOO = /nothing of a running engine with this codec has been recorded/i;
   const wrong = Object.entries(places).filter(([f, t]) => {
     const rest = f === 'tests/REFERENCE_2026.md' ? t.split(kept).join(' ') : t;
-    return t.length < 200 || !t.includes(SENTENCE) || OLD.test(rest);
+    const marked = f === 'tests/REFERENCE_2026.md' || f === 'tests/LEGACY_CODECS.md';
+    return t.length < 200 || !t.includes(SENTENCE) || OLD.test(rest) || (!marked && OLD_TOO.test(t));
   }).map(([f]) => f);
   check(`the sentence on the 2006 sitting stands word for word, and the old sentence does not, in ${Object.keys(places).join(', ')}`,
     wrong.length === 0, wrong.length ? `wrong in ${wrong.join(', ')}` : '');
@@ -762,6 +770,18 @@ console.log('\n[miles] 13. The words');
     record.split(kept).length >= 3 && /Added 2026-11-13 \(W3-22\): `vaudio_miles` \(not in TF2\) against a running engine/.test(record)
       && record.includes('143,796 of the game\'s 145,800 decoded samples exactly and 144,952 within one step'),
     `${record.split(kept).length - 1} corrections`);
+  const owner = places['docs/owner-runs.md'];
+  check('docs/owner-runs.md says what the 2006 sitting ran, points to FINDINGS entry 11, and no longer says nobody has run it',
+    !/Nobody has run this/.test(owner) && /It was run once, on 2026-11-13: one sitting of Source SDK Base 2006/.test(owner)
+      && owner.includes('(FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2)') && /One press a file/.test(owner));
+  const page = flat(read('docs/PAGE.md'));
+  check('docs/PAGE.md describes the note as it now stands',
+    page.includes('a note under the menu says it is not a TF2 codec, that its codec was checked against one recording of a 2006 engine, and that the rest of the profile was not.')
+      && !/not checked against any recording/.test(page));
+  const render = read('app/render.js');
+  check('the render\'s console line for vaudio_miles says its codec was checked against one recording of a 2006 engine and the rest of the profile was not',
+    render.includes('\'S_Voice: vaudio_miles is not a TF2 codec (Source engines of 2006 and 2007); its codec was checked against one recording of a 2006 engine; the rest of the profile was not\'')
+      && !/not checked against any recording/.test(render));
   const readme = read('README.md'), accuracy = /\n## Accuracy\n([\s\S]*?)(\n## |$)/.exec(readme)?.[1] || '';
   check('README\'s "Accuracy" section names neither the profile nor the codec', accuracy.length > 100 && !/miles|vr12|voxware/i.test(accuracy),
     `${accuracy.length} characters`);

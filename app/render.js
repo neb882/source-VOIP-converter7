@@ -444,7 +444,7 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
     : 'S_Voice: codec bypassed', 'sys');
   // vaudio_miles (W3-20b) is not the game's: the render says so.
   if (realOpus && codecInfo.backend === 'vr12') {
-    logLine('S_Voice: vaudio_miles is not a TF2 codec (Source engines of 2006 and 2007); not checked against any recording', 'sys');
+    logLine('S_Voice: vaudio_miles is not a TF2 codec (Source engines of 2006 and 2007); its codec was checked against one recording of a 2006 engine; the rest of the profile was not', 'sys');
   }
   if (realOpus && codecInfo.gate != null) {
     const held = codecInfo.frames ? Math.round(100 * codecInfo.gatedFrames / codecInfo.frames) : 0;

@@ -97,10 +97,16 @@ workers and fails on a suite that names `audio.js`, `constants.js` or a file of 
 added to the engine is added to that list and nowhere else in the tests.
 `tests/lib/signals.cjs` holds the six signals and measures that `verify.js` and `steam.verify.js` share.
 
-**Suites that read documents.** `miles.verify.mjs` checks that `README.md`, `tests/LEGACY_CODECS.md`,
-`tests/REFERENCE_2026.md` and `vendor/voxware-vr12/README.md` each contain the sentence "It has not been checked
-against any recording of a running engine.", and that the README has a section headed `## Accuracy` that names
-neither `miles`, `vr12` nor `voxware`. An edit to those documents is checked with `node tests/miles.verify.mjs`.
+**Suites that read documents.** `miles.verify.mjs` checks that the page's note under the codec menu holds its four
+sentences word for word, and that `README.md`, `tests/LEGACY_CODECS.md`, `tests/REFERENCE_2026.md`,
+`vendor/voxware-vr12/README.md`, `docs/VOICE-PATH.md`, `docs/owner-runs.md` and the comments on `vaudio_miles` (not
+in TF2) in `vendor/voxware-vr12/index.mjs`, the profiles' file, `opus-codec.mjs` and the suite's own head each hold
+the sentence "Its codec stage was checked against one sitting of a 2006 engine on 2026-11-13; the profile as the app
+runs it was not." and not the older one it replaced (W3-22). `tests/REFERENCE_2026.md` keeps the older one only
+where its correction mark and the new sentence follow it, and its finding 31 has the 2006 sitting. It also checks
+that `docs/owner-runs.md` says what that sitting ran, that `docs/PAGE.md` describes the note as it stands, that the
+render's console line for `vaudio_miles` says the same as the note, and that the README has a section headed
+`## Accuracy` that names neither `miles`, `vr12` nor `voxware`. An edit to those documents is checked with `node tests/miles.verify.mjs`.
 
 ## The files the site keeps offline, and the cache number
 
