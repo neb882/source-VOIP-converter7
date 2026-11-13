@@ -51,9 +51,16 @@ noise suppression and gain control off, so the only lossy pass is the emulated c
 ## Rendering and the status line
 
 A new source renders by itself. A changed setting renders a source of 60 s or less again, 400 ms after the last
-change. A longer source keeps its render, marked as made with the earlier settings ("Render again", "(earlier
-settings)" on the download, the views dimmed), until you press **Render**. A render you cancelled, or one that
-failed, does not start again by itself: a change to other settings, or **Render**, starts one. A render that
+change. A longer source renders again by itself, in the same way, after a change on the receiver's side alone (the
+first group under "What a render runs again"), when its render on screen took at most 30 s on this device: the
+render then starts from the codec's result the page's worker kept. After any other change a longer source keeps its
+render, marked as made with the earlier settings ("Render again", "(earlier settings)" on the download, the views
+dimmed), until you press **Render**. It is marked too when the worker no longer holds what the render on screen
+left: after a render with other settings before the codec's result started (even one you cancelled), or after the
+worker was ended. A render from the start takes longer than one from the codec's result, so after a first render
+of more than 30 s the first change is marked; after one press of **Render** the next change renders by itself when
+that render took at most 30 s. A render you cancelled, or one that failed, does not start again by itself: a change
+to other settings, or **Render**, starts one. A render that
 replaces one of the same source keeps the player's place, whether it plays, and what **Hear** plays. Nothing plays
 by itself; after the first render the player takes the focus, so Space plays.
 
@@ -87,7 +94,8 @@ setting starts from the last of them that the setting does not change:
 - the codec, the codec switch, the capture channel, mic gain and the filters: from the start.
 
 The sound is the one a render from the start gives, sample for sample. A new source, or a demo's other speaker, starts
-from the start.
+from the start. The console's line after each render ("ChangeLevel: rendered …") ends with where the worker started
+it: from the kept codec result, from the kept capture signal, or from the start.
 
 **Cancel** stops a render at its next pause, within a moment, and the worker keeps what the render had finished for
 the next one. A render that has not stopped after half a second and 15 ms for each second of the source has its worker
