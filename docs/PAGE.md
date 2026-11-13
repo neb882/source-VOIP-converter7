@@ -76,7 +76,8 @@ later.
 **The game's voice queue.** On Steam voice with the codec on, a render plays the voice through the game's voice
 queue by default (**Phrase timing**, at the listener's frame rate and `voice_buffer_ms`; see "Settings"). The
 console then gives the frame rate, the wait in ticks and milliseconds, how many phrases opened the channel and how
-many joined a running one, and the milliseconds dropped to overflow. While the render on screen was made on the
+many joined a running one, and the milliseconds dropped to overflow. With jitter one more line gives how late the
+packets came, past the least delay, and how many came on the tick of the one before. While the render on screen was made on the
 queue, a line beside **Hear** says that Rendered and Original do not stay in step: a phrase can start early, by up
 to about the wait, and at 300 frames a second the render gains about 0.4 ms every second. The line follows the
 render on screen, not the controls. A recorded live session is the monitor's sound, on the file's own timing: with
@@ -93,8 +94,11 @@ setting starts from the last of them that the setting does not change:
 - `voice_scale`, `voice_avggain`, `voice_maxgain`, the gain switch, Phrase timing, `fps_max`, `voice_buffer_ms`, `volume`, the room, under water
   and the sound device: from the codec's result, in about half a whole render's time in the page (0.38 to 0.54 of it,
   measured in headless Chromium on the build machine; the W3-02d-2 report);
-- the voice gate and its threshold, how long the sender's Steam has run, `snd_bits`, loss, jitter and the packet
-  length: from the capture signal;
+- jitter on Steam voice: from the codec's result too, since there it only moves when the voice messages reach the
+  queue. It is not a change on the receiver's side, so after it a longer source is marked and waits for **Render**,
+  as after the changes below;
+- the voice gate and its threshold, how long the sender's Steam has run, `snd_bits`, loss, the packet length, and
+  jitter on the other codecs: from the capture signal;
 - the codec, the codec switch, the capture channel, mic gain and the filters: from the start.
 
 The sound is the one a render from the start gives, sample for sample. A new source, or a demo's other speaker, starts
@@ -175,6 +179,26 @@ Most controls have a console name; how long the sender's Steam has run and the l
 Each control's sentence gives the figures behind it (the waits are read; what a low frame rate does to long
 unbroken sound is the game's rule as read, run on the model, and no recording shows it).
 
+**Jitter** (`net_fakejitter`, 0 to 100 ms on the page) spreads when packets arrive. It does a different thing on
+each kind of path, and a line under the control says which, while the control is above 0:
+- On Steam voice on the game's voice queue each voice message reaches the queue later, by the game's own lists for
+  `net_fakejitter` with `net_fakelag` taken as twice it. The lists' rule is read; how often the server and the
+  listener look at them is chosen, and the lag is chosen too (finding 9). None is lost and the order is kept. A bunch
+  can skip sound and a gap can restart a phrase. No line is shown, and the render's console line gives how late the
+  packets came.
+- On Steam voice on the file's own timing (the setting itself, the codec skipped, a demo's voice or a video) it
+  does nothing, since there is no queue for it to act on. The line says: "Jitter does nothing on the file's own
+  timing: it moves when packets reach the game's voice queue."
+- On the other codecs it is still a fit to one recording: single frames marked late, 3.2% of them at 50 ms (finding
+  9). The game makes no frame late (read). The line says so.
+
+The chain strip's Network cell follows the same rule: "50 ms jitter" where it runs on the queue, "50 ms jitter (a
+fit)" on another codec, and "jitter off (no queue)" on Steam voice on the file's own timing. The live monitor keeps
+the file's own timing, so on Steam voice jitter does nothing there yet (the queue in the monitor is W3-02c-3, not
+built yet); while the monitor runs on Steam voice with jitter above 0, its note under the panel says so. There is
+no lag control: a steady lag delays every packet alike and a render does not show it. The console's `net_fakelag`
+says so and changes nothing. A share link keeps jitter as `jit`, and the Laggy preset sets 50.
+
 The **Voice codec** menu has two groups. "Team Fortress 2": Steam voice, `vaudio_celt`, `vaudio_celt_high`,
 `vaudio_speex`. "Not in Team Fortress 2": Fullband Opus (`steam_48`, not in TF2) and `vaudio_miles` (not in TF2;
 a codec of the Source engines of 2006 and 2007). Each entry of the second group says so itself, and with
@@ -227,6 +251,7 @@ Shift+Tab always moves it back. A screen reader hears what a typed command answe
 | `sv_cheats 1` | lifts the upper limits of mic gain and of packet loss, and lets `voice_scale` go to 4 |
 | `sv_simulate_events 0` | stops the simulated game feed (kills, chat, joins and drops) |
 | `net_jitter` | another name for `net_fakejitter` |
+| `net_fakelag` | prints that a steady lag does not show in a render and that the app takes the lag as twice `net_fakejitter`; with or without a value it changes nothing |
 | `clear`, `echo`, `status` | the console itself |
 
 A few commands are jokes and change nothing in the sound.
@@ -325,7 +350,8 @@ of some spurts (finding 19).
   a render runs; a threshold typed into the page reaches it as a 20 ms RMS level. Where the gate is off (the engine
   codecs by default) the source is one spurt.
 - **What the take is matched against.** Once there is a render with no lost or late frames, the take is lined up
-  against that render rather than the raw source: the render shares the take's gating, comfort noise and low-tone
+  against that render rather than the raw source (on Steam voice jitter marks no frame late, so a render with
+  jitter and no loss is one): the render shares the take's gating, comfort noise and low-tone
   plateaus. A take already loaded is lined up again after each such render.
 - **Placing each spurt.** By its level envelope, which even a pure tone's onset pins down, and by its waveform at
   2 kHz. The search is within ±0.6 s, leaning toward the delay the earlier spurts had.
