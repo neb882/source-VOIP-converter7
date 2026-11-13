@@ -19,12 +19,13 @@ recorder, and a way to play a file into the game as its microphone ("With a reco
 needs a dedicated server ("With a server"). The rooms, the network and the codec as heard have steps on this page
 and no script yet.
 
-Each check below was run on the owner's recordings of the game on 2026-11-13, with the script as it stands here,
-and gave "as expected" (measured; the record's entry "The script run on the game's files"). Each section gives
-that run's figures beside the record's older ones, which were made with other code (findings 26 and 31). Those
-recordings are not published yet (order RP-01e), so nobody else can repeat that run today: what CI runs is the
-suite `reproduce`, on stand-ins that this repository makes, and a stand-in cannot show that the script lines up a
-file as the game wrote it.
+`gain`, `celt` and `speex` were run on the owner's recordings of the game on 2026-11-13, with the script as it
+stands here, and gave "as expected" (measured; the record's entry "The script run on the game's files"). Their
+sections give that run's figures beside the record's older ones, which were made with other code (findings 26 and
+31). Those recordings are not published yet (order RP-01e), so nobody else can repeat that run today. `ceiling`,
+`clock` and `demo` have not been run on a recording of the game at all. What CI runs is the suite `reproduce`, on
+stand-ins that this repository makes, and a stand-in cannot show that the script lines up a file as the game wrote
+it.
 
 ## What you need
 
@@ -230,8 +231,8 @@ O; the record's entry "The file-input runs, measured again").
 
 ## With a recorder of the PC's output
 
-**Not yet run on a recording of the game.** The script's `ceiling` and `clock` have run on stand-ins only (the suite
-`reproduce`); the record's figures below were measured with other code.
+**Not yet run on a recording of the game.** The script's `ceiling` and `clock` have run on stand-ins (the suite
+`reproduce`); the record's older figures below were measured with other code.
 
 `ceiling` and `clock` read a recording of what the PC plays while the game plays your voice back to you. The record's
 takes were made this way (the record's "Reproduce" and Set B; [owner-runs.md](owner-runs.md), "A take of the test
@@ -244,15 +245,17 @@ signal"):
   Windows or the cable brings the sound to the 24000 Hz Steam asks for (read, finding 28), and a stereo cable reached
   the game as its left channel (measured, finding 6).
 - **A recorder of the game's output.** The record's takes were recorded with OBS and kept lossless at 48000 Hz,
-  24 bits (Set B). The script reads WAV (16- or 24-bit, or float, any number of channels; it reads the first): save
-  the recording as WAV, or convert the lossless file to WAV. Nothing lossy: an MP3 moves the clipped samples
-  (measured, finding 7).
+  24 bits (Set B). The script reads WAV only (16- or 24-bit, or float, any number of channels; it reads the
+  first): save the recording as WAV. A FLAC file is turned into a WAV of the same samples by FFmpeg, if you have it:
+  `ffmpeg -i take.flac -c:a pcm_s24le take.wav`. Nothing lossy: an MP3 moves the clipped samples (measured,
+  finding 7).
 - **Nothing in between.** Turn off the system's effects on the output and on the cable (enhancements, loudness
   equalisation, spatial sound) and keep the game's sound at 100% in the system's mixer, as the record's low-tone takes
   asked (`tests/testsignal/README.md`).
 
 **The signal.** The record's takes used the test signal, which a Python script makes (Python 3 with numpy and
-scipy; the one step on this page that needs more than Node):
+scipy). The Python scripts under `tests/testsignal/` that make it and the low-tone signal are the only steps on
+this page that need more than Node:
 
 ```
 python3 tests/testsignal/make_testsignal.py
@@ -260,9 +263,10 @@ python3 tests/testsignal/make_testsignal.py
 
 It writes `tf2_voice_testsignal_v1.wav`, 142.9 s, with SHA-256
 `efd1c0bce69bfd87c70fff4ab591d9b165046f67ed992b8c0d185152eecf75e0` (Set B; the hash is for numpy 2.4 and scipy 1.17,
-`tests/testsignal/README.md`). Any other file works too: `ceiling` needs only a sound loud enough for the receiver's
-gain to clamp it, and `clock` is given the file that was played, whatever it is. The record's speech and music takes
-read the same clock as the test signal (measured, the table of [ACCURACY.md](ACCURACY.md)).
+`tests/testsignal/README.md`). For `ceiling` any other file works too: it needs only a sound loud enough for the
+receiver's gain to clamp it, with the game's own sound under it. For `clock` use the test signal, whose phrases
+are long (below, "clock"); the record's speech and music takes read the same clock as the test signal (measured, the
+table of [ACCURACY.md](ACCURACY.md)).
 
 **In the game.** Steam voice, your own listen server, the voice played back to you. In the game's console, one line:
 
@@ -273,14 +277,15 @@ sv_voicecodec steam; map ctf_2fort
 Once the map has loaded:
 
 ```
-voice_loopback 1; dsp_slow_cpu 1; voice_overdrive 1000; volume 0.5
+voice_loopback 1; dsp_slow_cpu 1; volume 0.5
 ```
 
 - `dsp_slow_cpu 1` is the Sound quality option at its lowest: no room on the voice (read, finding 32; measured to
   take effect at once, Set K). It is saved with the game's settings: set the option back afterwards.
-- `voice_overdrive 1000` brings the game's other sound to zero under a voice about 0.65 s after it starts (measured,
-  Set K, finding 32); the default is 2 (read, finding 30). Set it back with `voice_overdrive 2`.
-- `volume 0.5` is the value of the record's retake (Set K). Any value does: give the one you used to `ceiling`.
+- Stay where the map makes some sound of its own: the game's clip acts on the sum of the voice and that sound, and
+  `ceiling` needs the sum to pass it (finding 30).
+- `volume 0.5` is the value of one of the record's takes (Set K). Any value does: give the one you used to
+  `ceiling`.
 - Leave `voice_maxgain` at 10, as the record's takes had it (Set B): the gain then clamps a loud sound (finding 3).
 - Keep the game's speakers on headphones, the default: with two speakers the voice enters at 182.6/256, not 255/256
   (read; that the voice is in that group of the sound mixer is inferred; no recording, finding 30).
@@ -292,32 +297,38 @@ Start the recorder. Type `+voicerecord` in the console and press Enter, start th
 
 **Not yet run on a recording of the game.**
 
-**The claim.** The mixer adds Steam voice to the mix at 255/256 of its level, truncated: a voice at full scale
-enters as 32639. The sum of all sound is then clipped at ±32767, `volume` is applied, and the result is rounded to
-16 bits, in that order (read, finding 30). So a clamped voice has flat tops at 32639 × `volume`, and no sample of the
-output passes round(32767 × `volume`), the game's ceiling. The system's conversion to 48000 Hz keeps flat tops
-exactly on their level (measured, finding 30).
+**The claim.** The game adds all its sound, the voice and the rest, clips the sum at ±32767, applies `volume` and
+rounds to 16 bits, in that order (read, finding 30). So no sample of its output passes round(32767 × `volume`), the
+game's ceiling, and whatever part of the sum passes the clip is flattened exactly there. The system's conversion to
+48000 Hz keeps flat tops exactly on their level (measured, finding 30).
 
-**The signal and the steps.** Any loud sound, recorded as above.
+**The signal and the steps.** Any loud sound, recorded as above, with the map's own sound under it.
 
 ```
 node tests/reproduce.mjs ceiling output.wav --volume 0.5
 ```
 
-The script finds the flat tops as the page's real-take check does (`TF2Reference.clampLevel`), counts the samples
-that sit flat there in runs of four or more, and prints their value, the largest sample, and the `volume` the flat
-tops give.
+The script prints the largest and the smallest sample, how many samples sit exactly on each, and the `volume` the
+largest gives.
 
-**What to expect.** Flat tops at 32639 × `volume` and no sample over round(32767 × `volume`), each within one 16-bit
-step (measured): at `volume 0.5`, tops at exactly 16320 and −16320 and none above (measured, Set K's retake, 37,644
-samples, findings 30 and 32); at `volume 0.15`, tops at 4895 to 4896 under a ceiling of 4915 (measured, Set B,
-finding 30), and the largest sample of Set D's sender take exactly 4915, with none above (measured, finding 30).
+**What to expect.** The largest sample at round(32767 × `volume`) and the smallest at minus that, each within one
+16-bit step, none beyond, and at least 100 samples exactly on the largest, enough to show a clip (the 100 is a
+choice of this check). The record: the largest sample of Set D's sender take is exactly 4915 at `volume 0.15`, with
+4% of its samples there and none above (measured, finding 30). On eight of the record's takes the largest sample was
+exactly round(32767 × `volume`), 4915 at `volume 0.15` in seven and 3604 at 0.11 in one, the smallest the same with
+a minus, none beyond; 3,603 samples or more sat on it in six, and 10 in the one made at `voice_maxgain 1`, which
+the script calls too few (measured 2026-11-13 by the orchestrator, private).
 
-**A different result.** Tops under 32639 × `volume` by the same share everywhere: a room on the voice (with an
-open-space room, 250/256, the tops at `volume 0.15` would be 4781, computed in finding 32), two speakers in place of
-headphones, a system volume under 100%, or a `volume` other than the one given. Samples over the ceiling: something
-after the game raised the level (the system's mixer, an effect, the recorder's gain). No flat top: the sound was not
-loud enough to be clamped. The record's room takes show the system's mixer limiting the tops (Set K, finding 32).
+**What a pass shows, and what it does not.** A pass shows the game's `volume` and its clip of the sum. It does not
+show the voice's own level in the mix: with the map's sound on top of a clamped voice, what passes the clip sits on
+the ceiling, so a recording's flat tops are the ceiling's, not the voice's 255/256. That level has steps of its own
+below ("The voice's level in the mix").
+
+**A different result.** The largest sample under the ceiling: nothing reached the clip (a voice not loud enough, or
+no game sound under it), a `volume` other than the one given, or a system volume under 100%. Samples over it:
+something after the game raised the level (the system's mixer, an effect, the recorder's gain). Too few samples on
+the largest: the sum passed the clip only now and then; play a louder sound. The record's room takes show a system
+mixer limiting the tops (Set K, finding 32).
 
 ## clock
 
@@ -325,11 +336,12 @@ loud enough to be clamped. The record's room takes show the system's mixer limit
 
 **The claim.** The engine copies each packet into its queue one sample short: the packet's first sample is left out
 (read, finding 24). So the game plays the voice faster than its source by the packets a second over 44100. Steam
-hands voice out in about 17.8 packets a second (finding 25): 17.8 / 44100 is 403 parts in a million (computed,
-finding 24). The script's render keeps every sample, so a recording runs ahead of it by that much.
+hands voice out in about 17.8 packets a second (measured, finding 25): 17.8 / 44100 is 403 parts in a million
+(computed, finding 24). The script's render keeps every sample, so a recording runs ahead of it by that much.
 
-**The signal and the steps.** The file you played (the test signal, or any other), recorded as above, with no
-`net_fake` setting.
+**The signal and the steps.** The test signal, recorded as above, with no `net_fake` setting. The record's takes of
+it are Set B's, made at the owner's `fps_max 300` (the record's entry on Set G gives that cap; that the takes ran at
+it is inferred).
 
 ```
 node tests/reproduce.mjs clock output.wav tf2_voice_testsignal_v1.wav
@@ -339,11 +351,27 @@ The script renders the second file with the `steam` profile at its defaults, at 
 recording up against that render phrase by phrase as the accuracy suite does (`TF2Reference.track`), with one clock
 for the whole take.
 
-**What to expect.** The recording plays +397 to +416 parts in a million faster than the render: the range of the
-record's takes without loss or jitter, of Sets A to F, in the table of [ACCURACY.md](ACCURACY.md) (measured; 404
-to 406 on most takes, finding 24). One take read +510 (`take3_voice_maxgain_1`, measured, the same table); it had
-22.3 packets a second, and 22.3 / 44100 is 506 (computed; finding 24's 505 is that figure or an earlier reading,
-inferred, as its note says).
+**What to expect.** The recording plays +386 to +427 parts in a million faster than the render. That is the range
+of the record's takes without loss or jitter, of Sets A to F, +397 to +416 in the table of [ACCURACY.md](ACCURACY.md)
+(measured; 404 to 406 on most takes, finding 24), widened by 11 on each side for the spread of this check's reading
+against the accuracy suite's on the same takes: −11 to +10 on fourteen takes (measured 2026-11-13 by the
+orchestrator, private; the widening is a choice of this check). One take read +510 (`take3_voice_maxgain_1`,
+measured, the same table); it is inferred to be the take that had 22.3 packets a second (finding 24 and the same
+table), and 22.3 / 44100 is 506 (computed; finding 24's 505 is that figure or an earlier reading, inferred, as its
+note says).
+
+**What a pass shows, and what it does not.** A pass shows that the recording played about P / 44100 faster than the
+render, and not why: a recording resampled by 1.0004 on its way would pass too. What says the cause is the game's is
+the record: the clock follows the packet rate and is not a recorder's (measured, finding 24, and the record's
+"Results"). The line-up is also unsteady on short phrases at high frame rates. On the model, the order's
+reviewer ran a 30 s speech-like source through the render that runs the game's queue, at two sources and six seeds:
+at 66.67 frames a second all 12 read inside +397 to +416, and at 300 only 6 of 12 did, from +386 to +790 (measured
+on the model, not on the game; RP-01c's report). At 300 the queue skips 11 to 25 ms at a time after each restart
+(finding 23), and on short phrases those skips pull the one clock. On the record's own takes, made at the owner's
+300 frames a second with the test signal, speech and music, the check lined up 30 to 223 one-second windows and read
+within 11 of the accuracy suite's figure (measured 2026-11-13 by the orchestrator, private): the unsteadiness was
+seen on short synthetic phrases, not on those takes. The test signal's long phrases are why it is the signal to
+use.
 
 **Outside that range, count your packets.** Type `voice_showincoming 1` in the console before the press. The
 console then prints one line a packet with its count of samples (read, finding 27). Copy a few hundred of the lines
@@ -354,9 +382,10 @@ over that sum (computed: each count is the packet's sound at 44100 Hz). Give it 
 node tests/reproduce.mjs clock output.wav tf2_voice_testsignal_v1.wav --packets 17.9
 ```
 
-With `--packets` the clock is expected from 6 under to 13 over the packets a second over 44100. That window is the
-record's range around 403 (computed from the figures above; a choice of this check), and the +510 take falls inside
-its own (506). Without `--packets` the script uses the record's range and says so.
+With `--packets` the clock is expected from 17 under to 24 over the packets a second over 44100: the record's range
+around 403, 6 under to 13 over (computed from the figures above), widened by the same 11 (a choice of this check).
+The +510 take falls inside its own window (506). Without `--packets` the script uses the widened range of the
+record's takes and says so.
 
 **A different result.** A recording too short or too quiet to line up is "differs" with the reason: the script asks
 for at least 20 one-second windows that line up (a choice of this check). A clock far off with `--packets` given:
@@ -402,7 +431,9 @@ SteamID, no name, no address, no map. A speaker is never named.
 one sample-rate record of 24000 Hz, and every phrase after an end marker starting at number 0. No tolerance. The
 counts are your demo's own; the record's demo held 1,816 messages and 5,109 frames, 693 of them of one byte, in 20
 phrases each starting at 0, and no frame missing (measured, Set D, finding 11). The script also prints the one-byte
-frames, the end markers, the silence records and any numbers that skip (frames lost before the demo).
+frames, the end markers, the silence records and any numbers that skip (frames lost before the demo). It counts the
+phrases that follow an end marker, and prints the first phrase of each speaker apart, since a demo may start in
+mid-phrase: on a demo of 20 phrases it prints 19 after an end marker, and the first.
 
 **A different result.** A demo with no voice, or with one phrase only, cannot show the numbering and is "differs"
 with the reason. A demo of another codec (`sv_voicecodec` set to one of the engine's) is refused by name. A frame of
@@ -412,6 +443,29 @@ another kind, or a rate other than 24000, would be a finding for the record.
 
 These are steps a stranger can follow and look at by ear or in an editor. **No script yet:** none of them is
 measured by the script, so what you see is not compared with the record's figures for you.
+
+### The voice's level in the mix
+
+**No script yet.** The mixer adds Steam voice at 255/256 of its level, truncated: a clamped voice enters as 32639
+(read, finding 30). With nothing else in the mix and no room, the rule puts a clamped voice at 32639 × `volume`
+(computed).
+The record measured it two ways. In Set B, at `volume 0.15`, the median of the samples of the clipped steady 1 kHz
+tones' plateaus is 4895 to 4896 where 255/256 gives 4895.85, against a ceiling of 4915 (measured, W3-18, finding 30).
+In Set K's retake at `volume 0.5`, with `voice_overdrive 1000` bringing every other sound to zero under the voice
+about 0.65 s after it starts, the tops sat at exactly 16320 and −16320, 37,644 samples and none above (measured,
+finding 32).
+
+To see it: once the map has loaded,
+
+```
+voice_loopback 1; dsp_slow_cpu 1; voice_overdrive 1000; volume 0.5
+```
+
+then record a loud steady tone as above and look at its tops in an editor: 16320 where `ceiling` finds the game's
+16384. Set `voice_overdrive 2` back afterwards (the default, read, finding 30). With the map's sound left on, the
+median of a plateau depends on how it is cut: a private try on other takes gave 4,898 to 4,915 by the threshold
+(measured 2026-11-13 by the orchestrator, private), so it is not a measure a simple script repeats on any
+recording.
 
 ### Rooms
 
@@ -470,8 +524,8 @@ The last line gives the reason. Look for these, in order:
    packet before the clip does (the key was released early: hold it until the clip has ended, about 15 s), two
    recordings for `gain` whose lengths are more than one packet apart. A recording of 512-sample packets
    from `vaudio_speex` is the 64-bit game's fall-back (step 2). A `voice_maxgain 10` recording checked as 1 differs
-   everywhere. For `ceiling` and `clock`: a room, two speakers, an effect or a volume under 100% in the system, a
-   lossy recording, a voice too quiet, a recording too short.
+   everywhere. For `ceiling` and `clock`: an effect or a volume under 100% in the system, a lossy recording, a voice
+   too quiet or with no game sound under it, a recording too short.
 2. **The build differs.** Compare the game's `version` line in the console with the record's runs: Set O ran TF2
    build 11191711 (measured). The files the findings were read from are to be listed with their builds and
    SHA-256 in the record (not built yet: order RP-01d). A hash that differs from theirs refutes nothing: the game
