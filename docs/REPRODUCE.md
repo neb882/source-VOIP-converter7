@@ -340,10 +340,10 @@ recording up against that render phrase by phrase as the accuracy suite does (`T
 for the whole take.
 
 **What to expect.** The recording plays +397 to +416 parts in a million faster than the render: the range of the
-record's plain takes, Sets A, B, D, E and F, in the table of [ACCURACY.md](ACCURACY.md) (measured; 404 to 406 on most
-takes, finding 24). One take read +510 (`take3_voice_maxgain_1`, measured, the same table); it had 22.3 packets a
-second, and 22.3 / 44100 is 506 (computed; finding 24's 505 is that figure or an earlier reading, inferred, as its
-note says).
+record's takes without loss or jitter, of Sets A to F, in the table of [ACCURACY.md](ACCURACY.md) (measured; 404
+to 406 on most takes, finding 24). One take read +510 (`take3_voice_maxgain_1`, measured, the same table); it had
+22.3 packets a second, and 22.3 / 44100 is 506 (computed; finding 24's 505 is that figure or an earlier reading,
+inferred, as its note says).
 
 **Outside that range, count your packets.** Type `voice_showincoming 1` in the console before the press. The
 console then prints one line a packet with its count of samples (read, finding 27). Copy a few hundred of the lines
@@ -388,8 +388,8 @@ D). SteamCMD app 232250 installs the server. Start it with these launch options:
 
 Join it from the game. In the server's console type `tv_record voicetest`; speak or play a file into the voice, at
 least two phrases with a pause of a second between them (the pauses of 0.7 s in Set J each ended a phrase,
-measured, finding 12); then type `tv_stoprecord`. The demo is written to the server's `tf` folder. A demo holds the players' names and
-SteamIDs, the server's address and the map: keep it to yourself and give it to the script.
+measured, finding 12); then type `tv_stoprecord`. The demo is written to the server's `tf` folder. A demo holds the
+players' names and SteamIDs, the server's address and the map: keep it to yourself and give it to the script.
 
 ```
 node tests/reproduce.mjs demo voicetest.dem
