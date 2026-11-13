@@ -85,6 +85,8 @@ import { engineGain } from './gain-exact.mjs';
 import { EXPECTED, verdicts } from './reproduce/inputs.mjs';
 import { createRequire } from 'node:module';
 import { ENGINE_FILES, loadEngine } from './lib/engine.cjs';
+import { synthesize, UNRELATED } from './voicequeue/synthetic-log.mjs';
+import { createReferenceChannel } from './voicequeue/reference-channel.mjs';
 
 const TF2Reference = createRequire(import.meta.url)('../reference.js');
 
@@ -351,8 +353,8 @@ try {
     const built = CHECKS.filter((c) => c.run).map((c) => c.name), later = CHECKS.filter((c) => !c.run).map((c) => c.name);
     const named = CHECKS.every((c) => new RegExp(`^  ${c.name} `, 'm').test(r.out));
     check('node tests/reproduce.mjs lists every check by name and exits 0', r.status === 0 && named, `${CHECKS.length} checks`);
-    check('the built checks are inputs, gain, celt, speex, ceiling, clock and demo; hold, gate and queue are listed as not built yet',
-      built.join(' ') === 'inputs gain celt speex ceiling clock demo' && later.join(' ') === 'hold gate queue'
+    check('the built checks are inputs, gain, celt, speex, queue, ceiling, clock and demo; hold and gate are listed as not built yet',
+      built.join(' ') === 'inputs gain celt speex queue ceiling clock demo' && later.join(' ') === 'hold gate'
       && later.every((n) => new RegExp(`^  ${n} +not built yet: `, 'm').test(r.out)));
     const bad = later.map((n) => [n, run(n)]).filter(([n, x]) => x.status === 0 || !x.out.includes(`${n}: not built yet`));
     check('each check not built yet prints "<check>: not built yet" and exits other than 0', bad.length === 0, bad.map(([n]) => n).join(', '));
@@ -754,6 +756,112 @@ try {
       demoOut.length >= 12 && demoOut.every((x) => !hasMarker(x.out)), demoOut.filter((x) => hasMarker(x.out)).map((x) => x.args).join('; '));
     const leaked = runs.filter((x) => x.out.includes(ID) || secrets.some((s) => x.out.includes(s)));
     check('no run of this suite prints a SteamID of the stand-ins or a header field of the fixture', leaked.length === 0, leaked.map((x) => x.args).join('; '));
+  }
+
+  console.log('\n[11] queue');
+  {
+    // The stand-in: a console log in the game's format written by the
+    // synthetic log's writer (tests/voicequeue/synthetic-log.mjs) from the
+    // second model of the channel (tests/voicequeue/reference-channel.mjs,
+    // plain arrays, no ring arithmetic), which the check then replays through
+    // voice-channel.js. Its pass shows the tool's reading and that the two
+    // models agree, which the suite voice-channel holds over its own cases
+    // too; it does not show that the game prints these lines so. The log's
+    // unrelated lines are replaced by lines that carry markers where a
+    // player's name, an address and a path would be, and two more stand at
+    // its head and two at its tail; the game writes its log with CRLF ends.
+    const standIn = (fps, seed) => synthesize({ fps, seed }, createReferenceChannel);
+    check('the stand-in is written from the second model: the suite passes createReferenceChannel to the writer',
+      /synthesize\(\{ fps, seed \}, createReferenceChannel\)/.test(standIn.toString()) && typeof createReferenceChannel === 'function');
+    const PRIVATE = [`${MARK}-Player connected`, `Connecting to ${MARK}-Address:27015...`, `Writing C:\\${MARK}-Folder\\tf\\cfg\\config.cfg`, `${MARK}-Player :  ${MARK}-Chat`];
+    const HEAD = [`] connect ${MARK}-Address`, `${MARK}-Player has joined the game`], TAIL = [`Disconnect: ${MARK}-Player left`, `] quit ${MARK}-Option`];
+    const withPrivate = (lines) => { let k = 0; return lines.map((l) => (l === UNRELATED ? PRIVATE[k++ % PRIVATE.length] : l)); };
+    const writeLog = (name, lines, end = '\r\n') => { const f = at(name); fs.writeFileSync(f, `${[...HEAD, ...withPrivate(lines), ...TAIL].join(end)}${end}`); return f; };
+    const s300 = standIn(300, 0x5EED300), s67 = standIn(66.67, 0x5EED067);
+    const q1 = (x) => (/Q1, ticks on which the rule gives the logged queue: ([\d,]+) of ([\d,]+)/.exec(x.out) || []).slice(1).map((v) => Number(v.replace(/,/g, '')));
+    const fault = (x, label) => Number(((new RegExp(`^ +${label.replace('+', '\\+')}: ([\\d,]+)$`, 'm').exec(x.out)) || [])[1]?.replace(/,/g, '') ?? NaN);
+    const f300 = writeLog('voice_q300.log', s300.lines);
+    const r300 = run('queue', f300, '--fps', '300');
+    const want300 = s300.truth.ticks + s300.truth.opensAfterFree;
+    check(`on its stand-in at 300 frames a second (${s300.truth.packets} packets, ${s300.truth.ticks} tick lines, the ring overflowing while a channel waits): as expected, Q1 ${want300} of ${want300}`,
+      passes(r300) && q1(r300).join() === `${want300},${want300}` && s300.truth.dropped > 0, show(r300));
+    check('... every fault prints a count, and each mismatches somewhere on this log', ['ring + 1', 'ring - 1', 'wait + 1', 'wait - 1', 'sample kept', 'no grace'].every((l) => fault(r300, l) > 0)
+      && /0 means this log cannot tell that fault from the rule/.test(r300.out));
+    const f67 = writeLog('voice_q67.log', s67.lines);
+    const r67 = run('queue', f67, '--fps', '66.67');
+    const want67 = s67.truth.ticks + s67.truth.opensAfterFree;
+    check(`on its stand-in at 66.67 frames a second: as expected, Q1 ${want67} of ${want67}; the two ring faults print 0 (nothing overflows) and the check still says "as expected"`,
+      passes(r67) && q1(r67).join() === `${want67},${want67}` && fault(r67, 'ring + 1') === 0 && fault(r67, 'ring - 1') === 0 && s67.truth.dropped === 0, show(r67));
+    check('... with line feeds alone: as expected', passes(run('queue', writeLog('voice_q67_lf.log', s67.lines, '\n'), '--fps', '66.67')));
+    check('... the channels by their lines before the queue fell: 7 at 66.67 frames a second (the wait), 30 at 300',
+      /first fall of their queue: 7 lines in \d+/.test(r67.out) && /first fall of their queue: 30 lines in \d+/.test(r300.out), `${(/first fall[^\n]*/.exec(r67.out) || [''])[0]}`);
+    // Both parts in one log, each after a marker line of the suite's own
+    // word, as `echo` writes it; the word is the stranger's and is never
+    // printed.
+    const word = (n) => `MARK${MARK}${n}`;
+    const both = at('voice_q_marked.log');
+    fs.writeFileSync(both, `${[...HEAD, `] echo ${word(300)}`, word(300), ...withPrivate(s300.lines), `] echo ${word(67)}`, word(67), ...withPrivate(s67.lines), ...TAIL].join('\r\n')}\r\n`);
+    const m300 = run('queue', both, '--section', word(300), '--fps', '300'), m67 = run('queue', both, '--section', word(67), '--fps', '66.67');
+    check('a log of two marked parts, each read with --section and its frame rate: as expected on both, the same Q1 as alone, the marker word not printed',
+      passes(m300) && passes(m67) && q1(m300).join() === q1(r300).join() && q1(m67).join() === q1(r67).join() && !hasMarker(m300.out + m67.out), `${show(m300)}; ${show(m67)}`);
+    const noSection = run('queue', both, '--fps', '300');
+    check('... without --section: differs, "the log holds marked parts; give --section"', fails(noSection, /holds marked parts; give --section/), show(noSection));
+    const missing = run('queue', both, '--section', word(100), '--fps', '100');
+    check('... --section with a word no line is: differs, and the word not printed', fails(missing, /no line is the marker/) && !hasMarker(missing.out), show(missing));
+
+    // One queue line off by one sample (2 bytes), at the four kinds of line
+    // the suite voice-channel names (the writer's marks say which line is
+    // which). On a line where the mixer took sound while the channel played a
+    // change of one sample moves a sample of demand from one tick to the next:
+    // the log cannot tell it from a true one, and no break is made there.
+    const marks = s300.marks, opening = marks.findIndex((m) => m.opened);
+    const changedLines = [
+      ['at an opening', marks[opening]],
+      ['during a wait', marks.find((m, j) => j > opening && !m.playedBefore && !m.opened)],
+      ['at the ring\'s limit, with a packet, while playing', marks.find((m) => m.playedBefore && m.b === 44100 && m.packet !== null)],
+      ['where the playing channel\'s mixer took nothing', marks.find((m, j) => j > 0 && m.playedBefore && m.packet === null && m.b === marks[j - 1].b && m.b > 4096 && marks[j - 1].line === m.line - 1)]
+    ];
+    changedLines.forEach(([where, m], k) => {
+      const c = s300.lines.slice();
+      if (m) c[m.line] = `Voice - chan 0, ent 1, bufsize: ${m.b + 2}`;
+      const x = run('queue', writeLog(`voice_q_changed_${k}.log`, c), '--fps', '300');
+      check(`one queue line 2 bytes off, ${where}: differs`, !!m && fails(x), show(x));
+    });
+    const fast = run('queue', f67, '--fps', '300');
+    check('the 66.67 log judged at --fps 300 (a wait of 30 where the log\'s was 7): differs', fails(fast), show(fast));
+    const pull = s300.lines.slice();
+    pull.splice(marks[opening + 40].line, 0, 'Voice - mixed 512 samples from channel 0');
+    const pulls = run('queue', writeLog('voice_q_pull.log', pull), '--fps', '300');
+    check('a pull line added (voice_showchannels 2): differs, naming the setting', fails(pulls, /voice_showchannels 2/), show(pulls));
+    const second = s300.lines.slice();
+    second.splice(marks[opening + 40].line + 1, 0, 'Voice - chan 1, ent 3, bufsize: 14110');
+    const two = run('queue', writeLog('voice_q_second.log', second), '--fps', '300');
+    check('a second speaker\'s line added: differs, "a second channel"', fails(two, /second channel/), show(two));
+    const packetsOnly = run('queue', writeLog('voice_q_packets.log', s300.lines.filter((l) => !/bufsize/.test(l))), '--fps', '300');
+    check('the packet lines alone: differs', fails(packetsOnly), show(packetsOnly));
+    const cut = (n) => { const out = []; let ticks = 0; for (const l of s67.lines) { if (ticks === n) break; out.push(l); if (/bufsize/.test(l)) ticks++; } return out; };
+    const r99 = run('queue', writeLog('voice_q_99.log', cut(99)), '--fps', '66.67');
+    check('99 tick lines: differs, fewer than 100 (a choice of this check)', fails(r99, /only 99 tick lines, fewer than 100/), show(r99));
+    check('... and 100: as expected', passes(run('queue', writeLog('voice_q_100.log', cut(100)), '--fps', '66.67')));
+    const never = ['Voice - 7056 incoming samples added to channel 0', ...Array(120).fill('Voice - chan 0, ent 1, bufsize: 14110')];
+    const still = run('queue', writeLog('voice_q_still.log', never), '--fps', '66.67');
+    check('a channel whose queue never falls: differs, no channel played', fails(still, /no channel played/), show(still));
+    const none = run('queue', writeLog('voice_q_none.log', PRIVATE), '--fps', '300');
+    check('a log with no voice line: differs, naming voice_showincoming 1 and voice_showchannels 1', fails(none, /no voice lines \(voice_showincoming 1 and voice_showchannels 1\)/), show(none));
+    const short = s300.lines.slice();
+    short[marks[opening + 5].line] = `Voice - chan 0, ent 1, bufsi${MARK}`;
+    const shortened = run('queue', writeLog('voice_q_short.log', short), '--fps', '300');
+    check('a voice line cut short and followed by a marker: differs by its line number, the line not printed', fails(shortened, /line \d+: a voice line that does not read as one/) && !hasMarker(shortened.out), show(shortened));
+    const binary = at('voice_q_binary.log');
+    fs.writeFileSync(binary, Buffer.concat([Buffer.from([0, 255, 1, 2, 3, 0x89]), Buffer.from(`${MARK}-Header`), Buffer.alloc(300, 7)]));
+    check('a file that is not text: differs, no voice lines', fails(run('queue', binary, '--fps', '300'), /no voice lines/));
+    const refused = [
+      ['no --fps', [f300]], ['--fps 5', [f300, '--fps', '5']], ['--fps 1001', [f300, '--fps', '1001']], ['--buffer-ms 0', [f300, '--fps', '300', '--buffer-ms', '0']],
+      ['two files', [f300, f67, '--fps', '300']], ['no file', ['--fps', '300']], ['a file that does not exist', [path.join(folder, `${MARKERS[2]}-missing.log`), '--fps', '300']]
+    ].map(([what, args]) => [what, run('queue', ...args)]).filter(([, x]) => x.status !== 2 || verdict(x) !== 'cannot check');
+    check('no --fps, --fps 5 or 1001, --buffer-ms 0, two files, no file, a missing file: cannot check, exit 2', refused.length === 0, refused.map(([w, x]) => `${w}: ${show(x)}`).join('; '));
+    const longer = run('queue', f67, '--fps', '66.67', '--buffer-ms', '200');
+    check('--buffer-ms 200 on the 66.67 stand-in (a wait of 14 ticks where the log\'s was 7): differs', fails(longer), show(longer));
   }
 
   console.log('\n[6] Nothing leaves the PC');

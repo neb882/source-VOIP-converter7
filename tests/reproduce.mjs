@@ -27,17 +27,19 @@ import speex from './reproduce/speex.mjs';
 import ceiling from './reproduce/ceiling.mjs';
 import clock from './reproduce/clock.mjs';
 import demo from './reproduce/demo.mjs';
+import queue from './reproduce/queue.mjs';
 
-// Every check, in the page's order. `part` names the part of order RP-01 that
-// builds a check not built yet.
+// Every check, in the page's order. A check not built yet has no run(), and
+// `steps` says where the page gives its steps by hand (no order builds it
+// yet).
 export const CHECKS = [
   inputs,
   gain,
   celt,
   speex,
-  { name: 'hold', part: 'RP-01b', summary: 'Steam\'s hold after speech and its clock' },
+  { name: 'hold', summary: 'Steam\'s hold after speech and its clock', steps: 'docs/REPRODUCE.md, "The hold and Steam\'s clock", gives steps by hand, with Steam\'s console and the game\'s' },
   { name: 'gate', part: 'RP-01b', summary: 'Steam\'s sender gate, chunk by chunk' },
-  { name: 'queue', part: 'RP-01b', summary: 'the receiver\'s queue, from the game\'s console log' },
+  queue,
   ceiling,
   clock,
   demo
@@ -63,7 +65,7 @@ export async function main(argv) {
     return 2;
   }
   if (!check.run) {
-    console.log(`${check.name}: not built yet (order ${check.part}): ${check.summary}.`);
+    console.log(`${check.name}: not built yet: ${check.summary}.${check.steps ? ` No order builds it yet; ${check.steps}.` : ''}`);
     return 3;
   }
   const report = createReport();
