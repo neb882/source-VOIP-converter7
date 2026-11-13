@@ -617,14 +617,16 @@ console.log('The statistics through the sender (seeds 1 to 400; a signal of 240,
   const share = (row, k) => (count[row][k] || 0) / Object.values(count[row]).reduce((a, b) => a + b, 0);
   const rows = [
     ['game ticks between messages, 3 / 4 / 5 (2 and 6 no longer occur)', 'ticks', [[3, 0.305], [4, 0.666], [5, 0.029], [2, 0], [6, 0]]],
-    // W3-21: 0.790 / 0.165 / 0.045 with the capture's lead (the prototype's, before it: 0.820,
-    // 0.135 and 0.045); the signal's edge at 24000 is on a step's edge only with lead 0.
-    ['openings of 8 / 6 / 9 frames', 'opening', [[8, 0.790], [6, 0.165], [9, 0.045]]],
+    // W3-21: the prototype's 0.820 / 0.135 / 0.045 held with the steps cut from the source's
+    // first sample (the signal's edge at 24000 on a step's edge). With the capture's lead these
+    // are this build's own output, recorded with the lead: a guard against regression, not a
+    // comparison with the prototype.
+    ['openings of 8 / 6 / 9 frames', 'opening', [[8, 0.790], [6, 0.165], [9, 0.045]], 'the values recorded with the capture\'s lead (W3-21), a guard against regression'],
     ['silence records of 750 / 1500 / 2250 samples', 'record', [[750, 0.210], [1500, 0.758], [2250, 0.033]]],
   ];
-  for (const [label, row, want] of rows) {
+  for (const [label, row, want, against = 'the prototype\'s'] of rows) {
     const got = want.map(([k]) => share(row, k));
-    check(`${label}: each within 0.01 of the prototype's`, want.every(([, w], j) => Math.abs(got[j] - w) <= 0.01), got.map((g) => g.toFixed(4)).join(', '));
+    check(`${label}: each within 0.01 of ${against}`, want.every(([, w], j) => Math.abs(got[j] - w) <= 0.01), got.map((g) => g.toFixed(4)).join(', '));
   }
   const rate = rateCount / (rateTicks * 0.015);
   check('messages a second: 17.90, within 0.01', Math.abs(rate - 17.90) <= 0.01, rate.toFixed(3));

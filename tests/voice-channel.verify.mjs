@@ -1424,8 +1424,11 @@ function timelineChecks() {
     // spurts average to the arrival constant's precision.
     //
     // W3-21 (the capture's phase): the bound with the grid taken out was 0.1 ms, the precision
-    // of a constant fitted on these very seeds. It is now 3 standard errors of this run's mean
-    // (by spurt; about 1.95 ms), and the spurts are not independent within a seed. Measured
+    // of a constant fitted on these very seeds. It is now 3 standard errors of this run's mean,
+    // the standard error taken by spurt (about 0.65 ms, so a bound of about 1.95 ms). The spurts
+    // are not independent within a seed: by seed the standard error is larger (1.444 ms on the
+    // same run, measured by the order's second reader; 1.404 ms as printed below, from each
+    // seed's mean over its spurts). Measured
     // 2026-11-13 over seeds 1 to 400 by block of seeds (1-200, 51-200, 201-400), the mean with
     // the grid out lies between +0.4 and +3.6 ms, at lead 0 and with the lead alike (seeds 1 to
     // 50: +0.02 at lead 0, -0.30 with the lead); the lead moves it by -0.3 to -0.75 ms, paired
@@ -1437,9 +1440,26 @@ function timelineChecks() {
     const m300 = mean(opened[300]), m67 = mean(opened[66.67]);
     const both = [...opened[300].map((x) => x + grid(300)), ...opened[66.67].map((x) => x + grid(66.67))];
     const pooled = mean(both), bound = Math.max(0.1, 3 * se(both));
-    check(`an opened spurt's offsetStartMs averages within 5.8 ms of 0 at 300 and at 67 fps (layouts P and Q, seeds 1 to 50), and with the block grid taken out (measured ${pooled.toFixed(3)} ms) to within 3 standard errors of these 50 seeds, whose spurts are not independent within a seed (${bound.toFixed(2)} ms); on seeds 1 to 400 the mean lies between +0.4 and +3.6 ms by block of seeds (1-200, 51-200, 201-400; measured 2026-11-13)`,
+    // The same spurts by seed, grid out, made again here with the seeded lead and with lead 0
+    // (engineRun's lead): each seed's mean over its opened spurts of both layouts and rates.
+    const bySeed = (lead) => Array.from({ length: 50 }, (_, k) => {
+      const v = [];
+      for (const fps of [300, 66.67]) for (const lay of [layout([0.3, 0.5, 1.2]), layout([0.9, 0.6, 1.2])]) {
+        for (const x of engineRun({ ...lay, fps, seed: k + 1, lead }).info.spurts) if (x.opened) v.push(x.offsetStartMs + grid(fps));
+      }
+      return mean(v);
+    });
+    const seedLead = bySeed(undefined), seedZero = bySeed(0);
+    check(`an opened spurt's offsetStartMs averages within 5.8 ms of 0 at 300 and at 67 fps (layouts P and Q, seeds 1 to 50), and with the block grid taken out (measured ${pooled.toFixed(3)} ms) to within 3 standard errors of these 50 seeds, the standard error taken by spurt (${bound.toFixed(2)} ms; by seed it is larger, as the spurts of a seed are not independent); on seeds 1 to 400 the mean lies between +0.4 and +3.6 ms by block of seeds (1-200, 51-200, 201-400; measured 2026-11-13)`,
       opened[300].length === 206 && opened[66.67].length === 250 && Math.abs(m300) <= 5.8 && Math.abs(m67) <= 5.8 && Math.abs(pooled) <= bound,
-      `300 fps ${m300.toFixed(2)} ms over ${opened[300].length}, 67 fps ${m67.toFixed(2)} ms over ${opened[66.67].length}; the grid moves them ${grid(300).toFixed(2)} and ${grid(66.67).toFixed(2)}; both, grid out: ${pooled.toFixed(3)} ms, 3 standard errors ${(3 * se(both)).toFixed(3)} ms`);
+      `300 fps ${m300.toFixed(2)} ms over ${opened[300].length}, 67 fps ${m67.toFixed(2)} ms over ${opened[66.67].length}; the grid moves them ${grid(300).toFixed(2)} and ${grid(66.67).toFixed(2)}; both, grid out: ${pooled.toFixed(3)} ms, 3 standard errors ${(3 * se(both)).toFixed(3)} ms by spurt; by seed the standard error is ${se(seedLead).toFixed(3)} ms`);
+    // W3-21, paired: on the same seeds, the zero with the capture's lead less the zero at lead 0,
+    // seed by seed, lies within 3 standard errors (by seed) of 0. The order's second reader
+    // measured -0.325 ms with a standard error of 0.580. A lead that moved the messages' ticks
+    // (since not shifted back) moves it by about half a capture step.
+    const paired = seedLead.map((x, k) => x - seedZero[k]), pm = mean(paired), pse = se(paired);
+    check(`paired by seed (seeds 1 to 50): the zero with the capture's lead less the zero at lead 0 lies within 3 standard errors by seed of 0 (measured ${pm.toFixed(3)} ms)`,
+      Math.abs(pm) <= 3 * pse && pse > 0, `${pm.toFixed(3)} ms, standard error ${pse.toFixed(3)} ms by seed`);
     // The same spurts in W3-02c-2's frame: each source the position of its first captured
     // sample less the codec's look-ahead, round((start - 156) x 44100 / 24000) (engineRun's
     // messages, pushed again here with that source), and the timeline told so by codecDelay.
