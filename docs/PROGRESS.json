@@ -16,8 +16,13 @@
     },
     {
       "order": "RP-01c",
-      "state": "built 2026-11-13 (branch claude/rp-01c-ceiling-clock-demo, CI green); a reviewer is at work",
+      "state": "built 2026-11-13 (branch claude/rp-01c-ceiling-clock-demo); reviewed (merge after fixes) and run privately on the takes by the orchestrator; the builder is on one fix round with both. The private run changed two checks (the order's section 18): ceiling checks the mixer's ceiling only, because on a map the flat tops are the mixer's and not the voice's; clock's window is widened by the check's own spread of 11 parts in a million. demo came out as expected on Set D's demo",
       "note": "The checks ceiling, clock and demo of tests/reproduce.mjs with their stand-ins and breaks, their sections of docs/REPRODUCE.md, the part 'With a server' and the steps-only entries. Each section says 'not yet run on a recording of the game' until the orchestrator's private run."
+    },
+    {
+      "order": "W3-02c-3 and W3-02d, a planner's pass",
+      "state": "a planner is at work since 2026-11-13 (branch claude/w3-02cd-plan)",
+      "note": "Two order files a builder can build from today's code: the live chain running the receiver's channel, and the page's control for the game's timeline with its default and words. Asked first: what a render on the game's timeline does to several minutes of unbroken sound at 66.67 and 300 frames a second, since the owner's clips are mostly music and that decides the default."
     }
   ],
   "next": [
