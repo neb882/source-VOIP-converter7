@@ -383,6 +383,72 @@ take is inside the seeds' range.
 - The level blocks against a `'game'` render (above).
 - More silence under loss at 300 than the one take has, on five seeds.
 
+## The investigation that followed (2026-11-13, private; numbers only)
+
+An investigator with the private record took the question the runs above left: why a render's queue runs out at a
+pause of 420 to 440 ms where the take's more often had not. It changed nothing in the repository. Its scripts and
+notes are in the private repository. Every figure below is measured unless it is marked.
+
+**A correction to the section above first.** The orchestrator's scratch scripts for the counts over 30 seeds, for
+what a channel drops when it opens and for the loss takes typed a gate threshold of -39.5 dB, the app's older
+default, where the takes' manifest leaves Steam's own threshold in force (a mean of 347.1 against 327.67 in 16-bit
+steps). The rows lined up by the accuracy suite were made at Steam's threshold. At Steam's threshold the counts by
+transition read, for the sender's take, 30 30 30 2 2 8 8 23 6 6 22 15 15 30 25 30 of 30 (typed: 23 at the first
+and 26 at the fifteenth, the rest the same), and for the speech take 19 30 30 2 9 15 12 25 13 (typed: 5, 13 and 26
+at the fifth, seventh and eighth). The six pauses in question do not move. The re-timing scores, the opening drop
+and the loss figures were not made again at Steam's threshold; they are made again when the change below is built,
+which moves them in any case.
+
+**The channel's clock is not the cause.** Given the game's own packets with their own ticks, the timeline gives the
+logged queue: after a packet the difference is 0.0 ms in the median (quartiles -4.1 and +3.8, 1,863 packets, 28
+channels of Set G). The queue at the last sound packet of a channel's first phrase is 488.4 ms in the logs (23
+channels) and 488.4 ms in the renders (457 phrases). Whether a channel restarts follows from the messages' ticks
+and lengths alone: a count-only copy of the channel and its clock gave the module's verdict in 1,406 of 1,406.
+
+**The cause is in the sender's model, and it is the test signal's grid.** `steam-sender.js` cuts its capture steps
+(750 samples at 24 kHz, 31.25 ms) from the render's first sample. The test signal's bursts begin and end on
+multiples of 31.25 ms, so in a render every burst's edge falls on a step's edge. In Set D's session Steam's steps
+lay 318 samples off the signal's edges (inferred: ten of the demo's spurts start at one offset of 126 samples from
+the signal's marks). A 1 s burst then covers 33 steps and not 32, and Steam sent one step more of each burst than
+the model does:
+
+| At the eight bursts before the 440 ms pauses | Set D's demo | The model as built | The model, source 318 samples later |
+| --- | --- | --- | --- |
+| frames in the phrase, mean | 79.63 | 78.45 | 79.82 |
+| ticks from the last sound packet to the next phrase's first | 37.5 | 39.67 | 37.86 |
+| ticks from first packet to next first packet | 133.5 | 133.39 | not read again |
+
+The second row is 27 to 31 ms of margin at a pause where the render's median miss was 26 ms. With any phase from 1
+to 25 ms the render keeps the channel at 45% of such pauses after an opening (257 of 572); as built, at 20% (138 of
+675). The take kept it at 4 of 6. Which of the six keeps it is close to a coin flip at this margin: the count by
+transition against the take does not rise (76 of 180 as built, 74 of 180 with the phase). On the network take, if
+its session's phase was near Set D's (not known), all 12 transitions come out in 25 of 30 seeds against 15.
+
+The demo's own packets through the timeline put all six pauses within the demo's 4-tick blur of the threshold and
+in the take's order (the four the take appended have the four largest margins in every reading of the grid); drawn
+the way the sender's read clock allows, the take's exact pattern comes out in 93 of 200 draws. That is agreement
+within the blur, not proof.
+
+**The drop at an opening is not a difference.** A log replayed counts the least that can have been dropped. Counted
+the same way, the renders give 96.4 to 103.2 ms against the logs' 98.9 to 102.2. The renders' own true figure is 113
+to 126 ms, so the game's true drop is likely 15 to 20 ms above finding 23's 104 ms too (inferred). During the wait
+itself, which a log shows exactly, the game drops 10 to 17 ms more than a render (67.8 and 72.9 ms against 55.7 to
+63.0); two causes are named and neither was tested (the model opens on six frames in 17% of openings against 2 of
+49 in the game; the logs' waits of 31 and 32 ticks).
+
+**The speech take is not explained by this.** A phase does nothing steady there (the take's kind at the fourth
+transition in 2 to 7 of 30 over eight phases), and neither does the capture's level within 6 dB. At the third
+transition the render leaves out 265 ms in the median where the take left out 197; the two renders nearest the take
+at the third also have its fourth and fifth (-100 and -109 against -102; 311 and 321 against 303). So the miss at
+the fourth follows from 68 ms too much left out at the third, inside the sender's model, and what in the model does
+it was not found. How long Steam had run moves that transition (its hold's float step), and no setting gives the
+take's chain in more than a few seeds.
+
+**What follows.** `voice-channel.js` needs no change. The sender's capture steps need a phase against the source:
+Steam's capture runs free of what is played into it. That is an order of its own (PROGRESS, `next`); it moves every
+recorded hash of a seeded `steam` render and the measured arrival figure of 50.5 ms. W3-02d is no longer held by
+this question.
+
 ## Scanned
 
 The branch's diff against `origin/main` and its commit messages were scanned for recordings, personal details, real

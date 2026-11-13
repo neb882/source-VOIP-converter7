@@ -241,7 +241,7 @@ For Speex the build also computes as the module's compiler did: the module's ari
 
 ### 11. vaudio_miles and Voxware VR12 (never in TF2)
 
-`vaudio_miles` is not a Team Fortress 2 codec. It could be selected in the Source engines of 2006 and 2007; current TF2 ships its files and refuses the name. It has not been checked against any recording of a running engine. It is here because it belongs to the engine family, as a second track of the project beside TF2's own path.
+`vaudio_miles` is not a Team Fortress 2 codec. It could be selected in the Source engines of 2006 and 2007; current TF2 ships its files and refuses the name. Its codec was checked against one sitting of the 2006 engine on 2026-11-13 (below). It is here because it belongs to the engine family, as a second track of the project beside TF2's own path.
 
 - **What it is.** The module wraps a plug-in of the Miles Sound System that holds Voxware's VR12, a codec made for 8000 Hz speech (read).
 - **The frame.** 360 samples are coded as 12 bytes (read; measured by running the module).
@@ -252,7 +252,9 @@ For Speex the build also computes as the module's compiler did: the module's ari
 
 **Standing.** Read on 2026-11-11 from the owner's files of Source SDK Base 2006 and 2007 and from the module TF2 ships, and measured by running the modules on signals of our own. A public implementation of VR12 gives the plug-in's packets on 2,505 of 2,505 frames, and 581,899 of 582,120 decoded samples are equal, the others one step off.
 
-**Not settled.** Nothing of a running engine with this codec has been recorded. How many frames a packet held, what the encoder's opening block was (the module does not set it), what a listener heard at a lost packet, and those engines' mixer and output are not known.
+**Against a running engine (measured 2026-11-13; the owner's sitting in Source SDK Base 2006, private).** With a 13 s clip of ours as `voice_input.wav` and `voice_recordtofile 1`, the game's captured input is the clip from its third sample on in every sample. A packet held one frame of 360 samples in 2,741 of 2,746 messages and two frames in the other five. The public implementation, reset once before the press, gives 143,796 of the game's 145,800 decoded samples exactly and 144,952 within one step. The frames further off (at most 32 steps) are the first two of the take and the first frames of the five sounds that follow a silence of 0.5 s or more; no sound after a pause of 0.44 s or less is off by more than one step. The second press of the sitting, at `voice_maxgain 10`, comes out in 143,913 of 145,800 samples after the gain rule of entry 6, when the receiver's codec is reset twice before it and the sender's once (measured; why twice was not read).
+
+**Not settled.** Why the first frames after a long silence differ: the public implementation, or the opening block the module does not set. What a listener heard at a lost packet, and those engines' mixer and output. The app's `miles` profile was not run against the sitting.
 
 **Record.** Finding 31, and [tests/LEGACY_CODECS.md](../tests/LEGACY_CODECS.md#vaudio_miles).
 

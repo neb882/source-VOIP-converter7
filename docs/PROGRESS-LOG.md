@@ -458,3 +458,33 @@ When phrases start: the speech take reads 47% of transitions right and a start e
 Replaced in `in_flight` (the entry "RP-01, the plan"):
 
 a planner is writing the order (branch claude/rp-01-plan), since 2026-11-13. One order for points (1), (3) and (5) of the outside read (ideas_not_started): a page a stranger can reproduce findings from on their own PC, with a script that prints the figures from their own file; the builds and file hashes behind the findings marked read (names, builds, dates and hashes only); and which of the game's recordings of the project's synthetic signals are published, how, and the amendment to the hard rule (decisions_in_force, 2026-11-12). The planner has no access to the recordings: it works from an inventory of sizes and formats. Every step that touches a private file is the orchestrator's. The orchestrator rules on the plan's open choices before any builder starts.
+
+## 2026-11-13, after the queue investigation, the plan review and the Miles sitting
+
+Replaced or removed (in_flight, "The queue after a restart (a private investigation)"):
+
+an investigator with access to the private record is at work, since 2026-11-13. From the private runs on W3-02c-2: at 300 frames a second a 'game' render's channel drops 82 to 173 ms when it opens (mean 116) where the game's log gave 55 to 136 (mean 104, finding 23), and at pauses of 420 and 440 ms the render restarts where the take more often appended. To find: which of the sender's packets at an opening, the mixer's pulls in the timeline, or the tick and frame clock differs from the logs and the Set D demo, and by how much; whether one read rule or one figure accounts for it. Numbers only come back. Its answer decides whether W3-02d may make 'game' the page's default as built, or a correction is ordered first.
+
+Replaced or removed (in_flight, RP-01, its state):
+
+planned and ruled on 2026-11-13 (docs/work-orders/RP-01-reproduce-it.md, section 14 holds the rulings); a plan review by a different model is next, then the builders' parts a and d
+
+Replaced or removed (next, W3-02d, the sentence added 2026-11-13):
+
+Added 2026-11-13: before 'game' becomes the page's default, the question of the queue after a restart (in_flight) is answered
+
+Replaced or removed (next, research track):
+
+the exact Miles decoder (the plug-in's two transforms), and a recording of an engine of 2006 or 2007 with sv_voicecodec vaudio_miles should the owner make one (docs/owner-runs.md).
+
+Replaced or removed (open_questions, "When phrases start"):
+
+When phrases start, after the private runs of 2026-11-13 on a render that runs the queue (the report docs/reports/W3-02c2-render-channel.md): the speech take reads 57% of transitions right and a start error of 99 ms (47% and 122 ms with the module on a block signal; 11% and 150 ms with no timing model); the network take 93% and 35 ms; Set D's sender take 58% and 82 ms. Open: why the render's queue runs out at a pause of 420 to 440 ms more often than the take's (in_flight). Part cannot be closed, since the sender's clock phase at the moment of speaking is not in a recording.
+
+Replaced or removed (open_questions, Miles):
+
+Miles (not in TF2): the exact decoder; the encoder's real start-up block; what a lost frame sounded like; no recording of a running engine.
+
+Replaced or removed (waiting_on_the_owner, the Miles take):
+
+2026-11-12, the owner: may record a vaudio_miles take in Source SDK Base 2006 or 2007 this weekend (docs/owner-runs.md has the procedure). One clean take of the test signal would settle the output chain and the opening block; a second with pauses, the resets. The owner was told which of the profile's stand-ins could be heard: on a plain render only the borrowed mixer and output could be.
