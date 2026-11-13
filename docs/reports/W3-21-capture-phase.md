@@ -314,5 +314,12 @@ seed's mean over its opened spurts with the lead less the same at lead 0):
 The shift does not vanish above 4915. So the second reader's cause (a part step failing the gate at the suite's level)
 is not shown by this run, and the shift stays not explained.
 
-**Checks of this round:** FIX_CHECKS
+**Checks of this round** (after merging `origin/main` at `4b0bf77`):
+- `node tests/run.mjs steam-sender voice-channel render-channel steam render-stream miles recordings reproduce site harness`
+  under the lock: `10 of 10 suites passed. 651.2 s summed`. In that run `120 steam sender checks passed` and
+  `142 voice channel checks passed`.
+- `node tests/cache-number.mjs origin/main --report`: `cache number against origin/main (beedc69): the number is v39, not above v39: it must rise (node tests/cache-number.mjs origin/main --set)`.
+- The diff and the commit messages were scanned again: nothing found apart from the attribution trailers and the
+  branch's name.
+- The CI result on this round's head is in the hand-back.
 
