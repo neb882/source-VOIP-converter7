@@ -100,7 +100,10 @@
 //     samples compared, samples equal and largest difference; gain runs on
 //     each voice_maxgain 1 file with the voice_maxgain 10 file of the same
 //     codec and a shared set (the Speex pair) and finds 0 samples differ
-//     before the last packet. Every sample of a published file outside what
+//     before the last packet. Each row's codec is the one its check runs
+//     (celt vaudio_celt, celt --high vaudio_celt_high, speex vaudio_speex),
+//     and every voice_maxgain 1 file sharing a set with a voice_maxgain 10
+//     file is in a gain pair. Every sample of a published file outside what
 //     its check compared is zero (the order's section 16). On a copy of the
 //     folder the suite makes: each file removed, one sample of each file
 //     moved by three steps, one sample of each file's part apart made 3, and
@@ -1225,6 +1228,10 @@ try {
     for (const row of rows) {
       const { problems, fig } = checkRow(row, published);
       const what = [row.check.name, ...row.check.options].join(' ');
+      // The codec the row names is the one its check runs: the pairs for
+      // gain are built from it.
+      const codec = row.check.name === 'celt' ? (row.check.options.includes('--high') ? 'vaudio_celt_high' : 'vaudio_celt') : row.check.name === 'speex' ? 'vaudio_speex' : null;
+      if (codec) check(`${row.name}: its row's codec, ${row.made_with.codec}, is the one ${what} runs`, row.made_with.codec === codec, `${what} runs ${codec}`);
       check(`${row.name}: ${what} is as expected with its row's count${fig && fig.equal !== undefined ? `, ${fmt(fig.equal)} of ${fmt(fig.compared)} equal at lag ${fig.lag}, largest ${fig.largest}` : ''}`,
         problems.length === 0, problems.join('; '));
       const there = fs.existsSync(path.join(published, row.name));
@@ -1233,6 +1240,14 @@ try {
         there && a.nonzero === 0 && a.length > 0 && row.check.lag + row.check.compared <= a.length, there ? `${a.nonzero} not zero` : 'no file');
     }
     check('gain has a pair to run on', pairs.length > 0, `${pairs.length} pairs`);
+    // Every voice_maxgain 1 file that shares a set with a voice_maxgain 10
+    // file, whatever codec its row names, is in a pair: a wrong codec in a
+    // row cannot drop one unseen.
+    const unpaired = voice.filter((one) => one.made_with.voice_maxgain === 1
+      && voice.some((ten) => ten.made_with.voice_maxgain === 10 && one.sets.some((s) => ten.sets.includes(s)))
+      && !pairs.some(([p]) => p === one));
+    check('every voice_maxgain 1 file that shares a set with a voice_maxgain 10 file is paired with it for gain (same codec)', unpaired.length === 0,
+      unpaired.map((r) => `${r.name} (${r.made_with.codec}) has no pair`).join('; ') || pairs.map(([o]) => o.name).join(', '));
     for (const [one, ten] of pairs) {
       const { problems, compared } = checkGain(one, ten, published);
       check(`gain ${one.name} ${ten.name}: as expected, 0 of ${compared} differ before the last packet`, problems.length === 0, problems.join('; '));
