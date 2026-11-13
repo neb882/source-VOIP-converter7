@@ -25,6 +25,19 @@
 //   gain    engineGain (tests/gain-exact.mjs's    a second route (receiverAutoGain against the
 //           transcription) on the CELT stand-in   transcription): the rule, the last packet apart, the
 //                                                 lengths within one packet
+//   ceiling a clamped tone rendered at volume     the reading of 16-bit, 24-bit and float stereo files,
+//           0.15 and 0.5 (TF2Audio.process)       the plateau found and its value counted, both pass
+//                                                 lines; the record's 4895 to 4896 and 16320 are the
+//                                                 render's 4896 and 16320 here (finding 30, as built)
+//   clock   a render with timeline 'game' at      the render, the line-up and the clock's verdicts:
+//           66.67 frames a second against the     the 'game' render drops one sample a packet as read,
+//           default render                        so its clock comes from the rule as built, not from
+//                                                 the game's output; a take 100 parts in a million
+//                                                 faster differs
+//   demo    a demo written here: libopus 1.1.5's  the reading of the frames, the rate records and the
+//           frames at Steam's settings in Steam's numbering, and that nothing of the header or a
+//           payload, numbered from 0 per phrase   SteamID is printed; one frame, record or number
+//                                                 changed differs
 //
 // [1] The list: every check by name, those not built yet saying so and
 //     exiting other than 0.
@@ -36,6 +49,15 @@
 //     apart in length), on stand-ins shifted by a sample and a packet,
 //     "differs" with the reason. celt also takes Set I's case with
 //     --any-rate.
+// [8] ceiling, [9] clock, [10] demo: each on its stand-in prints "as
+//     expected"; with the tops three steps up (and two), a sample three steps
+//     over the ceiling, a take 100 parts in a million faster, the stand-in
+//     judged at another packet rate, a phrase numbered from 7, a frame of
+//     another kind or a rate record of 48000, "differs"; on zeros, a voice
+//     too quiet to clamp, a take too short or unrelated, a demo with no voice,
+//     with one phrase or of vaudio_celt, "differs" with the reason. demo on
+//     tests/demo/synthetic.dem prints none of its header's fields, its print
+//     line or its SteamIDs.
 // [6] Nothing leaves the PC: the text of the script, of every file under
 //     tests/reproduce/, of the clips' generator, of every file a run loaded
 //     and of the engine's files holds no network module, child process,
@@ -45,9 +67,9 @@
 //     are replaced by functions that record a call and throw, and none is
 //     recorded. Both detectors are shown to catch what they look for.
 // [7] The output holds nothing of the files: the stand-ins lie in a folder,
-//     under names and with a header chunk that carry marker strings, and no
-//     marker appears in anything a run prints, passing, differing or
-//     refused.
+//     under names and with a header chunk that carry marker strings (the
+//     demos in their header's text fields and a printed line), and no marker
+//     appears in anything a run prints, passing, differing or refused.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -58,7 +80,10 @@ import { CHECKS } from './reproduce.mjs';
 import { clipSamples, clipWav } from './recordings/make-inputs.mjs';
 import { engineGain } from './gain-exact.mjs';
 import { EXPECTED, verdicts } from './reproduce/inputs.mjs';
-import { ENGINE_FILES } from './lib/engine.cjs';
+import { createRequire } from 'node:module';
+import { ENGINE_FILES, loadEngine } from './lib/engine.cjs';
+
+const TF2Reference = createRequire(import.meta.url)('../reference.js');
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -160,6 +185,90 @@ function wavBytes(samples, rate, extra = null) {
   const data = Buffer.alloc(8); data.write('data', 0, 'latin1'); data.writeUInt32LE(body.length, 4);
   return Buffer.concat([head.subarray(0, 36), chunk, data, body]);
 }
+// A recording of the output as a recorder writes it: channels (in 16-bit
+// steps) interleaved, as 16- or 24-bit integers or 32-bit floats.
+function writeOutput(name, channels, rate, bits, float = false) {
+  const n = channels[0].length, step = bits / 8, body = Buffer.alloc(n * channels.length * step);
+  for (let i = 0; i < n; i++) {
+    channels.forEach((c, k) => {
+      const o = (i * channels.length + k) * step;
+      if (float) body.writeFloatLE(c[i] / 32768, o);
+      else if (bits === 16) body.writeInt16LE(Math.max(-32768, Math.min(32767, c[i])), o);
+      else body.writeIntLE(Math.round(c[i] * 256), o, 3);
+    });
+  }
+  const head = Buffer.alloc(44);
+  head.write('RIFF', 0, 'latin1'); head.writeUInt32LE(36 + body.length, 4); head.write('WAVEfmt ', 8, 'latin1');
+  head.writeUInt32LE(16, 16); head.writeUInt16LE(float ? 3 : 1, 20); head.writeUInt16LE(channels.length, 22); head.writeUInt32LE(rate, 24);
+  head.writeUInt32LE(rate * channels.length * step, 28); head.writeUInt16LE(channels.length * step, 32); head.writeUInt16LE(bits, 34);
+  head.write('data', 36, 'latin1'); head.writeUInt32LE(body.length, 40);
+  const file = at(name);
+  fs.writeFileSync(file, Buffer.concat([head, body]));
+  return file;
+}
+
+// A SourceTV demo, as tests/demo.verify.mjs writes one: bits least
+// significant first, a header whose text fields carry markers, then one
+// packet frame per entry of network messages.
+class BitWriter {
+  constructor() { this.bytes = []; this.bit = 0; }
+  write(value, n) {
+    for (let i = 0; i < n; i++) {
+      if ((this.bit & 7) === 0) this.bytes.push(0);
+      if (Math.floor(value / 2 ** i) % 2) this.bytes[this.bytes.length - 1] |= 1 << (this.bit & 7);
+      this.bit++;
+    }
+  }
+  string(s) { for (const c of s) this.write(c.charCodeAt(0), 8); this.write(0, 8); }
+  data(u8) { for (const b of u8) this.write(b, 8); }
+}
+function crc32(d) {
+  let crc = 0xFFFFFFFF;
+  for (const b of d) { crc ^= b; for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1)); }
+  return (~crc) >>> 0;
+}
+// A Steam voice payload: the SteamID, a sample-rate record, the Opus frames
+// (or `silence` samples of a silence record), the CRC-32.
+function steamPayload(steamId, frames, rate = 24000, silence = 0) {
+  const body = [], id = Buffer.alloc(8);
+  id.writeBigUInt64LE(BigInt(steamId));
+  body.push(...id, 11, rate & 255, rate >> 8);
+  if (silence) body.push(0, silence & 255, silence >> 8);
+  else {
+    const opus = [];
+    for (const f of frames) {
+      if (f === 'end') { opus.push(0xFF, 0xFF); continue; }
+      opus.push(f.data.length & 255, f.data.length >> 8, f.seq & 255, f.seq >> 8, ...f.data);
+    }
+    body.push(6, opus.length & 255, opus.length >> 8, ...opus);
+  }
+  const crc = crc32(body);
+  body.push(crc & 255, (crc >>> 8) & 255, (crc >>> 16) & 255, crc >>> 24);
+  return Uint8Array.from(body);
+}
+function demoFile(packets) {
+  const header = Buffer.alloc(1072);
+  header.write('HL2DEMO', 0, 'latin1'); header.writeInt32LE(3, 8); header.writeInt32LE(24, 12);
+  header.write(`${MARK}-Server`, 16, 'latin1'); header.write(`${MARK}-Nick`, 276, 'latin1');
+  header.write(`${MARK}-Map`, 536, 'latin1'); header.write(`${MARK}-Game`, 796, 'latin1');
+  header.writeFloatLE(123.25, 1056); header.writeInt32LE(8217, 1060); header.writeInt32LE(packets.length, 1064);
+  const parts = [header];
+  for (const { tick, messages } of packets) {
+    const w = new BitWriter();
+    for (const m of messages) m(w);
+    const data = Uint8Array.from(w.bytes), frame = Buffer.alloc(1 + 4 + 84 + 4 + data.length);
+    frame[0] = 2; frame.writeInt32LE(tick, 1); frame.writeUInt32LE(data.length, 89); frame.set(data, 93);
+    parts.push(frame);
+  }
+  parts.push(Buffer.from([7, 0, 0, 0, 0]));
+  return Buffer.concat(parts);
+}
+const demoMsg = {
+  print: (text) => (w) => { w.write(7, 6); w.string(text); },
+  voiceInit: (codec) => (w) => { w.write(14, 6); w.string(codec); w.write(255, 8); w.write(codec === 'steam' ? 24000 : 22050, 16); },
+  voice: (client, payload) => (w) => { w.write(15, 6); w.write(client, 8); w.write(0, 8); w.write(payload.length * 8, 16); w.data(payload); }
+};
+
 function writeWav(name, samples, rate, extra) {
   const file = at(name);
   fs.writeFileSync(file, wavBytes(samples, rate, extra));
@@ -207,8 +316,8 @@ try {
     const built = CHECKS.filter((c) => c.run).map((c) => c.name), later = CHECKS.filter((c) => !c.run).map((c) => c.name);
     const named = CHECKS.every((c) => new RegExp(`^  ${c.name} `, 'm').test(r.out));
     check('node tests/reproduce.mjs lists every check by name and exits 0', r.status === 0 && named, `${CHECKS.length} checks`);
-    check('the built checks are inputs, gain, celt and speex; hold, gate, queue, ceiling, clock and demo are listed as not built yet',
-      built.join(' ') === 'inputs gain celt speex' && later.join(' ') === 'hold gate queue ceiling clock demo'
+    check('the built checks are inputs, gain, celt, speex, ceiling, clock and demo; hold, gate and queue are listed as not built yet',
+      built.join(' ') === 'inputs gain celt speex ceiling clock demo' && later.join(' ') === 'hold gate queue'
       && later.every((n) => new RegExp(`^  ${n} +not built yet: `, 'm').test(r.out)));
     const bad = later.map((n) => [n, run(n)]).filter(([n, x]) => x.status === 0 || !x.out.includes(`${n}: not built yet`));
     check('each check not built yet prints "<check>: not built yet" and exits other than 0', bad.length === 0, bad.map(([n]) => n).join(', '));
@@ -388,6 +497,180 @@ try {
     }
   }
 
+  // The checks on a recording of the PC's output and on a demo. The engine,
+  // as tests/reference.verify.mjs loads it, makes their stand-ins.
+  const engine = loadEngine({ codec: await import(pathToFileURL(path.join(root, 'opus-codec.mjs')).href) }), A = engine.audio;
+  globalThis.TF2Audio = A;
+  const asBuffer = (x, rate) => ({ sampleRate: rate, length: x.length, numberOfChannels: 1, getChannelData: () => x });
+
+  console.log('\n[8] ceiling');
+  {
+    // A 1 kHz tone at 0.3 of full scale with pauses: the receiver's gain
+    // clamps it, so the render's flat tops are the voice's top in the mix.
+    const sr = 48000, tone = Float32Array.from({ length: 4 * sr }, (_, i) => (i % sr < .7 * sr && i > .2 * sr ? .3 * Math.sin(2 * Math.PI * 1000 * i / sr) : 0));
+    const at15 = (await A.process(asBuffer(tone, sr), { codec: 'steam', volume: 0.15 })).samples, at5 = (await A.process(asBuffer(tone, sr), { codec: 'steam', volume: 0.5 })).samples;
+    const steps = (y) => Float64Array.from(y, (v) => Math.round(v * 32768));
+    const s15 = steps(at15), s5 = steps(at5);
+    const f15 = writeOutput('ceiling_015.wav', [s15, s15], sr, 24);
+    const r = run('ceiling', f15, '--volume', '0.15');
+    check('on its stand-in (a clamped tone rendered at volume 0.15, written as 24-bit stereo): as expected, flat tops at 4,896 of 4,895.85, largest 4,896 under 4,915',
+      passes(r) && /flat tops at 4,896, expected 4895\.85 within one step: as expected/.test(r.out) && /largest sample 4,896, expected at most 4,915 within one step: as expected/.test(r.out), show(r));
+    const r5 = run('ceiling', writeOutput('ceiling_05.wav', [s5], sr, 16), '--volume', '0.5');
+    check('... at volume 0.5, written as 16-bit mono: as expected, flat tops at 16,320 under 16,384',
+      passes(r5) && /flat tops at 16,320, expected 16319\.50/.test(r5.out) && /expected at most 16,384/.test(r5.out), show(r5));
+    check('... written as 32-bit float: as expected', passes(run('ceiling', writeOutput('ceiling_float.wav', [s15], sr, 32, true), '--volume', '0.15')));
+    const up = Float64Array.from(s15, (v) => (Math.abs(v) === 4896 ? v + 3 * Math.sign(v) : v));
+    const high = run('ceiling', writeOutput('ceiling_top3.wav', [up], sr, 16), '--volume', '0.15');
+    check('the flat tops moved three steps up (4,899): differs, naming the volume they give', fails(high, /flat tops are not at 32639 x volume: they give a volume of 0\.1501/) && /flat tops at 4,899, expected 4895\.85 within one step: differs/.test(high.out), show(high));
+    const up2 = Float64Array.from(s15, (v) => (Math.abs(v) === 4896 ? v + 2 * Math.sign(v) : v));
+    check('... two steps up (4,898), still outside one step: differs', fails(run('ceiling', writeOutput('ceiling_top2.wav', [up2], sr, 16), '--volume', '0.15'), /flat tops are not at 32639 x volume/));
+    const spike = Float64Array.from(s15); spike[sr] = 4918;
+    const over = run('ceiling', writeOutput('ceiling_over.wav', [spike], sr, 16), '--volume', '0.15');
+    check('one sample three steps over the ceiling (4,918): differs, "pass the game\'s ceiling"', fails(over, /pass the game's ceiling/) && /largest sample 4,918, expected at most 4,915/.test(over.out), show(over));
+    const wrong = run('ceiling', f15, '--volume', '0.2');
+    check('the stand-in at 0.15 checked as volume 0.2: differs', fails(wrong, /--volume is not the game's value|flat tops are not at 32639 x volume/), show(wrong));
+    const zero = run('ceiling', writeOutput('ceiling_zeros.wav', [new Float64Array(sr)], sr, 16), '--volume', '0.15');
+    check('a file of zeros: differs, "no sound"', fails(zero, /no sound/), show(zero));
+    const quiet = Float64Array.from((await A.process(asBuffer(Float32Array.from(tone, (v) => v / 10), sr), { codec: 'steam', volume: 0.15, maxGain: 1 })).samples, (v) => Math.round(v * 32768));
+    const unclamped = run('ceiling', writeOutput('ceiling_quiet.wav', [quiet], sr, 16), '--volume', '0.15');
+    check('a voice too quiet to be clamped (the tone at a tenth, voice_maxgain 1): differs, "no flat top"', fails(unclamped, /no flat top/), show(unclamped));
+    const noVolume = run('ceiling', f15);
+    check('no --volume: cannot check, exit 2', noVolume.status === 2 && /give --volume/.test(noVolume.out), show(noVolume));
+  }
+
+  console.log('\n[9] clock');
+  {
+    // A speech-like source (shaped noise and gliding harmonics in syllables)
+    // in phrases of 8 s with pauses of 1.5 s, 30 s at 48000 Hz, made 16-bit
+    // as the file is. Its stand-in take is the render that runs the game's
+    // voice channel (timeline 'game'), which drops one sample from every
+    // packet, at 66.67 frames a second, where the channel's wait drops
+    // nothing (finding 23); the check renders the source by default.
+    const sr = 48000, seconds = 30;
+    let seed = 11, lp = 0;
+    const random = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296) * 2 - 1;
+    const src = new Float32Array(sr * seconds);
+    for (let i = 0; i < src.length; i++) {
+      const t = i / sr;
+      if (t < .5 || t % 9.5 >= 8) continue;
+      const syllable = Math.floor(t / .23), f0 = 110 + 40 * Math.sin(t * 1.3) + 15 * (syllable % 4);
+      lp += .3 * (random() - lp);
+      let v = .25 * lp;
+      for (let h = 1; h <= 12; h++) v += Math.sin(2 * Math.PI * f0 * h * t + h) / (h + 1);
+      src[i] = Math.round(.12 * Math.sin(Math.PI * ((t / .23) % 1)) ** 2 * v * 32768) / 32768;
+    }
+    const game = await A.process(asBuffer(src, sr), { codec: 'steam', timeline: 'game', fps: 66.67, seed: 2 });
+    const take = Float64Array.from(game.samples, (v) => Math.round(v * 32768)), source = Float64Array.from(src, (v) => v * 32768);
+    // The stand-in's packets a second, as the page has the stranger count
+    // them: packets over the seconds their decoded sound lasts.
+    const ch = game.codecInfo.channel, played = ch.spurts.reduce((n, s) => n + s.end - s.start, 0), packetsPerSecond = +(ch.packets / played).toFixed(1);
+    const fTake = writeOutput('clock_take.wav', [take, take], sr, 24), fSource = writeOutput('clock_source.wav', [source], sr, 16);
+    const r = run('clock', fTake, fSource);
+    const clockOf = (x) => Number(((/plays ([+-][\d,]+) parts/.exec(x.out) || [])[1] || '').replace(/,/g, ''));
+    check('on its stand-in (a \'game\' render at 66.67 frames a second against the default render): as expected, within the record\'s +397 to +416',
+      passes(r) && /expected \+397 to \+416/.test(r.out), `${show(r)}; clock ${clockOf(r)}`);
+    const withPackets = run('clock', fTake, fSource, '--packets', String(packetsPerSecond));
+    check(`... with --packets ${packetsPerSecond}, the stand-in's own packets a second: as expected, judged around ${packetsPerSecond} over 44100`,
+      passes(withPackets) && new RegExp(`${packetsPerSecond} packets a second over 44100 is`).test(withPackets.out), show(withPackets));
+    // The take on a clock 100 parts in a million faster still.
+    const fast = TF2Reference.warp(Float32Array.from(take), sr, { offsetSeconds: 0, scale: 0.9999 }, sr, take.length);
+    const fFast = writeOutput('clock_fast.wav', [Float64Array.from(fast, Math.round)], sr, 16);
+    const quick = run('clock', fFast, fSource);
+    check('the take made 100 parts in a million faster: differs, outside the record\'s range, asking for --packets', fails(quick, /outside the record's range: .*--packets/) && clockOf(quick) > 416, `${show(quick)}; clock ${clockOf(quick)}`);
+    const quick2 = run('clock', fFast, fSource, '--packets', String(packetsPerSecond));
+    check('... and with --packets: differs', fails(quick2, /is not about/), show(quick2));
+    const wrongRate = run('clock', fTake, fSource, '--packets', '22.3');
+    check('the stand-in judged at 22.3 packets a second (+506): differs', fails(wrongRate, /is not about 22\.3 packets/), show(wrongRate));
+    const zero = run('clock', writeOutput('clock_zeros.wav', [new Float64Array(10 * sr)], sr, 16), fSource);
+    check('a recording of zeros: differs, "no sound"', fails(zero, /file 1 holds no sound/), show(zero));
+    const short = run('clock', writeOutput('clock_short.wav', [take.slice(0, 7 * sr)], sr, 16), fSource);
+    check('a recording of its first 7 s: differs, too few windows line up', fails(short, /one-second windows line up, fewer than 20/), show(short));
+    const shorter = run('clock', writeOutput('clock_shorter.wav', [take.slice(0, 5 * sr)], sr, 16), fSource);
+    check('a recording of its first 5 s, too short for a clock: differs, the windows span too little time', fails(shorter, /span too little time/), show(shorter));
+    const other = Float64Array.from({ length: take.length }, () => Math.round(3000 * random()));
+    const unrelated = run('clock', writeOutput('clock_unrelated.wav', [other], sr, 16), fSource);
+    check('a recording of something else (noise): differs, "does not line up"', fails(unrelated, /does not line up/), show(unrelated));
+    const silentSource = run('clock', fTake, writeOutput('clock_source_zeros.wav', [new Float64Array(sr)], sr, 16));
+    check('a source of zeros: differs, "no sound"', fails(silentSource, /file 2 holds no sound/), show(silentSource));
+  }
+
+  console.log('\n[10] demo');
+  {
+    // A SourceTV demo written here as the server writes one: Steam voice
+    // messages of a SteamID in universe 0 (no account can have it), a
+    // sample-rate record and Opus frames from libopus 1.1.5 at Steam's
+    // settings, three frames a message (eight in a phrase's first), numbered
+    // from 0 in each phrase, an end marker and a silence record after each.
+    // The header's text fields carry marker strings.
+    const { createEncoder, Application, Signal } = await import(pathToFileURL(path.join(root, 'vendor', 'libopus-1.1', 'index.mjs')).href);
+    const encoder = await createEncoder({ sampleRate: 24000, channels: 1, application: Application.Voip, bitrate: 32000, signal: Signal.Voice, dtx: true, complexity: 9 });
+    let seed = 5, lp = 0;
+    const random = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296) * 2 - 1;
+    const phrase = (n, quietFrom) => Array.from({ length: n }, (_, f) => encoder.encodeFloat(Float32Array.from({ length: 480 }, (_, i) => {
+      const t = (f * 480 + i) / 24000;
+      lp += .3 * (random() - lp);
+      let v = .25 * lp;
+      for (let h = 1; h < 10; h++) v += Math.sin(2 * Math.PI * (120 + 30 * Math.sin(t * 2)) * h * t) / (h + 1);
+      return f >= quietFrom ? 0 : .15 * v * Math.sin(Math.PI * ((t / .23) % 1)) ** 2;
+    })));
+    const phrases = [phrase(60, 40), phrase(45, 99), phrase(30, 99)];
+    encoder.free();
+    const ID = '4503603922337795';
+    const messagesOf = (frames, { firstSeq = 0, rate = 24000, end = true } = {}) => {
+      const out = [];
+      for (let k = 0; k < frames.length;) {
+        const n = k === 0 ? 8 : 3, part = frames.slice(k, k + n).map((data, j) => ({ seq: (firstSeq + k + j) & 0xFFFF, data }));
+        k += n;
+        if (k >= frames.length && end) part.push('end');
+        out.push(steamPayload(ID, part, rate));
+      }
+      if (end) out.push(steamPayload(ID, [], rate, 1500));
+      return out;
+    };
+    const demoOf = (phraseMessages, options = {}) => {
+      const packets = [{ tick: 50, messages: [demoMsg.print(`${MARKERS[1]} joined the game`), demoMsg.voiceInit(options.codec || 'steam')] }];
+      let tick = 100;
+      for (const list of phraseMessages) { for (const m of list) { packets.push({ tick, messages: [demoMsg.voice(1, m)] }); tick += 4; } tick += 60; }
+      return demoFile(packets);
+    };
+    const writeDemo = (name, bytes) => { const f = at(name); fs.writeFileSync(f, bytes); return f; };
+    const good = writeDemo('standin.dem', demoOf(phrases.map((p) => messagesOf(p))));
+    const r = run('demo', good);
+    const oneByte = phrases.flat().filter((p) => p.length === 1).length, frames = phrases.flat().length;
+    check(`on its stand-in (three phrases, ${frames} frames, ${oneByte} of one byte): as expected, every frame of the kind, every message 24000 Hz, 2 of 2 phrases after an end marker at 0`,
+      passes(r) && new RegExp(`TOC configuration 13\\): ${frames} of ${frames}, expected all: as expected`).test(r.out) && new RegExp(`one-byte frames \\(the encoder sent no sound\\): ${oneByte} of ${frames}`).test(r.out)
+      && /numbered 0: 2 of 2, expected all: as expected/.test(r.out) && oneByte > 0, show(r));
+    const late = run('demo', writeDemo('standin_seq7.dem', demoOf([messagesOf(phrases[0]), messagesOf(phrases[1], { firstSeq: 7 }), messagesOf(phrases[2])])));
+    check('the second phrase numbered from 7: differs, 1 of 2 at 0', fails(late, /1 phrase after an end marker does not start at frame number 0/) && /numbered 0: 1 of 2/.test(late.out), show(late));
+    const silk = phrases.map((p) => p.map((d) => d.slice()));
+    silk[1][5][0] = (9 << 3);   // SILK, 16 kHz band, 20 ms: another kind of frame
+    const other = run('demo', writeDemo('standin_silk.dem', demoOf(silk.map((p) => messagesOf(p)))));
+    check('one frame\'s TOC made SILK-only: differs, 1 frame not of the kind', fails(other, /1 frame is not a 20 ms hybrid Opus frame/), show(other));
+    const stereo = phrases.map((p) => p.map((d) => d.slice()));
+    stereo[2][3][0] |= 4;   // the same configuration, marked as two channels
+    const two = run('demo', writeDemo('standin_stereo.dem', demoOf(stereo.map((p) => messagesOf(p)))));
+    check('one frame\'s TOC marked two channels: differs', fails(two, /1 frame is not a 20 ms hybrid Opus frame/), show(two));
+    const r48 = run('demo', writeDemo('standin_48k.dem', demoOf([messagesOf(phrases[0]), messagesOf(phrases[1], { rate: 48000 }), messagesOf(phrases[2])])));
+    check('one phrase\'s messages with a sample-rate record of 48000: differs', fails(r48, /15 voice messages do not carry one sample-rate record of 24000 Hz/), show(r48));
+    const none = run('demo', writeDemo('novoice.dem', demoOf([])));
+    check('a demo with no voice: differs, "no voice"', fails(none, /holds no voice/), show(none));
+    const one = run('demo', writeDemo('onephrase.dem', demoOf([messagesOf(phrases[0])])));
+    check('a demo of one phrase, nothing after its end marker: differs, the numbering cannot be shown', fails(one, /no phrase follows an end marker/), show(one));
+    const celt = run('demo', writeDemo('celt.dem', demoOf([[Uint8Array.from({ length: 64 }, (_, i) => i)]], { codec: 'vaudio_celt' })));
+    check('a demo of vaudio_celt: differs, naming the codec', fails(celt, /voice is vaudio_celt/), show(celt));
+    const notDemo = run('demo', writeDemo('not-a-demo.dem', Buffer.from(`${MARKERS[1]} said hello\n`)));
+    check('a file that is not a demo: differs', fails(notDemo, /not a Source demo/), show(notDemo));
+    // tests/demo/synthetic.dem: two speakers, numbers from 100 and 7, a lost
+    // frame. Its header's fields and its SteamIDs must not be printed.
+    const fixture = path.join(here, 'demo', 'synthetic.dem');
+    const syn = run('demo', fixture);
+    const secrets = ['Synthetic test', 'ctf_2fort', '4503603922337793', '4503603922337794', 'hello'];
+    check('tests/demo/synthetic.dem: read, a verdict given (differs: its second phrase is numbered from 7), and none of its header fields, its print or its SteamIDs printed',
+      fails(syn) && secrets.every((x) => !syn.out.includes(x)) && /voice messages read: 5 of 6/.test(syn.out), show(syn));
+    const leaked = runs.filter((x) => x.out.includes(ID) || secrets.some((s) => x.out.includes(s)));
+    check('no run of this suite prints a SteamID of the stand-ins or a header field of the fixture', leaked.length === 0, leaked.map((x) => x.args).join('; '));
+  }
+
   console.log('\n[6] Nothing leaves the PC');
   {
     const MODS = 'net|dns|dgram|http|https|http2|tls|child_process|worker_threads|cluster|inspector';
@@ -409,8 +692,9 @@ try {
     for (const f of loaded) files.add(f);
     for (const f of ENGINE_FILES) files.add(path.join(root, f));
     const outside = loaded.filter((f) => path.relative(root, f).startsWith('..'));
-    const named = ['tests/reproduce/gain-compare.mjs', 'tests/lib/engine.cjs', 'opus-codec.mjs', 'vendor/celt-0.11/index.mjs', 'vendor/speex-1.0.2/index.mjs'];
-    check('the guard\'s log names the modules the checks load (the comparison of the gain, the engine\'s loader, the codec module, CELT and Speex), all in the repository',
+    const named = ['tests/reproduce/gain-compare.mjs', 'tests/lib/engine.cjs', 'opus-codec.mjs', 'vendor/celt-0.11/index.mjs', 'vendor/speex-1.0.2/index.mjs',
+      'reference.js', 'demo.js'];
+    check('the guard\'s log names the modules the checks load (the comparison of the gain, the engine\'s loader, the codec module, CELT, Speex, the real-take check\'s reference.js and demo.js), all in the repository',
       named.every((f) => loaded.includes(path.join(root, f))) && outside.length === 0 && !loaded.includes(path.join(here, 'gain-exact.mjs')),
       outside.length ? `outside: ${outside.length}` : `${loaded.length} files loaded`);
     const found = [...files].map((f) => [path.relative(root, f), scan(fs.readFileSync(f, 'latin1'))]).filter(([, w]) => w.length);
