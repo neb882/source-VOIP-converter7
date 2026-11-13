@@ -1643,6 +1643,41 @@ async function liveSteamSection() {
         && peakAbs(runs.undefined[2]) > 0.05);
     }
   }
+  // W3-21: the capture's lead moves the steps, not the sound. For seeds 1 to 20, a speech-like
+  // source at 44.1 kHz: where the gain's output (the mix point) lies against the source, by
+  // correlation within 60 samples and a parabola through the peak, in process(), createRender
+  // (blocks of 4096) and the live chain (blocks of 441). Measured on main before W3-21 (every
+  // seed: 23.804 samples in the renders, 23.902 in the live chain); with the lead each lies
+  // within a sample of that (23.66 to 24.70 measured): the spurts' anchors are rounded to the
+  // voice rate's samples (round((start - lookahead) x 147 / 80)), where a start that is no
+  // longer on the 31.25 ms grid falls between them (inferred). A shift by the lead would be up
+  // to 749 x 147 / 80 = 1,376 samples.
+  {
+    const SR = 44100, src = speechLike(4, SR, -20), lags = [];
+    const lagOf = (y) => {
+      const at = (d) => { let dot = 0; for (let i = SR / 2; i < Math.min(src.length, y.length) - SR / 2; i++) dot += src[i] * y[i + d]; return dot; };
+      let best = -Infinity, k = 0;
+      for (let d = -60; d <= 60; d++) { const v = at(d); if (v > best) { best = v; k = d; } }
+      if (Math.abs(k) === 60) return Infinity;
+      const a = at(k - 1), b = best, e = at(k + 1);
+      return k + 0.5 * (a - e) / (a - 2 * b + e);
+    };
+    for (let seed = 1; seed <= 20; seed++) {
+      const g1 = [], g2 = [], g3 = [];
+      await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam', seed, onGain: (g) => g1.push(Float32Array.from(g)) });
+      const r = await TF2Audio.createRender({ sampleRate: SR, length: src.length, numberOfChannels: 1 }, { codec: 'steam', seed, onGain: (g) => g2.push(Float32Array.from(g)) });
+      for (let o = 0; o < src.length; o += 4096) await r.push(src.subarray(o, o + 4096));
+      await r.finish();
+      const chain = await TF2Audio.createLiveChain({ codec: 'steam', seed, onGain: (g) => { if (g.length) g3.push(Float32Array.from(g)); } }, SR);
+      try { for (let o = 0; o < src.length; o += 441) await chain.process(src.subarray(o, o + 441)); } finally { chain.free(); }
+      lags.push([lagOf(join(g1)), lagOf(join(g2)), lagOf(join(g3))]);
+    }
+    const MAIN = [23.804, 23.804, 23.902];
+    const off = lags.flatMap((l) => l.map((v, k) => v - MAIN[k]));
+    check('seeds 1 to 20: the render, the stream render and the live chain lie at the mix point within one sample of where they lay before W3-21 (the capture\'s lead moves no sound)',
+      off.every((d) => Math.abs(d) < 1) && lags.every(([a, b]) => a === b),
+      `${Math.min(...lags.flat()).toFixed(3)} to ${Math.max(...lags.flat()).toFixed(3)} samples; before: 23.804, 23.804 and 23.902`);
+  }
   // steam_48 keeps the frame path: its live output is pinned bit for bit.
   // The hashes were made on main before W3-11b (2026-11-10) and re-recorded
   // by W3-10, whose stages after the mix point change every sample (the
