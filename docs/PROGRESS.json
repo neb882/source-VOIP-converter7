@@ -16,17 +16,17 @@
     },
     {
       "order": "W3-21",
-      "state": "a builder is at work since 2026-11-13 (branch claude/w3-21-capture-phase); it stopped once and was ruled on (the order's last section)",
+      "state": "built 2026-11-13 (branch claude/w3-21-capture-phase, CI green); a reviewer and a second reader are at work. The builder's point for judgment: the render's sound lies within one sample of main's place, not at the same whole sample in every seed",
       "note": "The sender's capture steps take the phase its clock already draws. With the lead forced to 0 every recorded value comes back (measured by the builder), so nothing but the phase moves. After it merges: the orchestrator's private runs on a 'game' render again, at Steam's own threshold."
     },
     {
       "order": "W3-22",
-      "state": "a builder is at work since 2026-11-13 (branch claude/w3-22-miles-words)",
+      "state": "the builder stopped on seven places the order did not list; ruled on 2026-11-13 (the order's last section) and resumed (branch claude/w3-22-miles-words)",
       "note": "words only: the sentence that the codec was never checked against a running engine is replaced in the page, the README, the record, the vendored codec's README, three comments and the suite that pins it; the sitting entered in the record; the profile's behaviour is left (the receiver's two resets before a second press are measured, not read). The cache number rises at its merge; it merges after or before W3-21, one at a time."
     },
     {
       "order": "RP-01d",
-      "state": "a builder is at work since 2026-11-13 (branch claude/rp-01d-files-and-manifest)",
+      "state": "built 2026-11-13 (branch claude/rp-01d-files-and-manifest, CI green); a reviewer is at work. Then part e, the orchestrator's",
       "note": "The table of the files the read findings were read from (the cells the public reports give; the orchestrator's cells pending), the manifest's frame with no rows, tests/recordings/inspect.mjs, the suite recordings, and the new wording of the hard rule written out for part e. The orchestrator hashed and dated the private files for its cells on 2026-11-13 (kept privately until part e)."
     }
   ],
