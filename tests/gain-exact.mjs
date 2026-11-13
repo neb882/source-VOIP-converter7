@@ -11,6 +11,10 @@
 //     the last 512, and exits non-zero unless the first count is 0. It prints
 //     nothing of the recordings but those counts.
 //
+//   node tests/gain-exact.mjs --files <gain 1 file> <gain 10 file>
+//     The same check on two files given by path (exactCheck). The comparison
+//     itself is exported (compareGain) for tests/reproduce/gain.mjs.
+//
 //   node tests/gain-exact.mjs --synthetic
 //     The same check on two files it makes in a temporary folder: a seeded
 //     signal, and the engine's rule (the transcription below) applied to it,
@@ -120,19 +124,34 @@ function find(folder, name) {
 
 const PACKET = 512;
 
-function exactCheck(folder) {
-  const gain1 = readWav(find(folder, 'celt_gain1.wav')), gain10 = readWav(find(folder, 'celt_gain10.wav'));
-  if (gain1.rate !== 22050 || gain10.rate !== 22050) throw new Error('the files are not at 22050 Hz');
-  if (gain1.samples.length !== gain10.samples.length) throw new Error(`the files differ in length (${gain1.samples.length} and ${gain10.samples.length} samples)`);
-  const n = gain1.samples.length, body = n - PACKET;
+// The comparison on two files' samples (Int16Arrays of one length): the
+// engine's receiverAutoGain at voice_maxgain 10 run on gain1, rounded back
+// to 16 bits, against gain10. Counts the samples that differ before the last
+// `packet` samples and in them, and the samples before them that the gain
+// changed (where it is not 1). tests/reproduce/gain.mjs calls it with the
+// samples it read itself.
+export function compareGain(gain1, gain10, packet = PACKET) {
+  if (gain1.length !== gain10.length) throw new Error(`the files differ in length (${gain1.length} and ${gain10.length} samples)`);
+  const n = gain1.length, body = n - packet;
   const A = loadEngine();
-  const x = Float32Array.from(gain1.samples, v => v / 32768);
+  const x = Float32Array.from(gain1, v => v / 32768);
   const y = A.receiverAutoGain(x, { maxGain: 10, avgGain: 0.5, scale: 1 });
-  let before = 0, last = 0;
+  let before = 0, last = 0, changed = 0;
   for (let i = 0; i < n; i++) {
-    if (Math.round(y[i] * 32768) === gain10.samples[i]) continue;
+    const v = Math.round(y[i] * 32768);
+    if (i < body && v !== gain1[i]) changed++;
+    if (v === gain10[i]) continue;
     if (i < body) before++; else last++;
   }
+  return { before, last, body, packet, changed };
+}
+
+// Set H's check on two files given by path: gain1 at voice_maxgain 1, gain10
+// at 10, both 22050 Hz and of one length.
+export function exactCheck(gain1File, gain10File) {
+  const gain1 = readWav(gain1File), gain10 = readWav(gain10File);
+  if (gain1.rate !== 22050 || gain10.rate !== 22050) throw new Error('the files are not at 22050 Hz');
+  const { before, last, body } = compareGain(gain1.samples, gain10.samples);
   console.log(`samples that differ before the last ${PACKET}: ${before} of ${body}`);
   console.log(`samples that differ in the last ${PACKET}: ${last} of ${PACKET}`);
   return before === 0;
@@ -179,11 +198,14 @@ function synthetic() {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const args = process.argv.slice(2), at = args.indexOf('--takes');
+  const args = process.argv.slice(2), at = args.indexOf('--takes'), files = args.indexOf('--files');
   try {
     if (args.includes('--synthetic')) process.exitCode = synthetic() ? 0 : 1;
-    else if (at >= 0 && args[at + 1]) process.exitCode = exactCheck(path.resolve(args[at + 1])) ? 0 : 1;
-    else { console.error('usage: node tests/gain-exact.mjs --takes <takes folder> | --synthetic'); process.exitCode = 2; }
+    else if (at >= 0 && args[at + 1]) {
+      const folder = path.resolve(args[at + 1]);
+      process.exitCode = exactCheck(find(folder, 'celt_gain1.wav'), find(folder, 'celt_gain10.wav')) ? 0 : 1;
+    } else if (files >= 0 && args[files + 2]) process.exitCode = exactCheck(path.resolve(args[files + 1]), path.resolve(args[files + 2])) ? 0 : 1;
+    else { console.error('usage: node tests/gain-exact.mjs --takes <takes folder> | --files <gain 1 file> <gain 10 file> | --synthetic'); process.exitCode = 2; }
   } catch (error) {
     console.error(`gain-exact: ${error.message}`);
     process.exitCode = 1;
