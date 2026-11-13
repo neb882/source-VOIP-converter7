@@ -113,15 +113,24 @@
     return true;
   }
 
+  // The game's timeline: once the sender has been given `given` samples and
+  // its messages up to the tick `lastTick` (-1 for none), no later message
+  // has a tick below this (createRender's bound, W3-02c-2; its reasoning is
+  // there). With every sample given and every message made it is the render's
+  // last tick, which process() and createRender both advance the channel to
+  // before finish(), so that both ask the arrival of the same ticks (BC-4a's
+  // fix round, point 2). S is the sender's STEAM_SENDER.
+  const steamBoundTick = (S, lastTick, given) => Math.max(lastTick + 1, Math.ceil((given / S.rate + S.relay) / S.tick));
+
   // opts.arriveAt (BC-4): tests and replays only (the page never sends it),
   // a function (tick) => the tick on which the message the sender gave that
   // tick reaches the voice channel, in place of the arrival model: how a
   // log's own arrival ticks are replayed. It runs on the game's timeline
   // only (game: what steamGameTimeline decided); anywhere else, and for
   // anything but a function, a RangeError, never ignored. undefined and null
-  // are none. The channel calls it with ticks that never fall, for each
-  // message and for createRender's bounds; what it gives is checked there
-  // (steamChannel).
+  // are none. The channel asks it for every whole tick from 0 to the
+  // render's last tick, once each and in order, in process() and
+  // createRender alike; what it gives is checked there (steamChannel).
   function steamArriveAt(value, game) {
     if (value === undefined || value === null) return null;
     if (typeof value !== 'function') throw new RangeError(`TF2Audio: opts.arriveAt is a function (tick) => tick, not a ${typeof value}.`);
@@ -157,9 +166,13 @@
   // a tick reaches the channel (steamArrivalPlan's at: the arrival model, or
   // opts.arriveAt). It is used in the two places a tick reaches the module:
   // push(tick) pushes at arrive(tick), and advance(tick) (createRender's
-  // bound: no later message has a sender tick below it) advances to
-  // arrive(tick), which is a bound too, since arrive never falls. What it
-  // gives must be a whole number that never falls, or a RangeError.
+  // bound: no later message has a sender tick below it; and both renderers'
+  // last tick, before finish()) advances to arrive(tick), which is a bound
+  // too, since arrive never falls. arrive is asked for every whole tick from
+  // 0 up to the highest asked so far, once each and in order, whatever ticks
+  // the messages and the bounds fall on, so process() and createRender ask it
+  // the same ticks (the fix round of BC-4a, point 2). What it gives must be a
+  // whole number, 0 or more, that never falls, or a RangeError.
   // arrivals() counts the messages pushed (lost ones never are): { messages,
   // meanMs, maxMs, sameTick }, the delays arrive(tick) - tick at 15 ms a
   // tick and how many came on the tick of the message before; null without
@@ -167,14 +180,20 @@
   function steamChannel({ length, lookahead, fps, bufferMs, autoGain, avgGain, maxGain, voiceScale, arrive = null }) {
     const { createTimeline } = steamChannelModule();
     let lastArrival = -Infinity, messages = 0, sumTicks = 0, maxTicks = -Infinity, sameTick = 0;
+    const answers = [];   // arrive's answer for each tick from 0, asked in order
     const at = (tick) => {
       if (!arrive) return tick;
-      const a = arrive(tick);
-      if (!Number.isInteger(a) || a < lastArrival) {
-        throw new RangeError(`TF2Audio: an arrival tick is a whole number that never falls; tick ${tick} arrived on ${a} after ${lastArrival} (opts.arriveAt or the arrival model).`);
+      if (!Number.isInteger(tick) || tick < 0) throw new RangeError(`TF2Audio: the channel takes whole ticks from 0, not ${tick}.`);
+      while (answers.length <= tick) {
+        const t = answers.length, a = arrive(t);
+        const said = `tick ${t} arrived on ${a}`, who = '(opts.arriveAt or the arrival model)';
+        if (!Number.isInteger(a)) throw new RangeError(`TF2Audio: an arrival tick is a whole number; ${said} ${who}.`);
+        if (a < 0) throw new RangeError(`TF2Audio: an arrival tick is 0 or more; ${said} ${who}.`);
+        if (a < lastArrival) throw new RangeError(`TF2Audio: an arrival tick never falls; ${said} after ${lastArrival} ${who}.`);
+        answers.push(a);
+        lastArrival = a;
       }
-      lastArrival = a;
-      return a;
+      return answers[tick];
     };
     let blocks = [], g = null;
     const late = (j) => blocks[j].code === FRAME_CODES.late;
@@ -537,7 +556,7 @@
   }
 
   E.steam = Object.freeze({
-    STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamCapture, steamChannel, steamChannelModule, steamCodecInfo,
-    steamFits, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions, steamTimeline
+    STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
+    steamCodecInfo, steamFits, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions, steamTimeline
   });
 })((typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : globalThis));

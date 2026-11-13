@@ -734,9 +734,13 @@ if (runs(11)) {
 /* ---------------- 12. the order kept, nothing lost ---------------- */
 
 if (runs(12)) {
-  console.log('\n[12] The order is kept and nothing is lost: at never falls, at(p) >= p; at jitter 25 and 50 the floor is reached');
+  console.log('\n[12] The order is kept and nothing is lost: at never falls, at(p) >= p; at jitter 25, 30, 50 and 60 the floor is reached');
   const t0 = performance.now();
-  for (const jitterMs of [25, 50, 100, 500]) for (const fps of [300, 66.67]) {
+  // The floor is 2 x (floor(J / 15) + 1) ticks (BC-4a's fix round, point 1): at a jitter of whole
+  // ticks (30 and 60 here) a packet leaves only after the age J, so 2 x ceil(J / 15) would leave two
+  // ticks of every delay above it.
+  const floorOf = (jitterMs) => 2 * (Math.floor(jitterMs / 15) + 1);
+  for (const jitterMs of [25, 30, 50, 60, 100, 500]) for (const fps of [300, 66.67]) {
     let ok = true, least = Infinity, most = -Infinity, floor = null;
     for (const seed of [1, 2, 3, 4, 5]) {
       const m = A.steamArrivals({ jitterMs, fps, seed });
@@ -749,8 +753,8 @@ if (runs(12)) {
         last = a;
       }
     }
-    check(`jitter ${jitterMs} at ${fps} fps, seeds 1 to 5, 20,000 ticks: every tick arrives on a whole tick, at never falls, at(p) >= p, floorTicks ${2 * Math.ceil(jitterMs / 15)}${jitterMs <= 50 ? ', and the least of at(p) - p is 0' : ''}`,
-      ok && least >= 0 && floor === 2 * Math.ceil(jitterMs / 15) && (jitterMs > 50 || least === 0),
+    check(`jitter ${jitterMs} at ${fps} fps, seeds 1 to 5, 20,000 ticks: every tick arrives on a whole tick, at never falls, at(p) >= p, floorTicks ${floorOf(jitterMs)}${jitterMs <= 60 ? ', and the least of at(p) - p is 0' : ''}`,
+      ok && least >= 0 && floor === floorOf(jitterMs) && (jitterMs > 60 || least === 0),
       `at(p) - p from ${least} to ${most} ticks above the floor of ${floor}`);
   }
   const none = [A.steamArrivals({ jitterMs: 0, fps: 300, seed: 1 }), A.steamArrivals({ jitterMs: -5, seed: 1 }), A.steamArrivals({ jitterMs: NaN, seed: 1 })];
@@ -771,7 +775,7 @@ if (runs(13)) {
   // The order's settings, then frame rates where k x (1000 / fps) and k x 1000 / fps give
   // other ticks (the plan review's point 6), the channel's limits, and a jitter under a tick.
   const SETTINGS = [];
-  for (const jitterMs of [25, 50, 100, 500]) for (const fps of [300, 66.67]) SETTINGS.push([jitterMs, fps, [1, 2, 3, 4, 5]]);
+  for (const jitterMs of [25, 30, 50, 60, 100, 500]) for (const fps of [300, 66.67]) SETTINGS.push([jitterMs, fps, [1, 2, 3, 4, 5]]);
   for (const fps of [10, 59.94, 120, 240, 1000, undefined]) SETTINGS.push([50, fps, [1, 2]]);
   SETTINGS.push([0.5, 300, [1, 2]], [0.5, 66.67, [1]]);
   for (const [jitterMs, fps, seeds] of SETTINGS) {
@@ -785,6 +789,16 @@ if (runs(13)) {
     check(`jitter ${jitterMs} at ${fps ?? 'no given'} fps, seeds ${seeds.join(', ')}: the engine's arrival ticks and floorTicks are the second model's`, bad.length === 0,
       bad.length ? bad.join('; ') : `the delay above the floor up to ${15 * Math.max(...Array.from(referenceArrivals({ jitterMs, fps, seed: seeds[0], ticks: 4000 }).at, (a, p) => a - p))} ms (seed ${seeds[0]})`);
   }
+  // The model's frame-rate limits, the voice channel's (BC-4a's fix round, point 3): 0 and 5 run as
+  // 10, 2000 as 1000, tick for tick, and say so.
+  const limits = [[0, 10], [5, 10], [2000, 1000]].map(([fps, as]) => {
+    const m = A.steamArrivals({ jitterMs: 50, fps, seed: 2 }), n = A.steamArrivals({ jitterMs: 50, fps: as, seed: 2 });
+    let same = m.fps === as;
+    for (let p = 0; p < 4000 && same; p++) same = m.at(p) === n.at(p);
+    return { fps, as, same };
+  });
+  check('frame rates past the channel\'s limits: fps 0 and 5 give the arrivals of 10, and 2000 those of 1000, tick for tick, and report that rate',
+    limits.every((l) => l.same), limits.map((l) => `${l.fps}: ${l.same ? `as ${l.as}` : 'NOT as ' + l.as}`).join(', '));
   console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
 }
 
@@ -850,8 +864,10 @@ if (runs(15)) {
         let zeros = 0, back = -1;
         for (let i = 0; i < v.length && back < 0; i++) { if (v[i] === 0) zeros++; else { if (zeros >= 2000) back = i; zeros = 0; } }
         const near = info.drops.filter((d) => Math.abs(d.time * 44100 - back) <= 512);
+        // arriveAt is asked for every tick from 0 to the render's last, once and in order.
+        const everyTick = calls.length > ticks[ticks.length - 1] && calls.every((t, k) => t === k);
         const good = info.opens === 2 && info.droppedSamples > 0 && back > 0 && near.length > 0 && arrivals.floorTicks === 0
-          && arrivals.sameTick >= 5 && calls.length === arrivals.messages;
+          && arrivals.sameTick >= 5 && everyTick;
         ok40 = ok40 && good;
         rows[40].push(`seed ${seed}: T ${T}, opens ${info.opens}, ${ms.toFixed(1)} ms dropped, the voice back at ${(back / 44100).toFixed(3)} s, drops at ${info.drops.map((d) => d.time.toFixed(3)).join(' ')} s`);
       } else {
@@ -896,27 +912,31 @@ if (runs(16)) {
       error ? `threw ${error.message}` : `${at === -1 ? `${whole.samples.length} samples` : `the first difference at ${at}`}; arrivals ${JSON.stringify(whole.codecInfo.arrivals)}`);
   }
   // What is given out: after each push, the channel has run every block that starts before
-  // the arrival tick of the stream's bound (and of each message), and no other; each is
-  // asked of opts.arriveAt, here the model's own arrival ticks (seed 3, jitter 50, 300 fps),
-  // so the test sees each one. The voice given out at the mix point after each push is then
-  // min(length, max(0, 512 ceil(1323 A / 1024) - D)) samples, A the last tick asked.
+  // the arrival tick of the stream's bound (and of each message), and no other. opts.arriveAt
+  // is asked for every tick from 0 up to the highest so far, once and in order (BC-4a's fix
+  // round, point 2), here the model's own arrival ticks (seed 3, jitter 50, 300 fps), so the
+  // test sees each one. The voice given out at the mix point after each push is then
+  // min(length, max(0, 512 ceil(1323 A / 1024) - D)) samples, A the answer for the highest tick
+  // asked.
   {
     let length = 0;
     await A.process(buffer(x, rate), { ...BASE, timeline: 'game', seed: 3, onGain: (g) => { length = g.length; } });
     const model = A.steamArrivals({ jitterMs: 50, fps: 300, seed: 3 });
-    let last = null, asked = 0, voiceOut = 0, pushes = 0, wrong = 0, unasked = 0, ahead = 0;
-    const o = { ...BASE, timeline: 'game', seed: 3, arriveAt: (t) => { asked++; last = model.at(t); ahead = Math.max(ahead, last - t); return last; },
+    const asked = [];
+    let last = null, voiceOut = 0, pushes = 0, wrong = 0, moved = 0, before = 0, ahead = 0;
+    const o = { ...BASE, timeline: 'game', seed: 3, arriveAt: (t) => { asked.push(t); last = model.at(t); ahead = Math.max(ahead, last - t); return last; },
       onGain: (g) => { voiceOut += g.length; } };
     await streamed(o, () => {
       pushes++;
-      if (asked === 0) unasked++;
-      asked = 0;
+      if (asked.length > before) moved++;
+      before = asked.length;
       const want = last === null ? 0 : Math.min(length, Math.max(0, 512 * Math.ceil(1323 * last / 1024) - D[300]));
       if (voiceOut !== want) wrong++;
     });
-    check('each push asks the arrival tick of the stream\'s bound, and the voice it has given out at the mix point is every block that starts before that tick',
-      pushes > 30 && unasked === 0 && wrong === 0 && ahead > 0 && voiceOut === length,
-      `${pushes} pushes; ${unasked} asked nothing; ${wrong} gave another count; arrival ticks up to ${ahead} ahead of the tick asked`);
+    const inOrder = asked.every((t, k) => t === k);
+    check('the stream asks the arrival of every tick up to its bound as the source comes, once each and in order, and the voice it has given out at the mix point after each push is every block that starts before the answer for the highest tick asked',
+      pushes > 30 && moved > 10 && inOrder && wrong === 0 && ahead > 0 && voiceOut === length,
+      `${pushes} pushes, ${moved} of them asked ticks; ticks 0 to ${asked.length - 1}${inOrder ? ' in order' : ' NOT in order'}; ${wrong} gave another count; arrival ticks up to ${ahead} ahead of the tick asked`);
   }
   console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
 }
@@ -994,12 +1014,45 @@ if (runs(19)) {
     ['not a function (5)', { ...BASE, timeline: 'game', arriveAt: 5 }, /arriveAt/],
     ['a result that is not a whole number (t + 0.5)', { ...BASE, timeline: 'game', arriveAt: (t) => t + 0.5 }, /whole number/],
     ['a result that is not a number (NaN)', { ...BASE, timeline: 'game', arriveAt: () => NaN }, /whole number/],
-    ['a result below the last (100 for the first messages, then each tick)', { ...BASE, timeline: 'game', arriveAt: (t) => (t < 60 ? 100 : t) }, /never falls/]
+    ['a result below the last (100 for the first messages, then each tick)', { ...BASE, timeline: 'game', arriveAt: (t) => (t < 60 ? 100 : t) }, /never falls/],
+    // BC-4a's fix round, point 2: a tick below 0 has a message of its own.
+    ['a result below 0 (t - 5)', { ...BASE, timeline: 'game', arriveAt: (t) => t - 5 }, /0 or more/]
   ];
   for (const [name, o, words] of ROWS) {
     const [a, b] = await both(o);
-    check(`${name}: process() and createRender() throw a RangeError that says so`, a instanceof RangeError && b instanceof RangeError && words.test(a.message) && words.test(b.message),
-      `${a ? a.message : 'process() rendered'} | ${b ? b.message : 'createRender() rendered'}`);
+    check(`${name}: process() and createRender() throw a RangeError that says so, the same message`, a instanceof RangeError && b instanceof RangeError && words.test(a.message) && words.test(b.message)
+      && a.message === b.message, `${a ? a.message : 'process() rendered'} | ${b ? b.message : 'createRender() rendered'}`);
+  }
+  // arriveAt answers for every whole tick (BC-4a's fix round, point 2): process() and createRender
+  // ask it for each tick from 0 to the render's last, once and in order, whatever ticks the messages
+  // and the stream's bounds fall on. A table that answers the message ticks only and falls between
+  // them, or that falls only after the last message, throws in both with the same message; a table
+  // that answers every tick renders the same in both.
+  {
+    const src = await sourceRender(x, rate, {}), ticks = src.messages.map((m) => m.tick), lastTick = ticks[ticks.length - 1];
+    const messageTicks = new Set(ticks);
+    for (const [name, arriveAt] of [['answers the message ticks only (each 5 ticks late) and 0 between them', (t) => (messageTicks.has(t) ? t + 5 : 0)],
+      ['answers every tick up to the last message\'s, then 0', (t) => (t <= lastTick ? t : 0)]]) {
+      const [a, b] = await both({ ...BASE, timeline: 'game', arriveAt });
+      check(`a table that ${name}: process() and createRender() throw the same RangeError`, a instanceof RangeError && b instanceof RangeError
+        && /never falls/.test(a.message) && a.message === b.message, `${a ? a.message : 'process() rendered'} | ${b ? b.message : 'createRender() rendered'}`);
+    }
+    const table = (t) => 4 * Math.floor(t / 4) + 6, o = { ...BASE, timeline: 'game', jitterMs: 70 };
+    const asked = { whole: [], stream: [] };
+    const whole = await A.process(buffer(x, rate), { ...o, arriveAt: (t) => { asked.whole.push(t); return table(t); } });
+    const r = await A.createRender({ sampleRate: rate, length: x.length, numberOfChannels: 1 }, { ...o, arriveAt: (t) => { asked.stream.push(t); return table(t); } });
+    const out = [];
+    for (let at = 0; at < x.length; at += 997) out.push(await r.push(x.subarray(at, Math.min(x.length, at + 997))));
+    const end = await r.finish();
+    out.push(end.samples);
+    const inOrder = (xs) => xs.every((t, k) => t === k);
+    check('a table that answers every tick (bunches of four ticks): process() and createRender() ask ticks 0 to the render\'s last, once and in order, the same in both, and give the same samples and codecInfo',
+      firstDiff(join(out), whole.samples) === -1 && isDeepStrictEqual(end.codecInfo, whole.codecInfo) && inOrder(asked.whole) && inOrder(asked.stream)
+      && asked.whole.length === asked.stream.length && asked.whole.length > lastTick + 1,
+      `ticks 0 to ${asked.whole.length - 1} and 0 to ${asked.stream.length - 1}; the last message on tick ${lastTick}`);
+    // BC-4a's fix round, point 3: codecInfo.arrivals.jitterMs under arriveAt is the render's jitterMs.
+    check('under arriveAt, codecInfo.arrivals reports the render\'s jitterMs (70) and fps, with floorTicks 0', whole.codecInfo.arrivals.jitterMs === 70
+      && whole.codecInfo.arrivals.fps === 300 && whole.codecInfo.arrivals.floorTicks === 0, JSON.stringify(whole.codecInfo.arrivals));
   }
   const ok = await thrown(() => A.process(buffer(x, rate), { ...BASE, timeline: 'game', arriveAt: (t) => 50 }));
   const same = await A.process(buffer(x, rate), { ...BASE, timeline: 'game', arriveAt: () => 50 });

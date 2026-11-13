@@ -848,14 +848,14 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
     check(`${name}: some frames arrive too late and play as silence`, info(name).underrunFrames > 0, `${info(name).underrunFrames} late`);
   }
   // BC-4: on `steam` jitter is when messages reach the game's voice queue, and on the file's
-  // own timing it does nothing: the case renders as the same source and settings without
-  // jitter, which 'steam, dsp_room 1 (no effect)' is (no room either way).
+  // own timing it does nothing: the case renders as the same source and settings at jitter 0,
+  // made here (BC-4a's fix round, point 4).
   {
-    const name = 'steam, jitter 500 ms on the file\'s own timing (does nothing)', plain = 'steam, dsp_room 1 (no effect)';
-    const wavOf = async (n) => sha256(await wavBytes(renders.get(n).blob));
-    check(`${name}: no late frame, and the WAV and codecInfo of '${plain}', the same source and settings without jitter`,
-      info(name).underrunFrames === 0 && await wavOf(name) === await wavOf(plain) && infoHash(info(name)) === infoHash(info(plain)),
-      `${info(name).underrunFrames} late`);
+    const name = 'steam, jitter 500 ms on the file\'s own timing (does nothing)', c = CASES.find((k) => k.name === name);
+    const zero = await A.process(buffer(sources.get(name), c.rate), { ...c.opts, jitterMs: 0 });
+    check(`${name}: no late frame, and the WAV and codecInfo of a render of the same source and settings at jitter 0`,
+      info(name).underrunFrames === 0 && sha256(await wavBytes(renders.get(name).blob)) === sha256(await wavBytes(zero.blob))
+      && infoHash(info(name)) === infoHash(zero.codecInfo), `${info(name).underrunFrames} late`);
   }
   for (const name of ['celt_22, gate on, loss 15%, jitter 300 ms', 'celt_44, gate on, loss 15%', 'speex, gate on, loss 15%, jitter 300 ms']) {
     check(`${name}: the gate opens and closes on the codec's own frames`, info(name).spurts > 1 && info(name).gatedFrames > 0);

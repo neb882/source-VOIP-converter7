@@ -237,9 +237,13 @@
   // steamArrivals({ jitterMs, fps, seed }) -> { jitterMs, fps, floorTicks,
   // at(tick) }: the tick on which the message the sender gave tick `tick`
   // reaches the voice channel, less floorTicks, the least delay any packet
-  // can have (a crossing cannot release a packet before lagMs - j =
-  // jitterMs, so ceil(jitterMs / 15) ticks a crossing). So at(p) >= p, `at`
-  // never falls, and two messages can share a tick. The rest of the delay
+  // can have: a crossing releases a packet only at a look past the age
+  // lagMs - j = jitterMs (at exactly that age only on a draw of 0, a chance
+  // of 2^-32), and its packet rides the next whole tick, so floor(jitterMs /
+  // 15) + 1 ticks a crossing. That is ceil(jitterMs / 15) but at a jitter of
+  // whole ticks (15, 30, 45 ms ...), where it is one tick more (the fix round
+  // of BC-4a, point 1). So at(p) >= p, `at` never falls, and two messages can
+  // share a tick. The rest of the delay
   // is heard: a render with jitter plays later than its source (the order's
   // ruling 6). at() takes whole ticks from FAKE_LAG_START_TICK on, in any
   // order; each is worked out once, in tick order. It depends on the tick
@@ -250,7 +254,7 @@
     const J = finiteOr(jitterMs, 0), F = steamArrivalFps(fps);
     if (!(J > 0)) return { jitterMs: 0, fps: F, floorTicks: 0, at: (tick) => tick };
     const s = finiteOr(seed, 0xC0FFEE) >>> 0, lagMs = FAKE_LAG_PER_JITTER * J, start = FAKE_LAG_START_TICK;
-    const floorTicks = STEAM_CROSSINGS.length * Math.ceil(J / STEAM_TICK_MS);
+    const floorTicks = STEAM_CROSSINGS.length * (Math.floor(J / STEAM_TICK_MS) + 1);
     // For each crossing, its list and, by tick from `start`, the tick its
     // packet leaves for (ceil of its leaving time over 15).
     const legs = STEAM_CROSSINGS.map((c) => ({ list: fakeLagList({ lagMs, jitterMs: J, lookTime: c.looks(F),

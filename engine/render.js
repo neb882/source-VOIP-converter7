@@ -12,8 +12,8 @@
   const { buildLossMask, retimeSpurts, steamArrivalPlan, steamLoser } = E.network;
   const { DEFAULT_SENDER_GATE, celtModeRate, gateThresholdDb, loadOpusModule, profileEq, receivedCodecInfo } = E.codec;
   const { resolveRoom, roomPreset, tailAtDevice } = E.room;
-  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamCapture, steamChannel, steamCodecInfo,
-    steamGameTimeline, steamModules, steamPlayedInfo, steamSenderOptions, steamTimeline } = E.steam;
+  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel,
+    steamCodecInfo, steamGameTimeline, steamModules, steamPlayedInfo, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
   /* The stages a render keeps (W4-01b)                                 */
@@ -360,10 +360,16 @@
    *   arriveAt:     timeline 'game' only, tests and replays (the page never
    *                 sends it; BC-4): (tick) => the tick the message the
    *                 sender gave that tick reaches the voice channel, in place
-   *                 of the arrival model; called with ticks that never fall,
-   *                 it must return a whole number that never falls (else a
-   *                 RangeError). Given anywhere else, or not a function, a
-   *                 RangeError. The render keeps nothing in stages  [none]
+   *                 of the arrival model. It answers for every whole tick:
+   *                 it is asked for each tick from 0 to the render's last
+   *                 tick, once and in order, here and in createRender alike,
+   *                 and must return a whole number, 0 or more, that never
+   *                 falls (else a RangeError, one message for each). An
+   *                 answer far past the render's end costs time in
+   *                 proportion: the channel steps to it tick by tick (3.3 s
+   *                 for 1e8, measured). Given anywhere else, or not a
+   *                 function, a RangeError. The render keeps nothing in
+   *                 stages                                           [none]
    *   frameMs:      net_split packet duration (whole 20 ms frames); on
    *                 `steam` it no longer sets what a lost packet holds  [20]
    *   jitterMs:     net_fakejitter in ms, 0 to 500 (BC-4). On `steam` with
@@ -645,8 +651,14 @@
           await pause();
         }
       }
-      // The channel's output: what every push gave and what finish() gives,
-      // in order, voiceLength samples.
+      // The render's last tick, as createRender's last bound has it (every
+      // sample given to the sender, every message made), then the channel's
+      // output: what every push gave and what finish() gives, in order,
+      // voiceLength samples.
+      if (channel) {
+        const last = messages.length ? messages[messages.length - 1].tick : -1;
+        channel.advance(steamBoundTick(steamModules().sender.STEAM_SENDER, last, codecLength));
+      }
       const played = channel ? channel.finish() : null;
       steamVoice = channel ? channel.take() : timeline.take(voiceLength);
       if (channel && steamVoice.length !== voiceLength) {

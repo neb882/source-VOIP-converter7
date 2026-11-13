@@ -31,8 +31,9 @@ export function referenceArrivals({ jitterMs, fps, seed, ticks }) {
   const s = (Number.isFinite(seed) ? seed : 0xC0FFEE) >>> 0;
   // Item 1: the lag is twice the jitter; j = min(jitter, lag / 2).
   const lag = 2 * jitterMs, j = Math.min(jitterMs, lag / 2);
-  // Item 6: the least delay, in ticks.
-  const floorTicks = 2 * Math.ceil(jitterMs / 15);
+  // Item 6, as the fix round of BC-4a states it (point 1): the least delay, in ticks. A crossing lets a packet go
+  // only after the age `jitterMs`, at the next look, and it rides the next whole tick.
+  const floorTicks = 2 * (Math.floor(jitterMs / 15) + 1);
   // Item 7: a random stream for each list.
   const draw1 = mulberry32((s ^ 0x4A495431) >>> 0), draw2 = mulberry32((s ^ 0x4A495432) >>> 0);
   // The lists start at tick -200 with a packet a tick (the plan review, point 5).

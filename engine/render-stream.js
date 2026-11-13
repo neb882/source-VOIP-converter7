@@ -13,8 +13,8 @@
   const { DEFAULT_SENDER_GATE, FRAME_CODES, celtModeRate, gateThresholdDb, loadOpusModule, profileEq,
     receivedCodecInfo } = E.codec;
   const { resolveRoom, roomModule, tailAtDevice } = E.room;
-  const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamCapture, steamChannel, steamCodecInfo, steamGameTimeline,
-    steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions, steamTimeline } = E.steam;
+  const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamCodecInfo,
+    steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
   /* A render a piece at a time                                         */
@@ -281,7 +281,7 @@
       // too, since no later message has a sender tick below the bound and the
       // arrival tick never falls (steamChannel's advance maps it).
       const S = SteamSender.STEAM_SENDER;
-      const bound = () => Math.max(lastTick + 1, Math.ceil((given / S.rate + S.relay) / S.tick));
+      const bound = () => steamBoundTick(S, lastTick, given);
       stages.push({
         async push(x) {
           given += x.length;
@@ -297,6 +297,8 @@
         async flush() {
           await feed(sender.finish());
           if (channel) {
+            // The render's last tick, as process() takes it, before the end.
+            channel.advance(bound());
             steam.played = channel.finish();
             const y = channel.take();
             voiceOut += y.length;
