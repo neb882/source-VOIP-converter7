@@ -208,6 +208,10 @@ async function verifySampleRateMatrix(browser, base) {
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(base, { waitUntil: 'domcontentloaded' });
+      // On the file's own timing (W3-02d-1): the game's voice queue drops part
+      // of an unbroken tone's first moments when its channel opens, which moves
+      // the pitch read from the zero crossings; this checks the rates.
+      await page.evaluate(() => execCommand('voice_timeline source'));
       for (const fileRate of [44100, 48000]) {
         const label = `${fileRate} Hz file -> ${decodeRate} Hz browser`;
         // The file renders by itself (W4-01a).
@@ -364,6 +368,10 @@ async function verifyNativeRate(browser, base) {
 
     // Every source rate the page can now meet renders through the default preset.
     await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
+    // On the file's own timing (W3-02d-1), as in [Browser 3] and [Browser 5]:
+    // the game's voice queue drops part of an unbroken tone's first moments
+    // when its channel opens, which moves the pitch read below.
+    await page.evaluate(() => execCommand('voice_timeline source'));
     const rendered = [];
     for (const rate of [8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000]) {
       await load({ name: `render-${rate}.wav`, mimeType: 'audio/wav', buffer: wavTone(.5, rate) });
@@ -1020,9 +1028,17 @@ async function verifySourceDuringRender(page) {
   check(after.renders === before + 1 && Math.abs(after.seconds - 1) < .01 && after.download && after.process && after.status.startsWith('short.wav')
     && /render of the previous source stopped/.test(after.log) && !/the source changed during the render/.test(after.log),
     'a source dropped during a render stops that render, and renders as itself', `${after.seconds.toFixed(3)} s; ${after.renders - before} render shown; ${after.status}`);
-  // Presets reset every receiver setting, re-timing included.
-  const retime = await page.evaluate(() => { execCommand('voice_retime 1'); execCommand('exec preset_modern'); return els.retime.value; });
-  check(retime === '0', 'a preset turns talk-spurt re-timing back off', `voice_retime ${retime}`);
+  // Presets reset every receiver setting, Phrase timing and voice_buffer_ms
+  // included, and leave the listener's frame rate, a property of the
+  // listener's PC (W3-02d-1).
+  const timing = await page.evaluate(() => {
+    execCommand('voice_timeline source'); execCommand('voice_buffer_ms 250'); execCommand('fps_max 67'); execCommand('exec preset_modern');
+    const out = { tl: els.timeline.value, buf: els.bufferMs.value, fps: els.fps.value };
+    execCommand('fps_max 300');
+    return out;
+  });
+  check(timing.tl === 'game' && timing.buf === '100' && timing.fps === '67',
+    'a preset sets Phrase timing back to the game\'s voice queue and voice_buffer_ms to 100, and leaves fps_max as it was', JSON.stringify(timing));
 }
 
 async function verifyLiveMonitor(page) {
@@ -1106,7 +1122,10 @@ async function verifyLiveMonitor(page) {
       // The take is at the audio context's rate, the live chain's device; the
       // render of its microphone is made at that rate too (W3-10).
       const dry = state.decodedSource.getChannelData(0), wet = state.processedBuffer, rate = state.processedRate;
-      const render = (await TF2Audio.process(state.decodedSource, { ...renderOptions(), deviceRate: rate })).samples;
+      // On the file's own timing, as voice_timeline source renders: the live
+      // monitor keeps it (live.js, liveOptions; W3-02d-1), and a render on the
+      // game's voice queue moves phrases the monitor does not.
+      const render = (await TF2Audio.process(state.decodedSource, { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, deviceRate: rate })).samples;
       const from = Math.round(rate * .4), to = Math.min(wet.length, render.length) - Math.round(rate * .2);
       let size = 1;
       while (size < 2 * (to - from)) size *= 2;
@@ -1154,6 +1173,49 @@ async function verifyLiveMonitor(page) {
   check(Math.abs(take.lag) <= 2 * k && take.r > floor,
     'steam: an offline render of the recorded microphone lines up with the live take (both late by Steam\'s resampler\'s 16 inputs)',
     `peak at ${take.lag} samples at ${take.rate} Hz, r ${take.r.toFixed(3)}`);
+  // W3-02d-1: the take was made on the file's own timing, and Phrase timing
+  // is on the game's voice queue. The take's key is the file's own timing; it
+  // is marked and held back from a render by itself, as a cancelled render
+  // is; one press of Render gives a render on the game's timeline.
+  {
+    await page.waitForTimeout(1500);
+    const held = await page.evaluate(() => {
+      const lines = [...document.getElementById('console-out').children].map((e) => e.textContent);
+      const from = lines.map((t) => t.startsWith('voice_record: live take of')).lastIndexOf(true);
+      return { key: JSON.parse(state.renderedKey), live: !!state.lastCodecInfo.live, stale: state.stale, idle: renderIdle(), tl: els.timeline.value,
+        line: !els.hearTimeline.hidden, status: els.renderStatus.textContent, started: lines.slice(from + 1).filter((t) => t.startsWith('S_StartSound: initializing render')).length };
+    });
+    check(held.tl === 'game' && held.live && held.key.timeline === 'source' && !('fps' in held.key) && held.stale && held.idle && held.started === 0 && !held.line
+      && /^Recorded live · .* · on the file's own timing; Render gives it on the game's voice queue$/.test(held.status),
+      'a recorded live take with Phrase timing on the game\'s queue: its key holds timeline source and no fps; it is marked, no render starts by itself, the line beside Hear is hidden',
+      `${held.started} started; ${held.status}`);
+    await renderNow(page);
+    const rendered = await page.evaluate(() => ({ channel: !!(state.lastCodecInfo && state.lastCodecInfo.channel), stale: state.stale, line: !els.hearTimeline.hidden }));
+    check(rendered.channel && !rendered.stale && rendered.line, 'one press of Render gives the take a render on the game\'s timeline, with the line beside Hear', JSON.stringify(rendered));
+    // The monitor keeps the file's own timing: a changed fps_max, voice_buffer_ms
+    // or Phrase timing sends its chain no new settings, so it does not restart;
+    // voice_scale does (the count's own check).
+    const configs = await page.evaluate(async () => {
+      let count = 0;
+      const post = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function (message, transfer) { if (message && message.type === 'config') count++; return post.call(this, message, transfer); };
+      const pause = () => new Promise((resolve) => setTimeout(resolve, 900));
+      try {
+        execCommand('fps_max 67'); execCommand('voice_buffer_ms 200'); execCommand('voice_timeline source');
+        await pause();
+        const queue = count;
+        execCommand('voice_scale 0.9');
+        await pause();
+        const scale = count;
+        execCommand('fps_max 300'); execCommand('voice_buffer_ms 100'); execCommand('voice_timeline game'); execCommand('voice_scale 1');
+        await pause();
+        return { queue, scale, running: TF2Live.running };
+      } finally { Worker.prototype.postMessage = post; }
+    });
+    check(configs.running && configs.queue === 0 && configs.scale === 1,
+      'the live monitor: a changed fps_max, voice_buffer_ms or Phrase timing while it runs sends its chain nothing, so it does not restart; voice_scale does', JSON.stringify(configs));
+    await page.waitForFunction(() => renderIdle(), null, { timeout: 30000 });
+  }
   // steam_48 runs the frame path in the render and in the live chain alike.
   const take48 = await recordTake('steam_48');
   check(Math.abs(take48.lag) <= 1 && take48.r > 0.8, 'steam_48: the recorded voice lines up with an offline render of the recorded microphone, within a sample',
@@ -1216,14 +1278,18 @@ async function verifyLiveMonitor(page) {
 // W3-17d: the rule for which controls are the game's, which the two PCs'
 // and which the app's own extras (the order's part d, item 4), copied from
 // the order, not made from the page. Ids of the page's controls.
+// W3-02d-1: voice_buffer_ms is the game's; the listener's frame rate is a
+// property of the listener's PC, whose cap the game has (fps_max); Phrase
+// timing is an extra, its second value being the app's own.
 const CONTROLS_GAME = ['codec', 'listener_position', 'env', 'a_sky', 'a_w', 'a_l', 'a_h', 'a_open', 'a_refl', 'underwater',
-  'avggain', 'maxgain', 'voice_scale', 'volume', 'loss', 'jitter', 'live-ptt'];
-const CONTROLS_PCS = ['capture_channel', 'steam_uptime', 'device_rate', 'live-input', 'live-output'];
-const CONTROLS_EXTRAS = ['gain', 'hp', 'lp', 'vad', 'vad_threshold', 'warble_on', 'bits', 'frameMs', 'agc', 'retime',
+  'avggain', 'maxgain', 'voice_scale', 'volume', 'loss', 'jitter', 'live-ptt', 'buffer_ms'];
+const CONTROLS_PCS = ['capture_channel', 'steam_uptime', 'device_rate', 'live-input', 'live-output', 'fps'];
+const CONTROLS_EXTRAS = ['gain', 'hp', 'lp', 'vad', 'vad_threshold', 'warble_on', 'bits', 'frameMs', 'agc', 'timeline',
   'c_dur', 'c_dec', 'c_mix', 'live-lowlat'];
 // The game's controls whose label shows the game's variable (`class="cvar"`).
 const CONTROLS_NAMED = { codec: 'sv_voicecodec', listener_position: 'dsp_room', env: 'dsp_room', avggain: 'voice_avggain',
-  maxgain: 'voice_maxgain', voice_scale: 'voice_scale', volume: 'volume', loss: 'net_fakeloss', jitter: 'net_fakejitter', 'live-ptt': '+voicerecord' };
+  maxgain: 'voice_maxgain', voice_scale: 'voice_scale', volume: 'volume', loss: 'net_fakeloss', jitter: 'net_fakejitter', 'live-ptt': '+voicerecord',
+  fps: 'fps_max', buffer_ms: 'voice_buffer_ms' };
 
 async function verifyRoomsPage(page) {
   console.log('\n[Browser 3c4] Rooms on the page (W3-17d)');
@@ -1605,9 +1671,9 @@ async function verifySettingsWords(page) {
       console: controls.filter((el) => idToCvarMap[el.id] && !dynamic.includes(el.id) && helpOf(el)[0])
         .filter((el) => !cvars[idToCvarMap[el.id]].help.includes(firstSentence(helpOf(el)[0].textContent.trim())))
         .map((el) => `${idToCvarMap[el.id]}: "${firstSentence(helpOf(el)[0].textContent.trim())}"`),
-      table: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'gain', 'bits', 'frameMs', 'loss', 'jitter', 'retime', 'maxgain', 'voice_scale', 'volume', 'hp', 'lp']
+      table: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'gain', 'bits', 'frameMs', 'loss', 'jitter', 'timeline', 'fps', 'buffer_ms', 'maxgain', 'voice_scale', 'volume', 'hp', 'lp']
         .map((id) => [id, [labelText(document.getElementById(id)), (helpOf(document.getElementById(id))[0] || { textContent: '' }).textContent.trim()]])),
-      options: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'retime'].map((id) => [id, [...document.getElementById(id).options].map((o) => o.textContent)]))
+      options: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'timeline'].map((id) => [id, [...document.getElementById(id).options].map((o) => o.textContent)]))
     };
   });
   check(words.count >= 30 && words.noHelp.length === 0,
@@ -1633,8 +1699,14 @@ async function verifySettingsWords(page) {
     && t.frameMs[0] === 'Frames per packet, as ms' && t.frameMs[1] === 'How much voice one network packet carries. A lost packet loses all of it. Steam voice sends each of its messages as one packet and ignores this.'
     && t.loss[0] === 'Packets lost % net_fakeloss' && t.loss[1] === 'The share of voice packets that never arrive. Not the game\'s own number: its net_fakeloss 5 loses about 22% of them.'
     && t.jitter[1] === 'Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that.'
-    && JSON.stringify(words.options.retime) === '["The file\'s own timing","Some phrases start early (random)"]'
-    && t.retime[1] === 'The game plays some phrases early after a short silence. Which ones is random.'
+    // W3-02d-1: Phrase timing and the game's voice queue's two settings.
+    && t.timeline[0] === 'Phrase timing' && JSON.stringify(words.options.timeline) === '["The game\'s voice queue","The file\'s own timing"]'
+    && t.timeline[1] === 'The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. '
+      + 'Which phrases move depends on the sender\'s clock, which no recording shows. The file\'s own timing keeps every sound where the source has it. The live monitor always keeps the file\'s own timing.'
+    && t.fps[0] === 'Listener\'s frame rate fps_max' && t.fps[1] === 'How many frames a second the listener\'s game draws. A new phrase waits before it plays, longer at a higher rate: about 0.09 s at 67 and 0.44 s at 300. '
+      + 'The game\'s fps_max caps the rate; 300 is its default. At 200 or less, sound that never pauses for minutes thins out; at 67 the level first dips after about 2 minutes. '
+      + 'That is the game\'s rule as read, run on the model; no recording shows it.'
+    && t.buffer_ms[0] === 'Voice buffer ms voice_buffer_ms' && t.buffer_ms[1] === 'The wait before a new phrase plays, in milliseconds. The game counts it down one frame at a time, so it lasts longer at a higher frame rate. The game\'s default is 100.'
     && t.maxgain[1] === 'The most the receiver\'s auto-gain may amplify. The game\'s default is 10.'
     && t.voice_scale[1] === 'The game\'s voice_scale. Not a plain volume: below 1 it lowers the voice by more than its number.'
     && t.volume[1] === 'The game\'s volume setting; it sets the loudest the file can get. 1.0 is the game\'s default. The recordings behind the model were made at 0.15.'
@@ -1856,8 +1928,8 @@ async function verifyJourney(browser, base) {
       fields: [...new Set(Object.values(PRESETS).flatMap((p) => Object.keys(p)))], mapped: Object.keys(PRESET_KEYS), targets: Object.values(PRESET_KEYS) }));
     const placed = lists.keys.map((k) => [k, lists.set.filter((x) => x === k).length + lists.kept.filter((x) => x === k).length]);
     check(placed.every(([, n]) => n === 1) && [...lists.set, ...lists.kept].every((k) => lists.keys.includes(k))
-      && JSON.stringify(lists.kept) === '["uptime","dev","chan"]',
-      'every key of CONFIG_FIELDS is in exactly one of the two lists (set by a preset, or kept across presets: uptime, dev, chan)',
+      && JSON.stringify(lists.kept) === '["uptime","dev","chan","fps"]',
+      'every key of CONFIG_FIELDS is in exactly one of the two lists (set by a preset, or kept across presets: uptime, dev, chan, fps)',
       placed.filter(([, n]) => n !== 1).map(([k, n]) => `${k}: ${n}`).join(', ') || `${lists.keys.length} keys`);
     check(lists.fields.every((f) => lists.mapped.includes(f)) && lists.targets.every((k) => lists.set.includes(k)),
       'every field a built-in preset names maps to a preset-set key', lists.fields.join(', '));
@@ -2044,6 +2116,291 @@ async function verifyJourney(browser, base) {
     } finally { await blocked.close(); }
   }
   check(errors.length === 0, 'the journey has no page errors', errors.join('; '));
+}
+
+// W3-02d-1: the page renders on the game's timeline. Phrase timing (the
+// game's voice queue or the file's own timing), fps_max and voice_buffer_ms;
+// which sources keep the file's own timing; the line under the control and
+// the line beside Hear; the old name voice_retime and old saved settings; a
+// recorded live take held back. Each part in a page of its own.
+// The options main's renderOptions() sent at the page's defaults (cache
+// number v41), before this order: written out, so that the render on the
+// file's own timing is held to main's and not to this branch's own function.
+const MAIN_DEFAULT_OPTIONS = { codec: 'steam', room: null, underwater: false, captureChannel: 'left', micGain: 1, voiceScale: 1, hp: 0, lp: 20000,
+  bits: 16, agc: true, retime: false, maxGain: 10, avgGain: 0.5, gate: null, gateThresholdDb: undefined, steamUptime: 777600, volume: 1,
+  deviceRate: 48000, lossPct: 0, frameMs: 20, enableWarble: true, jitterMs: 0 };
+// Whether the render on screen is, sample for sample, TF2Audio.process of the
+// source on the page with `opts`; and whether it differs from a render with `other`.
+const renderIs = (page, opts, other = null) => page.evaluate(async ({ opts, other }) => {
+  const shown = state.processedBuffer, source = captureSource(state.decodedSource, opts.captureChannel);
+  const same = (x) => x.length === shown.length && x.every((v, i) => Object.is(v, shown[i]));
+  const want = (await TF2Audio.process(source, opts)).samples;
+  return { same: same(want), differs: other ? !same((await TF2Audio.process(source, other)).samples) : null, length: shown.length };
+}, { opts, other });
+// The render on screen and the page around it, for the checks below.
+const timelineState = (page) => page.evaluate(() => ({ renders: state.renderId, processing: state.processing, stale: state.stale,
+  channel: !!(state.lastCodecInfo && state.lastCodecInfo.channel), key: state.renderedKey ? JSON.parse(state.renderedKey) : null,
+  note: els.timelineNote.hidden ? null : els.timelineNote.textContent, line: !els.hearTimeline.hidden, status: els.renderStatus.textContent,
+  failed: /^The render failed/.test(els.renderStatus.textContent), controls: { tl: els.timeline.value, fps: els.fps.value, buf: els.bufferMs.value } }));
+const receiverCell = (page) => page.evaluate(() => [...document.querySelectorAll('#signal-chain li')].find((li) => li.querySelector('b').textContent === 'Receiver').textContent);
+
+async function verifyPageTimeline(browser, base) {
+  console.log('\n[Browser 8c] The page renders on the game\'s timeline (W3-02d-1)');
+  const errors = [];
+  const fresh = async () => {
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await context.newPage();
+    page.setDefaultTimeout(30000);
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto(base, { waitUntil: 'domcontentloaded' });
+    return { context, page };
+  };
+  // Wait until the render for the controls' settings is on screen, or failed.
+  const settled = (page, timeout = 60000) => page.waitForFunction(() => renderIdle()
+    && (state.renderedKey === currentRenderKey() || /^The render failed/.test(els.renderStatus.textContent)), null, { timeout });
+  const renderAfter = async (page, command) => {
+    const r = await page.evaluate(() => state.renderId);
+    await page.evaluate((c) => execCommand(c), command);
+    await page.waitForFunction((n) => state.renderId > n || /^The render failed/.test(els.renderStatus.textContent), r, { timeout: 60000 });
+    await settled(page);
+  };
+
+  {
+    const { context, page } = await fresh();
+    try {
+      // On load, and after Reset: the game's voice queue at 300 and 100.
+      const sent = () => page.evaluate(() => { const o = renderOptions(); return { timeline: o.timeline, fps: o.fps, bufferMs: o.bufferMs, retime: 'retime' in o,
+        controls: { tl: els.timeline.value, fps: els.fps.value, buf: els.bufferMs.value } }; });
+      const onLoad = await sent();
+      await page.evaluate(() => { execCommand('voice_timeline source'); execCommand('fps_max 67'); execCommand('voice_buffer_ms 200'); });
+      await page.locator('#preset-reset').click();
+      const afterReset = await sent();
+      const want = '{"timeline":"game","fps":300,"bufferMs":100,"retime":false,"controls":{"tl":"game","fps":"300","buf":"100"}}';
+      check(JSON.stringify(onLoad) === want && JSON.stringify(afterReset) === want,
+        'on load and after Reset, Phrase timing is the game\'s voice queue at fps_max 300 and voice_buffer_ms 100, and renderOptions() sends those and no retime', JSON.stringify(onLoad));
+
+      // The default render of the speech fixture is the engine's on the game's timeline.
+      await chooseFile(page, { name: 'timeline.wav', mimeType: 'audio/wav', buffer: wavSpeech(4) });
+      const gameOpts = { ...MAIN_DEFAULT_OPTIONS, retime: undefined, timeline: 'game', fps: 300, bufferMs: 100 };
+      const sourceOpts = { ...MAIN_DEFAULT_OPTIONS };
+      const byDefault = await renderIs(page, gameOpts, sourceOpts), defaultState = await timelineState(page);
+      check(byDefault.same && byDefault.differs && defaultState.channel,
+        'the page\'s default render of the speech fixture is TF2Audio.process with timeline game, fps 300 and bufferMs 100, sample for sample, and differs from the render on the file\'s own timing',
+        `${byDefault.length} samples`);
+      check(defaultState.line, 'the line beside Hear is shown after a render on the game\'s timeline');
+      const queueLine = (await consoleLines(page)).filter((t) => t.startsWith('S_Voice: the game\'s voice queue')).at(-1) || '';
+      check(/^S_Voice: the game's voice queue at fps_max 300, voice_buffer_ms 100: a new phrase waits 30 ticks \(435 ms\); \d+ phrases? opened the channel, \d+ joined a running one; \d+ ms dropped to overflow$/.test(queueLine)
+        && (await receiverCell(page)).includes('queue at 300 fps'),
+        'the console gives the queue\'s frame rate, its wait in ticks and ms, the phrases that opened the channel and joined one, and the overflow; the chain strip says "queue at 300 fps"', queueLine);
+
+      // fps_max 67 and voice_buffer_ms 200: the render is the engine's with those two numbers.
+      await renderAfter(page, 'fps_max 67; voice_buffer_ms 200');
+      const at67 = await renderIs(page, { ...gameOpts, fps: 67, bufferMs: 200 });
+      const info67 = await page.evaluate(() => ({ fps: state.lastCodecInfo.channel.fps, bufferMs: state.lastCodecInfo.channel.bufferMs }));
+      check(at67.same && info67.fps === 67 && info67.bufferMs === 200,
+        'at fps_max 67 and voice_buffer_ms 200 the page\'s render is TF2Audio.process with those two numbers, and its codecInfo.channel says 67 and 200', JSON.stringify(info67));
+
+      // voice_timeline source: main's render, sample for sample.
+      await renderAfter(page, 'voice_timeline source');
+      const onSource = await renderIs(page, sourceOpts), sourceState = await timelineState(page);
+      check(onSource.same && !sourceState.channel && sourceState.key.timeline === 'source' && !('fps' in sourceState.key) && !('bufferMs' in sourceState.key),
+        'with voice_timeline source the page\'s render is TF2Audio.process with the options main\'s renderOptions() sent (retime false, no timeline), sample for sample; its key holds no fps or bufferMs',
+        `${onSource.length} samples`);
+      check(!sourceState.line && (await receiverCell(page)).includes('the file\'s own timing'),
+        'the line beside Hear is hidden after a render on the file\'s own timing, and the chain strip says "the file\'s own timing"');
+
+      // Under the file's own timing a changed frame rate or buffer changes no key.
+      const mark = 'test: fps under the file\'s own timing';
+      await page.evaluate((m) => { logLine(m, 'sys'); execCommand('fps_max 144'); execCommand('voice_buffer_ms 300'); }, mark);
+      await page.waitForTimeout(1200);
+      const unchanged = await timelineState(page), keySame = await page.evaluate(() => state.renderedKey === currentRenderKey());
+      const startedSource = await rendersStartedSince(page, mark);
+      check(keySame && !unchanged.stale && !unchanged.processing && startedSource === 0,
+        'under the file\'s own timing, a changed fps_max or voice_buffer_ms changes no key: the render on screen is not marked and nothing renders',
+        `${startedSource} started`);
+
+      // Every built-in preset renders; a preset sets Phrase timing and the
+      // buffer and leaves fps_max; legacy (celt_22) keeps the file's own
+      // timing, with the three controls hidden.
+      await page.evaluate(() => { execCommand('fps_max 67'); execCommand('voice_buffer_ms 250'); });
+      const presets = await page.evaluate(() => Object.keys(PRESETS));
+      const results = [];
+      for (const name of presets) {
+        await page.evaluate((n) => execCommand(`exec preset_${n}`), name);
+        await settled(page);
+        const got = await timelineState(page);
+        const sentNow = await page.evaluate(() => { const o = renderOptions(); return { timeline: o.timeline, fps: o.fps,
+          hidden: ['fps', 'buffer_ms', 'timeline'].map((id) => document.getElementById(id).closest('.control').hidden) }; });
+        results.push({ name, failed: got.failed, status: got.failed ? got.status : '', controls: got.controls, ...sentNow, channel: got.channel });
+      }
+      const wrong = results.filter((x) => x.failed || x.controls.tl !== 'game' || x.controls.buf !== '100' || x.controls.fps !== '67'
+        || (x.name === 'legacy' ? x.timeline !== 'source' || x.fps !== undefined || x.channel || !x.hidden.every(Boolean)
+          : x.timeline !== 'game' || x.fps !== 67 || !x.channel || x.hidden.some(Boolean)));
+      check(wrong.length === 0,
+        'each built-in preset renders without an error, sets Phrase timing to the game\'s queue and voice_buffer_ms to 100, and leaves fps_max at 67; legacy (celt_22) sends timeline source and no fps, with the three controls hidden',
+        wrong.length ? JSON.stringify(wrong) : presets.join(', '));
+      await page.evaluate(() => { execCommand('exec preset_modern'); execCommand('fps_max 300'); });
+      await settled(page);
+
+      // The codec skipped: the file's own timing, and the line under the control says why.
+      await renderAfter(page, 'snd_codec 0');
+      const skipped = await timelineState(page);
+      check(!skipped.failed && !skipped.channel && skipped.key.timeline === 'source' && !('fps' in skipped.key) && /the codec is skipped/.test(skipped.note || '')
+        && await page.evaluate(() => (els.timeline.getAttribute('aria-describedby') || '').split(' ').includes('timeline-note')),
+        'with the codec skipped the render is made on the file\'s own timing, does not throw, and the line under Phrase timing gives the reason', skipped.note);
+      await renderAfter(page, 'snd_codec 1');
+      check(await page.evaluate(() => els.timelineNote.hidden && !(els.timeline.getAttribute('aria-describedby') || '').includes('timeline-note')),
+        'with the codec on again the line under Phrase timing is hidden');
+    } finally { await context.close(); }
+  }
+
+  // A demo's voice keeps the file's own timing (W3-02g, not built yet).
+  {
+    const { context, page } = await fresh();
+    try {
+      await page.locator('#file').setInputFiles(path.join(__dirname, 'demo', 'synthetic.dem'));
+      await page.waitForFunction(() => !!state.sourceDemo, null, { timeout: 30000 });
+      await settled(page);
+      const demo = await timelineState(page);
+      check(!demo.failed && !demo.channel && demo.key.timeline === 'source' && !('fps' in demo.key) && demo.controls.tl === 'game'
+        && /a demo's voice/.test(demo.note || ''),
+        'with a demo as the source and Phrase timing on the game\'s queue, the render is made on the file\'s own timing, does not throw, and the line under the control gives the reason',
+        `${demo.note}; ${demo.status}`);
+    } finally { await context.close(); }
+  }
+
+  // A source from a video file: one the page can write back and one it
+  // cannot, 60 s or less, and longer. Exactly one render follows the load,
+  // with no channel, not marked, the reason under the control.
+  {
+    const { context, page } = await fresh();
+    try {
+      // A video of 61 s: the MP4 fixture with 61 s of tone as its audio, made by the page's own writer.
+      const longMp4 = await page.evaluate(async (bytes) => {
+        const samples = Float32Array.from({ length: 61 * 48000 }, (_, i) => 0.2 * Math.sin(2 * Math.PI * 440 * i / 48000));
+        const { blob } = await TF2Video.remux(new Uint8Array(bytes).buffer, samples, 48000);
+        return [...new Uint8Array(await blob.arrayBuffer())];
+      }, [...fs.readFileSync(path.join(__dirname, 'video', 'vp9_opus.mp4'))]);
+      const videos = [
+        ['vp9_opus.mp4 (written back)', path.join(__dirname, 'video', 'vp9_opus.mp4')],
+        ['tone_16000.webm (audio only)', path.join(__dirname, 'filerate', 'tone_16000.webm')],
+        ['a 61 s MP4 (written back)', { name: 'long-video.mp4', mimeType: 'video/mp4', buffer: Buffer.from(longMp4) }],
+        ['a 61 s Matroska file (audio only)', { name: 'long-video.mkv', mimeType: 'video/x-matroska', buffer: wavTone(61, 8000) }]
+      ];
+      for (const [label, file] of videos) {
+        // An audio file first, so that the video follows a source on the game's timeline.
+        await chooseFile(page, { name: 'before.wav', mimeType: 'audio/wav', buffer: wavSpeech(2) });
+        const mark = `test: the video ${label}`;
+        await page.evaluate((m) => logLine(m, 'sys'), mark);
+        await chooseFile(page, file, 120000);
+        await page.waitForTimeout(1500);
+        const got = await timelineState(page), seconds = await page.evaluate(() => state.decodedSource.duration);
+        const started = await rendersStartedSince(page, mark);
+        check(started === 1 && !got.failed && !got.channel && !got.stale && !got.line && got.key.timeline === 'source' && !('fps' in got.key)
+          && /a video keeps its picture's timing/.test(got.note || ''),
+          `${label}, ${seconds.toFixed(1)} s: exactly one render follows the load, on the file's own timing (no channel), not marked, and the line under the control gives the reason`,
+          `${started} render${started === 1 ? '' : 's'} started; ${got.note}`);
+      }
+      // An audio file after a video is on the game's timeline again.
+      await chooseFile(page, { name: 'after.wav', mimeType: 'audio/wav', buffer: wavSpeech(2) });
+      const after = await timelineState(page);
+      check(after.channel && after.note === null && after.line, 'an audio file after a video renders on the game\'s timeline again, with no reason under the control');
+    } finally { await context.close(); }
+  }
+
+  // A source longer than 60 s: a changed volume, fps_max or Phrase timing
+  // marks the render and starts none; the line beside Hear follows the render
+  // on screen, not the controls.
+  {
+    const { context, page } = await fresh();
+    try {
+      await chooseFile(page, { name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(61, 8000) }, 120000);
+      const first = await timelineState(page);
+      const seen = [];
+      for (const [id, value, back] of [['volume', '0.5', '1'], ['fps', '67', '300'], ['timeline', 'source', 'game']]) {
+        const mark = `test: the long source, ${id}`;
+        await page.evaluate((m) => logLine(m, 'sys'), mark);
+        await setControl(page, id, value);
+        await page.waitForTimeout(1500);
+        const got = await timelineState(page);
+        seen.push({ id, started: await rendersStartedSince(page, mark), stale: got.stale, line: got.line, status: got.status === STALE_TEXT });
+        await setControl(page, id, back);
+      }
+      check(first.channel && first.line && seen.every((x) => x.started === 0 && x.stale && x.status && x.line),
+        'a 61 s source: a changed volume, fps_max or Phrase timing each marks the render and starts none, and the line beside Hear stays as the render on screen has it',
+        JSON.stringify(seen));
+    } finally { await context.close(); }
+  }
+
+  // voice_retime, the old name; remembered settings and share links.
+  {
+    const { context, page } = await fresh();
+    try {
+      const answers = await page.evaluate(() => {
+        const out = {};
+        const line = () => [...document.getElementById('console-out').children].map((e) => e.textContent).filter((t) => /voice_retime is an old name/.test(t)).length;
+        const before = line();
+        execCommand('voice_retime 0'); out.zero = els.timeline.value; out.zeroLine = line() - before;
+        execCommand('voice_retime 1'); out.one = els.timeline.value; out.oneLine = line() - before;
+        return out;
+      });
+      check(answers.zero === 'source' && answers.one === 'game' && answers.zeroLine === 1 && answers.oneLine === 2,
+        'voice_retime 0 sets voice_timeline source, voice_retime 1 sets game, and each prints that the flat rule is no longer offered and voice_timeline took its place', JSON.stringify(answers));
+      // A remembered retime of 0 (settings saved before this order) leaves the game's queue.
+      await page.evaluate(() => localStorage.setItem('tf2ve_settings', JSON.stringify({ vs: '0.5', retime: '0' })));
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const remembered = await page.evaluate(() => ({ tl: els.timeline.value, vs: els.voiceScale.value }));
+      check(remembered.tl === 'game' && remembered.vs === '0.5', 'a remembered retime of 0 is dropped: Phrase timing stays the game\'s voice queue (the rest is kept)', JSON.stringify(remembered));
+      // With voice_timeline source set first (and remembered), a link with retime=1 gives the game's queue.
+      await page.evaluate(() => execCommand('voice_timeline source'));
+      await page.goto(`${base}/#retime=1`, { waitUntil: 'domcontentloaded' });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const linked = await page.evaluate(() => els.timeline.value);
+      check(linked === 'game', 'with voice_timeline source set first, a share link with retime=1 gives the game\'s voice queue', linked);
+      // A link with the three new keys, and writeconfig writes them back.
+      await page.goto(`${base}/#tl=source&fps=67&buf=200`, { waitUntil: 'domcontentloaded' });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const keys = await page.evaluate(() => {
+        const out = { tl: els.timeline.value, fps: els.fps.value, buf: els.bufferMs.value };
+        history.replaceState(null, '', location.pathname);
+        execCommand('writeconfig');
+        const written = new URLSearchParams(location.hash.slice(1));
+        out.written = { tl: written.get('tl'), fps: written.get('fps'), buf: written.get('buf'), retime: written.has('retime') };
+        return out;
+      });
+      check(keys.tl === 'source' && keys.fps === '67' && keys.buf === '200' && keys.written.tl === 'source' && keys.written.fps === '67' && keys.written.buf === '200' && !keys.written.retime,
+        'a share link with tl=source&fps=67&buf=200 gives those three values, and writeconfig writes them back (and no retime)', JSON.stringify(keys));
+      // voice_buffer_ms is a whole number within 1 to 5000.
+      const whole = await page.evaluate(() => { const out = []; for (const v of ['150.4', '0', '9000']) { execCommand(`voice_buffer_ms ${v}`); out.push(els.bufferMs.value); } return out; });
+      check(JSON.stringify(whole) === '["150","1","5000"]', 'voice_buffer_ms takes a whole number from 1 to 5000', JSON.stringify(whole));
+    } finally { await context.close(); }
+  }
+
+  // A recorded live take of 90 s, with Phrase timing on the game's queue: its
+  // key is the file's own timing, it is marked, nothing renders by itself.
+  // (The live monitor's own take, of a few seconds, is checked in [Browser 3f].)
+  {
+    const { context, page } = await fresh();
+    try {
+      await chooseFile(page, { name: 'before.wav', mimeType: 'audio/wav', buffer: wavSpeech(2) });
+      const mark = 'test: a 90 s live take';
+      await page.evaluate((m) => {
+        logLine(m, 'sys');
+        const rate = 48000, n = 90 * rate, dry = Float32Array.from({ length: n }, (_, i) => 0.1 * Math.sin(2 * Math.PI * 300 * i / rate));
+        mountLiveTake({ dry, wet: dry.slice(), rate, frameLog: new Int8Array(90 * 50).fill(2),
+          counts: { modes: { hybrid: 4500 }, spurts: 1, gated: 0, frames: 4500, dtx: 0, lost: 0, late: 0 },
+          info: { codec: 'steam', realOpus: true, version: 'test', bitrate: 32000, vbr: true, dtx: true, gate: -40, autoGain: true, voiceRate: 44100, frameSamples: 480 } });
+      }, mark);
+      await page.waitForTimeout(1500);
+      const take = await timelineState(page);
+      const started = await rendersStartedSince(page, mark);
+      check(take.key.timeline === 'source' && !('fps' in take.key) && take.stale && !take.processing && !take.line && started === 0
+        && take.status.startsWith('Recorded live · 90.0 s') && take.status.endsWith('on the file\'s own timing; Render gives it on the game\'s voice queue'),
+        'a 90 s live take with Phrase timing on the game\'s queue: its key holds timeline source and no fps; it is marked, nothing renders, the line beside Hear is hidden, and its line says how it was made',
+        `${started} started; ${take.status}`);
+    } finally { await context.close(); }
+  }
+  check(errors.length === 0, 'the game\'s timeline on the page: no page errors', errors.join('; '));
 }
 
 // W4-01a: which version this is. The footer gives the service worker's cache
@@ -2727,7 +3084,9 @@ async function speedPage(browser, base) {
 // worker and nothing kept), as hex.
 const freshHash = (page) => page.evaluate(async () => {
   const demo = state.sourceDemo;
-  const opts = { ...renderOptions(), ...(demo ? { codec: demo.codecKey, received: demo.received } : {}) };
+  // The options of the source on the page (W3-02d-1: a demo's voice and a
+  // video keep the file's own timing), as runRender makes them.
+  const opts = { ...sourceRenderOptions(demo), ...(demo ? { codec: demo.codecKey, received: demo.received } : {}) };
   const result = await TF2Audio.process(captureSource(state.decodedSource, opts.captureChannel), opts);
   const bytes = await result.blob.arrayBuffer();
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -3268,7 +3627,7 @@ async function main() {
     const controlIds = ['codec', 'listener_position', 'gain', 'voice_scale', 'hp', 'lp', 'env',
       'c_dur', 'c_dec', 'c_mix', 'agc', 'maxgain', 'avggain', 'volume', 'device_rate', 'bits', 'frameMs', 'loss', 'warble_on',
       'capture_channel', 'vad', 'vad_threshold', 'steam_uptime', 'jitter',
-      'underwater', 'a_sky', 'a_w', 'a_l', 'a_h', 'a_open', 'a_refl', 'live-lowlat'];
+      'underwater', 'a_sky', 'a_w', 'a_l', 'a_h', 'a_open', 'a_refl', 'live-lowlat', 'fps', 'buffer_ms', 'timeline'];
     const unlabeled = await page.evaluate((ids) => ids.filter((id) => {
       const element = document.getElementById(id);
       return !element || !element.labels || element.labels.length === 0;
@@ -3318,6 +3677,11 @@ async function main() {
       'the mock console\'s player names and chat lines are the lists recorded in S3-03', mockListsHash);
 
     console.log('\n[Browser 3] Worker render and cancellation');
+    // On the file's own timing (W3-02d-1), as in [Browser 5]: the game's voice
+    // queue drops part of an unbroken tone's first moments when its channel
+    // opens, which moves the pitch read below. The Laggy and Modern presets
+    // in 3b set the game's queue again.
+    await page.evaluate(() => execCommand('voice_timeline source'));
     // The chosen file renders by itself (W4-01a).
     await chooseFile(page, { name: 'tone.wav', mimeType: 'audio/wav', buffer: wavTone(0.5) });
     const decodedSource = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, length: state.decodedSource.length }));
@@ -3768,6 +4132,7 @@ async function main() {
     await verifyFirstVisitOffline(browser, base);
     await verifyUpdateThroughHttpCache(browser);
     await verifyJourney(browser, base);
+    await verifyPageTimeline(browser, base);
     await verifyVersionLine(browser);
     await verifyAccess(browser, base);
     await verifyBatchAndFormats(browser, base);

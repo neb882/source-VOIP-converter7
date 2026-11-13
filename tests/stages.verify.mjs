@@ -112,11 +112,19 @@ console.log(`  (${((performance.now() - t1) / 1000).toFixed(1)} s)`);
 // The option names app/render.js's renderOptions() sends (the browser suite
 // checks this list against the page's), with the page's defaults, and a
 // changed value for each (two for some), each changed alone.
-const RENDER_OPTION_NAMES = ['codec', 'room', 'underwater', 'captureChannel', 'micGain', 'voiceScale', 'hp', 'lp', 'bits', 'agc', 'retime',
-  'maxGain', 'avgGain', 'gate', 'gateThresholdDb', 'steamUptime', 'volume', 'deviceRate', 'lossPct', 'frameMs', 'enableWarble', 'jitterMs'];
+// Since W3-02d-1 the page renders on the game's timeline by default
+// (timeline 'game' at 300 frames a second, voice_buffer_ms 100), and no
+// longer sends retime, which is the engine's own name here.
+const RENDER_OPTION_NAMES = ['codec', 'room', 'underwater', 'captureChannel', 'micGain', 'voiceScale', 'hp', 'lp', 'bits', 'agc',
+  'maxGain', 'avgGain', 'gate', 'gateThresholdDb', 'steamUptime', 'volume', 'deviceRate', 'lossPct', 'frameMs', 'enableWarble', 'jitterMs',
+  'timeline', 'fps', 'bufferMs'];
 const PAGE_DEFAULTS = { codec: 'steam', room: null, underwater: false, captureChannel: 'left', micGain: 1, voiceScale: 1, hp: 0, lp: 20000,
-  bits: 16, agc: true, retime: false, maxGain: 10, avgGain: 0.5, gate: null, gateThresholdDb: undefined, steamUptime: 777600, volume: 1,
-  deviceRate: 48000, lossPct: 0, frameMs: 20, enableWarble: true, jitterMs: 0 };
+  bits: 16, agc: true, maxGain: 10, avgGain: 0.5, gate: null, gateThresholdDb: undefined, steamUptime: 777600, volume: 1,
+  deviceRate: 48000, lossPct: 0, frameMs: 20, enableWarble: true, jitterMs: 0, timeline: 'game', fps: 300, bufferMs: 100 };
+// What the page sends where a render keeps the file's own timing: any codec
+// but `steam`, the codec skipped, a demo's voice (app/render.js). The engine
+// refuses the game's timeline there with a RangeError.
+const SOURCE_BASE = { ...PAGE_DEFAULTS, timeline: 'source', fps: undefined, bufferMs: undefined };
 const CHANGES = {
   codec: [{ codec: 'celt_22' }, { codec: 'miles' }],
   room: [{ room: { preset: 6 } }, { room: { custom: { duration: 1, decay: 2, mix: 0.3 } } }],
@@ -128,7 +136,6 @@ const CHANGES = {
   lp: [{ lp: 3000 }],
   bits: [{ bits: 8 }],
   agc: [{ agc: false }],
-  retime: [{ retime: true }],
   maxGain: [{ maxGain: 3 }],
   avgGain: [{ avgGain: 0.25 }],
   gate: [{ gate: false }],
@@ -139,15 +146,18 @@ const CHANGES = {
   lossPct: [{ lossPct: 15 }],
   frameMs: [{ frameMs: 60 }],
   enableWarble: [{ enableWarble: false }],
-  jitterMs: [{ jitterMs: 100 }]
+  jitterMs: [{ jitterMs: 100 }],
+  timeline: [{ timeline: 'source' }],
+  fps: [{ fps: 66.67 }],
+  bufferMs: [{ bufferMs: 200 }]
 };
 // The other options process() reads, and options whose effect shows only
 // on a base of their own (net_split with jitter, the seed with loss), each
 // changed alone: [name, base options, changed options, source?] (the
 // source a demo's voice where it is one). With the page's cases these change
 // every name process() reads (the check below).
-const ENGINE_OPTION_NAMES = ['listenerPos', 'dspRoom', 'customEnv', 'seed', 'received', 'swrKernel'];
-const CELT_BASE = { ...PAGE_DEFAULTS, codec: 'celt_22', steamUptime: undefined };
+const ENGINE_OPTION_NAMES = ['listenerPos', 'dspRoom', 'customEnv', 'seed', 'received', 'swrKernel', 'retime'];
+const CELT_BASE = { ...SOURCE_BASE, codec: 'celt_22', steamUptime: undefined };
 const demoVoice = receivedVoice(5, 23);
 const ENGINE_OPTION_CASES = [
   ['steam, jitter 50 ms: {"frameMs":60}', { ...PAGE_DEFAULTS, jitterMs: 50 }, { frameMs: 60 }],
@@ -159,18 +169,14 @@ const ENGINE_OPTION_CASES = [
   ['steam, dspRoom 99: {"customEnv":{"duration":1,"decay":2,"mix":0.5}}', { ...PAGE_DEFAULTS, room: undefined, dspRoom: 99,
     customEnv: { duration: 1, decay: 2, mix: 0.3 } }, { customEnv: { duration: 1, decay: 2, mix: 0.5 } }],
   ['steam: {"swrKernel":"c"}', { ...PAGE_DEFAULTS }, { swrKernel: 'c' }],
-  ['steam, a demo\'s samples: {"received":…}', { ...PAGE_DEFAULTS, micGain: 2 }, { received: demoVoice.received },
-    buffer(demoVoice.samples, 24000)]
+  ['steam, a demo\'s samples: {"received":…}', { ...SOURCE_BASE, micGain: 2 }, { received: demoVoice.received },
+    buffer(demoVoice.samples, 24000)],
+  // retime, the engine's own since W3-02d-1: the page no longer sends it.
+  ['steam, the file\'s own timing: {"retime":true}', { ...SOURCE_BASE }, { retime: true }]
 ];
-// A later order's case, in the same form (W3-02c-2 adds its timeline here).
+// A later order's case, in the same form. W3-02c-2's timeline, fps and
+// bufferMs are the page's since W3-02d-1, in the cases above.
 const EXTRA_OPTION_CASES = [];
-// W3-02c-2: the game's timeline, changed alone on the page's defaults, and its two
-// settings each changed alone on a base with it. All three are read after B.
-ENGINE_OPTION_NAMES.push('timeline', 'fps', 'bufferMs');
-EXTRA_OPTION_CASES.push(
-  ['steam: {"timeline":"game"}', { ...PAGE_DEFAULTS }, { timeline: 'game' }],
-  ['steam, timeline game: {"fps":66.67}', { ...PAGE_DEFAULTS, timeline: 'game' }, { fps: 66.67 }],
-  ['steam, timeline game: {"bufferMs":200}', { ...PAGE_DEFAULTS, timeline: 'game' }, { bufferMs: 200 }]);
 // Where a render with `change` should start from, by the lists: B when every
 // option changed is read only after B, A when only after A, else neither.
 const { afterA, afterB, read, observers } = A.STAGE_OPTIONS;
@@ -202,12 +208,17 @@ check('every option the page sends has a changed value here, and every name the 
   for (const baseCodec of ['steam', 'celt_22']) {
     const base = baseCodec === 'steam' ? { ...PAGE_DEFAULTS } : { ...CELT_BASE };
     for (const name of RENDER_OPTION_NAMES) {
+      // celt_22 takes no other timeline than the file's own (a RangeError).
+      if (name === 'timeline' && baseCodec !== 'steam') continue;
       for (const change of CHANGES[name]) {
         // On celt_22 the codec and the gate change to what the base is not
         // (celt_22 has no sender gate: gate false is its own setting).
         const c = name === 'codec' && baseCodec !== 'steam' ? { codec: 'steam' }
           : name === 'gate' && baseCodec !== 'steam' ? { gate: true } : change;
-        cases.push([`${baseCodec}: ${JSON.stringify(c)}`, base, c]);
+        // Another codec, or the codec skipped, on `steam`'s base: what the
+        // page sends there, the file's own timing (W3-02d-1).
+        const from = baseCodec === 'steam' && (name === 'codec' || name === 'enableWarble') ? { ...SOURCE_BASE } : base;
+        cases.push([`${baseCodec}: ${JSON.stringify(c)}`, from, c]);
       }
     }
   }
@@ -243,7 +254,9 @@ check('every option the page sends has a changed value here, and every name the 
 
 console.log('\n[3] The keys');
 {
-  const x = voice(4, 48000, 31), source = buffer(x, 48000), base = { ...PAGE_DEFAULTS };
+  // The file's own timing (W3-02d-1): the base feeds a celt_22 render and
+  // re-timing below, which the game's timeline refuses.
+  const x = voice(4, 48000, 31), source = buffer(x, 48000), base = { ...SOURCE_BASE };
   const fresh = async (opts) => hashes(await A.process(source, opts));
   const warmed = async (key = 'k') => { const stages = {}; await A.process(source, { ...base, stages, sourceKey: key }); return stages; };
 
@@ -478,7 +491,7 @@ console.log('\n[4] The first 14 s of a render of the first 15 s are the whole re
   };
   const clips = [41, 42, 43].map((seed) => voice(32, rate, seed));
   for (const codec of ['steam', 'steam_48', 'celt_22', 'celt_44', 'speex', 'miles']) {
-    const opts = { ...PAGE_DEFAULTS, codec, ...(codec === 'steam' ? {} : { steamUptime: undefined }) };
+    const opts = codec === 'steam' ? { ...PAGE_DEFAULTS } : { ...SOURCE_BASE, codec, steamUptime: undefined };
     const at = [];
     for (const clip of clips) at.push(await firstDiffer(clip, null, opts));
     check(`${codec}: on three seeded 32 s clips, the first 14 s of the render of the first 15 s are the whole render's`,
@@ -488,9 +501,10 @@ console.log('\n[4] The first 14 s of a render of the first 15 s are the whole re
   const right = voice(32, rate, 44);
   for (const change of [{ gate: false }, { gate: true }, { gateThresholdDb: -30 }, { steamUptime: 14400 }, { bits: 6 }, { micGain: 3 }, { hp: 300, lp: 3000 },
     { agc: false }, { voiceScale: 2 }, { maxGain: 3 }, { avgGain: 0.25 }, { volume: 0.5 }, { deviceRate: 44100 }, { enableWarble: false },
-    { timeline: 'game' }, { timeline: 'game', fps: 66.67 },
+    { timeline: 'source', fps: undefined, bufferMs: undefined }, { timeline: 'game', fps: 66.67 },
     { frameMs: 60 }, { captureChannel: 'right' }, { captureChannel: 'mix' }, { codec: 'celt_22', steamUptime: undefined, gate: true, voiceScale: 2 }]) {
-    const opts = { ...PAGE_DEFAULTS, ...change };
+    // The codec skipped and celt_22 on the file's own timing, as the page sends them (W3-02d-1).
+    const opts = { ...(change.enableWarble === false || change.codec ? SOURCE_BASE : PAGE_DEFAULTS), ...change };
     const at = await firstDiffer(clips[0], change.captureChannel ? right : null, opts);
     check(`${JSON.stringify(change)}: the first 14 s are the whole render's, and the first seconds are allowed`, at === -1 && A.previewAllowed(opts),
       at === -1 ? 'sample for sample' : `first differing sample ${at}`);
@@ -500,7 +514,7 @@ console.log('\n[4] The first 14 s of a render of the first 15 s are the whole re
     { room: { custom: { duration: 1, decay: 2, mix: 0.3 } } }, { room: { auto: 'tunnel' } }, { deviceRate: 96000 },
     { received: { frameLog: [2], frameBytes: [60], frameMs: 20, spurts: 1 } }, { loseMessage: () => false }];
   check('previewAllowed() allows nothing else: loss, jitter, re-timing, a room, under water, an untested device rate, a demo\'s voice, loseMessage',
-    refused.every((change) => !A.previewAllowed({ ...PAGE_DEFAULTS, ...change })) && A.previewAllowed({ ...PAGE_DEFAULTS, room: { preset: 0 } }),
+    refused.every((change) => !A.previewAllowed({ ...(change.retime ? SOURCE_BASE : PAGE_DEFAULTS), ...change })) && A.previewAllowed({ ...PAGE_DEFAULTS, room: { preset: 0 } }),
     `${refused.length} refused; a room number that is no room is allowed`);
   console.log(`  (${((performance.now() - t4) / 1000).toFixed(1)} s)`);
 }

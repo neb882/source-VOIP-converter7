@@ -75,7 +75,15 @@ const els = {
   lp:        document.getElementById('lp'),
   bits:      document.getElementById('bits'),
   agc:       document.getElementById('agc'),
-  retime:    document.getElementById('retime'),
+  // W3-02d-1: Phrase timing (the game's voice queue or the file's own
+  // timing), and the queue's two settings, the listener's frame rate and
+  // voice_buffer_ms; the line under Phrase timing that says why a render
+  // keeps the file's own timing; the line beside Hear.
+  timeline:  document.getElementById('timeline'),
+  timelineNote: document.getElementById('timeline-note'),
+  fps:       document.getElementById('fps'),
+  bufferMs:  document.getElementById('buffer_ms'),
+  hearTimeline: document.getElementById('hear-timeline'),
   maxGain:   document.getElementById('maxgain'),
   avgGain:   document.getElementById('avggain'),
   vad:       document.getElementById('vad'),
@@ -133,6 +141,10 @@ const state = {
   sourceName: null,      // name of the loaded clip (file or mic)
   sourceVideo: null,     // the MP4/MOV the clip came from: { bytes, name, info } (video.js)
   sourceDemo: null,      // the TF2 demo the clip came from: { file, parsed, speaker, codecKey, received } (demo.js)
+  // W3-02d-1: the clip came from a video file (any, not only one the page
+  // can write back): its render keeps the file's own timing, so the sound
+  // stays with the picture. Set by mountSource, before the first render.
+  sourceFromVideo: false,
   recorder: null,        // active PCM capture session
   recTick: null,         // recording timer interval
   processing: false,
@@ -172,8 +184,10 @@ const AUTO_RENDER_DELAY_MS = 400;
 // properties of a PC, which presets leave alone (W3-10).
 const PRESET_SET_FIELDS = ['codec', 'pos', 'dsp', 'uw', 'asky', 'aw', 'al', 'ah', 'aopen', 'arefl',
   'gain', 'vs', 'hp', 'lp', 'bits', 'agc', 'maxgain', 'avggain', 'vad', 'vadthr', 'vol', 'frame', 'loss', 'warble',
-  'cdur', 'cdec', 'cmix', 'jit', 'retime'];
-const KEPT_ACROSS_PRESETS = ['uptime', 'dev', 'chan'];
+  'cdur', 'cdec', 'cmix', 'jit', 'tl', 'buf'];
+// The listener's frame rate (fps, W3-02d-1) is a property of the listener's
+// PC, as the sound device is.
+const KEPT_ACROSS_PRESETS = ['uptime', 'dev', 'chan', 'fps'];
 // The built-in presets (PRESETS, constants.js) name their fields by option
 // names; these are the share link's keys they set.
 const PRESET_KEYS = { codec: 'codec', position: 'pos', underwater: 'uw', hp: 'hp', lp: 'lp',

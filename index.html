@@ -172,6 +172,16 @@
             <input id="voice_scale" type="number" value="1.0" min="0.0" max="2.0" step="0.05" aria-describedby="voice_scale-help">
             <p id="voice_scale-help" class="control-help">The game's voice_scale. Not a plain volume: below 1 it lowers the voice by more than its number.</p>
           </div>
+          <div class="control">
+            <label for="fps">Listener's frame rate <code class="cvar">fps_max</code></label>
+            <input id="fps" type="number" value="300" min="10" max="1000" step="any" aria-describedby="fps-help">
+            <p id="fps-help" class="control-help">How many frames a second the listener's game draws. A new phrase waits before it plays, longer at a higher rate: about 0.09 s at 67 and 0.44 s at 300. The game's fps_max caps the rate; 300 is its default. At 200 or less, sound that never pauses for minutes thins out; at 67 the level first dips after about 2 minutes. That is the game's rule as read, run on the model; no recording shows it.</p>
+          </div>
+          <div class="control">
+            <label for="buffer_ms">Voice buffer ms <code class="cvar">voice_buffer_ms</code></label>
+            <input id="buffer_ms" type="number" value="100" min="1" max="5000" step="1" aria-describedby="buffer_ms-help">
+            <p id="buffer_ms-help" class="control-help">The wait before a new phrase plays, in milliseconds. The game counts it down one frame at a time, so it lasts longer at a higher frame rate. The game's default is 100.</p>
+          </div>
         </fieldset>
 
         <fieldset class="chain-group advanced-control">
@@ -283,12 +293,13 @@
             <p id="agc-help" class="control-help">The receiver's auto-gain as the game runs it. Off is for comparison only: the voice at unity gain.</p>
           </div>
           <div class="control">
-            <label for="retime" title="TF2's receiver starts some talk spurts early after a short silence (measured; which ones is random). Off keeps the source's timing for A/B.">Talk-spurt timing</label>
-            <select id="retime" aria-describedby="retime-help">
-              <option value="0" selected>The file's own timing</option>
-              <option value="1">Some phrases start early (random)</option>
+            <label for="timeline">Phrase timing</label>
+            <select id="timeline" aria-describedby="timeline-help">
+              <option value="game" selected>The game's voice queue</option>
+              <option value="source">The file's own timing</option>
             </select>
-            <p id="retime-help" class="control-help">The game plays some phrases early after a short silence. Which ones is random.</p>
+            <p id="timeline-help" class="control-help">The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. Which phrases move depends on the sender's clock, which no recording shows. The file's own timing keeps every sound where the source has it. The live monitor always keeps the file's own timing.</p>
+            <p id="timeline-note" class="control-help" hidden></p>
           </div>
           <div class="control">
             <label title="Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. Saves the figure shown once the monitor runs. Not how TF2 sounds." class="check-label"><input id="live-lowlat" type="checkbox" aria-describedby="live-lowlat-help"> Live monitor: low latency (shorter pre-roll)</label>
@@ -343,6 +354,8 @@
             <button class="ab-choice" type="button" data-ab="dry" aria-pressed="false" disabled title="The source as it is, at the same place. B switches">Original</button>
             <button class="ab-choice" type="button" data-ab="real" aria-pressed="false" disabled hidden title="The real TF2 take loaded below, lined up with the source. B switches">Real take</button>
           </div>
+          <!-- Shown while the render on screen was made on the game's voice queue (app/render.js, updateHearTimeline). -->
+          <p id="hear-timeline" class="hear-timeline" hidden>On the game's voice queue, Rendered and Original do not stay in step: a phrase can start early, by up to about the wait. At 300 frames a second the render also gains about 0.4 ms every second.</p>
           <!-- Which version plays, for a screen reader (the B key moves no focus). -->
           <span id="ab-now" class="visually-hidden" aria-live="polite"></span>
           <div class="ab-match-wrap">

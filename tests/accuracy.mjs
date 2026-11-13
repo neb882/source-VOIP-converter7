@@ -97,7 +97,7 @@ async function measureInPage({ takeUrl, sourceUrl, settings, takeChannelName, ta
     take = take.slice(a, b);
     takeStart = a / rate;
   }
-  const opts = { ...renderOptions(), ...settings };
+  const opts = { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, ...settings };
   const rendered = await TF2Audio.process(source, opts);
   // The render is at the listener's device's rate (W3-10; 48000 Hz by
   // default, the takes' rate): the take is compared at the render's rate.
@@ -132,7 +132,7 @@ async function predictInPage({ sourceUrl, segmentsUrl, settings }) {
   const rate = 48000, ctx = new OfflineAudioContext(1, 1, rate);
   const source = await ctx.decodeAudioData(await (await fetch(sourceUrl)).arrayBuffer());
   const segments = (await (await fetch(segmentsUrl)).json()).segments;
-  const opts = { ...renderOptions(), ...settings };
+  const opts = { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, ...settings };
   const rendered = await TF2Audio.process(source, opts);
   // Measured at the render's own rate (the device's, W3-10), which the takes
   // it is scored against share: 48000 Hz.
@@ -164,7 +164,7 @@ async function takeStatsInPage({ takeUrl, sourceUrl, segmentsUrl, settings }) {
   const [takeBuffer, source] = await Promise.all([decode(takeUrl), decode(sourceUrl)]);
   const segments = (await (await fetch(segmentsUrl)).json()).segments;
   const take = takeChannel(takeBuffer, 'mix');
-  const opts = { ...renderOptions(), ...settings };
+  const opts = { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, ...settings };
   const rendered = await TF2Audio.process(source, opts);
   if (rendered.sampleRate !== rate) throw new Error(`rendered at ${rendered.sampleRate} Hz, not the take's ${rate} Hz (snd_device_rate)`);
   const captured = TF2Audio.bufferToMono(source, opts.captureChannel);
@@ -408,7 +408,7 @@ async function simulateInPage({ sourceUrl, ambienceUrl, settings }) {
   const cut = windows.map(w => w.e).sort((x, y) => x - y)[Math.floor(windows.length * .3)];
   const quiet = windows.filter(w => w.e > 0 && w.e <= cut).map(w => a.subarray(w.at, w.at + step));
   if (!quiet.length) throw new Error('the ambience take is silent');
-  const render = await TF2Audio.process(source, { ...renderOptions(), ...settings });
+  const render = await TF2Audio.process(source, { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, ...settings });
   if (render.sampleRate !== rate) throw new Error(`rendered at ${render.sampleRate} Hz, not ${rate} Hz (snd_device_rate)`);
   const rendered = render.samples;
   const n = rendered.length + lead, x = new Float32Array(n);
