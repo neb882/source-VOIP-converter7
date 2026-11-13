@@ -297,8 +297,9 @@
         async flush() {
           await feed(sender.finish());
           if (channel) {
-            // The render's last tick, as process() takes it, before the end.
-            channel.advance(bound());
+            // The arrival of every tick through the render's last, as
+            // process() asks it, before the end.
+            channel.ask(bound());
             steam.played = channel.finish();
             const y = channel.take();
             voiceOut += y.length;

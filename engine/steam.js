@@ -117,9 +117,9 @@
   // its messages up to the tick `lastTick` (-1 for none), no later message
   // has a tick below this (createRender's bound, W3-02c-2; its reasoning is
   // there). With every sample given and every message made it is the render's
-  // last tick, which process() and createRender both advance the channel to
-  // before finish(), so that both ask the arrival of the same ticks (BC-4a's
-  // fix round, point 2). S is the sender's STEAM_SENDER.
+  // last tick, through which process() and createRender both ask the arrival
+  // (steamChannel's ask) before finish(), so that both ask the same ticks
+  // (BC-4a's fix round, point 2). S is the sender's STEAM_SENDER.
   const steamBoundTick = (S, lastTick, given) => Math.max(lastTick + 1, Math.ceil((given / S.rate + S.relay) / S.tick));
 
   // opts.arriveAt (BC-4): tests and replays only (the page never sends it),
@@ -166,13 +166,15 @@
   // a tick reaches the channel (steamArrivalPlan's at: the arrival model, or
   // opts.arriveAt). It is used in the two places a tick reaches the module:
   // push(tick) pushes at arrive(tick), and advance(tick) (createRender's
-  // bound: no later message has a sender tick below it; and both renderers'
-  // last tick, before finish()) advances to arrive(tick), which is a bound
-  // too, since arrive never falls. arrive is asked for every whole tick from
-  // 0 up to the highest asked so far, once each and in order, whatever ticks
-  // the messages and the bounds fall on, so process() and createRender ask it
-  // the same ticks (the fix round of BC-4a, point 2). What it gives must be a
-  // whole number, 0 or more, that never falls, or a RangeError.
+  // bound: no later message has a sender tick below it) advances to
+  // arrive(tick), which is a bound too, since arrive never falls. arrive is
+  // asked for every whole tick from 0 up to the highest asked so far, once
+  // each and in order, whatever ticks the messages and the bounds fall on;
+  // ask(tick) asks through a tick without moving the channel, which both
+  // renderers do with the render's last tick before finish(), so that
+  // process() and createRender ask it the same ticks (the fix round of
+  // BC-4a, point 2). What it gives must be a whole number, 0 or more, that
+  // never falls, or a RangeError.
   // arrivals() counts the messages pushed (lost ones never are): { messages,
   // meanMs, maxMs, sameTick }, the delays arrive(tick) - tick at 15 ms a
   // tick and how many came on the tick of the message before; null without
@@ -234,6 +236,7 @@
         pieces.push(timeline.push({ tick: a, pcm: y, source }));
       },
       advance(tick) { pieces.push(timeline.advance(at(tick))); },
+      ask(tick) { at(tick); },
       arrivals: () => (arrive ? { messages, meanMs: messages ? STEAM_TICK_MS * sumTicks / messages : 0,
         maxMs: messages ? STEAM_TICK_MS * maxTicks : 0, sameTick } : null),
       finish() {

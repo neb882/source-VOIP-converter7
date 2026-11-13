@@ -651,13 +651,13 @@
           await pause();
         }
       }
-      // The render's last tick, as createRender's last bound has it (every
-      // sample given to the sender, every message made), then the channel's
-      // output: what every push gave and what finish() gives, in order,
-      // voiceLength samples.
+      // The arrival of every tick through the render's last, as createRender's
+      // last bound has it (every sample given to the sender, every message
+      // made), asked as createRender asks it; then the channel's output: what
+      // every push gave and what finish() gives, in order, voiceLength samples.
       if (channel) {
         const last = messages.length ? messages[messages.length - 1].tick : -1;
-        channel.advance(steamBoundTick(steamModules().sender.STEAM_SENDER, last, codecLength));
+        channel.ask(steamBoundTick(steamModules().sender.STEAM_SENDER, last, codecLength));
       }
       const played = channel ? channel.finish() : null;
       steamVoice = channel ? channel.take() : timeline.take(voiceLength);
