@@ -436,10 +436,15 @@ const CODEC_PROFILES = {
  *               2.2 on average, concealed by the codec; since BC-1 only the
  *               engine codecs and steam_48 draw loss this way: `steam` loses
  *               each sender message whole by a draw of its own
- *               (engine/network.js, steamMessageLoss), as the game loses a packet. Jitter, on every
- *               profile: late frames (3.2% of frames at net_fakejitter 50,
- *               scaled linearly), one in ten of which plays as silence instead
- *               of concealment (a fit with no mechanism read in the game).
+ *               (engine/network.js, steamMessageLoss), as the game loses a packet. Jitter
+ *               (BC-4): on `steam` on the game's voice queue the tick each
+ *               message reaches the receiver (engine/network.js,
+ *               steamArrivals: net_fakelag's lists as read), and nothing on
+ *               the file's own timing; the numbers below are not used there.
+ *               The other profiles keep the fit: late frames (3.2% of frames
+ *               at net_fakejitter 50, scaled linearly), one in ten of which
+ *               plays as silence instead of concealment (a fit; the game
+ *               makes no frame late, finding 9).
  * ------------------------------------------------------------------------- */
 const VOICE_ENGINE = {
   mixRate: 44100,

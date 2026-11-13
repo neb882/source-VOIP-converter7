@@ -60,7 +60,7 @@
     resampleLinear, resampleSinc, streamFir, streamResampleSinc, toInt16 } = E.dsp;
   const { createGain, decodedFromFrames, receiverAutoGain, streamAutoGain } = E.gain;
   const { createDeviceStage, createOutputStage, mixClip, mixDevicePosition, mixEntry, mixOut, mixUpsample2 } = E.mix;
-  const { buildLossMask, steamMessageLoss, streamLossMask } = E.network;
+  const { buildLossMask, fakeLagList, steamArrivals, steamMessageLoss, streamLossMask } = E.network;
   const { roomPreset } = E.room;
   const { steamFits, steamGiveOut } = E.steam;
   const { AFTER_A_OPTIONS, AFTER_B_OPTIONS, READ_OPTIONS, STAGE_OBSERVERS, previewAllowed, process, stageKeys,
@@ -116,6 +116,10 @@
     applyBiquad,
     mulberry32,
     buildLossMask,
+    // jitter on `steam` as arrival times (BC-4): one of net_fakelag's lists,
+    // and the path of a listen server's own voice
+    fakeLagList,
+    steamArrivals,
     createLiveChain,
     createRender,
     roomPreset,

@@ -1,5 +1,6 @@
 /* TF2 Voice Emulator, engine/steam.js: the steam profile: its constants, its capture, its sender's options, its
- * timeline, the receiver's voice channel on the game's timeline (W3-02c-2), its codec information.
+ * timeline, the receiver's voice channel on the game's timeline (W3-02c-2) with each message on its arrival tick
+ * (BC-4), its codec information.
  *
  * One of the engine's files (the list and the load order are in audio.js's header). It takes what it needs from the
  * files before it as TF2Engine's parts and adds its own. */
@@ -38,6 +39,9 @@
   // One frame at the voice rate: 480 samples at 24 kHz are 882 at 44.1 kHz,
   // and the resampler gives exactly 882 F samples for a packet of F frames.
   const STEAM_SLOT = STEAM_FRAME * STEAM_VOICE_RATE / STEAM_RATE;
+  // The game's tick in ms, at which a delay in ticks is reported (read: the
+  // client tick, W3-03).
+  const STEAM_TICK_MS = 15;
   // The engine's room for one message's sound: 22,528 bytes, 11,264 16-bit
   // samples (W3-03, read). Steam copies nothing when a message's resampled
   // sound is longer, and the engine queues nothing of it (the W3-16 read;
@@ -109,6 +113,22 @@
     return true;
   }
 
+  // opts.arriveAt (BC-4): tests and replays only (the page never sends it),
+  // a function (tick) => the tick on which the message the sender gave that
+  // tick reaches the voice channel, in place of the arrival model: how a
+  // log's own arrival ticks are replayed. It runs on the game's timeline
+  // only (game: what steamGameTimeline decided); anywhere else, and for
+  // anything but a function, a RangeError, never ignored. undefined and null
+  // are none. The channel calls it with ticks that never fall, for each
+  // message and for createRender's bounds; what it gives is checked there
+  // (steamChannel).
+  function steamArriveAt(value, game) {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== 'function') throw new RangeError(`TF2Audio: opts.arriveAt is a function (tick) => tick, not a ${typeof value}.`);
+    if (!game) throw new RangeError('TF2Audio: opts.arriveAt runs on the game\'s timeline only (opts.timeline \'game\' on the steam codec), and is refused here, not ignored.');
+    return value;
+  }
+
   // The receiver's voice channel in a render on the game's timeline
   // (W3-02c-2): voice-channel.js's createTimeline, made with the render's
   // length at the voice rate, the listener's fps and voice_buffer_ms as given
@@ -133,8 +153,29 @@
   // timeline gives out is kept in order: take() returns it joined, and
   // finish() ends the timeline and returns its info. Nothing pushed is kept
   // or written to: the gain's output is a new array.
-  function steamChannel({ length, lookahead, fps, bufferMs, autoGain, avgGain, maxGain, voiceScale }) {
+  // arrive (BC-4; null: none): the tick on which the message the sender gave
+  // a tick reaches the channel (steamArrivalPlan's at: the arrival model, or
+  // opts.arriveAt). It is used in the two places a tick reaches the module:
+  // push(tick) pushes at arrive(tick), and advance(tick) (createRender's
+  // bound: no later message has a sender tick below it) advances to
+  // arrive(tick), which is a bound too, since arrive never falls. What it
+  // gives must be a whole number that never falls, or a RangeError.
+  // arrivals() counts the messages pushed (lost ones never are): { messages,
+  // meanMs, maxMs, sameTick }, the delays arrive(tick) - tick at 15 ms a
+  // tick and how many came on the tick of the message before; null without
+  // arrive.
+  function steamChannel({ length, lookahead, fps, bufferMs, autoGain, avgGain, maxGain, voiceScale, arrive = null }) {
     const { createTimeline } = steamChannelModule();
+    let lastArrival = -Infinity, messages = 0, sumTicks = 0, maxTicks = -Infinity, sameTick = 0;
+    const at = (tick) => {
+      if (!arrive) return tick;
+      const a = arrive(tick);
+      if (!Number.isInteger(a) || a < lastArrival) {
+        throw new RangeError(`TF2Audio: an arrival tick is a whole number that never falls; tick ${tick} arrived on ${a} after ${lastArrival} (opts.arriveAt or the arrival model).`);
+      }
+      lastArrival = a;
+      return a;
+    };
     let blocks = [], g = null;
     const late = (j) => blocks[j].code === FRAME_CODES.late;
     const gain = autoGain ? {
@@ -159,13 +200,23 @@
         roundEven(clamp(Math.fround(v * voiceScale), -INT16_FULL_SCALE, INT16_FULL_SCALE) * 32768) / 32768)
     };
     const timeline = createTimeline({ length, fps, bufferMs, codecDelay: lookahead / STEAM_RATE, gain });
-    let pieces = [];
+    let pieces = [], lastMessage = null;
     return {
       push(tick, y, packetBlocks, source) {
         blocks = packetBlocks;
-        pieces.push(timeline.push({ tick, pcm: y, source }));
+        const a = at(tick);
+        if (arrive) {
+          messages++;
+          sumTicks += a - tick;
+          if (a - tick > maxTicks) maxTicks = a - tick;
+          if (a === lastMessage) sameTick++;
+          lastMessage = a;
+        }
+        pieces.push(timeline.push({ tick: a, pcm: y, source }));
       },
-      advance(tick) { pieces.push(timeline.advance(tick)); },
+      advance(tick) { pieces.push(timeline.advance(at(tick))); },
+      arrivals: () => (arrive ? { messages, meanMs: messages ? STEAM_TICK_MS * sumTicks / messages : 0,
+        maxMs: messages ? STEAM_TICK_MS * maxTicks : 0, sameTick } : null),
       finish() {
         const end = timeline.finish();
         pieces.push(end.samples);
@@ -486,7 +537,7 @@
   }
 
   E.steam = Object.freeze({
-    STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamCapture, steamChannel, steamChannelModule, steamCodecInfo, steamFits,
-    steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions, steamTimeline
+    STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamCapture, steamChannel, steamChannelModule, steamCodecInfo,
+    steamFits, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions, steamTimeline
   });
 })((typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : globalThis));

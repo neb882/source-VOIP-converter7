@@ -7,7 +7,11 @@
 //
 //  1. The render is the module's: a reference made here, from a 'source' render's
 //     messages, codec results and resampled packets and voice-channel.js loaded by this
-//     test, gives the 'game' render's voice and codecInfo.channel.
+//     test, gives the 'game' render's voice and codecInfo.channel. With jitter (BC-4,
+//     the order's check 4) each message is pushed on its arrival tick from a second model
+//     of the arrival times (tests/voicequeue/reference-arrivals.mjs), and
+//     codecInfo.arrivals is what the reference counts; late frames reach the channel
+//     only through the suite's own mask.
 //  2. The logs: codecInfo.sent is the 'source' render's frame log, codecInfo.network
 //     is equal, the played log follows the order's slot rule.
 //  3. One sample dropped from every packet (finding 24).
@@ -19,6 +23,24 @@
 //  8. The refusals: 'game' runs or throws.
 //  9. The same seed twice gives the same render; another seed gives another.
 // 10. The live chain does not run the channel.
+// Jitter as arrival times (BC-4, docs/work-orders/BC-4-jitter-arrivals.md, "The tests" and
+// "After the plan review"):
+// 11. One list (fakeLagList) against the closed form of a lone packet's leaving look.
+// 12. The order is kept and nothing is lost: `at` never falls, at(p) >= p, the floor reached.
+// 13. The engine's arrivals are the second model's, tick for tick.
+// 14. The pin of figures: the mean delay above the floor and the share of messages on the
+//     tick of the one before, against figures measured on two prototypes that are not this
+//     build's reading.
+// 15. A bunch by formula through opts.arriveAt: a hold of 40 ticks frees the channel and
+//     skips sound; a hold of 4 does neither.
+// 16. The stream: createRender gives process()'s render with jitter, and gives out what no
+//     later message can reach.
+// 17. The file's own timing: a `steam` render on 'source' (and the live chain) at jitter 50
+//     is the render at jitter 0.
+// 18. The stage keys: a changed jitter on `steam` starts from B; on celt_22 it makes B again.
+// 19. opts.arriveAt's refusals.
+// 20. Determinism: the same seed gives the same render and loses the same messages at any
+//     jitter; another seed gives other arrival ticks.
 // Renders use deviceRate 44100 and compare the voice at the mix point (opts.onGain).
 // TF2_DIR points the suite at a copy of the sources. Every signal is synthetic, made here.
 import crypto from 'node:crypto';
@@ -27,6 +49,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { loadEngine, sourceRoot } from './lib/engine.cjs';
+import { closedForm, referenceArrivals } from './voicequeue/reference-arrivals.mjs';
 
 const root = sourceRoot();
 const require = createRequire(import.meta.url);
@@ -90,15 +113,24 @@ function layout(pauses, db) {
 }
 
 const BASE = { codec: 'steam', volume: 1, deviceRate: 44100 };
+// The suite's own frame mask (BC-4: jitter draws no late frame on `steam`), through the
+// codec module's makeLossMask hook as tests/steam.verify.js's withMask gives it: the late
+// frames the earlier fit drew at `lateAt` ms of jitter from the render's seed, a frame a
+// packet. null: none.
+const lateMaskOf = (lateAt, seed) => (lateAt ? (count) => A.buildLossMask(count, 1, 0, A.mulberry32(seed), lateAt) : null);
 // A 'source' render, with what the reference is made from: the sender's messages and the
 // codec's result for each (the codec module's steamRoundTrip wrapped, as
 // tests/steam.verify.js wraps it), each resampled packet (onResampled) and the voice at
 // the mix point (onGain).
-async function sourceRender(x, rate, opts = {}) {
+async function sourceRender(x, rate, opts = {}, mask = null) {
   const real = engine.codec;
   let messages = null, trip = null, voice = null;
   const packets = [];
-  engine.codec = { ...real, steamRoundTrip: async (m, b, o) => { messages = m; trip = await real.steamRoundTrip(m, b, o); return trip; } };
+  engine.codec = { ...real, steamRoundTrip: async (m, b, o) => {
+    messages = m;
+    trip = await real.steamRoundTrip(m, b, mask ? { ...o, makeLossMask: mask } : o);
+    return trip;
+  } };
   try {
     const r = await A.process(buffer(x, rate), { ...BASE, ...opts, onResampled: (y) => packets.push(Int16Array.from(y)),
       onGain: (g) => { voice = Float32Array.from(g); } });
@@ -106,10 +138,14 @@ async function sourceRender(x, rate, opts = {}) {
   } finally { engine.codec = real; }
 }
 // A 'game' render: the render and its voice at the mix point.
-async function gameRender(x, rate, opts = {}) {
+async function gameRender(x, rate, opts = {}, mask = null) {
   let voice = null;
-  const r = await A.process(buffer(x, rate), { ...BASE, ...opts, timeline: 'game', onGain: (g) => { voice = Float32Array.from(g); } });
-  return { r, voice };
+  const real = engine.codec;
+  if (mask) engine.codec = { ...real, steamRoundTrip: (m, b, o) => real.steamRoundTrip(m, b, { ...o, makeLossMask: mask }) };
+  try {
+    const r = await A.process(buffer(x, rate), { ...BASE, ...opts, timeline: 'game', onGain: (g) => { voice = Float32Array.from(g); } });
+    return { r, voice };
+  } finally { engine.codec = real; }
 }
 const join = (parts) => {
   const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
@@ -162,7 +198,10 @@ function referenceGain(set) {
     }
   };
 }
-// The channel driven by the test: each message in the sender's order, on its own tick.
+// The channel driven by the test: each message in the sender's order, on its own tick, or
+// with jitter (set.jitterMs above 0, BC-4) on its arrival tick from the second model
+// (tests/voicequeue/reference-arrivals.mjs, with set.fps and set.seed), counting what
+// codecInfo.arrivals reports over the messages pushed.
 //   a sound packet that arrived: the resampler's Int16Array over 32768, whole, at its place
 //     (the spurt's anchor round((start - lookahead) x 44100 / 24000) of its first message,
 //     arrived or lost, then where the last packet played or refused ended, plus 882 for
@@ -177,7 +216,19 @@ function referenceRender(src, set) {
   const { gain, use } = referenceGain(set);
   const tl = VC.createTimeline({ length: voice.length, fps: set.fps, bufferMs: set.bufferMs, codecDelay: L / 24000, gain });
   const out = [], kinds = { sound: 0, record: 0, empty: 0, refused: 0, lost: 0 };
-  const push = (tick, pcm, source, blocks = []) => { use(blocks); out.push(tl.push({ tick, pcm, source })); };
+  const lastTick = messages.reduce((m, msg) => Math.max(m, msg.tick), 0);
+  const arrivals = set.jitterMs > 0 ? referenceArrivals({ jitterMs: set.jitterMs, fps: set.fps, seed: set.seed, ticks: lastTick + 1 }) : null;
+  const count = { messages: 0, sum: 0, max: -Infinity, sameTick: 0, last: null };
+  const push = (tick, pcm, source, blocks = []) => {
+    use(blocks);
+    const at = arrivals ? arrivals.at[tick] : tick;
+    if (arrivals) {
+      count.messages++; count.sum += at - tick; count.max = Math.max(count.max, at - tick);
+      if (at === count.last) count.sameTick++;
+      count.last = at;
+    }
+    out.push(tl.push({ tick: at, pcm, source }));
+  };
   let spurt = null, cursor = 0, p = 0;
   messages.forEach((msg, k) => {
     const made = trip.results[k], record = msg.silence !== undefined;
@@ -199,7 +250,10 @@ function referenceRender(src, set) {
   });
   const end = tl.finish();
   out.push(end.samples);
-  return { samples: join(out), info: end.info, kinds, used: p === packets.length };
+  const counted = arrivals ? { jitterMs: set.jitterMs, fps: Math.min(1000, Math.max(10, set.fps ?? 300)), floorTicks: arrivals.floorTicks,
+    messages: count.messages, meanMs: count.messages ? 15 * count.sum / count.messages : 0, maxMs: count.messages ? 15 * count.max : 0,
+    sameTick: count.sameTick } : null;
+  return { samples: join(out), info: end.info, kinds, used: p === packets.length, arrivals: counted };
 }
 
 /* ---------------- 1 and 2. the module's render, and the logs ---------------- */
@@ -207,7 +261,11 @@ function referenceRender(src, set) {
 if (runs(1, 2)) {
   const t0 = performance.now();
   const x = talk(12, 24000, 3);
-  // [name, the options of both renders, the channel's options]
+  // [name, the options of both renders, the channel's options, the jitter of the suite's own
+  // late-frame mask (lateMaskOf)]. Since BC-4 jitter on `steam` moves the messages' arrival
+  // ticks on 'game' and draws no late frame: the jitter settings are the order's check 4
+  // (jitter 50 at 300 fps, jitter 100 with loss 15%, jitter 200 at 66.67 fps), and the
+  // late frames the jitter 200 setting drew before BC-4 come from the suite's own mask.
   const SETTINGS = [
     ['300 fps (the default)', {}, {}],
     ['100 fps', {}, { fps: 100 }],
@@ -221,27 +279,31 @@ if (runs(1, 2)) {
     ['loss 5%', { lossPct: 5 }, {}],
     ['loss 15%', { lossPct: 15 }, {}],
     ['loss 40%', { lossPct: 40 }, {}],
+    ['jitter 50 ms', { jitterMs: 50 }, {}],
     ['loss 15%, jitter 100 ms', { lossPct: 15, jitterMs: 100 }, {}],
     ['jitter 200 ms at 66.67 fps', { jitterMs: 200 }, { fps: 66.67 }],
+    ['late frames by the suite\'s own mask (the fit\'s draw at 200 ms) at 66.67 fps', {}, { fps: 66.67 }, 200],
     ['loss 60% at 66.67 fps', { lossPct: 60 }, { fps: 66.67 }],
     ['the gate off, loss 40% (long runs lost: refused packets)', { gate: false, lossPct: 40 }, {}]
   ];
   const done = [], total = { sound: 0, record: 0, empty: 0, refused: 0, lost: 0 };
-  for (const [name, opts, channel] of SETTINGS) {
+  for (const [name, opts, channel, lateAt] of SETTINGS) {
     const seed = done.length + 1, both = { ...opts, seed };
-    const src = await sourceRender(x, 24000, both), game = await gameRender(x, 24000, { ...both, ...channel });
-    const ref = referenceRender(src, { ...opts, ...channel });
+    const src = await sourceRender(x, 24000, both, lateMaskOf(lateAt, seed));
+    const game = await gameRender(x, 24000, { ...both, ...channel }, lateMaskOf(lateAt, seed));
+    const ref = referenceRender(src, { ...opts, ...channel, seed });
     for (const k of Object.keys(total)) total[k] += ref.kinds[k];
     done.push({ name, opts, channel, src, game, ref });
   }
   if (runs(1)) {
     console.log('\n[1] The render is the module\'s: a reference of the test\'s own over voice-channel.js gives the \'game\' voice and codecInfo.channel');
     for (const { name, channel, game, ref } of done) {
-      const at = firstDiff(game.voice, ref.samples), info = game.r.codecInfo.channel;
-      check(`${name}: the 'game' voice at the mix point is the reference's, sample for sample, and codecInfo.channel its info, member for member`,
-        at === -1 && ref.used && isDeepStrictEqual(info, ref.info),
-        at === -1 ? `${ref.samples.length} samples; ${ref.info.packets} packets, ${ref.info.opens} opens, ${ref.info.spurts.length} spurts, ${ref.info.drops.length} drops; pushed ${JSON.stringify(ref.kinds)}`
-          : `the first difference at ${at}: ${game.voice[at] * 32768} against ${ref.samples[at] * 32768}; info ${isDeepStrictEqual(info, ref.info) ? 'equal' : 'differs'}`);
+      const at = firstDiff(game.voice, ref.samples), info = game.r.codecInfo.channel, arrivals = game.r.codecInfo.arrivals ?? null;
+      check(`${name}: the 'game' voice at the mix point is the reference's, sample for sample, codecInfo.channel its info, member for member, and codecInfo.arrivals ${ref.arrivals ? 'what it counts' : 'absent'}`,
+        at === -1 && ref.used && isDeepStrictEqual(info, ref.info) && isDeepStrictEqual(arrivals, ref.arrivals),
+        (at === -1 ? `${ref.samples.length} samples; ${ref.info.packets} packets, ${ref.info.opens} opens, ${ref.info.spurts.length} spurts, ${ref.info.drops.length} drops; pushed ${JSON.stringify(ref.kinds)}`
+          : `the first difference at ${at}: ${game.voice[at] * 32768} against ${ref.samples[at] * 32768}; info ${isDeepStrictEqual(info, ref.info) ? 'equal' : 'differs'}`)
+        + (ref.arrivals || arrivals ? `; arrivals ${JSON.stringify(arrivals)}${isDeepStrictEqual(arrivals, ref.arrivals) ? '' : ` against ${JSON.stringify(ref.arrivals)}`}` : ''));
       if (channel.bufferMs) {
         check(`${name}: the channel waits ${channel.bufferMs * 300 / 1000} ticks at 300 fps`, info.waitTicks === channel.bufferMs * 300 / 1000 && info.bufferMs === channel.bufferMs,
           `waitTicks ${info.waitTicks}`);
@@ -252,7 +314,7 @@ if (runs(1, 2)) {
   }
   if (runs(2)) {
     console.log('\n[2] The logs: codecInfo.sent is the \'source\' render\'s, codecInfo.network is equal, the played log follows the slot rule');
-    for (const { name, src, game } of done) {
+    for (const { name, opts, src, game } of done) {
       const s = src.r.codecInfo, g = game.r.codecInfo, L = s.lookahead, slots = g.channel.source;
       const want = { frameLog: new Uint8Array(s.frameLog.length), frameBytes: new Uint16Array(s.frameBytes.length) };
       for (let i = 0; i < want.frameLog.length; i++) {
@@ -262,10 +324,14 @@ if (runs(1, 2)) {
         want.frameLog[i] = s.frameLog[k] ?? 0;
         want.frameBytes[i] = s.frameBytes[k] ?? 0;
       }
-      const rest = (info) => { const { frameLog, frameBytes, sent, channel, ...others } = info; return others; };
-      check(`${name}: sent is the 'source' render's frameLog and frameBytes; network ${s.network ? 'equal' : 'absent on both'}; the counters the 'source' render's; no retimed`,
+      // BC-4 (the plan review's point 9): a 'game' render with jitter has codecInfo.arrivals,
+      // which no 'source' render has (section 1 checks its members), so it is left out here
+      // with the logs and the channel's info; every other member is the 'source' render's.
+      const rest = (info) => { const { frameLog, frameBytes, sent, channel, arrivals, ...others } = info; return others; };
+      check(`${name}: sent is the 'source' render's frameLog and frameBytes; network ${s.network ? 'equal' : 'absent on both'}; the counters the 'source' render's; no retimed; arrivals ${opts.jitterMs > 0 ? 'on the \'game\' render only' : 'on neither'}`,
         isDeepStrictEqual(g.sent, { frameLog: s.frameLog, frameBytes: s.frameBytes }) && isDeepStrictEqual(g.network, s.network)
-        && isDeepStrictEqual(rest(g), rest(s)) && !('retimed' in g), s.network ? JSON.stringify(s.network) : '');
+        && isDeepStrictEqual(rest(g), rest(s)) && !('retimed' in g) && !('arrivals' in s) && ('arrivals' in g) === (opts.jitterMs > 0),
+        s.network ? JSON.stringify(s.network) : '');
       const played = g.frameLog.reduce((n, c) => n + (c !== 0), 0);
       check(`${name}: frameLog and frameBytes are the played logs, slot i the sent slot floor((source[i] x 80 / 147 + lookahead) / 480)`,
         isDeepStrictEqual(g.frameLog, want.frameLog) && isDeepStrictEqual(g.frameBytes, want.frameBytes) && g.frameLog !== s.frameLog,
@@ -630,6 +696,344 @@ if (runs(10)) {
   for (const v of plain) if (v) loud++;
   check('a chain made with timeline \'game\', fps 66.67 and bufferMs 200 gives the samples of one made without', loud > 0 && firstDiff(plain, game) === -1,
     `${plain.length} samples, ${loud} not zero`);
+}
+
+/* ---------------- 11 to 20. jitter as arrival times (BC-4) ---------------- */
+
+// The listener's frame rate as the arrival model limits it (the voice channel's limits).
+const limitFps = (fps) => Math.min(1000, Math.max(10, fps ?? 300));
+const meanOf = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+/* ---------------- 11. one list against a closed form ---------------- */
+
+if (runs(11)) {
+  console.log('\n[11] One list (TF2Audio.fakeLagList) against the closed form: a packet alone leaves at its i-th look past lag - j with probability p_i (1 - p_1) ... (1 - p_(i-1))');
+  for (const [lagMs, jitterMs] of [[100, 50], [60, 50]]) {
+    // A packet every 10 s, so each is alone in the list; the server's looks, once a tick. The
+    // entries fall on three phases of the looks (10 s is 666 2/3 ticks), so each packet's
+    // closed form is its own and the expected count at each look is their sum.
+    const lookTime = (k) => 15 * k, list = A.fakeLagList({ lagMs, jitterMs, lookTime, rand: A.mulberry32(11) });
+    const N = 20000, got = new Map(), want = new Map(), variance = new Map();
+    let outside = 0;
+    for (let n = 0; n < N; n++) {
+      const enter = 10000 * n, form = closedForm({ lagMs, jitterMs, lookTime, enter });
+      const i = Math.round(list.release(enter) / 15) - form[0].k;
+      if (i < 0 || i >= form.length) outside++;
+      got.set(i, (got.get(i) || 0) + 1);
+      form.forEach(({ p }, m) => { want.set(m, (want.get(m) || 0) + p); variance.set(m, (variance.get(m) || 0) + p * (1 - p)); });
+    }
+    const rows = [...want.keys()].sort((a, b) => a - b).map((i) => ({ i, got: got.get(i) || 0, want: want.get(i), se: Math.sqrt(variance.get(i)) }));
+    const worst = Math.max(...rows.map((r) => (r.se > 0 ? Math.abs(r.got - r.want) / r.se : (r.got === r.want ? 0 : Infinity))));
+    const j = Math.min(jitterMs, lagMs / 2);
+    check(`lag ${lagMs}, jitter ${jitterMs} (j ${j}), looks every 15 ms, ${N} packets: the share that leaves at each look past lag - j is the closed form's within 4 standard errors, and none leaves outside its looks`,
+      outside === 0 && worst <= 4 && list.j === j && rows.length >= 4,
+      `looks ${rows.map((r) => `${r.i + 1}: ${r.got} (${r.want.toFixed(0)})`).join(', ')}; the worst ${worst.toFixed(2)} standard errors`);
+  }
+}
+
+/* ---------------- 12. the order kept, nothing lost ---------------- */
+
+if (runs(12)) {
+  console.log('\n[12] The order is kept and nothing is lost: at never falls, at(p) >= p; at jitter 25 and 50 the floor is reached');
+  const t0 = performance.now();
+  for (const jitterMs of [25, 50, 100, 500]) for (const fps of [300, 66.67]) {
+    let ok = true, least = Infinity, most = -Infinity, floor = null;
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const m = A.steamArrivals({ jitterMs, fps, seed });
+      floor = m.floorTicks;
+      let last = -Infinity;
+      for (let p = 0; p < 20000; p++) {
+        const a = m.at(p);
+        if (!Number.isInteger(a) || a < last || a < p) { ok = false; break; }
+        least = Math.min(least, a - p); most = Math.max(most, a - p);
+        last = a;
+      }
+    }
+    check(`jitter ${jitterMs} at ${fps} fps, seeds 1 to 5, 20,000 ticks: every tick arrives on a whole tick, at never falls, at(p) >= p, floorTicks ${2 * Math.ceil(jitterMs / 15)}${jitterMs <= 50 ? ', and the least of at(p) - p is 0' : ''}`,
+      ok && least >= 0 && floor === 2 * Math.ceil(jitterMs / 15) && (jitterMs > 50 || least === 0),
+      `at(p) - p from ${least} to ${most} ticks above the floor of ${floor}`);
+  }
+  const none = [A.steamArrivals({ jitterMs: 0, fps: 300, seed: 1 }), A.steamArrivals({ jitterMs: -5, seed: 1 }), A.steamArrivals({ jitterMs: NaN, seed: 1 })];
+  check('jitter 0, below 0 or not a number: at(p) is p and floorTicks 0', none.every((m) => m.floorTicks === 0 && [0, 1, 777, 1e6].every((p) => m.at(p) === p)));
+  const refusal = (f) => { try { f(); return null; } catch (e) { return e; } };
+  const m = A.steamArrivals({ jitterMs: 50, fps: 300, seed: 1 });
+  check('at() takes whole ticks from -200 on: 0.5 and -201 are a RangeError; -200 and a tick asked again give one answer',
+    refusal(() => m.at(0.5)) instanceof RangeError && refusal(() => m.at(-201)) instanceof RangeError && Number.isInteger(m.at(-200)) && m.at(500) === m.at(500)
+    && m.at(3) === A.steamArrivals({ jitterMs: 50, fps: 300, seed: 1 }).at(3));
+  console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
+}
+
+/* ---------------- 13. the engine is the second model ---------------- */
+
+if (runs(13)) {
+  console.log('\n[13] The engine\'s arrivals (TF2Audio.steamArrivals) are the second model\'s (tests/voicequeue/reference-arrivals.mjs), tick for tick, over 4,000 ticks');
+  const t0 = performance.now();
+  // The order's settings, then frame rates where k x (1000 / fps) and k x 1000 / fps give
+  // other ticks (the plan review's point 6), the channel's limits, and a jitter under a tick.
+  const SETTINGS = [];
+  for (const jitterMs of [25, 50, 100, 500]) for (const fps of [300, 66.67]) SETTINGS.push([jitterMs, fps, [1, 2, 3, 4, 5]]);
+  for (const fps of [10, 59.94, 120, 240, 1000, undefined]) SETTINGS.push([50, fps, [1, 2]]);
+  SETTINGS.push([0.5, 300, [1, 2]], [0.5, 66.67, [1]]);
+  for (const [jitterMs, fps, seeds] of SETTINGS) {
+    const bad = [];
+    for (const seed of seeds) {
+      const ref = referenceArrivals({ jitterMs, fps, seed, ticks: 4000 }), m = A.steamArrivals({ jitterMs, fps, seed });
+      let at = -1;
+      for (let p = 0; p < 4000 && at < 0; p++) if (m.at(p) !== ref.at[p]) at = p;
+      if (at >= 0 || m.floorTicks !== ref.floorTicks || m.fps !== limitFps(fps)) bad.push(`seed ${seed} from tick ${at}`);
+    }
+    check(`jitter ${jitterMs} at ${fps ?? 'no given'} fps, seeds ${seeds.join(', ')}: the engine's arrival ticks and floorTicks are the second model's`, bad.length === 0,
+      bad.length ? bad.join('; ') : `the delay above the floor up to ${15 * Math.max(...Array.from(referenceArrivals({ jitterMs, fps, seed: seeds[0], ticks: 4000 }).at, (a, p) => a - p))} ms (seed ${seeds[0]})`);
+  }
+  console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
+}
+
+/* ---------------- 14. the pin of figures ---------------- */
+
+if (runs(14)) {
+  console.log('\n[14] The pin (the plan review\'s point 3): seeds 1 to 20, 4,000 ticks each, jitter 50');
+  // The figures are those the planner's and the plan reviewer's prototypes measured, each on
+  // a reading of the model of its own (docs/work-orders/BC-4-jitter-arrivals.md, "After the
+  // plan review", point 3): they hold this build to the order's step 3 (one entry in the
+  // second list for every server tick, client packets riding it) and to the next head
+  // looked at in the same look. The messages are steam-sender.js's for 60 s of unbroken
+  // sound (the gate off), as the prototypes took them.
+  const Sender = require(path.join(root, 'steam-sender.js'));
+  const sound = Int16Array.from({ length: 60 * 24000 }, (_, i) => Math.round(6000 * Math.sin(i * 0.37)));
+  const figures = {};
+  for (const fps of [300, 66.67]) {
+    const delays = [];
+    let same = 0, pairs = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const m = A.steamArrivals({ jitterMs: 50, fps, seed });
+      for (let p = 0; p < 4000; p++) delays.push(15 * (m.at(p) - p));
+      const sender = Sender.createSender({ seed, gate: false }), msgs = sender.push(sound);
+      for (const e of sender.finish()) msgs.push(e);
+      let last = null;
+      for (const msg of msgs.filter((e) => e.tick < 4000)) {
+        const a = m.at(msg.tick);
+        if (last !== null) { pairs++; if (a === last) same++; }
+        last = a;
+      }
+    }
+    figures[fps] = { mean: meanOf(delays), same: 100 * same / pairs, pairs };
+  }
+  const f300 = figures[300], f67 = figures[66.67];
+  check('the mean delay above the floor is 69.5 +/- 3 ms at 300 fps and 95.6 +/- 3 ms at 66.67 fps',
+    Math.abs(f300.mean - 69.5) <= 3 && Math.abs(f67.mean - 95.6) <= 3, `${f300.mean.toFixed(2)} and ${f67.mean.toFixed(2)} ms`);
+  check('the share of voice messages that arrive on the tick of the one before is 5.2 +/- 1.5% at 300 fps',
+    Math.abs(f300.same - 5.2) <= 1.5, `${f300.same.toFixed(2)}% of ${f300.pairs} (at 66.67 fps ${f67.same.toFixed(2)}%)`);
+}
+
+/* ---------------- 15. a bunch by formula ---------------- */
+
+if (runs(15)) {
+  console.log('\n[15] A bunch through opts.arriveAt (the plan review\'s point 7): 3 s of unbroken sound at 66.67 fps, the messages of ticks T to T + 39 (or T + 3) held to one tick');
+  const t0 = performance.now(), rate = 24000, x = noise(3, rate, 61, 0.3), fps = 66.67;
+  const rows = { 40: [], 4: [] };
+  let ok40 = true, ok4 = true;
+  for (const seed of [1, 2, 3, 4, 5]) {
+    const src = await sourceRender(x, rate, { seed, gate: false });
+    const ticks = src.messages.filter((m) => m.silence === undefined && m.last >= m.first).map((m) => m.tick);
+    // T: the first tick of a message at least 1 s (67 ticks) into the phrase.
+    const T = ticks.find((t) => t >= ticks[0] + 67);
+    for (const hold of [40, 4]) {
+      const calls = [];
+      const arriveAt = (t) => { calls.push(t); return t >= T && t < T + hold ? T + hold : t; };
+      const game = await gameRender(x, rate, { seed, gate: false, fps, arriveAt });
+      const info = game.r.codecInfo.channel, arrivals = game.r.codecInfo.arrivals, v = game.voice;
+      const ms = 1000 * info.droppedSamples / 44100;
+      if (hold === 40) {
+        // Where the bunch's sound is written: the voice is silent for a while during the hold
+        // (the first channel faded and freed) and comes back when the second channel plays;
+        // a drop during its wait is heard at the first sample it plays.
+        let zeros = 0, back = -1;
+        for (let i = 0; i < v.length && back < 0; i++) { if (v[i] === 0) zeros++; else { if (zeros >= 2000) back = i; zeros = 0; } }
+        const near = info.drops.filter((d) => Math.abs(d.time * 44100 - back) <= 512);
+        const good = info.opens === 2 && info.droppedSamples > 0 && back > 0 && near.length > 0 && arrivals.floorTicks === 0
+          && arrivals.sameTick >= 5 && calls.length === arrivals.messages;
+        ok40 = ok40 && good;
+        rows[40].push(`seed ${seed}: T ${T}, opens ${info.opens}, ${ms.toFixed(1)} ms dropped, the voice back at ${(back / 44100).toFixed(3)} s, drops at ${info.drops.map((d) => d.time.toFixed(3)).join(' ')} s`);
+      } else {
+        ok4 = ok4 && info.opens === 1 && info.droppedSamples === 0 && info.drops.length === 0;
+        rows[4].push(`seed ${seed}: opens ${info.opens}, ${ms.toFixed(1)} ms dropped`);
+      }
+    }
+  }
+  check('a hold of 40 ticks, seeds 1 to 5: the channel is freed during it (opens 2), the bunch overflows the ring (droppedSamples above 0), and a drop is heard where the second channel first plays',
+    ok40, rows[40].join('; '));
+  check('a hold of 4 ticks: one open and nothing dropped, seeds 1 to 5', ok4, rows[4].join('; '));
+  console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
+}
+
+/* ---------------- 16. the stream ---------------- */
+
+if (runs(16)) {
+  console.log('\n[16] The stream with jitter: createRender in odd pieces gives process()\'s samples and codecInfo, and gives out every sample no later message can reach');
+  const t0 = performance.now(), rate = 24000, x = talk(8, rate, 71);
+  const PIECES = [1, 7, 2, 959, 961, 13, 4097, 333, 12345, 30011, 480, 481];
+  const streamed = async (o, onPush) => {
+    const r = await A.createRender({ sampleRate: rate, length: x.length, numberOfChannels: 1 }, o), out = [];
+    for (let at = 0, k = 0; at < x.length; k++) {
+      const n = Math.min(PIECES[k % PIECES.length], x.length - at);
+      out.push(await r.push(x.subarray(at, at + n)));
+      at += n;
+      onPush?.();
+    }
+    const end = await r.finish();
+    out.push(end.samples);
+    return { samples: join(out), codecInfo: end.codecInfo };
+  };
+  for (const [name, change] of [['jitter 50 ms', { jitterMs: 50 }], ['jitter 500 ms, loss 15%', { jitterMs: 500, lossPct: 15 }],
+    ['jitter 50 ms at 66.67 fps, the gate off', { jitterMs: 50, fps: 66.67, gate: false }]]) {
+    const o = { ...BASE, timeline: 'game', seed: 3, ...change };
+    const whole = await A.process(buffer(x, rate), o);
+    let got = null, error = null;
+    try { got = await streamed(o); } catch (e) { error = e; }
+    const at = got ? firstDiff(got.samples, whole.samples) : -2;
+    check(`${name}: createRender in odd pieces gives process()'s samples and codecInfo, key for key, arrivals among them`,
+      at === -1 && isDeepStrictEqual(got.codecInfo, whole.codecInfo) && whole.codecInfo.arrivals.messages > 0,
+      error ? `threw ${error.message}` : `${at === -1 ? `${whole.samples.length} samples` : `the first difference at ${at}`}; arrivals ${JSON.stringify(whole.codecInfo.arrivals)}`);
+  }
+  // What is given out: after each push, the channel has run every block that starts before
+  // the arrival tick of the stream's bound (and of each message), and no other; each is
+  // asked of opts.arriveAt, here the model's own arrival ticks (seed 3, jitter 50, 300 fps),
+  // so the test sees each one. The voice given out at the mix point after each push is then
+  // min(length, max(0, 512 ceil(1323 A / 1024) - D)) samples, A the last tick asked.
+  {
+    let length = 0;
+    await A.process(buffer(x, rate), { ...BASE, timeline: 'game', seed: 3, onGain: (g) => { length = g.length; } });
+    const model = A.steamArrivals({ jitterMs: 50, fps: 300, seed: 3 });
+    let last = null, asked = 0, voiceOut = 0, pushes = 0, wrong = 0, unasked = 0, ahead = 0;
+    const o = { ...BASE, timeline: 'game', seed: 3, arriveAt: (t) => { asked++; last = model.at(t); ahead = Math.max(ahead, last - t); return last; },
+      onGain: (g) => { voiceOut += g.length; } };
+    await streamed(o, () => {
+      pushes++;
+      if (asked === 0) unasked++;
+      asked = 0;
+      const want = last === null ? 0 : Math.min(length, Math.max(0, 512 * Math.ceil(1323 * last / 1024) - D[300]));
+      if (voiceOut !== want) wrong++;
+    });
+    check('each push asks the arrival tick of the stream\'s bound, and the voice it has given out at the mix point is every block that starts before that tick',
+      pushes > 30 && unasked === 0 && wrong === 0 && ahead > 0 && voiceOut === length,
+      `${pushes} pushes; ${unasked} asked nothing; ${wrong} gave another count; arrival ticks up to ${ahead} ahead of the tick asked`);
+  }
+  console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
+}
+
+/* ---------------- 17. the file's own timing ---------------- */
+
+if (runs(17)) {
+  console.log('\n[17] The file\'s own timing: on `steam` with timeline \'source\' jitter does nothing (the order\'s "Where it runs", a and c)');
+  const rate = 24000, x = talk(6, rate, 81);
+  const canonical = (v) => JSON.stringify(v, (k, y) => (ArrayBuffer.isView(y) ? Array.from(y) : y));
+  for (const [name, o] of [['no loss', { seed: 2 }], ['loss 15%', { seed: 2, lossPct: 15 }], ['the gate off, loss 30%', { seed: 4, gate: false, lossPct: 30 }]]) {
+    const plain = await A.process(buffer(x, rate), { ...BASE, ...o });
+    const jit = await A.process(buffer(x, rate), { ...BASE, ...o, jitterMs: 50 }), big = await A.process(buffer(x, rate), { ...BASE, ...o, jitterMs: 500 });
+    check(`${name}: process() at jitter 50 and 500 gives the render at jitter 0, samples and codecInfo key for key, with no late frame`,
+      firstDiff(plain.samples, jit.samples) === -1 && firstDiff(plain.samples, big.samples) === -1 && canonical(plain.codecInfo) === canonical(jit.codecInfo)
+      && canonical(plain.codecInfo) === canonical(big.codecInfo) && jit.codecInfo.underrunFrames === 0 && !('arrivals' in jit.codecInfo),
+      `${plain.samples.length} samples; ${plain.codecInfo.lostFrames} concealed frames`);
+    const r = await A.createRender({ sampleRate: rate, length: x.length, numberOfChannels: 1 }, { ...BASE, ...o, jitterMs: 50 });
+    const out = [];
+    for (let at = 0; at < x.length; at += 4096) out.push(await r.push(x.subarray(at, Math.min(x.length, at + 4096))));
+    const end = await r.finish();
+    out.push(end.samples);
+    check(`${name}: createRender at jitter 50 likewise`, firstDiff(join(out), plain.samples) === -1 && canonical(end.codecInfo) === canonical(plain.codecInfo));
+  }
+  // The live chain keeps the file's own timing: jitter does nothing there either.
+  const live = async (opts) => {
+    const chain = await A.createLiveChain({ codec: 'steam', volume: 1, seed: 2, ...opts }, 48000), out = [];
+    try { for (let at = 0; at < x48.length; at += 480) out.push(await chain.process(x48.subarray(at, at + 480))); return { out: join(out), stats: { ...chain.stats } }; }
+    finally { chain.free(); }
+  };
+  const x48 = talk(4, 48000, 83);
+  const a = await live({ lossPct: 15 }), b = await live({ lossPct: 15, jitterMs: 50 });
+  check('the live chain at jitter 50 gives the samples of the chain at jitter 0, with no late slot', firstDiff(a.out, b.out) === -1 && a.out.some((v) => v !== 0)
+    && b.stats.late === 0 && b.stats.lost === a.stats.lost, `${a.out.length} samples, ${b.stats.lost} lost slots`);
+}
+
+/* ---------------- 18. the stage keys ---------------- */
+
+if (runs(18)) {
+  console.log('\n[18] The stage keys: on `steam` the codec stage does not read jitterMs (used.jitterMs 0), so a changed jitter starts from B');
+  const rate = 24000, x = talk(5, rate, 91), source = buffer(x, rate);
+  const hashOf = async (r) => `${sha256(new Uint8Array(await r.blob.arrayBuffer()))} ${sha256(JSON.stringify(r.codecInfo, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)))}`;
+  const counts = (s) => JSON.stringify(s.counts);
+  for (const [name, base, B] of [['steam on the game\'s timeline', { ...BASE, timeline: 'game' }, true], ['steam on the file\'s own timing', { ...BASE }, true],
+    ['celt_22', { ...BASE, codec: 'celt_22' }, false]]) {
+    const stages = {};
+    await A.process(source, { ...base, stages, sourceKey: 'k' });
+    const before = JSON.parse(counts(stages));
+    const warm = await A.process(source, { ...base, jitterMs: 100, stages, sourceKey: 'k' });
+    const after = stages.counts, fresh = await A.process(source, { ...base, jitterMs: 100 });
+    const tookB = after.b.reused === before.b.reused + 1 && after.b.kept === before.b.kept && after.a.kept === before.a.kept && after.a.reused === before.a.reused;
+    const madeB = after.a.reused === before.a.reused + 1 && after.b.kept === before.b.kept + 1 && after.b.reused === before.b.reused;
+    check(`${name}: jitterMs 100 after a render at 0 ${B ? 'takes B and keeps nothing new' : 'takes A and makes B again'}, and is the fresh render`,
+      (B ? tookB : madeB) && await hashOf(warm) === await hashOf(fresh), `${counts(stages)}`);
+  }
+  check('the B key on `steam` holds jitterMs as 0 and on celt_22 as given',
+    A.stageKeys(source, { ...BASE, sourceKey: 'k', jitterMs: 100 }).b === A.stageKeys(source, { ...BASE, sourceKey: 'k' }).b
+    && A.stageKeys(source, { ...BASE, codec: 'celt_22', sourceKey: 'k', jitterMs: 100 }).b !== A.stageKeys(source, { ...BASE, codec: 'celt_22', sourceKey: 'k' }).b);
+  check('opts.arriveAt keeps nothing (a function in the keys) and makes previewAllowed false',
+    A.stageKeys(source, { ...BASE, timeline: 'game', sourceKey: 'k', arriveAt: (t) => t }) === null && A.previewAllowed({ ...BASE, timeline: 'game' })
+    && !A.previewAllowed({ ...BASE, timeline: 'game', arriveAt: (t) => t }));
+}
+
+/* ---------------- 19. arriveAt's refusals ---------------- */
+
+if (runs(19)) {
+  console.log('\n[19] opts.arriveAt\'s refusals: it runs on the game\'s timeline only and gives whole ticks that never fall');
+  const rate = 24000, x = talk(3, rate, 101);
+  const thrown = async (run) => { try { await run(); return null; } catch (e) { return e; } };
+  const both = async (o) => [await thrown(() => A.process(buffer(x, rate), o)),
+    await thrown(async () => { const r = await A.createRender({ sampleRate: rate, length: x.length, numberOfChannels: 1 }, o); await r.push(x); await r.finish(); })];
+  const ROWS = [
+    ['on the file\'s own timing', { ...BASE, arriveAt: (t) => t }, /arriveAt/],
+    ['on celt_22', { ...BASE, codec: 'celt_22', arriveAt: (t) => t }, /arriveAt/],
+    ['not a function (5)', { ...BASE, timeline: 'game', arriveAt: 5 }, /arriveAt/],
+    ['a result that is not a whole number (t + 0.5)', { ...BASE, timeline: 'game', arriveAt: (t) => t + 0.5 }, /whole number/],
+    ['a result that is not a number (NaN)', { ...BASE, timeline: 'game', arriveAt: () => NaN }, /whole number/],
+    ['a result below the last (100 for the first messages, then each tick)', { ...BASE, timeline: 'game', arriveAt: (t) => (t < 60 ? 100 : t) }, /never falls/]
+  ];
+  for (const [name, o, words] of ROWS) {
+    const [a, b] = await both(o);
+    check(`${name}: process() and createRender() throw a RangeError that says so`, a instanceof RangeError && b instanceof RangeError && words.test(a.message) && words.test(b.message),
+      `${a ? a.message : 'process() rendered'} | ${b ? b.message : 'createRender() rendered'}`);
+  }
+  const ok = await thrown(() => A.process(buffer(x, rate), { ...BASE, timeline: 'game', arriveAt: (t) => 50 }));
+  const same = await A.process(buffer(x, rate), { ...BASE, timeline: 'game', arriveAt: () => 50 });
+  check('the same tick for every message (50) renders: every message but the first on the tick of the one before', ok === null
+    && same.codecInfo.arrivals.sameTick === same.codecInfo.arrivals.messages - 1 && same.codecInfo.arrivals.floorTicks === 0,
+    JSON.stringify(same.codecInfo.arrivals));
+  const plain = await A.process(buffer(x, rate), { ...BASE, timeline: 'game' }), identity = await A.process(buffer(x, rate), { ...BASE, timeline: 'game', arriveAt: (t) => t });
+  check('arriveAt (t) => t gives the render without it, with arrivals of no delay', firstDiff(plain.samples, identity.samples) === -1
+    && identity.codecInfo.arrivals.maxMs === 0 && identity.codecInfo.arrivals.meanMs === 0 && !('arrivals' in plain.codecInfo), JSON.stringify(identity.codecInfo.arrivals));
+}
+
+/* ---------------- 20. determinism ---------------- */
+
+if (runs(20)) {
+  console.log('\n[20] Determinism: the same seed gives the same render and loses the same messages at any jitter; another seed gives other arrival ticks');
+  const rate = 24000, x = talk(8, rate, 111), o = { ...BASE, timeline: 'game', jitterMs: 50 };
+  const a = await A.process(buffer(x, rate), { ...o, seed: 5 }), b = await A.process(buffer(x, rate), { ...o, seed: 5 });
+  check('seed 5 twice at jitter 50: the same samples and codecInfo', firstDiff(a.samples, b.samples) === -1 && isDeepStrictEqual(a.codecInfo, b.codecInfo));
+  const lostBy = async (opts) => {
+    const real = engine.codec, seen = [];
+    engine.codec = { ...real, steamRoundTrip: (m, bb, oo) => real.steamRoundTrip(m, bb, { ...oo, lose: (k, msg) => { const v = oo.lose(k, msg); if (v) seen.push(k); return v; } }) };
+    try { await A.process(buffer(x, rate), opts); } finally { engine.codec = real; }
+    return seen.join();
+  };
+  const at0 = await lostBy({ ...o, jitterMs: 0, seed: 5, lossPct: 30 }), at50 = await lostBy({ ...o, seed: 5, lossPct: 30 }), at500 = await lostBy({ ...o, jitterMs: 500, seed: 5, lossPct: 30 });
+  const other = await lostBy({ ...o, seed: 6, lossPct: 30 });
+  check('loss 30%, seed 5: the same messages lost at jitter 0, 50 and 500; seed 6 loses others', at0.length > 0 && at0 === at50 && at0 === at500 && other !== at0,
+    `seed 5: messages ${at0.split(',').slice(0, 10).join(', ')}, ...`);
+  const m5 = A.steamArrivals({ jitterMs: 50, fps: 300, seed: 5 }), m6 = A.steamArrivals({ jitterMs: 50, fps: 300, seed: 6 });
+  let differ = 0;
+  for (let p = 0; p < 4000; p++) if (m5.at(p) !== m6.at(p)) differ++;
+  const c = await A.process(buffer(x, rate), { ...o, seed: 6 });
+  check('seeds 5 and 6 give other arrival ticks (the model and the render\'s codecInfo.arrivals)', differ > 1000 && !isDeepStrictEqual(a.codecInfo.arrivals, c.codecInfo.arrivals),
+    `${differ} of 4,000 ticks differ; ${JSON.stringify(a.codecInfo.arrivals)} against ${JSON.stringify(c.codecInfo.arrivals)}`);
 }
 
 console.log(`\n${passed} render-channel checks passed, ${failed} failed`);
