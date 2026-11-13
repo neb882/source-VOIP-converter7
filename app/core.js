@@ -154,6 +154,19 @@ const state = {
   renderedKey: null,
   renderingKey: null,
   renderedSource: null,
+  // W3-02d-2: how long the render on screen took on this device, in ms (0 or
+  // null: not known; a recorded live take has 0), and where the page's worker
+  // started it ('b' the kept codec result, 'a' the kept capture signal, null
+  // the start; undefined for a render not made in the worker).
+  renderedTook: null,
+  renderedFrom: undefined,
+  // W3-02d-2: the page's worker still holds the stages the render on screen
+  // left (set when presentRender shows a render made there; cleared when a
+  // render starts whose settings differ from the one on screen's in a name
+  // before the codec's result, when the worker is ended, when a source is
+  // mounted, when a live take is shown, and for a render made on the page's
+  // own thread).
+  workerKeepsShown: false,
   stale: false,          // the render on screen was made with other settings, and none is coming
   cancelledKey: null,    // the settings of a render the user cancelled, which does not start again by itself
   cancelledSource: null,
@@ -173,9 +186,14 @@ const MAX_RECORDING_SECONDS = 5 * 60;
 // W4-01a: a changed setting renders by itself, 400 ms after the last change,
 // while the source is at most this long (a minute renders in about 4 s);
 // a longer one is marked as not rendered with these settings and waits for
-// the button.
+// the button, unless W3-02d-2's rule below lets it render by itself.
 const AUTO_RENDER_SECONDS = 60;
 const AUTO_RENDER_DELAY_MS = 400;
+// W3-02d-2: a longer source renders by itself after a change that needs no
+// new encode (the render starts from the codec's result the worker kept),
+// when the render on screen took at most this long on this device (ruling 8:
+// the device's own time, not a length).
+const AUTO_RENDER_KEPT_MS = 30000;
 
 // W4-01a: every key of CONFIG_FIELDS (app/console.js) is in exactly one of
 // these two lists (the browser suite checks it, so a control added later

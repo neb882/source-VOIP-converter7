@@ -52,6 +52,8 @@ async function processMessage(message, signal) {
     signal,
     onProgress: (value) => self.postMessage({ type: 'progress', id, value })
   };
+  // Where the render starts (W3-02d-2), taken before it starts: 'b', 'a' or null.
+  const startedFrom = TF2Audio.stagesHold(source, opts);
   // The first seconds (W4-01b, step 3), when the page asks for them
   // ({ seconds, keep }) and the settings allow them (TF2Audio.previewAllowed):
   // a render of the source's first `seconds`, of which the first `keep` are
@@ -81,7 +83,8 @@ async function processMessage(message, signal) {
     blob: result.blob,
     realOpus: result.realOpus,
     codecInfo: result.codecInfo,
-    stats
+    stats,
+    startedFrom
   }, [result.samples.buffer]);
   if (later) self.postMessage({ type: 'meter', id, stats: TF2Meter.analyze(later, result.sampleRate) });
 }

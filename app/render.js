@@ -118,6 +118,8 @@ function dropPageWorker() {
   if (pageWorker.worker) pageWorker.worker.terminate();
   pageWorker.worker = null;
   pageWorker.held = null;
+  // W3-02d-2, rule C: the stages the render on screen left went with the worker.
+  state.workerKeepsShown = false;
 }
 
 function settlePageJob(job, error, reply) {
@@ -210,6 +212,9 @@ const renderReply = (reply, stats) => ({
   blob: reply.blob,
   realOpus: reply.realOpus,
   codecInfo: reply.codecInfo,
+  // Where the page's worker started the render (W3-02d-2): 'b', 'a' or null
+  // (TF2Audio.stagesHold before the render); undefined from a worker of its own.
+  startedFrom: reply.startedFrom,
   stats
 });
 
@@ -263,6 +268,8 @@ function processInWorker(captured, opts, sourceId, { onPreview = null } = {}) {
   return job.promise.then((reply) => {
     const result = renderReply(reply, null);
     result.stats = stats.catch(() => analyzeCopy(result.samples, result.sampleRate));
+    // Made in the page's worker, which now holds its stages (W3-02d-2).
+    result.inWorker = true;
     return result;
   }).finally(() => {
     if (state.cancelProcessing === job.cancel) state.cancelProcessing = null;
@@ -470,7 +477,7 @@ if (els.format) {
 // (the source and settings key it was made from, the codec's name for the
 // status line, whether the player is to come into view and take the focus,
 // and whether it is a recorded live session).
-function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }, took, codecKey, made = {}) {
+function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats, startedFrom, inWorker }, took, codecKey, made = {}) {
   // Report the actual processing path: codec version, bitrate and the
   // Opus modes the encoder really chose.
   logLine(realOpus
@@ -535,6 +542,15 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
   // the person just made.
   state.cancelledKey = made.live ? currentRenderKey() : null;
   state.cancelledSource = made.live ? source : null;
+  // W3-02d-2: what the rule for a longer source reads (reconcileRender). The
+  // time the render took on this device (a live take's is 0, not known),
+  // where the worker started it, and the mark of rule C: set for a render the
+  // page's worker made (its stages are the ones it holds now); a live take,
+  // whose source the worker never held, and a render made on the page's own
+  // thread clear it.
+  state.renderedTook = took;
+  state.renderedFrom = made.live ? undefined : startedFrom;
+  state.workerKeepsShown = !made.live && !!inWorker;
 
   els.audio.src = state.lastBlob;
   // Arm the muted twin of the original, so Hear is an instant unmute rather
@@ -579,7 +595,10 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats }
   // A render waiting for these settings is not needed now (a recorded live
   // session arrives with its render); one for others is kept or marked.
   reconcileRender();
-  logLine(`ChangeLevel: rendered ${samples.length} samples @ ${sampleRate}Hz in ${took}ms`, 'sys');
+  // Where the page's worker started the render (W3-02d-2).
+  const from = state.renderedFrom === 'b' ? ' from the kept codec result' : state.renderedFrom === 'a' ? ' from the kept capture signal'
+    : state.renderedFrom === null ? ' from the start' : '';
+  logLine(`ChangeLevel: rendered ${samples.length} samples @ ${sampleRate}Hz in ${took}ms${from}`, 'sys');
   logLine(`Net_SendPacket: reliable stream ready.`);
   if (made.reveal) revealPlayer(made.reveal === 'scroll');
 }
@@ -814,10 +833,39 @@ function renderNewSource() {
   startRender();
 }
 
+// W3-02d-2, rule B: whether the settings of key `to` differ from those of
+// key `from` only in options the engine uses after the codec's result, so
+// that a render with them starts from the result the worker kept. The list
+// is the engine's (TF2Audio.STAGE_OPTIONS.afterB), read each time: the page
+// keeps no copy, so an option the engine moves across that stage moves this
+// rule with it. No key (no render) is never such a change.
+function changedAfterCodecOnly(from, to) {
+  if (typeof from !== 'string' || typeof to !== 'string') return false;
+  const a = JSON.parse(from), b = JSON.parse(to), after = TF2Audio.STAGE_OPTIONS.afterB;
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])]
+    .every((name) => after.includes(name) || JSON.stringify(a[name]) === JSON.stringify(b[name]));
+}
+
+// W3-02d-2: whether a source longer than AUTO_RENDER_SECONDS renders by
+// itself with the controls' key `key`. All four rules of the order hold:
+// A. a render of this source is on screen (a recorded live take is held back
+//    by C and D: the worker never held its source, and its time is 0);
+// B. the change needs no new encode;
+// C. the page's worker still holds what the render on screen left;
+// D. the render on screen took at most AUTO_RENDER_KEPT_MS on this device (0
+//    or none is not known).
+function rendersFromKept(key) {
+  if (state.renderedSource !== state.decodedSource || !state.lastWav) return false;
+  if (!changedAfterCodecOnly(state.renderedKey, key)) return false;
+  if (!state.workerKeepsShown) return false;
+  return state.renderedTook > 0 && state.renderedTook <= AUTO_RENDER_KEPT_MS;
+}
+
 // After a change of the settings (tf2:settings) and after each render: with
 // the controls on another key than the render on screen (or the one
 // running), a source of at most AUTO_RENDER_SECONDS renders 400 ms after the
-// last change; a longer one is marked. Back on the key of the render on
+// last change; a longer one renders so when rendersFromKept allows it
+// (W3-02d-2), and is marked otherwise. Back on the key of the render on
 // screen, a render running for other settings stops and nothing starts.
 function reconcileRender() {
   clearAutoRender();
@@ -827,12 +875,12 @@ function reconcileRender() {
   // A render the user cancelled, or one that failed, is not started again by
   // itself: only a change to other settings, or the button, starts one.
   const cancelled = state.cancelledSource === state.decodedSource && key === state.cancelledKey;
-  const short = state.decodedSource.duration <= AUTO_RENDER_SECONDS && !cancelled;
+  const auto = !cancelled && (state.decodedSource.duration <= AUTO_RENDER_SECONDS || rendersFromKept(key));
   if (state.processing) {
     if (key === state.renderingKey) { /* it is coming */ }
     else if (key === onScreen) { dropRunning = true; if (state.cancelProcessing) state.cancelProcessing(); }
-    else if (short) autoRenderTimer = setTimeout(() => { autoRenderTimer = 0; startRender(); }, AUTO_RENDER_DELAY_MS);
-  } else if (key !== onScreen && short) {
+    else if (auto) autoRenderTimer = setTimeout(() => { autoRenderTimer = 0; startRender(); }, AUTO_RENDER_DELAY_MS);
+  } else if (key !== onScreen && auto) {
     autoRenderTimer = setTimeout(() => { autoRenderTimer = 0; startRender(); }, AUTO_RENDER_DELAY_MS);
   }
   updateStale();
@@ -875,6 +923,11 @@ async function runRender({ button }) {
   const demo = state.sourceDemo;
   const key = currentRenderKey();
   state.renderingKey = key;
+  // W3-02d-2, rule C: a render whose settings differ from the render on
+  // screen's before the codec's result lets go of the stages that render left
+  // (the engine drops a kept stage held for another key), whether it then
+  // finishes, fails or is cancelled.
+  if (!(state.renderedSource === source && changedAfterCodecOnly(state.renderedKey, key))) state.workerKeepsShown = false;
   // The line under Phrase timing follows the source too (a demo's is set
   // once its packets are in place, after the source was mounted).
   updateTimelineNote();
