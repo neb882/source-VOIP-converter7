@@ -207,7 +207,7 @@ Figures that are not the record's, and say so on the page:
 
 - `pnpm test` under `flock /tmp/tf2ve-heavy.lock`, on `35b3672`: exit 0, `27 of 27 suites passed. 957.2 s summed`;
   `reproduce` 44.0 s.
-- The browser suite under the lock: see the hand-back.
+- The browser suite under the lock (`CHROMIUM_EXECUTABLE` set): `browser  browser  passed  245.6`.
 - CI: run 43375842946 on `35b3672` (the code, the page and `main` merged in): `verify` success, all five jobs
   success; `== reproduce: passed, 47.8 s` in `units`. The report follows in a push that changes only `docs/`, which
   starts no run.
