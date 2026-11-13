@@ -181,13 +181,21 @@ const EXTRA_OPTION_CASES = [];
 // option changed is read only after B, A when only after A, else neither.
 const { afterA, afterB, read, observers } = A.STAGE_OPTIONS;
 // The names process() reads that no case of section 2 changes: the codec
-// stage's hooks (section 3: each keeps and takes nothing), the observers
-// and the keeping's own controls.
-const HOOKS = ['loseMessage', 'onDecoded', 'onResampled'], CONTROLS = ['stages', 'sourceKey', 'signal'];
+// stage's hooks and the channel's (arriveAt, BC-4; section 3 and
+// tests/render-channel.verify.mjs: each keeps and takes nothing), the
+// observers and the keeping's own controls.
+const HOOKS = ['loseMessage', 'arriveAt', 'onDecoded', 'onResampled'], CONTROLS = ['stages', 'sourceKey', 'signal'];
 const startsFrom = (base, change) => {
   const changed = Object.keys(change).filter((k) => !Object.is(change[k], base[k]));
   const coded = (change.enableWarble ?? base.enableWarble) !== false && !(change.received ?? base.received);
-  if (coded && changed.every((k) => afterB.includes(k))) return 'b';
+  // BC-4 (the plan review's point 2): where Steam's sender and decoder run (the
+  // steam codec, or a name the engine does not know, with the codec on), the
+  // codec stage does not read jitterMs, which the keys then hold as 0: a
+  // changed jitterMs starts from B there while the lists say A.
+  const codec = change.codec ?? base.codec;
+  const profile = Object.hasOwn(engine.CODEC_PROFILES, codec) ? engine.CODEC_PROFILES[codec] : engine.CODEC_PROFILES.steam;
+  const steamPath = coded && profile.senderGate?.rule === 'steam';
+  if (coded && changed.every((k) => afterB.includes(k) || (k === 'jitterMs' && steamPath))) return 'b';
   return changed.every((k) => afterA.includes(k)) ? 'a' : null;
 };
 
@@ -512,8 +520,8 @@ console.log('\n[4] The first 14 s of a render of the first 15 s are the whole re
   // Nothing else is allowed.
   const refused = [{ lossPct: 5 }, { jitterMs: 50 }, { retime: true }, { room: { preset: 6 } }, { underwater: true },
     { room: { custom: { duration: 1, decay: 2, mix: 0.3 } } }, { room: { auto: 'tunnel' } }, { deviceRate: 96000 },
-    { received: { frameLog: [2], frameBytes: [60], frameMs: 20, spurts: 1 } }, { loseMessage: () => false }];
-  check('previewAllowed() allows nothing else: loss, jitter, re-timing, a room, under water, an untested device rate, a demo\'s voice, loseMessage',
+    { received: { frameLog: [2], frameBytes: [60], frameMs: 20, spurts: 1 } }, { loseMessage: () => false }, { arriveAt: (t) => t }];
+  check('previewAllowed() allows nothing else: loss, jitter, re-timing, a room, under water, an untested device rate, a demo\'s voice, loseMessage, arriveAt',
     refused.every((change) => !A.previewAllowed({ ...(change.retime ? SOURCE_BASE : PAGE_DEFAULTS), ...change })) && A.previewAllowed({ ...PAGE_DEFAULTS, room: { preset: 0 } }),
     `${refused.length} refused; a room number that is no room is allowed`);
   console.log(`  (${((performance.now() - t4) / 1000).toFixed(1)} s)`);

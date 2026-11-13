@@ -647,10 +647,13 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
       try { await render(x, opts); } finally { engine.codec = real; }
       return seen.join();
     };
+    // Since BC-4 jitter on `steam` draws arrival times on the game's timeline from streams
+    // of its own and nothing on the file's own timing, so the jitter render here is on the
+    // game's timeline, where the option draws.
     const x = talk(10, 41), base = { seed: 5, lossPct: 30 };
-    const plain = await lostBy(x, base), jit = await lostBy(x, { ...base, jitterMs: 50 }), split = await lostBy(x, { ...base, frameMs: 80 });
+    const plain = await lostBy(x, base), jit = await lostBy(x, { ...base, jitterMs: 50, timeline: 'game' }), split = await lostBy(x, { ...base, frameMs: 80 });
     const other = await lostBy(x, { ...base, seed: 6 });
-    check('the draw in a render: the same messages are lost at jitter 0 and 50 ms and at net_split 20 and 80 ms; another seed loses others',
+    check('the draw in a render: the same messages are lost at jitter 0 and at jitter 50 ms on the game\'s timeline (BC-4\'s arrival draw), and at net_split 20 and 80 ms; another seed loses others',
       plain.length > 0 && plain === jit && plain === split && other !== plain, `seed 5: messages ${plain.split(',').slice(0, 12).join(', ')}, ...`);
   }
 
@@ -910,12 +913,34 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
     };
     const pieces = [1, 7, 2, 959, 961, 13, 4097, 333, 12345, 1, 30011, 480, 481];
     const x = talk(12, 17), s0 = own(0);
-    const cases = [['37%, seed 2', { seed: 2, lossPct: 37 }, x], ['49.8% and 50 ms jitter, seed 3', { seed: 3, lossPct: 49.8, jitterMs: 50 }, x],
+    // BC-4: jitter draws no late frame on `steam`, so the case that had 50 ms of jitter takes
+    // the frames that jitter marked late before (a frame a packet, from the render's seed)
+    // from the suite's own masks: through steamRoundTrip's makeLossMask for process(), and
+    // through the stream's per-frame verdict (createSteamStream's message) for createRender.
+    // At seed 3 every frame the 50 ms mask marks is one the decoder conceals; the 200 ms
+    // mask also plays some as silence, so the stream's code for those is reached too.
+    const lateOf = (seed, jitterMs, silent) => ({ silent, whole: (count) => TF2Audio.buildLossMask(count, 1, 0, TF2Audio.mulberry32(seed), jitterMs),
+      stream: () => { const next = TF2Audio.streamLossMask(1, 0, TF2Audio.mulberry32(seed), jitterMs); return () => next(); } });
+    const withStreamMask = async (mask, run) => {
+      const real = engine.codec;
+      engine.codec = { ...real, createSteamStream: async (b, o) => {
+        const st = await real.createSteamStream(b, o);
+        return { ...st, message: (msg, miss, lost) => st.message(msg, (f) => { miss(f); return mask(f); }, lost) };
+      } };
+      try { return await run(); } finally { engine.codec = real; }
+    };
+    const cases = [['37%, seed 2', { seed: 2, lossPct: 37 }, x],
+      ['49.8% and the frames 50 ms of jitter marked late before BC-4 (the suite\'s own masks; all concealed at this seed), seed 3', { seed: 3, lossPct: 49.8 }, x, lateOf(3, 50, false)],
+      ['49.8% and the frames 200 ms of jitter marked late before BC-4 (the suite\'s own masks; some play as silence), seed 3', { seed: 3, lossPct: 49.8 }, x, lateOf(3, 200, true)],
       ['49.8%, the gate off', { seed: 1, lossPct: 49.8, gate: false }, x],
       ['a lost end marker and a lost silence record (loseMessage)', { ...ob, loseMessage: (i) => i === s0[s0.length - 1] || mb[i].silence !== undefined }, xb]];
-    for (const [name, o, src] of cases) {
-      const whole = await render(src, o);
-      const r = await TF2Audio.createRender({ sampleRate: R, length: src.length, numberOfChannels: 1 }, { codec: 'steam', volume: 1, ...o });
+    for (const [name, o, src, late] of cases) {
+      const whole = late ? await withMask(late.whole, () => render(src, o)) : await render(src, o);
+      const streamMask = late ? late.stream() : null;
+      const r = late ? await withStreamMask(streamMask, () => TF2Audio.createRender({ sampleRate: R, length: src.length, numberOfChannels: 1 }, { codec: 'steam', volume: 1, ...o }))
+        : await TF2Audio.createRender({ sampleRate: R, length: src.length, numberOfChannels: 1 }, { codec: 'steam', volume: 1, ...o });
+      // (The stream made under the mask keeps it: createSteamStream is called once, as the
+      // render is made.)
       const parts = [];
       for (let at = 0, k = 0; at < src.length; k++) { const n = Math.min(pieces[k % pieces.length], src.length - at); parts.push(await r.push(src.subarray(at, at + n))); at += n; }
       const fin = await r.finish();
@@ -923,7 +948,8 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
       const out = Float32Array.from(parts.flatMap((p) => Array.from(p)));
       check(`createRender is process() for ${name}, pushed in odd pieces: the samples and codecInfo`,
         same(Array.from(out), Array.from(whole.samples)) && JSON.stringify(canonical(fin.codecInfo)) === JSON.stringify(canonical(whole.codecInfo))
-        && whole.codecInfo.network && whole.codecInfo.network.lostMessages > 0, JSON.stringify(whole.codecInfo.network));
+        && whole.codecInfo.network && whole.codecInfo.network.lostMessages > 0 && (!late || !late.silent || whole.codecInfo.underrunFrames > 0),
+        `${JSON.stringify(whole.codecInfo.network)}${late ? `; ${whole.codecInfo.lostFrames} concealed and ${whole.codecInfo.underrunFrames} silent late frames` : ''}`);
     }
   }
 
@@ -938,8 +964,9 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
     const x = talk(20, 3);
     let moved = 0, holed = 0, spurts = 0, broken = [];
     for (const seed of [1, 2, 3, 4, 5, 6]) {
-      const o = { seed, lossPct: 49.8, jitterMs: 100 };
-      const r0 = (await render(x, o)).codecInfo, r1 = (await render(x, { ...o, retime: true })).codecInfo, L = r0.lookahead;
+      // BC-4: the late frames jitter 100 ms drew before, from the suite's own mask.
+      const o = { seed, lossPct: 49.8 }, late = (count) => TF2Audio.buildLossMask(count, 1, 0, TF2Audio.mulberry32(seed), 100);
+      const r0 = (await withMask(late, () => render(x, o))).codecInfo, r1 = (await withMask(late, () => render(x, { ...o, retime: true }))).codecInfo, L = r0.lookahead;
       const shifts = [0, ...r1.retimed.map((m) => Math.round(Math.round(m.shiftMs * VR / 1000) / SLOT))];
       for (const sp of r0.sender.spurts) {
         const slots = [];
@@ -955,7 +982,7 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
         else if (d > 0) { moved++; if (hole) holed++; }
       }
     }
-    check('re-timing under loss (49.8%, jitter 100 ms, seeds 1 to 6) moves each sender\'s spurt whole, its frame log with it, those with empty time inside them included',
+    check('re-timing under loss (49.8%, and the late frames jitter 100 ms drew before BC-4, seeds 1 to 6) moves each sender\'s spurt whole, its frame log with it, those with empty time inside them included',
       broken.length === 0 && moved >= 4 && holed >= 1, `${spurts} spurts, ${moved} moved, ${holed} of them with a hole${broken.length ? `; split: ${broken.join(', ')}` : ''}`);
   }
 
@@ -1332,16 +1359,26 @@ async function liveSteamSection() {
       const inside = runs.filter((r) => r.at < x24.length - 2 * S.rate);
       if (inside.some((r) => r.run > 10) && inside.some((r) => r.run >= 8 && r.run <= 10)) { lossSeed = s; longest = Math.max(...inside.map((r) => r.run)); }
     }
-    const o = { seed: lossSeed, lossPct: 15, jitterMs: 50 };
-    const ren = await renderRun(x24, 24000, o);
+    // BC-4: jitter draws no late frame on `steam`; the late frames 50 ms of jitter drew
+    // before come from the suite's own mask, through the stream both use, a fresh draw for
+    // each run in the sender's frame order.
+    const o = { seed: lossSeed, lossPct: 15 };
+    const late = () => { const next = TF2Audio.streamLossMask(1, 0, TF2Audio.mulberry32(lossSeed), 50); return () => next(); };
+    const ren = await withStreamMask(late(), () => renderRun(x24, 24000, o));
     for (const [plan, sizes] of plans(x24.length, lossSeed).filter(([p]) => ['uneven', '128'].includes(p))) {
-      const live = await liveRun(x24, 24000, o, sizes);
+      const live = await withStreamMask(late(), () => liveRun(x24, 24000, o, sizes));
       const eq = equalsRender(live, ren);
-      check(`15% loss and 50 ms jitter (seed ${lossSeed}: inside its spurts runs of 8 to 10 lost frames and of more than ten, the longest ${longest}), blocks of ${plan}: the live chain is the render, nothing is moved, and its lost and late slots are the render's`,
+      check(`15% loss and the late frames 50 ms of jitter drew before BC-4 (seed ${lossSeed}: inside its spurts runs of 8 to 10 lost frames and of more than ten, the longest ${longest}), blocks of ${plan}: the live chain is the render, nothing is moved, and its lost and late slots are the render's`,
         lossSeed > 0 && eq.diff === -1 && eq.packets && eq.codes && eq.counted && live.stats.lost > 0 && live.stats.late > 0
         && live.stats.droppedLate === 0 && live.stats.movedLate === 0 && live.stats.lostMessages > 0,
         `${eq.n} samples, first difference at ${eq.diff}; ${live.stats.lost} lost and ${live.stats.late} late slots; ${live.stats.lostMessages} messages lost`);
     }
+    // The option itself: jitterMs 50 with the same loss draws no late frame on `steam`, in
+    // the render (on the file's own timing) or the live chain (BC-4, "Where it runs", a and c).
+    const plainRen = await renderRun(x24, 24000, { ...o, jitterMs: 50 }), plainLive = await liveRun(x24, 24000, { ...o, jitterMs: 50 }, fixed(x24.length, 480));
+    check('jitterMs 50 alone draws no late frame on `steam`: the render\'s underrunFrames 0 and the live chain\'s stats.late 0, the lost slots as without it',
+      plainRen.info.underrunFrames === 0 && plainLive.stats.late === 0 && plainLive.stats.lost > 0 && plainRen.info.lostFrames > 0,
+      `${plainRen.info.lostFrames} lost frames in the render, ${plainLive.stats.lost} lost slots in the live chain`);
   }
   // The give-out function by itself, for (P, C) pairs: R is the order's.
   {

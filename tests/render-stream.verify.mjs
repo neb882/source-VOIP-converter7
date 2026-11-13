@@ -225,7 +225,7 @@ for (const [name, rate, opts, plan] of [
   ['celt_22, gate on, loss 15%, jitter 300 ms', 48000, { codec: 'celt_22', gate: true, lossPct: 15, jitterMs: 300 }, 'uneven'],
   ['celt_44, gate on, loss 15%', 48000, { codec: 'celt_44', gate: true, lossPct: 15 }, '960'],
   ['speex, gate on, loss 15%, jitter 300 ms', 48000, { codec: 'speex', gate: true, lossPct: 15, jitterMs: 300 }, 'uneven'],
-  ['steam, jitter 500 ms (late frames play as silence)', 48000, { jitterMs: 500 }, '960'],
+  ['steam, jitter 500 ms on the file\'s own timing (does nothing)', 48000, { jitterMs: 500 }, '960'],
   ['steam, snd_bits 4 (SILK frames)', 48000, { bits: 4 }, 'uneven'],
   ['steam_48, loss 10%, jitter 100 ms, snd_bits 10', 48000, { codec: 'steam_48', lossPct: 10, jitterMs: 100, bits: 10 }, '12345'],
   ['steam, source at 24 kHz', 24000, {}, 'uneven'],
@@ -520,7 +520,7 @@ const GOLDEN = {
   "celt_22, gate on, loss 15%, jitter 300 ms": ["302c6f9610826f85d913b4351aa261f4e4f7055003d12b0f8fab38b92c933012", "0b575fca37ebf68ae116815c18a1f77f11fd1a4990f620892c1aad3b28ec8c4b"],
   "celt_44, gate on, loss 15%": ["4857d88188fec06e658f6cf80a24a52c53e2cf129ac1a49d2700d1a208f1e8f6", "4face18f89426f7e520f9e687eef9ae7d0aa994fd11d0a71d0bdf3e730bb7aab"],
   "speex, gate on, loss 15%, jitter 300 ms": ["732897e85b9c12b748c4436f405a8495221a1094b253232696a8f229b4a5706e", "479d2149a32db551af6623328cbf7ed1e9c5b4579e5cfa102a2278201fc8578c"],
-  "steam, jitter 500 ms (late frames play as silence)": ["7a84d9b55600c1dc3aff1808be550cb01aab3bfff5fbfbfdace2d4addbb12142", "7fd1c7b9f1b69860a84e8e8f85888e759ceb63ca6a839a1c25284c4ee730deda"],
+  "steam, jitter 500 ms on the file's own timing (does nothing)": ["7a84d9b55600c1dc3aff1808be550cb01aab3bfff5fbfbfdace2d4addbb12142", "7fd1c7b9f1b69860a84e8e8f85888e759ceb63ca6a839a1c25284c4ee730deda"],
   "steam, snd_bits 4 (SILK frames)": ["405cfa452821f2afcc5f94e8921ab8cb6f2749c2834a325a6e459412f8bb00d8", "90752a2c322c8ff797779f0b336f8db827ed4f7dd531c4484b2b2265a5fecfbe"],
   "steam_48, loss 10%, jitter 100 ms, snd_bits 10": ["5e5ce262e57ec4f9a06a7858a5f875b9a621b99f3cec7912c4460db26c6125b9", "06decdb78d78b561d40c522b901ddc0d374ff401fcd45a02676705bec3ea3a02"],
   "steam, source at 24 kHz": ["046a1199d8304460e68965d4c47131775f80f99fc0739c03c0764fa457aef70b", "4f8276463d2593c03caf8a0c208a8eaf2922f5566c0a25d00bfab4c7c4e679a4"],
@@ -616,7 +616,7 @@ const GAIN_GOLDEN = {
   "celt_22, gate on, loss 15%, jitter 300 ms": "49d594aa6f0caa9490066ed6ae1742c15063326002cd8836fd9d88f07c300f11",
   "celt_44, gate on, loss 15%": "a887ab28283d73ee61018636afe804942bf998c59a6ff75e8ec01f8885a40c6b",
   "speex, gate on, loss 15%, jitter 300 ms": "e7bfb2524f39f29b794443969bab51d41b797aacc4254d735d3803c768fa6aa1",
-  "steam, jitter 500 ms (late frames play as silence)": "d26dcad0c05b38d3d0b47e9437ac92cb2a4bc47839f58090a59b0a6765978ad6",
+  "steam, jitter 500 ms on the file's own timing (does nothing)": "d26dcad0c05b38d3d0b47e9437ac92cb2a4bc47839f58090a59b0a6765978ad6",
   "steam, snd_bits 4 (SILK frames)": "51a31415805709755787b52a9c0e80943dce51e737baced5454627fd182a14b6",
   "steam_48, loss 10%, jitter 100 ms, snd_bits 10": "60a29df9af7e58794da2e2a0f463a879d3e534cb393ef1fb4adf70c235145940",
   "steam, source at 24 kHz": "99276e7b0692d89c89f37310e72729449c04a59898888bcb59ea8ac0ad6d942c",
@@ -832,8 +832,18 @@ check('every recorded render is a case of the matrix', Object.keys(GOLDEN).every
     'speex, gate on, loss 15%, jitter 300 ms', 'steam_48, loss 10%, jitter 100 ms, snd_bits 10']) {
     check(`${name}: frames are lost`, info(name).lostFrames > 0, `${info(name).lostFrames} lost, ${info(name).underrunFrames} late`);
   }
-  for (const name of ['steam, jitter 500 ms (late frames play as silence)', 'celt_22, gate on, loss 15%, jitter 300 ms', 'speex, gate on, loss 15%, jitter 300 ms']) {
+  for (const name of ['celt_22, gate on, loss 15%, jitter 300 ms', 'speex, gate on, loss 15%, jitter 300 ms']) {
     check(`${name}: some frames arrive too late and play as silence`, info(name).underrunFrames > 0, `${info(name).underrunFrames} late`);
+  }
+  // BC-4: on `steam` jitter is when messages reach the game's voice queue, and on the file's
+  // own timing it does nothing: the case renders as the same source and settings without
+  // jitter, which 'steam, dsp_room 1 (no effect)' is (no room either way).
+  {
+    const name = 'steam, jitter 500 ms on the file\'s own timing (does nothing)', plain = 'steam, dsp_room 1 (no effect)';
+    const wavOf = async (n) => sha256(await wavBytes(renders.get(n).blob));
+    check(`${name}: no late frame, and the WAV and codecInfo of '${plain}', the same source and settings without jitter`,
+      info(name).underrunFrames === 0 && await wavOf(name) === await wavOf(plain) && infoHash(info(name)) === infoHash(info(plain)),
+      `${info(name).underrunFrames} late`);
   }
   for (const name of ['celt_22, gate on, loss 15%, jitter 300 ms', 'celt_44, gate on, loss 15%', 'speex, gate on, loss 15%, jitter 300 ms']) {
     check(`${name}: the gate opens and closes on the codec's own frames`, info(name).spurts > 1 && info(name).gatedFrames > 0);

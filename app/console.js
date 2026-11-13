@@ -371,7 +371,10 @@ const cvars = {
   'dsp_lpf':         { help: 'Not in the game: a filter before the codec. 20000 is off. A low-pass, its cutoff in Hz; the app\'s name', link: 'lp' },
   'snd_bits':        { help: 'The bitrate, in sixteenths: 16 is the codec\'s own bitrate; 8 is half of it. vaudio_speex and vaudio_miles each have one bitrate and ignore this. The app\'s name', link: 'bits' },
   'net_fakeloss':    { help: 'The share of voice packets that never arrive. Steam\'s codec: each voice message (one packet: 1 to 5 frames of 20 ms, more at a phrase\'s start) is lost whole, by its own draw; the decoder fills up to 10 frames when the next message comes, and the game drops a message that comes to more than 12. The other codecs: still single frames in bursts of ~2.2. In %. Not TF2\'s own number: by the game\'s rule its net_fakeloss 5/10/15 on a listen server lose about 22/37/50% of packets (recordings agree at 5 and 15; 10 was recorded only with lag and jitter, where the rule gives too little silence)', link: 'loss' },
-  'net_fakejitter':  { help: 'Late packets. Fitted at 50 ms, where 3.2% of frames were late; other values are scaled from that. In ms; one late frame in ten plays as silence', link: 'jitter' },
+  'net_fakejitter':  { help: 'How far packets\' arrival times spread, in ms, with their order kept and none lost. Steam\'s codec on the game\'s voice queue: '
+    + 'the game\'s lists for net_fakejitter with net_fakelag taken as twice it, for your own voice on a listen server; the lists\' rule is read, '
+    + 'how often each end looks for packets is chosen, and the next packet leaving in the same look is inferred. Bunched packets can skip sound and a gap can restart a phrase. '
+    + 'On the file\'s own timing it does nothing on Steam\'s codec. The other codecs: still a fit, single frames marked late (3.2% at 50 ms)', link: 'jitter' },
   'net_split':       { help: 'How much voice one network packet carries. A lost packet loses all of it. Frames per packet, as ms: 20 is one frame, 40 two. On Steam\'s codec a packet is the sender\'s message, and this does not set what a lost packet holds. The app\'s name', link: 'frameMs' },
   'snd_codec':       { help: 'For comparison only: the sound goes to the receiver without being coded (0). 1 runs the codec. The app\'s name', link: 'warble_on' },
   'sv_voicecodec':   {
