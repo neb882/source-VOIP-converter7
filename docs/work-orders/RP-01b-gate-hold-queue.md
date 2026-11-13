@@ -1,6 +1,6 @@
 # RP-01b: the checks `gate` and `queue` of the reproduce-it script, and what happens to `hold`
 
-**Status 2026-11-13: planned; not reviewed, not built.** It supersedes part b of
+**Status 2026-11-13: planned, read by a plan reviewer (build after edits; the edits are the last section), not built.** It supersedes part b of
 [RP-01](RP-01-reproduce-it.md) (its sections 3 to 5, 9 and 15). Written by a planner's pass on `main` at
 `695a584` ([the planning report](../reports/RP-01b-plan.md)). The planner read the repository only: it opened no
 recording, no log and no file of the owner's install.
@@ -728,4 +728,89 @@ Not answered now. They are asked again when `hold` is ordered.
 9. The check's information lines may print the bracket counts and the chunk lengths, as above. They are
    numbers the lines carry.
 10. A plan reviewer reads this order before a builder starts (`docs/PIPELINE.md`).
+
+## After the plan review (2026-11-13, the orchestrator)
+
+A plan reviewer on the builders' model read the order as its builder would and said: build after these edits.
+Every finding is taken. Where this section differs from the text above, this section holds; the section before
+it (the private look) holds too.
+
+### `queue`
+
+1. **Every part of a log is marked.** The page's step 2 begins with `echo MARK300` and gives a log name the
+   stranger has not used before (whether `con_logfile` adds to an older file is not in the record). Every run
+   of the check is given `--section`. Without `--section`, when any line of the log begins with `MARK`, the
+   check says "differs: the log holds marked parts; give --section". That is one more break for the suite.
+2. **Honest runs that would fail Q1.** By finding 23 (read) one frame of 0.1 s or more during the wait ends it
+   at once, and a PC that cannot hold its `fps_max` gives waits a tick short. So: the reason printed with a
+   failing Q1 names a frame of 0.1 s or more and an unsteady frame rate, beside the wait one tick off; the
+   page's first run is at `fps_max 100` and 300 is a second run for a PC that holds it; the page says to wait
+   a few seconds after the map has loaded before the first press.
+3. **The stand-in.** The reviewer tried it: `synthesize` given the second model writes, line for line, the log
+   it writes from the module, on the suite's two seeds and on 120 more pairs of seed and frame rate (computed).
+   So the stand-in shows the tool's reading and that the two models agree, which the suite `voice-channel`
+   already holds over its own cases; the order keeps it, and the page and the report say that much and no
+   more. The check "the stand-in is written from the second model" is a check on the suite's text (the import
+   it passes). Marker lines take the place of the log's `UNRELATED` lines or stand at its head or tail: two
+   unrelated lines in a row inside a channel are a session break to the tool
+   (`tests/voicequeue/log-to-fixture.mjs:87`).
+4. **The move.** "May touch" for `tests/voice-channel.verify.mjs` is the imports and the two calls of
+   `synthesize` (`:863`, `:864`), which gain the argument. Each new file requires `voice-channel.js` itself:
+   `FAULTS`, `validFixture` and `synthesize` read `VOICE_CHANNEL`, `replay` uses `createChannel`, and
+   `replayFixture` uses `waitTicks`. `report()` stays in the suite and imports `FAULTS`. `mulberry32` is also
+   used at `:314`, `:595` and `:1071`, and `UNRELATED` at `:801`, `:847`, `:868` and `:934`; the suite imports
+   both. The replay-only mode (`--fixture`) must still work: the builder runs it on a fixture the suite writes
+   and shows the output before and after.
+5. **The section's name is never printed.** `logToFixture` puts the marker into the fixture's `name`
+   (`tests/voicequeue/log-to-fixture.mjs:56`). `queue` prints no section name, and the suite runs it with a
+   marker word of its own as `--section` under the marker part.
+6. The four kinds of changed line are named at `tests/voice-channel.verify.mjs:898` to `:917`.
+
+### `gate`
+
+7. **Where the walk through the clip ends.** Not only at the next `loaded` line: also at the console's answer
+   `"mic_inputfile" = ...` and at the typed command `] mic_inputfile ...`, each known by its fixed start,
+   counted, and never kept. Chunk lines after them are judged by file 1's figures only. By W3-14's order (read)
+   the same path typed again does not load the file again, so a second try in one Steam session has no `loaded`
+   line; if the five-line search is cut for the budget, the reason then says to set the path to nothing and
+   back, or to restart Steam.
+8. **Breaks that reach G4 and G5 alone,** on the copy given with file 2: a printed mean far from 1.00 moved by
+   0.02 with its marks kept (differs with file 2, "as expected" with file 1 alone); a printed peak under 14.9
+   moved by 0.010 (differs with file 2); one length moved by 0.04 ms (differs); one line that prints 1.00 whose
+   second mark disagrees with the clip (G5 differs). The lines worked by hand go in a copy used with file 1
+   alone, or before the `loaded` line, so that the walk does not meet them.
+9. **The stand-in's marks.** The reviewer tried the route: it gives the right marks for an ordinary chunk, for
+   constant chunks of 327 and 328, and for a single sample of 4914, 4915 and −4915; it refuses a chunk over
+   2,250 samples, as the order says; and for a chunk of exactly one sample it gives a mark where Steam prints
+   none (read: the code's mean of one sample is 0). So lines of one sample get typed marks, never the route.
+   The clock handed to each sender gives later reads of 750 samples, since a clock with no further read makes
+   the sender throw or spin.
+10. **File 2's form.** A file 2 that is not a plain 44-byte header and its samples is "differs": Steam reads
+    from byte 44 on as sound (read, W3-14). The header's bytes are written in `steam-clip.mjs` itself;
+    `clipWav` of `make-inputs.mjs` builds its own samples and is not imported.
+11. **The clip's checksum is never printed for a stranger's file.** "Whether file 2 is the generated clip" is
+    printed as yes or no.
+12. **The page's step 6** says `mic_inputfile ""` (measured, the private look), with "or restart Steam" beside
+    it. `steam://open/console` is W3-09's suggestion and is marked so, not "read".
+
+### Both
+
+13. **The record's entry.** Done-means 9 stands: every figure on the page is the record's. So the builder's
+    dated entry in `tests/REFERENCE_2026.md` also holds, as measured (private, the orchestrator, 2026-11-13),
+    copied from the section "The orchestrator's private look": the counts on the 2,706 chunk lines, the
+    lengths of the real-microphone run, the layouts and the typing, the table of Set G's six parts under the
+    six faults, and the correction that the three files of "3,358 of 3,358" overlap (1,979 different lines in
+    them). The correction is a dated line beside that sentence; the sentence itself stays. The page cites the
+    entry and does not give 3,358.
+14. **The counts on the hold, for the steps-only entry** (the record, "The clock counts from Steam's start",
+    with the private findings read again today): the 12 ends are Set J's file-input run on the Steam of 23.9
+    days. The 18 ends are the file-input run on the Steam started 4.8 minutes before; the built sender gives
+    18 of 18 and 12 of 12. The 37 ends are that evening's two runs together, the file-input run's 18 and the
+    real-microphone run's 19; "the 7th read 5 times, the 8th 32 times, never the 9th" counts all 37. The entry
+    says which count is which.
+15. `hold`, with no order named, prints words of its own in the script's list (`tests/reproduce.mjs:66` would
+    print "order undefined"). The markers start at `tests/reproduce.verify.mjs:105`. The suite's part [2]
+    counts three "as expected" lines for `inputs`.
+16. **If the budget runs short,** cut in this order: the five-line search, the reading of UTF-16, then the
+    information lines that are not figures. The report says what was cut.
 
