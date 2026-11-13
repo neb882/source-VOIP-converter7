@@ -452,3 +452,9 @@ Not yet done: the orchestrator's private runs against the takes.
 ### open_questions, the entry on when phrases start, as it stood until the private runs on W3-02c-2
 
 When phrases start: the speech take reads 47% of transitions right and a start error of 122 ms (the orchestrator's private run on W3-02c-1); part of it cannot be closed, since the sender's clock phase at the moment of speaking is not in a recording.
+
+## 2026-11-13, after the rulings on RP-01
+
+Replaced in `in_flight` (the entry "RP-01, the plan"):
+
+a planner is writing the order (branch claude/rp-01-plan), since 2026-11-13. One order for points (1), (3) and (5) of the outside read (ideas_not_started): a page a stranger can reproduce findings from on their own PC, with a script that prints the figures from their own file; the builds and file hashes behind the findings marked read (names, builds, dates and hashes only); and which of the game's recordings of the project's synthetic signals are published, how, and the amendment to the hard rule (decisions_in_force, 2026-11-12). The planner has no access to the recordings: it works from an inventory of sizes and formats. Every step that touches a private file is the orchestrator's. The orchestrator rules on the plan's open choices before any builder starts.
