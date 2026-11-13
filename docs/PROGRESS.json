@@ -35,9 +35,9 @@
     },
     {
       "order": "BC-4",
-      "file": "docs/reports/bad-connections-plan.md (no order yet)",
-      "after": "W3-02c-2 (merged 2026-11-12)",
-      "line": "jitter as in-order arrival delays through the queue; retires the late-frame fit. With W3-02c-2 and W3-02d it is the last build before the tool's finish line. The comment at engine/render.js:389 still says the page does not offer the game's timeline; the first order that touches the engine corrects it."
+      "file": "docs/work-orders/BC-4-jitter-arrivals.md",
+      "after": "W3-02d-2 (being built); BC-4a first, then BC-4b",
+      "line": "jitter as in-order arrival delays through the game's voice queue on Steam voice (the 'game' timeline); the other codecs keep the late-frame fit, marked as a fit. Planned, privately checked and plan-reviewed 2026-11-13: on Set C's jitter take every event beyond the method's false events is a skip (a downward step of the delay, 15 to 70 ms; measured, private). Two parts: BC-4a (the engine, the render, its stream, the records; it also corrects the comment at engine/render.js:389) and BC-4b (the page). With W3-02d-2 it is the last build before the tool's finish line."
     },
     {
       "order": "W3-02e, W3-02f",
