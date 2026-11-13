@@ -18,15 +18,14 @@
       "order": "RP-01a",
       "state": "a builder is at work since 2026-11-13 (branch claude/rp-01a-reproduce-script)",
       "note": "The script's frame, the two clips' generator, the checks gain, celt and speex on stand-ins, the suite reproduce, docs/REPRODUCE.md, and section 14's measurements entered in the record. No recording goes into the repository in this part."
+    },
+    {
+      "order": "W3-21",
+      "state": "a builder is at work since 2026-11-13 (branch claude/w3-21-capture-phase); it stopped once and was ruled on (the order's last section)",
+      "note": "The sender's capture steps take the phase its clock already draws. With the lead forced to 0 every recorded value comes back (measured by the builder), so nothing but the phase moves. After it merges: the orchestrator's private runs on a 'game' render again, at Steam's own threshold."
     }
   ],
   "next": [
-    {
-      "order": "W3-21",
-      "file": "docs/work-orders/W3-21-capture-phase.md",
-      "after": "the investigation of 2026-11-13",
-      "line": "the sender's capture steps take the phase the clock already draws (c0): the steps' edges lie c0 after the multiples of 31.25 ms of the source, and the times and positions the sender reports are shifted back by the same amount, so a render's sound and the measured arrival figure are expected not to move. It moves every recorded hash of a seeded steam render. The private runs on a 'game' render are made again after it, at Steam's own threshold. Before W3-02d, so that W3-02d pins the hashes once."
-    },
     {
       "order": "Miles after the 2006 sitting (no order yet)",
       "file": "docs/FINDINGS.md, entry 11",
