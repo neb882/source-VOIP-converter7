@@ -438,3 +438,17 @@ process() and createRender() run the receiver's channel for the steam codec behi
 planned and ruled 2026-11-12; builder at work on claude/w3-02c2-timeline-option
 
 The planner's prototype (a patched copy in scratch, measured 2026-11-12): a 'game' render equals a reference built from voice-channel.js sample for sample at every setting tried; the stream equals process(); the channel adds 2.2 to 3.4 s to a ten-minute render and peak memory is about 100 MB lower than 'source'. The builder measures each again. Then the reviewer and the second reader (it changes how a render is computed, behind an option).
+
+## 2026-11-13, after the private runs on W3-02c-2
+
+### live.last_merge, the sentence replaced once the private runs were made
+
+Not yet done: the orchestrator's private runs against the takes.
+
+### in_flight (W3-02c-2, the orchestrator's private runs), as it stood until they were made
+
+{"order": "W3-02c-2, the orchestrator's private runs", "state": "next, after the merge is live", "note": "From the order's section \"The orchestrator runs privately\": tests/accuracy.mjs on four takes before and after (identical, since no default render changes); the Set G replay unchanged; the speech take's source rendered with timeline 'game' at 300 and 66.67 fps and tracked as a take is (on record for comparison: the module alone reads 47% of transitions and a start error of 122 ms); the loss takes of Set C against 'game' renders at their loss (on record: 3.90 lost runs a second and 10.1% silent in the take at 15%; whether the real channel shows drops of 60 to 220 ms that the takes lack is BC-3's first question). Figures only go into the public record."}
+
+### open_questions, the entry on when phrases start, as it stood until the private runs on W3-02c-2
+
+When phrases start: the speech take reads 47% of transitions right and a start error of 122 ms (the orchestrator's private run on W3-02c-1); part of it cannot be closed, since the sender's clock phase at the moment of speaking is not in a recording.

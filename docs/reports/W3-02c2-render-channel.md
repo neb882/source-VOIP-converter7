@@ -274,6 +274,115 @@ cached files changed since origin/main (15d8c53): audio-worker.js, engine/mix.js
 cache number against origin/main (15d8c53): the number is v37, not above v37: it must rise (node tests/cache-number.mjs origin/main --set)
 ```
 
+## The orchestrator's private runs (2026-11-13)
+
+Run on main at `c199d3f` against the owner's recordings, which are not public. Only figures are given, and every
+figure in this section is measured unless it says otherwise. The order's section "The orchestrator runs privately"
+lists the four runs.
+
+### The default render did not move
+
+`tests/accuracy.mjs` on the four takes the order names (the speech take, `sender_A`, `net_baseline`, `net_loss15`)
+gives the same result before the merge (`66d7b73`) and after it in every field but the time the work took. The
+Set G replay (`tests/voice-channel.verify.mjs --fixture`) passes as before.
+
+### Three takes lined up against a render that runs the queue
+
+A scratch copy of the manifest added `timeline: 'game'` and `fps` to a take's settings. The suite then lines the
+take up against that render. Where the render moves a phrase as the game did, the take's delay does not change
+there. A change is counted when the delay moves by 80 ms or more from the end of one phrase to the start of the
+next (the rule of `tests/retiming.mjs`). The owner's frame rate is 300 (finding 23). There are seven renders at
+300 frames a second: one at the suite's own seed and six at the sender's seeds 1 to 6.
+
+| Take | Changes between phrases | Moved, against the default render | Moved, against `'game'` at 300 (seven renders, sorted) | Moved, against `'game'` at 66.67 (one render) |
+| --- | ---: | ---: | --- | ---: |
+| the speech take | 9 | 8 | 0, 0, 1, 2, 5, 5, 6 | 5 |
+| `net_baseline` | 12 | 8 | 0, 1, 1, 2, 2, 4, 5 | 8 |
+| `sender_A` | 16 | 8 | 3, 5, 6, 6, 6, 7, 7 | 8 |
+
+- **The clock.** Against the default render the three takes run +405 to +416 parts in a million fast. Against a
+  `'game'` render they read between -39 and +9 in all 24 rows, and +2 to +9 in 19 of them. The one sample
+  dropped from every packet (finding 24) is the takes' clock.
+- **The frame rate.** At 66.67 frames a second the render moves almost no phrase, and the takes' changes stay.
+  The wait follows the frame rate, as finding 23 reads.
+- **Level in half-second blocks** follows where the phrases fall. For the speech take it is 1.01 dB rms against
+  the default render and 0.29 to 2.81 over the seven `'game'` renders at 300. It is not lowest in the renders
+  with the fewest moved phrases, and that is not explained.
+
+### The same, transition by transition, over 30 seeds
+
+A scratch script read `codecInfo.channel.source` of a `'game'` render of each take's source at the sender's seeds 1
+to 30, took the change at each transition as `tests/retiming.mjs` does, and counted the seeds in which the render
+has the take's kind of change (early, late or kept).
+
+- **`net_baseline`, pauses of 240 ms.** The take alternates early and late over seven such pauses. At 300 frames a
+  second the render has the take's kind at every one of the 12 transitions in 26 to 30 of the 30 seeds. At 66.67
+  it has the take's kind in none of the 30 at those seven pauses and at the one after them.
+- **`sender_A`, pauses of 420 and 440 ms.** Six of them follow a restart of the channel. At four of the six the
+  take starts the next phrase early, by 306 to 335 ms. The render does so at those four in 2, 8, 6 and 15 of the
+  30 seeds. So after a pause of this length the take's queue had more often not run out, and the render's more
+  often has.
+- **The speech take.** The render has the take's kind in 30, 30, 26, 19, 15, 13, 13, 5 and 2 of the 30 seeds over
+  its nine transitions.
+
+The score of `tests/retiming.mjs --engine`, with the real render's positions in place of the module run on a block
+signal (30 seeds against 200):
+
+| Take | Rate | Transitions right: block signal | Real render | No timing model | Start error: block signal | Real render | No timing model |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| the speech take | 300 | 47% | 57% | 11% | 122 ms | 99 ms | 150 ms |
+| `net_baseline` | 300 | 70% | 93% | 33% | 81 ms | 35 ms | 85 ms |
+| `sender_A` | 300 | 55% | 58% | 50% | 91 ms | 82 ms | 83 ms |
+| the speech take | 66.67 | 21% | 29% | 11% | 148 ms | 170 ms | 150 ms |
+| `net_baseline` | 66.67 | 35% | 31% | 33% | 89 ms | 91 ms | 85 ms |
+| `sender_A` | 66.67 | 50% | 50% | 50% | 87 ms | 90 ms | 83 ms |
+
+For `net_baseline` at 300 the whole pattern of 12 is right in 80% of the seeds (30% with the block signal).
+
+### What a channel drops when it opens
+
+In the lossless `'game'` renders of the network signal at 300 frames a second (five seeds, 45 channels opened), a
+channel drops 82 to 173 ms to overflow, 116 ms in the mean. The game's own log, replayed, gave 55 to 136 ms over
+16 restarts, 104 ms in the mean (finding 23). At 66.67 nothing is dropped, as in the logs. The render's queue
+after a restart is therefore a little shallower than the logs'. That this is why the render's queue runs out at
+the 440 ms pauses is inferred, not shown: it is the first thing to look at.
+
+### The loss takes of Set C
+
+The private measure of BC-1 was run again: the noise parts of the network signal, each render against the
+lossless render of its own kind and seed, five seeds, mean (lowest to highest). The takes read as they did.
+
+| At 15% (`net_fakeloss`) | Lost runs a second | Silent | Present | Energy |
+| --- | ---: | ---: | ---: | ---: |
+| the take | 3.90 | 10.1% | 76.9% | -1.5 dB |
+| the default render | 4.31 (3.85 to 4.63) | 10.2% (3.7 to 15.7) | 81.0% | -1.2 dB |
+| `'game'` at 300 | 4.28 (3.95 to 4.53) | 16.4% (7.3 to 25.8) | 76.5% | -1.5 dB |
+| `'game'` at 66.67 | 4.22 (3.85 to 4.63) | 13.2% (5.8 to 18.9) | 75.0% | -1.7 dB |
+
+At 5% the take has 3.12 lost runs a second and no silence. The three renders have 3.20, 3.27 and 3.23 lost runs a
+second and 1.0 to 1.4% silent.
+
+A lost run can leave the sound earlier or later than it was. Jumps of 30 ms or more across a lost run, at 15%:
+
+| | Runs with a jump | Of 220 ms or more | Of 60 to 220 ms |
+| --- | --- | --- | --- |
+| the take | 13 of 79 | 11 | 1 |
+| the default render | none | | |
+| `'game'` at 300, by seed | 10, 18, 20, 11 and 11 of 76 to 90 | 4, 12, 7, 7, 10 | 4, 3, 11, 2, 1 |
+| `'game'` at 66.67, by seed | 16, 18, 25, 8 and 20 of 78 to 92 | 0, 0, 1, 0, 0 | 16, 18, 21, 8, 19 |
+
+So the jumps of 60 to 220 ms that a crude copy of the queue showed, and the takes lack, are what a queue at a low
+frame rate gives. At the owner's 300 the channel gives the takes' kind, 220 ms and more, with some of the shorter
+kind (1 to 11 a seed against the take's 1). The silent share at 300 is higher in the mean than the take's, and the
+take is inside the seeds' range.
+
+### What is open after these runs
+
+- Why the render's queue runs out more often than the take's at a pause of 440 ms. What the channel drops when it
+  opens (above), when the mixer pulls, and the sender's packets at an opening are the three places to look.
+- The level blocks against a `'game'` render (above).
+- More silence under loss at 300 than the one take has, on five seeds.
+
 ## Scanned
 
 The branch's diff against `origin/main` and its commit messages were scanned for recordings, personal details, real
@@ -282,7 +391,7 @@ SteamIDs and model names: none, apart from the attribution trailers.
 ## Not done, or not checked
 
 - The orchestrator's private runs (the accuracy rows, the Set G replay, the speech take and the loss takes on
-  `'game'`) are not mine.
+  `'game'`) are not mine. They were made on 2026-11-13: see "The orchestrator's private runs" below.
 - `voice-channel.js` is not in `MODEL_FILES` (ruling 9). No page control offers the option (W3-02d).
 - The rounding to -32768 (item 2 above) is a reading of the order that the orchestrator may want otherwise.
 - The fade check runs at one seed and one gap; the 0.26 s gap check at one seed, at the first gap after 10 s whose

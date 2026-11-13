@@ -12,10 +12,13 @@ Several stages of the modern path equal the game's sound sample for sample. Thos
 
   | Timing model | Changes it gets right | Error of a phrase's start |
   | --- | --- | --- |
-  | the game's queue as read (`voice-channel.js`; a render runs it when `opts.timeline` is `'game'`; the page does not offer it) | 47% | 122 ms |
+  | a render that runs the game's queue (`opts.timeline` `'game'` at 300 frames a second, the owner's rate; 30 seeds, private run of 2026-11-13; the page does not offer it) | 57% | 99 ms |
+  | the game's queue as read, run on a block signal made from the phrases (`voice-channel.js`) | 47% | 122 ms |
   | the earlier queue model | 41% | 100 ms |
   | the flat rule (the page's "Talk-spurt timing") | 31% | 134 ms |
-  | no timing model (the page's render today; a render with `opts.timeline` `'game'` runs the queue, not scored here) | 11% | 150 ms |
+  | no timing model (the page's render today) | 11% | 150 ms |
+
+  On the network signal's take, whose pauses are 240 ms, the render that runs the queue gets 93% of the changes right with a start error of 35 ms (no timing model: 33% and 85 ms). On the sender's take of Set D, whose pauses are 420 and 440 ms, it gets 58% and 82 ms (no timing model: 50% and 83 ms): at that length the take's queue had more often not run out and the render's more often has (measured; why is open). At 66.67 frames a second the same render is no better than no timing model on any of the three, as finding 23 reads. The figures by transition are in [the report](reports/W3-02c2-render-channel.md), "The orchestrator's private runs".
 
   Part of this cannot be closed. Which pause closes depends on where Steam's reads fell while the talker spoke, and that is not in a recording.
 - **The receiver's queue.** Replayed over the game's logged packets, with the mixer's demand taken from the log, the module gives the logged queue on every tick (measured, Set G). When the mixer pulls is therefore not tested. A render runs the module when `opts.timeline` is `'game'`; the page does not offer that option (W3-02d, not built yet). So the page's render has no early starts, does not drop one sample from every packet, and has no fade at the end of the queue.
@@ -92,10 +95,10 @@ The research beside the tool has no finish line: the older codecs beyond TF2's, 
 
 ### The voice channel
 
-- **What the app runs.** In a render, nothing: each message's sound is laid on the source's timeline. The optional "Talk-spurt timing" is a flat rule, a fit (finding 19).
-- **How it was checked.** The module `voice-channel.js`, replayed over the game's logged packets with the mixer's demand taken from the log, gives the logged queue on every tick (Set G, finding 22).
-- **What differs.** See "What is not exact": the start of phrases, one sample a packet, the fade.
-- **Not built yet.** The queue in a render, on the page and for a demo (the orders W3-02c-2 to W3-02g).
+- **What the app runs.** In the page's render, nothing: each message's sound is laid on the source's timeline. The optional "Talk-spurt timing" is a flat rule, a fit (finding 19). A render asked with `opts.timeline` `'game'` runs the module `voice-channel.js` at a frame rate it is given; the page does not offer that.
+- **How it was checked.** The module, replayed over the game's logged packets with the mixer's demand taken from the log, gives the logged queue on every tick (Set G, finding 22). A render that runs it equals a reference built from the module sample for sample (the suite `render-channel`). Against three takes (private run of 2026-11-13): the takes' clock is gone, the 240 ms pauses of the network signal move as the take's do in 26 to 30 of 30 seeds at 300 frames a second and in none at 66.67, and the 420 and 440 ms pauses of Set D's signal move less often than the take's.
+- **What differs.** See "What is not exact". In a render that runs the queue at 300 frames a second, a channel that opens drops 82 to 173 ms to overflow (116 in the mean) where the game's log gave 55 to 136 (104 in the mean, finding 23); whether that is why its queue runs out at the 440 ms pauses is not known.
+- **Not built yet.** The queue in the live monitor, on the page and for a demo (the orders W3-02c-3 to W3-02g).
 
 ### The mixer and the output
 
@@ -186,7 +189,7 @@ What the figures say, the weak ones included:
 - **`listener_B`, the second PC's take, is off in overall level: +0.5 dB.** Apart from the two low-tone takes it is the one plain take outside 0.2 dB. Its level correlation is 0.959. Its row is rendered at `volume 0.11` and `voice_scale 0.77`. Both are inferred from the recording (finding 15); neither was read off that PC. At the settings first fitted to its levels, `volume 0.077` and `voice_scale 1`, the row read 0.89 / 2.7, 0.838, +3.2 dB at 11 to 12 kHz, 1.2 / 9.8 and +0.2 dB. What remains is the +0.5 dB overall and +2.4 dB at 11 to 12 kHz. That PC had a room on the voice which the record has not identified, and it is not in the render.
 - **The two low-tone takes are the worst plain takes.** `lowtone_default`: −0.7 dB and 0.797, with a worst block of 30.0 dB. `lowtone_maxgain_1`: −2.2 dB, 0.584, and −15.5 dB at 11 to 12 kHz. The record says of them that their comfort-noise plateaus are random in the game and in the app, so they differ block by block, and that the 11 to 12 kHz band of the `voice_maxgain 1` take is the game's ambience against near silence (finding 18). It says no more, and neither does this document.
 - **The loss and jitter takes are statistics only.** Their lost messages are other messages than the game's, so the block figures (level correlations of 0.44 to 0.78 with loss) are expected to be poor and measure nothing about the model. The offset column is the usable one: −0.1 to +0.4 dB.
-- **The clock column** reads about +400 on the plain takes: the game's one sample a packet, which a render does not drop. `take3_voice_maxgain_1` reads +510; the record says that one take, at 505 then, had 22.3 packets a second (finding 24), and that this is the take is inferred. The takes with loss or jitter read from +280 to +2792. For the jitter take the record infers skips where a bunch of messages overflows the queue (finding 9; not checked). The loss takes close up after a refused message (finding 8). Neither is checked against these figures.
+- **The clock column** reads about +400 on the plain takes: the game's one sample a packet, which a render does not drop. Lined up against a render that runs the queue (`opts.timeline` `'game'`), three plain takes read between -39 and +9 over 24 rows (measured, private run of 2026-11-13; [the report](reports/W3-02c2-render-channel.md)). `take3_voice_maxgain_1` reads +510; the record says that one take, at 505 then, had 22.3 packets a second (finding 24), and that this is the take is inferred. The takes with loss or jitter read from +280 to +2792. For the jitter take the record infers skips where a bunch of messages overflows the queue (finding 9; not checked). The loss takes close up after a refused message (finding 8). Neither is checked against these figures.
 - **The clipped column** is higher in the render on the two music takes (16.2% against 13.7%, 18.5% against 12.6%). Those takes are MP3 files, and the record shows that MP3 coding lowers this figure (finding 7). On three lossless takes, `sender_A`, `river_artifact` and `lowtone_default`, the render also has 1.7 to 2.3 points more, and that is not explained.
 
-What this table cannot show: whether a phrase starts at the right time (the first item of "What is not exact"), and anything about a profile other than `steam`, since every take here is Steam voice.
+What this table cannot show: whether a phrase starts at the right time (the first item of "What is not exact"), and anything about a profile other than `steam`, since every take here is Steam voice. Every row is against the default render, which keeps the source's timing.
