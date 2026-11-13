@@ -520,3 +520,13 @@ a builder is at work since 2026-11-13 (branch claude/w3-22-miles-words)
 Replaced or removed (in_flight, RP-01d, its state):
 
 a builder is at work since 2026-11-13 (branch claude/rp-01d-files-and-manifest)
+
+## 2026-11-13, at RP-01d's merge
+
+Replaced or removed (in_flight, RP-01d (merged; the entry is removed)):
+
+built 2026-11-13 (branch claude/rp-01d-files-and-manifest, CI green); a reviewer is at work. Then part e, the orchestrator's. The table of the files the read findings were read from (the cells the public reports give; the orchestrator's cells pending), the manifest's frame with no rows, tests/recordings/inspect.mjs, the suite recordings, and the new wording of the hard rule written out for part e. The orchestrator hashed and dated the private files for its cells on 2026-11-13 (kept privately until part e).
+
+Replaced or removed (in_flight, RP-01, its state):
+
+part a merged 2026-11-13 (the script's frame, the two clips' generator, the checks inputs, gain, celt and speex, the suite reproduce, docs/REPRODUCE.md); part d is next (the files behind the read findings, the manifest's frame, the suite recordings), then e (the orchestrator's alone: the nine recordings, the hard rule's amendment) and f; part c after; part b after a planner's pass

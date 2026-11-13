@@ -1,8 +1,9 @@
 # RP-01: a page a stranger can check findings from, the files behind the read findings, and which recordings are published
 
-**Status 2026-11-13: part a is merged** (report: [RP-01a](../reports/RP-01a-reproduce-script.md); the script's
-`gain`, `celt` and `speex` also passed the orchestrator's private run on the game's files). Part d is next, then
-e and f; part c after them or beside d; part b waits for a planner's pass (section 15). Sections 14 (the
+**Status 2026-11-13: parts a and d are merged** (reports: [RP-01a](../reports/RP-01a-reproduce-script.md),
+[RP-01d](../reports/RP-01d-files-and-manifest.md); the script's `gain`, `celt` and `speex` also passed the
+orchestrator's private run on the game's files). Part e, the orchestrator's, is next, then f; part c after them;
+part b waits for a planner's pass (section 15). Sections 14 (the
 orchestrator's rulings) and 15 (after the plan review) hold where an earlier section differs; sections 7, 8 and 9
 were edited in place to agree with them.
 
