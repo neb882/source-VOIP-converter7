@@ -186,9 +186,10 @@ async function steamSection() {
   }
   // The gate off: a sender setting; the same path after it.
   {
+    // The spurt starts at -2400 less the capture's lead (W3-21), read from the sender's info().
     const x = talk(4, 5), r = await render(x, { gate: false }), s = senderOf(x, { gate: false });
-    check('the gate off: one spurt from -2400, sender.gate false, codecInfo.gate null, one resampler call a message that holds samples',
-      r.codecInfo.spurts === 1 && r.codecInfo.sender.spurts[0].start === -2400 && r.codecInfo.sender.gate === false
+    check('the gate off: one spurt from -2400 - lead, sender.gate false, codecInfo.gate null, one resampler call a message that holds samples',
+      r.codecInfo.spurts === 1 && r.codecInfo.sender.spurts[0].start === -2400 - s.info.lead && s.info.lead > 0 && r.codecInfo.sender.gate === false
       && r.codecInfo.gate === null && r.codecInfo.resampler.calls === holding(s.msgs) && r.codecInfo.sender.messages === s.msgs.length,
       `${r.codecInfo.resampler.calls} calls, ${s.msgs.length} messages`);
   }
@@ -290,9 +291,11 @@ async function steamSection() {
     check('once per message: one resampler call for each message that holds samples (silence records among them)',
       r.codecInfo.resampler.calls === holding(s.msgs) && s.msgs.some((m) => m.silence !== undefined) && r.codecInfo.resampler.kernel === Swr.DEFAULT_KERNEL,
       `${r.codecInfo.resampler.calls} calls, ${s.msgs.length} messages`);
-    const exact = talk(4, 17).subarray(0, 96000), g = senderOf(exact, { seed: 0xC0FFEE, gate: false }), last = g.msgs[g.msgs.length - 1];
+    // 2400 + lead + the source a whole number of frames (W3-21: seed 0xC0FFEE's lead is 49, so
+    // 95,951 samples; 96,000 with no lead).
+    const exact = talk(4, 17).subarray(0, 96000 - Sender.createClock({ seed: 0xC0FFEE }).lead), g = senderOf(exact, { seed: 0xC0FFEE, gate: false }), last = g.msgs[g.msgs.length - 1];
     const rg = await render(exact, { seed: 0xC0FFEE, gate: false });
-    check('once per message: the gate off, 96,000 samples and seed 0xC0FFEE end on an empty end message, which makes no call',
+    check('once per message: the gate off, 96,000 samples less the lead (95,951) and seed 0xC0FFEE end on an empty end message, which makes no call',
       last.end && last.last === last.first - 1 && last.pcm.length === 0 && rg.codecInfo.resampler.calls === g.msgs.length - 1,
       `${rg.codecInfo.resampler.calls} calls, ${g.msgs.length} messages`);
     const three = bursts(8, [0.5, 3, 5.5], 1, -60), h = hooked();
@@ -962,7 +965,7 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
   // state it leaves (rule C) is shown on the codec module's stream with a
   // second spurt put after it.
   {
-    const exact = talk(4, 17).subarray(0, 96000), o = { seed: 0xC0FFEE, gate: false };
+    const o = { seed: 0xC0FFEE, gate: false }, exact = talk(4, 17).subarray(0, 96000 - senderOf(talk(4, 17), o).info.lead);   // as above
     const { msgs } = senderOf(exact, o), k = msgs.length - 1, marker = msgs[k];
     const calls = [], plain = await render(exact, o);
     const r = await render(exact, { ...o, loseMessage: (i) => { calls.push(i); return i === k; } });
@@ -1270,7 +1273,7 @@ async function liveSteamSection() {
         const eq = equalsRender(live, ren);
         check(`the live chain is the render with ${name} (blocks of ${plan})`,
           eq.diff === -1 && eq.n > 0.9 * ren.laid.length && eq.packets && eq.codes && eq.counted && live.stats.droppedLate === 0 && live.stats.movedLate === 0
-          && (o.gate !== false || (ren.info.sender.spurts.length === 1 && ren.info.sender.spurts[0].start === -S.preroll && live.gateDb === null))
+          && (o.gate !== false || (ren.info.sender.spurts.length === 1 && ren.info.sender.spurts[0].start === -S.preroll - Sender.createSender({ seed, gate: false }).info().lead && live.gateDb === null))
           && (o.agc !== false || clipped),
           `${eq.n} samples, first difference at ${eq.diff}; gate ${live.gateDb}${o.agc === false ? `; the render clips: ${clipped}` : ''}`);
       }
