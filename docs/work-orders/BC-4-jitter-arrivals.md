@@ -701,3 +701,137 @@ crossing the mean delay does not move (189.7 against 189.6 ms) and the same-tick
 crossing is for block 2's log.
 
 **Size.** 10 hours and 1,000 to 1,300 lines stands; these edits add about 80.
+
+## Check (ii), run on BC-4a's branch (2026-11-13, the orchestrator)
+
+Run on `5f22ff2` (measured, private: the takes stay private; the renders are of the public network test signal).
+The signal was rendered at Set C's settings (`volume` 0.15, the room `set_c_room`), Steam voice, the game's
+timeline, `bufferMs` 100, seeds 1 to 10: without jitter at 300 and at 295 frames a second (the two render alike,
+sample for sample: the wait is 30 ticks at both), jitter 50 at 300 and at 336, loss 37.0% at 300, both at 300 and
+at 336, and loss 37.0% on the file's own timing. Each render and the Set C takes without jitter, with jitter and
+combined were measured by one script: the BC-1 premise's remake of finding 8's method with check (i)'s steps,
+against `main`'s dry guide, the bursts from 60 ms after each start to 60 ms before each end. A figure is the mean
+of the ten seeds, the lowest and highest seed in brackets.
+
+| Measure | The take | Tolerance | The build | |
+| --- | --- | --- | --- | --- |
+| Jitter: present and silent in the 12 s of noise | 99.7% and 0.2% | at least 98.5% and at most 1%, every seed | 100.0% and 0.0% in every seed, at 300 and at 336 | inside |
+| Jitter: events a second in the noise and the chirp at places the baseline has none | 3 in 19.4 s, 2 of them skips | 0 to 0.4 | 0.005 at 300, 0.010 at 336 | inside |
+| Jitter: the downward steps' sum there, less the baseline's | 3.7 ms a second (skips of 32 and 39 ms) | 0 to 2.5 ms a second | 0.14 at 300 (-0.44 to 0.94), 0.22 at 336 (-0.22 to 1.32) | inside |
+| The same by counts | 2 skips of 10 ms or more in 19.4 s | a Poisson bound | 0.29 such skips expected in 19.4 s at 300, 0.19 at 336: two or more has a probability of 0.035 and 0.016 | the take has more than the model |
+| Bursts: sound skipped, less the baseline | +39 ms a second (50.7 against 11.5) | +3 to +15 | +9.0 at 300 (0.9 to 27.8); at the photographs' rates, 336 against 295, +18.3 (7.8 to 34.4) | inside at 300; at the photographs' rates the take's is about twice the build's and above every seed |
+| Bursts: skips of 10 ms or more, less the baseline | +0.58 a second (9 against 4 in 8.6 s) | +0.1 to +0.7 | +0.31 at 300; +0.46 at the photographs' rates | inside; the counts agree |
+| Events one frame long (reported only) | not known | | 61% at 300, 49% at 336 | |
+| The clock (reported only) | +310 ppm by the accuracy suite | | +280 ppm at 300 and +390 at 336, as the slope of the followed delay less the baseline's (the take: +660 by the same slope) | not the suite's measure |
+| Combined: silent in the 12 s of noise | 10.3% | 5% to 14% | 8.0% at 300 (3.3 to 14.1), 8.8% at 336 (3.7 to 14.2) | inside |
+| Combined: silent with jitter less without, same seeds | not known | -1 to +3 points | +1.4 (-0.2 to +3.6) | inside |
+| Combined: channels opened with jitter less without | not known | -1 to +2 | +0.5 (-1 to +2) | inside |
+| Combined: level | | within 0.5 dB | +0.11 dB at 300, +0.06 at 336 | inside |
+
+The level row measures each render against its own baseline render, less the combined take against the baseline
+take, over the noise parts. It is not the accuracy suite's column, because that suite renders on the file's own
+timing.
+
+**Finding 8's entry on the combined take closes.** Loss 37.0% on the file's own timing leaves 3.8% of the noise
+silent (0.8 to 8.0; the prototype gave 4.0%). On the queue without jitter it is 6.6% (3.3 to 11.9), and with
+jitter 8.0% and 8.8%. The take's 10.3% is inside the seeds' range. The silence is the queue's, with about 1.4
+points more from jitter (measured on the model).
+
+**The bursts one by one.** The odd bursts (1, 3, 5, 7) open a channel and lose sound at its opening; the even ones
+lose none. Both takes show this, and so do the renders: without jitter at 300, a skip of more than 3 ms happens in
+8, 0, 7, 1, 8, 0, 6 and 1 of the ten seeds, burst by burst (measured). Without jitter the size agrees too: the
+four odd bursts skip 40 ms in all in the take, and 8 to 57 ms (mean 40) in the renders. With jitter the take's
+four odd bursts skip 72, 71, 57 and 78 ms, 278 ms in all. The renders at 336 skip 49 to 211 ms in all (mean 120),
+and only 17% of their odd bursts skip 50 ms or more. So with jitter the take loses more sound at each opening than
+the model: the number of skips agrees, their size does not. This is measured and not explained. Block 2's log
+(check iii) is the next evidence: how bunched the first packets of a phrase arrive.
+
+**Ruling.** Nothing the merge waits on fails: the jitter take's present and silent shares are inside their
+bounds. BC-4a goes on to its review and fix round. In the fix round the builder writes into the record, from this
+section, with these figures and their standing:
+- finding 9's dated lines: in the noise, the take's skips outnumber the model's (probability 0.016 to 0.035); in
+  the bursts, the counts agree and the size is about twice;
+- finding 8's dated sentence closing the combined entry.
+
+The orchestrator replaces `docs/ACCURACY.md`'s two rows after the merge, with a run of the accuracy suite.
+
+## After the review and the second read (2026-11-13, the orchestrator)
+
+The reviewer read `5f22ff2` (merge after minor fixes; no render changes). Its measured figures: the engine's
+arrival ticks equal the plan reviewer's prototype on 1,280,000 ticks (jitter 0.5 to 500, 10 to 1000 frames a
+second, five seeds); the pin reproduces; `process()` and the stream agree at every edge tried; only the four
+expected values moved; a ten-minute source at 1000 frames a second with jitter 500 takes the time and memory of
+jitter 0. A Fable second reader read the same head against the model, check (ii) and what a listener hears
+(merge after fixes). Each point below binds the builder and holds over the text above. The builder first merges
+`origin/main`.
+
+**Code and checks.**
+
+1. **The least delay at a jitter of whole ticks.** At a jitter that is a whole number of ticks (15, 30, 45, 60,
+   90 ms) a packet leaves no earlier than the first look after the age `jitterMs`, so `2 × ceil(J / 15)` takes out
+   two ticks too few: the least delay above the floor is 30 ms, never 0 (the second reader, measured over 100,000
+   ticks at 300 and at 66.67 frames a second; the page offers 30, 60 and 90). The floor becomes
+   `2 × (floor(J / 15) + 1)` ticks, in the engine and in the second model; both give the same at every other
+   jitter. Check 2 adds jitter 30 and 60, where the least of `at(p) - p` must then be 0. No recorded case has such
+   a jitter on Steam voice: if a recorded value moves, stop.
+2. **`arriveAt` answers for every whole tick.** `process()` asks it only on message ticks and the stream also on
+   its bound ticks, so a table that falls between messages renders in one and throws in the other (shown by both
+   readers). Both now ask it for every whole tick from 0 to the render's last tick, in order, and refuse when it
+   falls; a tick below 0 is refused with a message of its own. The option's comment says it answers for every
+   whole tick, and that a tick far past the render's end costs time in proportion (the channel steps tick by
+   tick; 3.3 s at 1e8, measured). Checks: a table that answers message ticks only and falls between them throws
+   in both, with the same message; a table that answers every tick renders the same samples in both.
+3. **Two checks the breaks passed.** The model's frame-rate limits: `fps` 0, 5 and 2000 give the arrivals of 10,
+   10 and 1000. `codecInfo.arrivals.jitterMs` under `arriveAt` is the render's `jitterMs`.
+4. **May:** the renamed case 'steam, jitter 500 ms on the file's own timing (does nothing)' compares with a render
+   at jitter 0 made inside its check, not with 'steam, dsp_room 1 (no effect)'.
+
+**Words.**
+
+5. **What a render with jitter does,** not "plays about 70 ms later", which is the packets' mean delay
+   (`README.md:93` and its bullet on a render's start and end, `docs/VOICE-PATH.md`, finding 9). Measured by the
+   second reader on renders, jitter 50 against 0:
+   - at 300 frames a second a phrase starts 60 ms later (20 to 103) and sits 39 ms later after 5.5 s, because each
+     skip takes lateness out; the source's last 27 ms (9 to 53) are not heard, none at jitter 0;
+   - at 66.67, 101 to 106 ms later at start and end; each phrase is late by its first packet's own delay (35 to
+     194 ms), so the pauses between phrases move; the last 121 ms (72 to 172) are not heard, against 15;
+   - at jitter 100 the end loses 82 ms at 300 and 234 at 66.67;
+   - on 60 s of the stand-in: at 300 frames a second unbroken sound skips 138 ms a minute against 98, talk 1,897
+     against 1,557, with no more channel restarts; at 66.67 nothing is skipped at any jitter, and the share of
+     blocks played with under 100 ms queued (where the level dips) rises from 4.0% to 10.5%.
+6. **The two help strings** (`index.html:154`, `app/console.js`): on Steam voice jitter acts only through the
+   game's voice queue; on the file's own timing, and so for a video and a demo's voice, it does nothing.
+7. `docs/FINDINGS.md:118` (three skips in the noise in all, two from 1 s after the segment's start; and check
+   (ii)'s result), `docs/LIVE.md:14` (the sentence the insert split), and the report's counts of checks.
+
+**The record** (`tests/REFERENCE_2026.md`, added and dated lines only).
+
+8. Finding 9: check (ii)'s figures and its two differences from the section "Check (ii), run on BC-4a's branch",
+   with their standing.
+9. Finding 9: **no reading tried closes the two differences** (the second reader, measured on a stand-in made of
+   the repository's sender and voice channel and the signal's layout, jitter 50 at 336 frames a second, 100
+   seeds; the stand-in gives 33 ms for the four odd bursts without jitter and 113 as built, against the renders'
+   41 and 120). The take's odd bursts skip 70 ms each in the mean: as built 28, the listener's socket looked at
+   once a tick 34, one draw a packet 42, a wait of 42 ticks 46, one draw with a wait of 42 ticks 61. None gives
+   the take's two skips of 30 ms or more in the noise after its first second (0 of 100 seeds as built). Inferred:
+   once the ring is full the sound's delay is the lowest packet delay since it filled, and a skip is a new lowest,
+   which every rule tried reaches within about ten messages. Block 2's log is read first without a model: the wait
+   in ticks at each opening against `ceil(0.1 × fps)`; the bytes drained per `bufsize` line (a tick's real
+   length); the size of each add that overflows; the gaps between messages in ticks (the share on the same tick,
+   4.9%, 8.2% or 16.3%, tells the three rules apart).
+10. Finding 9: **the render at jitter 0 has no look once a frame.** With lag off nothing runs between frames, so
+    the client takes packets at most once a frame (inferred; where it reads its socket is not read). The model
+    with jitter has that look and the render without it does not. It moves no tick at 75 frames a second and
+    above, 295, 300 and 336 included; at 66.67, 6.5% of ticks come a tick later (1 ms in the mean); at 60, 1.5 ms;
+    at 30, 10 ms; at 10, 43 ms (measured at jitter 0.5 and 1). Frame rates under 67 are an order of their own, for
+    ticks, pulls and looks together.
+11. Finding 9: at a frame rate of exactly 66.67 the looks drift against the ticks and the mean delay climbs:
+    96.3 ms above the floor in the first minute, 108.1 in the fifth; at 1000/15 it stays at 95 (measured). The pin's
+    96.4 is the first minute's.
+12. Finding 8: the dated sentence closing the entry on the combined take, from the check (ii) section.
+
+Not taken: a tick of `arriveAt` far past the end is not refused (the readers differ; it is reachable only from a
+test or a replay, and the comment of point 2 says what it costs). Whether a render with jitter should run on past
+its source's end, so the last words are heard, is a question for another order (PROGRESS's deferred list).
+
+The cache number rises at the merge (v43 to v44). Nothing outside the files the order allows.
