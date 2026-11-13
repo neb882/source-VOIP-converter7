@@ -835,3 +835,28 @@ test or a replay, and the comment of point 2 says what it costs). Whether a rend
 its source's end, so the last words are heard, is a question for another order (PROGRESS's deferred list).
 
 The cache number rises at the merge (v43 to v44). Nothing outside the files the order allows.
+
+## BC-4b: after the review (2026-11-13, the orchestrator)
+
+The reviewer read `6905a11` (merge after minor fixes; no render's samples change; scope clean). Every path of
+the line under the control held except the two below. Each point binds the builder.
+
+1. **Where no codec runs, jitter does nothing on every codec.** With the codec skipped, and for a demo's voice
+   (played as the game received it), the engine draws no late frame: `celt_22`, `speex`, `miles` (not in TF2) and
+   `steam` give the same samples at jitter 0 and 50 with the codec skipped (the reviewer, measured). The page said
+   "a fit" there. The line says, on a codec other than Steam voice, `Jitter does nothing here: the codec is
+   skipped.` or `Jitter does nothing here: a demo's voice is played as the game received it.`; Steam voice keeps
+   its text. The Network cell does not show jitter as acting there, and not hot; loss does nothing on those paths
+   either, so the cell does not show it as acting. `docs/PAGE.md`'s third jitter bullet says the fit holds with
+   the codec on and not on a demo's voice. A check with `celt_22` and the codec skipped.
+2. **The Receiver cell** says "queue at 300 fps" for a demo's voice or a video, which keep the file's own timing
+   (W3-02d-1's code). It reads the queue only where `renderOptions().timeline === 'game'` and
+   `sourceTimingReason()` gives no reason, refreshed with the Network cell when a demo's state lands. The demo and
+   video checks read it.
+3. **The live monitor's "net" tooltip** (`live.js` `updateTexts`, and its first title in `index.html`) speaks of
+   late frames on Steam voice, where the live chain makes none. On Steam voice it says the frames are concealed
+   lost frames, by `net_fakeloss`, and that no frame is late. `live.js` may be touched for this text.
+4. **The hot mark** has no check: a class assertion in the `voice_timeline source` check (the reviewer's break,
+   the cell hot for jitter off, passed every check).
+
+Then the done-means again; the cache number rises at the merge (v44 to v45).
