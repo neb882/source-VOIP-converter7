@@ -47,7 +47,7 @@
           <span id="live-tx" class="live-tx">○ off</span>
           <span class="live-stat" title="Codec mode of the frames being sent">mode <b id="live-mode">—</b></span>
           <span class="live-stat" title="Payload bitrate of the frames being sent">rate <b id="live-rate">—</b></span>
-          <span class="live-stat" title="Frames concealed (lost frames the decoder filled in when the next one arrived) and late (silence), by the network settings">net <b id="live-loss">—</b></span>
+          <span class="live-stat" title="Frames concealed: lost frames (net_fakeloss) the decoder filled in when the next one arrived. On Steam voice no frame is late">net <b id="live-loss">—</b></span>
           <span class="live-stat" title="Microphone to speaker: what the voice chain holds back (Steam's longest capture chunk and its 100 ms pre-roll, the codec's lookahead, the filters' waits), the playback queue and the audio device's buffers">latency <b id="live-latency">—</b></span>
           <span class="live-meter" title="Input peak"><span class="live-meter-label" aria-hidden="true">in</span><span class="live-meter-bar" role="meter" aria-label="Microphone peak" aria-valuemin="-60" aria-valuemax="0" aria-valuenow="-60" aria-valuetext="silence"><span id="live-in"></span></span></span>
           <span class="live-meter" title="Output peak"><span class="live-meter-label" aria-hidden="true">out</span><span class="live-meter-bar" role="meter" aria-label="Output peak" aria-valuemin="-60" aria-valuemax="0" aria-valuenow="-60" aria-valuetext="silence"><span id="live-out"></span></span></span>
@@ -152,6 +152,7 @@
             <label for="jitter">Jitter ms <code class="cvar">net_fakejitter</code></label>
             <input id="jitter" type="number" value="0" min="0" max="100" step="10" aria-describedby="jitter-help">
             <p id="jitter-help" class="control-help">How far packets' arrival times spread. On Steam voice it acts only through the game's voice queue: packets arrive later and in bunches; none is lost. On the file's own timing, and so for a video or a demo's voice, it does nothing.</p>
+            <p id="jitter-note" class="control-help" hidden></p>
           </div>
         </fieldset>
 

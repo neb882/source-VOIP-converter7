@@ -112,6 +112,11 @@ function setStatus(message, kind = '') {
 /* CVAR system                                                        */
 /* ------------------------------------------------------------------ */
 
+// What net_fakelag prints (BC-4b): the app takes the lag as twice the
+// jitter (engine/network.js), so the command sets nothing.
+const NET_FAKELAG_LINE = 'A steady lag delays every packet alike and a render does not show it. '
+  + 'The app takes net_fakelag as twice net_fakejitter, the least at which the game applies the whole jitter';
+
 const cvars = {
   'help': {
     help: 'Show console help', usage: 'help [cvar]',
@@ -375,6 +380,9 @@ const cvars = {
     + 'the game\'s lists for net_fakejitter with net_fakelag taken as twice it, for your own voice on a listen server; the lists\' rule is read, '
     + 'how often each end looks for packets is chosen, and the next packet leaving in the same look is inferred. Bunched packets can skip sound and a gap can restart a phrase. '
     + 'On the file\'s own timing, and so for a video or a demo\'s voice, it does nothing on Steam\'s codec. The other codecs: still a fit, single frames marked late (3.2% at 50 ms)', link: 'jitter' },
+  // BC-4b: no control and no share key. With or without a value it prints
+  // its one line and changes nothing.
+  'net_fakelag':     { help: NET_FAKELAG_LINE, action: () => logLine(NET_FAKELAG_LINE, 'help') },
   'net_split':       { help: 'How much voice one network packet carries. A lost packet loses all of it. Frames per packet, as ms: 20 is one frame, 40 two. On Steam\'s codec a packet is the sender\'s message, and this does not set what a lost packet holds. The app\'s name', link: 'frameMs' },
   'snd_codec':       { help: 'For comparison only: the sound goes to the receiver without being coded (0). 1 runs the codec. The app\'s name', link: 'warble_on' },
   'sv_voicecodec':   {
@@ -593,6 +601,90 @@ function updateTimelineNote() {
   els.timelineNote.hidden = !reason;
   const ids = (els.timeline.getAttribute('aria-describedby') || '').split(/\s+/).filter((id) => id && id !== 'timeline-note');
   els.timeline.setAttribute('aria-describedby', [...ids, ...(reason ? ['timeline-note'] : [])].join(' '));
+  // The jitter line follows the same reasons; app/render.js calls this
+  // function once a demo's packets are in place.
+  updateJitterNote();
+}
+
+// BC-4: on Steam voice jitter is when packets reach the game's voice queue,
+// so a render on the file's own timing (the setting itself, or one of
+// sourceTimingReason()'s reasons, which is null when the setting is
+// 'source') has nothing for it to act on. True on Steam voice in that case.
+function steamJitterOff() {
+  return els.codec.value === 'steam' && (els.timeline.value !== 'game' || !!sourceTimingReason());
+}
+const JITTER_NOTES = {
+  off: 'Jitter does nothing on the file\'s own timing: it moves when packets reach the game\'s voice queue.',
+  fit: 'On this codec jitter is a fit: single frames marked late, 3.2% of them at 50 ms. The game makes no frame late.',
+  skipped: 'Jitter does nothing here: the codec is skipped.',
+  demo: 'Jitter does nothing here: a demo\'s voice is played as the game received it.'
+};
+// BC-4b fix round: where no codec runs, neither loss nor jitter acts, on any
+// codec: with the codec skipped, and for a demo's voice (played as the game
+// received it). 'skipped', 'demo', or null when the codec runs.
+function noCodecRuns() {
+  if (els.warble.value !== '1') return 'skipped';
+  if (state.sourceDemo) return 'demo';
+  return null;
+}
+// The chain strip's Network cell: [title, detail, class]. BC-4b: jitter as
+// the game's on Steam voice on its queue, a fit on the other codecs, nothing
+// on Steam voice on the file's own timing. updateJitterNote() refreshes the
+// cell, since a demo's voice is known only after the strip was drawn.
+function networkStep() {
+  const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
+  const codec = CODEC_PROFILES[els.codec.value] || CODEC_PROFILES.steam;
+  const loss = num(els.loss, 0), jitter = num(els.jitter, 0), off = steamJitterOff(), none = noCodecRuns();
+  // net_split picks whole codec frames per packet, as audio.js counts them;
+  // a packet lasts that many of the profile's own frames.
+  const framesPerPacket = Math.min(10, Math.max(1, Math.round(num(els.frameMs, 20) / 20)));
+  const packetMs = +(framesPerPacket * (codec.frameSize ? 1000 * codec.frameSize / codec.codecRate : 20)).toFixed(1);
+  // Where no codec runs, the cell shows neither loss nor jitter as acting.
+  if (none && (loss > 0 || jitter > 0)) {
+    return ['Network', `${packetMs} ms packets · loss and jitter off (${none === 'skipped' ? 'the codec is skipped' : 'a demo\'s voice as received'})`, ''];
+  }
+  const jitterText = jitter <= 0 ? '' : els.codec.value !== 'steam' ? ` · ${jitter} ms jitter (a fit)` : off ? ' · jitter off (no queue)' : ` · ${jitter} ms jitter`;
+  return ['Network', `${packetMs} ms packets · ${loss}% lost${jitterText}`, loss > 0 || (jitter > 0 && !off) ? 'hot' : ''];
+}
+// The chain strip's Receiver cell: [title, detail, class]. On Steam voice the
+// game's voice queue only where a render runs it: renderOptions() asks for it
+// and sourceTimingReason() gives no reason (a demo's voice and a video keep
+// the file's own timing; BC-4b fix round).
+function receiverStep() {
+  const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
+  const maxGain = num(els.maxGain, VOICE_ENGINE.autoGain.maxGain), voiceScale = num(els.voiceScale, 1);
+  const avgGain = num(els.avgGain, VOICE_ENGINE.autoGain.avgGain), agcOn = els.agc.value === '1';
+  const queue = renderOptions().timeline === 'game' && !sourceTimingReason();
+  // What differs from the game's defaults is named, so the strip is a full
+  // account (W4-01d): voice_scale when it is not 1, the gain target when
+  // voice_avggain is not 0.5.
+  // "16-bit clip": the receiver's clamp to 16 bits (W4-01a: the page's
+  // words, not the code's "int16").
+  return ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · 16-bit clip` : 'unity gain · 16-bit clip'}`
+    + `${voiceScale !== 1 ? ` · voice_scale ${voiceScale}` : ''}${agcOn && avgGain !== VOICE_ENGINE.autoGain.avgGain ? ` · gain target ${avgGain}` : ''}`
+    // W3-02d-1: on Steam voice, the game's voice queue at the frame rate
+    // the controls give, or the file's own timing.
+    + `${els.codec.value !== 'steam' ? '' : queue ? ` · queue at ${num(els.fps, 300)} fps` : ' · the file\'s own timing'}`, ''];
+}
+// The line under the jitter control (BC-4b), shown only while the control is
+// above 0 and jitter cannot run as the game's: on Steam voice on the file's
+// own timing, and on the other codecs, which keep the late-frame fit. Named
+// in the control's aria-describedby only while shown, as timeline-note is.
+function updateJitterNote() {
+  if (!els.jitterNote) return;
+  const on = Number(els.jitter.value) > 0;
+  const none = noCodecRuns();
+  const text = !on ? '' : els.codec.value !== 'steam' ? (none ? JITTER_NOTES[none] : JITTER_NOTES.fit) : steamJitterOff() ? JITTER_NOTES.off : '';
+  els.jitterNote.textContent = text;
+  els.jitterNote.hidden = !text;
+  const ids = (els.jitter.getAttribute('aria-describedby') || '').split(/\s+/).filter((id) => id && id !== 'jitter-note');
+  els.jitter.setAttribute('aria-describedby', [...ids, ...(text ? ['jitter-note'] : [])].join(' '));
+  // The Network and Receiver cells follow the source too: a demo's voice is
+  // set after the strip was drawn.
+  for (const [title, detail, cls] of [networkStep(), receiverStep()]) {
+    const cell = els.chain && [...els.chain.children].find((li) => li.firstChild && li.firstChild.textContent === title);
+    if (cell) { cell.className = cls; cell.lastChild.textContent = detail; }
+  }
 }
 
 // The profile whose default the threshold control was last given: when the
@@ -629,11 +721,10 @@ function updateSignalChain() {
   if (!els.chain) { settingsChanged(); return; }
   const codec = CODEC_PROFILES[els.codec.value] || CODEC_PROFILES.steam;
   const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
-  const gain = num(els.gain, 1), bits = num(els.bits, 16), loss = num(els.loss, 0), jitter = num(els.jitter, 0);
-  const maxGain = num(els.maxGain, VOICE_ENGINE.autoGain.maxGain), volume = num(els.volume, VOICE_ENGINE.volume);
-  const voiceScale = num(els.voiceScale, 1), avgGain = num(els.avgGain, VOICE_ENGINE.autoGain.avgGain);
+  const gain = num(els.gain, 1), bits = num(els.bits, 16);
+  const volume = num(els.volume, VOICE_ENGINE.volume);
   const deviceRate = els.deviceRate ? num(els.deviceRate, VOICE_ENGINE.deviceRate) : VOICE_ENGINE.deviceRate;
-  const codecOn = els.warble.value === '1', agcOn = els.agc.value === '1';
+  const codecOn = els.warble.value === '1';
   const gateOn = codecOn && (els.vad.value === 'auto' ? !!codec.senderGate : els.vad.value === '1');
   const gateDb = typedGateDb() ?? gateDefaultDb(els.codec.value);
   // Steam's sender gates its capture chunks (W3-11a); the others, 20 ms frames.
@@ -644,10 +735,6 @@ function updateSignalChain() {
   const channelLabel = stereoIn ? ({ left: 'left ch · ', right: 'right ch · ', mix: 'L+R mix · ' })[els.captureChannel.value] || '' : '';
   const kbps = Math.round(Math.max(6000, codec.bitrate * bits / 16) / 1000);
   const mode = codec.application === 'lowdelay' ? 'CELT' : codec.codecRate <= 8000 ? 'SILK' : 'SILK/CELT hybrid';
-  // net_split picks whole codec frames per packet, as audio.js counts them;
-  // a packet lasts that many of the profile's own frames.
-  const framesPerPacket = Math.min(10, Math.max(1, Math.round(num(els.frameMs, 20) / 20)));
-  const packetMs = +(framesPerPacket * (codec.frameSize ? 1000 * codec.frameSize / codec.codecRate : 20)).toFixed(1);
   const room = roomSummary();
   const filters = [num(els.hp, 0) > 10 ? `HP ${num(els.hp, 0)} Hz` : '', num(els.lp, 20000) < 20000 ? `LP ${num(els.lp, 20000)} Hz` : ''].filter(Boolean);
   const steps = [
@@ -659,17 +746,8 @@ function updateSignalChain() {
       // vaudio_miles (the Source engines of 2006 and 2007): one setting too.
       : codec.engine === 'vr12' ? `VR12 on ${codec.codecRate / 1000} kHz sound · ${codec.packetBytes}-byte frames of ${(1000 * codec.frameSize / codec.codecRate).toFixed(2)} ms · ${codec.bitrate / 1000} kbit/s · not a TF2 codec${bits !== 16 ? ' · snd_bits not used' : ''}`
       : `Opus ${codec.codecRate / 1000} kHz · ${codec.encoder?.vbr ? 'VBR ' : ''}${kbps} kbps${codec.encoder?.dtx ? ' · DTX' : ''} · ${mode}`, codecOn ? '' : 'off'],
-    ['Network', `${packetMs} ms packets · ${loss}% lost${jitter > 0 ? ` · ${jitter} ms jitter` : ''}`, loss > 0 || jitter > 0 ? 'hot' : ''],
-    // What differs from the game's defaults is named, so the strip is a full
-    // account (W4-01d): voice_scale when it is not 1, the gain target when
-    // voice_avggain is not 0.5.
-    // "16-bit clip": the receiver's clamp to 16 bits (W4-01a: the page's
-    // words, not the code's "int16").
-    ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · 16-bit clip` : 'unity gain · 16-bit clip'}`
-      + `${voiceScale !== 1 ? ` · voice_scale ${voiceScale}` : ''}${agcOn && avgGain !== VOICE_ENGINE.autoGain.avgGain ? ` · gain target ${avgGain}` : ''}`
-      // W3-02d-1: on Steam voice, the game's voice queue at the frame rate
-      // the controls give, or the file's own timing.
-      + `${els.codec.value !== 'steam' ? '' : renderOptions().timeline === 'game' ? ` · queue at ${num(els.fps, 300)} fps` : ' · the file\'s own timing'}`, ''],
+    networkStep(),
+    receiverStep(),
     ['Mixer', `44.1 kHz · ${room}`, ''],
     // The mixer's 44.1 kHz output, at the listener's device's rate (W3-10).
     ['Output', `volume ${Math.round(volume * 100)}% · ${+(deviceRate / 1000).toFixed(1)} kHz device`, '']

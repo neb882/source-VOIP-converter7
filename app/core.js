@@ -94,6 +94,9 @@ const els = {
   deviceRate: document.getElementById('device_rate'),
   loss:      document.getElementById('loss'),
   jitter:    document.getElementById('jitter'),
+  // BC-4b: the line under the jitter control, shown while jitter is above 0
+  // and cannot run as the game's.
+  jitterNote: document.getElementById('jitter-note'),
   frameMs:   document.getElementById('frameMs'),
   warble:    document.getElementById('warble_on'),
   cDur:      document.getElementById('c_dur'),
