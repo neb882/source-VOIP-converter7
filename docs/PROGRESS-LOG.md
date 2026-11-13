@@ -502,3 +502,7 @@ a builder is at work since 2026-11-13 (branch claude/rp-01a-reproduce-script). T
 Replaced or removed (next, W3-22 (moved to in_flight)):
 
 {"order": "W3-22", "file": "docs/work-orders/W3-22-miles-words.md", "after": "nothing; a small order", "line": "words only: the sentence that the codec was never checked against a running engine is replaced in the page, the README, the record, the vendored codec's README, three comments and the suite that pins it; the sitting entered in the record; the profile's behaviour is left (the receiver's two resets before a second press are measured, not read)."}
+
+Replaced or removed (live, last_merge, now kept as the tail of the new text):
+
+(the W3-02c-2 text stays in place after the RP-01a sentence)
