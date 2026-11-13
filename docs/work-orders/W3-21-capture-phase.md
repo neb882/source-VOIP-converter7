@@ -139,4 +139,13 @@ It stopped on two things this order had wrong.
    standard errors. Off zero by more than that and by less than 0.5 ms: `ARRIVAL_SECONDS` in `voice-channel.js`
    (that constant and its comment only) and `ARRIVAL_MS` take the re-measured figure to 0.1 ms, and every further
    value that moves is listed. Off by 0.5 ms or more: stop.
+3. **The zero check, after the builder's second stop.** Measured by the builder with four times the spurts: the
+   pooled mean of the timeline's zero is +2.68 ms on seeds 1 to 200 with the lead forced to 0, which is `main` as
+   it stands, and +0.96 ms on seeds 201 to 400; on the suite's own seeds 1 to 50 it is 0.02 ms. So the arrival
+   figure of 50.5 ms was fitted on 50 seeds and is 1 to 3.6 ms off on others, and the spurts of one seed are not
+   independent. This order did not make that and does not mend it: the figure stays, the suite's check keeps its
+   50 seeds, and its bound becomes 3 standard errors of that run, with the larger run's figures in its text. The
+   lead's own effect on that mean, paired on the same seeds, is -0.3 to -0.75 ms on four blocks of seeds
+   (measured; not explained). Rule 2 stands; the 0.5 ms line under "Recorded values" was a guessed line and is
+   struck. Measuring the arrival figure again, with a standard error taken by seed, is a later order (PROGRESS).
 
