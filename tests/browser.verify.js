@@ -2141,7 +2141,10 @@ const renderIs = (page, opts, other = null) => page.evaluate(async ({ opts, othe
 const timelineState = (page) => page.evaluate(() => ({ renders: state.renderId, processing: state.processing, stale: state.stale,
   channel: !!(state.lastCodecInfo && state.lastCodecInfo.channel), key: state.renderedKey ? JSON.parse(state.renderedKey) : null,
   note: els.timelineNote.hidden ? null : els.timelineNote.textContent, line: !els.hearTimeline.hidden, status: els.renderStatus.textContent,
-  failed: /^The render failed/.test(els.renderStatus.textContent), controls: { tl: els.timeline.value, fps: els.fps.value, buf: els.bufferMs.value } }));
+  failed: /^The render failed/.test(els.renderStatus.textContent),
+  // No render running or coming, and the render on screen not of the controls' settings (a render that failed
+  // is marked, and its line then gives way to the mark).
+  unrendered: renderIdle() && state.renderedKey !== currentRenderKey(), controls: { tl: els.timeline.value, fps: els.fps.value, buf: els.bufferMs.value } }));
 const receiverCell = (page) => page.evaluate(() => [...document.querySelectorAll('#signal-chain li')].find((li) => li.querySelector('b').textContent === 'Receiver').textContent);
 
 async function verifyPageTimeline(browser, base) {
@@ -2155,13 +2158,17 @@ async function verifyPageTimeline(browser, base) {
     await page.goto(base, { waitUntil: 'domcontentloaded' });
     return { context, page };
   };
-  // Wait until the render for the controls' settings is on screen, or failed.
+  // Wait until the render for the controls' settings is on screen, or failed
+  // (a failed render's settings do not render again by themselves).
   const settled = (page, timeout = 60000) => page.waitForFunction(() => renderIdle()
-    && (state.renderedKey === currentRenderKey() || /^The render failed/.test(els.renderStatus.textContent)), null, { timeout });
+    && (state.renderedKey === currentRenderKey() || state.cancelledKey === currentRenderKey()), null, { timeout });
+  // A command, then the render it starts. A command that changes no key starts
+  // none: after 5 s the render on screen is taken as it is, and the checks say
+  // whether it is the one wanted.
   const renderAfter = async (page, command) => {
     const r = await page.evaluate(() => state.renderId);
     await page.evaluate((c) => execCommand(c), command);
-    await page.waitForFunction((n) => state.renderId > n || /^The render failed/.test(els.renderStatus.textContent), r, { timeout: 60000 });
+    await page.waitForFunction((n) => state.renderId > n || !renderIdle(), r, { timeout: 5000 }).catch(() => {});
     await settled(page);
   };
 
@@ -2203,8 +2210,8 @@ async function verifyPageTimeline(browser, base) {
       // voice_timeline source: main's render, sample for sample.
       await renderAfter(page, 'voice_timeline source');
       const onSource = await renderIs(page, sourceOpts), sourceState = await timelineState(page);
-      check(onSource.same && !sourceState.channel && sourceState.key.timeline === 'source' && !('fps' in sourceState.key) && !('bufferMs' in sourceState.key),
-        'with voice_timeline source the page\'s render is TF2Audio.process with the options main\'s renderOptions() sent (retime false, no timeline), sample for sample; its key holds no fps or bufferMs',
+      check(onSource.same && !sourceState.channel && sourceState.key.timeline === 'source',
+        'with voice_timeline source the page\'s render is TF2Audio.process with the options main\'s renderOptions() sent (retime false, no timeline), sample for sample',
         `${onSource.length} samples`);
       check(!sourceState.line && (await receiverCell(page)).includes('the file\'s own timing'),
         'the line beside Hear is hidden after a render on the file\'s own timing, and the chain strip says "the file\'s own timing"');
@@ -2215,8 +2222,8 @@ async function verifyPageTimeline(browser, base) {
       await page.waitForTimeout(1200);
       const unchanged = await timelineState(page), keySame = await page.evaluate(() => state.renderedKey === currentRenderKey());
       const startedSource = await rendersStartedSince(page, mark);
-      check(keySame && !unchanged.stale && !unchanged.processing && startedSource === 0,
-        'under the file\'s own timing, a changed fps_max or voice_buffer_ms changes no key: the render on screen is not marked and nothing renders',
+      check(keySame && !unchanged.stale && !unchanged.processing && startedSource === 0 && !('fps' in unchanged.key) && !('bufferMs' in unchanged.key),
+        'under the file\'s own timing the key holds no fps or bufferMs, and a changed fps_max or voice_buffer_ms changes no key: the render on screen is not marked and nothing renders',
         `${startedSource} started`);
 
       // Every built-in preset renders; a preset sets Phrase timing and the
@@ -2231,9 +2238,9 @@ async function verifyPageTimeline(browser, base) {
         const got = await timelineState(page);
         const sentNow = await page.evaluate(() => { const o = renderOptions(); return { timeline: o.timeline, fps: o.fps,
           hidden: ['fps', 'buffer_ms', 'timeline'].map((id) => document.getElementById(id).closest('.control').hidden) }; });
-        results.push({ name, failed: got.failed, status: got.failed ? got.status : '', controls: got.controls, ...sentNow, channel: got.channel });
+        results.push({ name, failed: got.failed, unrendered: got.unrendered, status: got.unrendered ? got.status : '', controls: got.controls, ...sentNow, channel: got.channel });
       }
-      const wrong = results.filter((x) => x.failed || x.controls.tl !== 'game' || x.controls.buf !== '100' || x.controls.fps !== '67'
+      const wrong = results.filter((x) => x.failed || x.unrendered || x.controls.tl !== 'game' || x.controls.buf !== '100' || x.controls.fps !== '67'
         || (x.name === 'legacy' ? x.timeline !== 'source' || x.fps !== undefined || x.channel || !x.hidden.every(Boolean)
           : x.timeline !== 'game' || x.fps !== 67 || !x.channel || x.hidden.some(Boolean)));
       check(wrong.length === 0,
@@ -2245,12 +2252,36 @@ async function verifyPageTimeline(browser, base) {
       // The codec skipped: the file's own timing, and the line under the control says why.
       await renderAfter(page, 'snd_codec 0');
       const skipped = await timelineState(page);
-      check(!skipped.failed && !skipped.channel && skipped.key.timeline === 'source' && !('fps' in skipped.key) && /the codec is skipped/.test(skipped.note || '')
+      check(!skipped.failed && !skipped.unrendered && !skipped.channel && skipped.key.timeline === 'source' && !('fps' in skipped.key) && /the codec is skipped/.test(skipped.note || '')
         && await page.evaluate(() => (els.timeline.getAttribute('aria-describedby') || '').split(' ').includes('timeline-note')),
         'with the codec skipped the render is made on the file\'s own timing, does not throw, and the line under Phrase timing gives the reason', skipped.note);
       await renderAfter(page, 'snd_codec 1');
       check(await page.evaluate(() => els.timelineNote.hidden && !(els.timeline.getAttribute('aria-describedby') || '').includes('timeline-note')),
         'with the codec on again the line under Phrase timing is hidden');
+    } finally { await context.close(); }
+  }
+
+  // A source longer than 60 s: a changed volume, fps_max or Phrase timing
+  // marks the render and starts none; the line beside Hear follows the render
+  // on screen, not the controls.
+  {
+    const { context, page } = await fresh();
+    try {
+      await chooseFile(page, { name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(61, 8000) }, 120000);
+      const first = await timelineState(page);
+      const seen = [];
+      for (const [id, value, back] of [['volume', '0.5', '1'], ['fps', '67', '300'], ['timeline', 'source', 'game']]) {
+        const mark = `test: the long source, ${id}`;
+        await page.evaluate((m) => logLine(m, 'sys'), mark);
+        await setControl(page, id, value);
+        await page.waitForTimeout(1500);
+        const got = await timelineState(page);
+        seen.push({ id, started: await rendersStartedSince(page, mark), stale: got.stale, line: got.line, status: got.status === STALE_TEXT });
+        await setControl(page, id, back);
+      }
+      check(first.channel && first.line && seen.every((x) => x.started === 0 && x.stale && x.status && x.line),
+        'a 61 s source: a changed volume, fps_max or Phrase timing each marks the render and starts none, and the line beside Hear stays as the render on screen has it',
+        JSON.stringify(seen));
     } finally { await context.close(); }
   }
 
@@ -2262,7 +2293,7 @@ async function verifyPageTimeline(browser, base) {
       await page.waitForFunction(() => !!state.sourceDemo, null, { timeout: 30000 });
       await settled(page);
       const demo = await timelineState(page);
-      check(!demo.failed && !demo.channel && demo.key.timeline === 'source' && !('fps' in demo.key) && demo.controls.tl === 'game'
+      check(!demo.failed && !demo.unrendered && !demo.channel && demo.key.timeline === 'source' && !('fps' in demo.key) && demo.controls.tl === 'game'
         && /a demo's voice/.test(demo.note || ''),
         'with a demo as the source and Phrase timing on the game\'s queue, the render is made on the file\'s own timing, does not throw, and the line under the control gives the reason',
         `${demo.note}; ${demo.status}`);
@@ -2296,7 +2327,7 @@ async function verifyPageTimeline(browser, base) {
         await page.waitForTimeout(1500);
         const got = await timelineState(page), seconds = await page.evaluate(() => state.decodedSource.duration);
         const started = await rendersStartedSince(page, mark);
-        check(started === 1 && !got.failed && !got.channel && !got.stale && !got.line && got.key.timeline === 'source' && !('fps' in got.key)
+        check(started === 1 && !got.failed && !got.unrendered && !got.channel && !got.stale && !got.line && got.key.timeline === 'source' && !('fps' in got.key)
           && /a video keeps its picture's timing/.test(got.note || ''),
           `${label}, ${seconds.toFixed(1)} s: exactly one render follows the load, on the file's own timing (no channel), not marked, and the line under the control gives the reason`,
           `${started} render${started === 1 ? '' : 's'} started; ${got.note}`);
@@ -2305,30 +2336,6 @@ async function verifyPageTimeline(browser, base) {
       await chooseFile(page, { name: 'after.wav', mimeType: 'audio/wav', buffer: wavSpeech(2) });
       const after = await timelineState(page);
       check(after.channel && after.note === null && after.line, 'an audio file after a video renders on the game\'s timeline again, with no reason under the control');
-    } finally { await context.close(); }
-  }
-
-  // A source longer than 60 s: a changed volume, fps_max or Phrase timing
-  // marks the render and starts none; the line beside Hear follows the render
-  // on screen, not the controls.
-  {
-    const { context, page } = await fresh();
-    try {
-      await chooseFile(page, { name: 'long.wav', mimeType: 'audio/wav', buffer: wavTone(61, 8000) }, 120000);
-      const first = await timelineState(page);
-      const seen = [];
-      for (const [id, value, back] of [['volume', '0.5', '1'], ['fps', '67', '300'], ['timeline', 'source', 'game']]) {
-        const mark = `test: the long source, ${id}`;
-        await page.evaluate((m) => logLine(m, 'sys'), mark);
-        await setControl(page, id, value);
-        await page.waitForTimeout(1500);
-        const got = await timelineState(page);
-        seen.push({ id, started: await rendersStartedSince(page, mark), stale: got.stale, line: got.line, status: got.status === STALE_TEXT });
-        await setControl(page, id, back);
-      }
-      check(first.channel && first.line && seen.every((x) => x.started === 0 && x.stale && x.status && x.line),
-        'a 61 s source: a changed volume, fps_max or Phrase timing each marks the render and starts none, and the line beside Hear stays as the render on screen has it',
-        JSON.stringify(seen));
     } finally { await context.close(); }
   }
 
