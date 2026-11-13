@@ -27,10 +27,10 @@
   ],
   "next": [
     {
-      "order": "Miles after the 2006 sitting (no order yet)",
-      "file": "docs/FINDINGS.md, entry 11",
+      "order": "W3-22",
+      "file": "docs/work-orders/W3-22-miles-words.md",
       "after": "nothing; a small order",
-      "line": "the sentence 'It has not been checked against any recording of a running engine' is pinned by the miles suite in README.md, tests/LEGACY_CODECS.md, tests/REFERENCE_2026.md, vendor/voxware-vr12/README.md, constants.js and the page; the sitting of 2026-11-13 makes it false for the codec. The order changes the words and the suite, enters the sitting in the record (finding 31), and decides whether the profile's talk-start resets follow what the sitting shows (one reset a side at a first press; two on the receiver's side before the second)."
+      "line": "words only: the sentence that the codec was never checked against a running engine is replaced in the page, the README, the record, the vendored codec's README, three comments and the suite that pins it; the sitting entered in the record; the profile's behaviour is left (the receiver's two resets before a second press are measured, not read)."
     },
     {
       "order": "W3-02c-3",
