@@ -155,7 +155,8 @@ on `main` against the commit `main` was at before the push.
 ## Tools that need the owner's recordings
 
 These are outside CI. The recordings, demos and logs they read are not in this repository and never go into it
-(CLAUDE.md, the hard rules). Each tool prints numbers only.
+(CLAUDE.md, the hard rules), but for the game's recordings that `recordings/manifest.json` lists, which are under
+`recordings/files/` and which the suite `recordings` holds to that list in CI. Each tool prints numbers only.
 
 | Tool | What it does |
 | --- | --- |

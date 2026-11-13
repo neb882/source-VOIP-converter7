@@ -39,7 +39,8 @@ suite a change touches on its own first (`pnpm test <name>`). The `CHROMIUM_EXEC
 installed Chromium is not the one Playwright pins; elsewhere `pnpm test:browser` is enough.
 `tests/accuracy.mjs` and `tests/retiming.mjs` need the owner's recordings, which are not in this repository: they are
 in a private one a session can attach (`docs/PROGRESS.json`, `takes`, says how to point the tests at it).
-Nothing from it is ever copied here.
+Nothing from it is copied here but the files that `tests/recordings/manifest.json` lists, which the orchestrator
+added under `tests/recordings/files/` as the hard rule below says.
 
 There is no build step: the files in the repository are the site.
 
@@ -48,9 +49,17 @@ There is no build step: the files in the repository are the site.
 Most rules give their reason in brackets, so a rule can be dropped once its reason no longer holds. Say so in PROGRESS's
 `retired_rules` when one goes.
 
-- Never commit the owner's recordings, demos, packet dumps, speech or music. Only synthetic signals and fixtures made
-  by the tests are public. [They hold the owner's voice, copyrighted music and SteamIDs; the owner has not chosen to
-  publish any of them.]
+- Never commit the owner's recordings, demos, packet dumps, console logs, speech or music, and never publish them
+  anywhere else. Public are the synthetic signals and fixtures made by the tests, and the recordings under
+  `tests/recordings/files/` that `tests/recordings/manifest.json` lists: files the game wrote with
+  `voice_recordtofile` from a clip that `tests/recordings/make-inputs.mjs` makes, each shown by the check named in
+  its row to be what this repository's code makes of that clip, each with every sample its check does not compare
+  equal to zero, and each with its header read by the orchestrator before it went in. No other file joins them
+  except by a new decision of the owner's and an order that names the file and its check; a doubt about a file
+  leaves it out. [The recordings hold the owner's voice, copyrighted music, SteamIDs and the game's own sound. On
+  2026-11-12 the owner left the game's recordings of the project's synthetic signals to the orchestrator ("Do what
+  you think is best"), and on 2026-11-13 said in their own words "Yes to publishing synthetic clip recordings"; the
+  orchestrator added the files on that list and nothing else. Publishing cannot be undone.]
 - No personal details: no names, emails, usernames (the repository's own address aside), machine names or paths,
   and no real SteamIDs. Test SteamIDs are in
   universe 0 (`4503603922337793` and up), which no account can have. [The repository is public and its history keeps

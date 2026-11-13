@@ -10,6 +10,12 @@ No recording, source music or derived audio is distributed with this project. Th
 signals, whose generators are in [`tests/testsignal/`](testsignal/). The recordings, logs and demos are the owner's
 and stay private; only numbers measured from them are written here.
 
+*Corrected by RP-01 (2026-11-13): seven of the game's recordings of Sets H, I, M and O, the ones that
+[`recordings/manifest.json`](recordings/manifest.json) lists, are published too, under `recordings/files/`, each
+the game's file byte for byte. They were made from the two clips that
+[`recordings/make-inputs.mjs`](recordings/make-inputs.mjs) makes, and hold no voice and no music. The other
+recordings, the logs and the demos stay private.*
+
 The sets, by date:
 
 | Set | Made | What it is |
@@ -251,9 +257,13 @@ The owner set `sv_voicecodec vaudio_celt`, then `vaudio_celt_high`. The game too
 
 The last packet differs between two key presses on the same input.
 
+Published (RP-01, 2026-11-13): `set-h_vaudio-celt_maxgain-1.wav` and `set-h_vaudio-celt-high_maxgain-1.wav`; their SHA-256s are in `tests/recordings/manifest.json`. The `voice_maxgain 10` recording is not published ("The recordings that are published", below).
+
 ### Set I: a current game asked for Speex
 
 The same method with `sv_voicecodec vaudio_speex` gave a recording of 145,920 samples in 512-sample packets at 22050 Hz. The game had run `vaudio_celt` (finding 31).
+
+Published (RP-01, 2026-11-13): `set-i_vaudio-celt-double-speed_maxgain-1.wav`; its SHA-256 is in `tests/recordings/manifest.json`. The set's second recording, at `voice_maxgain 10`, is not published.
 
 ### Set J: Steam with a file as the microphone
 
@@ -268,7 +278,7 @@ The two logs hold 789 chunk lines from Steam and 645 packet lines from the game.
 
 ### Set M: Speex in HL2DM's 32-bit game (2026-11-11)
 
-HL2DM's launcher starts the 64-bit game, which cannot load the 32-bit `vaudio_speex` module; started with `-force32bit` the game runs it (packets of 160 samples at 11025 Hz). The method is Set H's: a file as the microphone, the game writing its decoded voice to a file, at `voice_maxgain 1` (912 frames, 145,920 samples) and at `voice_maxgain 10` (913 frames). The recordings are private; only numbers are here.
+HL2DM's launcher starts the 64-bit game, which cannot load the 32-bit `vaudio_speex` module; started with `-force32bit` the game runs it (packets of 160 samples at 11025 Hz). The method is Set H's: a file as the microphone, the game writing its decoded voice to a file, at `voice_maxgain 1` (912 frames, 145,920 samples) and at `voice_maxgain 10` (913 frames). The recordings are private; only numbers are here. *Corrected by RP-01 (2026-11-13): `set-m_vaudio-speex_maxgain-1.wav`, `set-m-o_vaudio-speex_maxgain-10.wav` and the captured input `set-m-o_capture_vaudio-speex.wav` are published (`tests/recordings/files/`).*
 
 - **Before W3-18** the app's Speex 1.0.2 (the library's sources unchanged, compiled strictly) gave the gain-1 recording, on the game's own captured input, in 92,967 of 145,920 samples: within one unit for the first 2.35 s and in 575 of 912 frames, and elsewhere the same sound at the same level (0.014 dB apart, the difference 13 dB under), coded differently from one frame on (measured).
 - **Why** (an investigation, 2026-11-11; read, then run): the module's codec arithmetic is SSE2 compiled with the compiler's fast floating-point model, which differs from strict C of the same source in 25 places of 7 files of libspeex, and its float cosine and arc cosine are its C runtime's, not correctly rounded. The module run in a CPU emulator gives the gain-1 recording in 145,920 of 145,920 samples and executes no x87 instruction (reproduced).
@@ -276,7 +286,7 @@ HL2DM's launcher starts the 64-bit game, which cannot load the 32-bit `vaudio_sp
 
 ### Set O: Speex in TF2's own 32-bit game (2026-11-11)
 
-TF2 (build 11191711) started with `-force32bit` runs `vaudio_speex` when asked (voice packets of 320 and 480 samples; the 64-bit game falls back to `vaudio_celt`). Set M's method and Set M's input file, one take at `voice_maxgain 1` and one at `voice_maxgain 10`; each recording is 146,080 samples. The recordings are private; only numbers are here.
+TF2 (build 11191711) started with `-force32bit` runs `vaudio_speex` when asked (voice packets of 320 and 480 samples; the 64-bit game falls back to `vaudio_celt`). Set M's method and Set M's input file, one take at `voice_maxgain 1` and one at `voice_maxgain 10`; each recording is 146,080 samples. The recordings are private; only numbers are here. *Corrected by RP-01 (2026-11-13): `set-o_vaudio-speex_maxgain-1.wav` is published, and the `voice_maxgain 10` recording and the captured input are Set M's files byte for byte, published as `set-m-o_vaudio-speex_maxgain-10.wav` and `set-m-o_capture_vaudio-speex.wav` (`tests/recordings/files/`).*
 
 - **The app at v30 against them** (measured by the orchestrator, privately, on the game's own captured input): the bundled codec gives the gain-1 recording in 912 of 912 whole frames of the input, every sample; the whole render (`TF2Audio.process`, the gain's output) gives the gain-1 recording in **145,966 of 145,966** samples and the gain-10 recording in **145,966 of 145,966**, at the codec's 80 samples of delay.
 - **TF2 against HL2DM:** the two games' gain-10 recordings are the same file, and the gain-1 recordings are equal over Set M's 145,920 samples (measured). TF2's `vaudio_speex` module run in a CPU emulator equals HL2DM's on all 147 frames of the public clips, and the 50 bytes of code that differ between the two files are address operands (an investigation, 2026-11-11; run and read).
@@ -381,7 +391,8 @@ count the last packet in; the script counts it apart.
 
 A recording of another codec given to `speex` is refused (measured on one such file). These runs show that the
 script lines a file up as the game wrote it, which the suite's stand-ins cannot. Nobody else can repeat them until
-the recordings are published (order RP-01, part e).
+the recordings are published (order RP-01, part e). *(2026-11-13: seven of them are published since, on the owner's word; the entry "The recordings that
+are published" below says which and how to repeat the runs.)*
 
 ### The script's later checks run on the game's files (2026-11-13)
 
@@ -510,6 +521,37 @@ game):
   falling on line 30; at 66.67, 90 packets and 377 ticks with no mismatching tick, the ring's two faults mismatching
   nowhere, and 5 of 5 channels first falling on line 7 or 8. Judged at `--fps 66.67`, the 300 log passes Q1 and
   fails Q2; judged at 280 (a wait two ticks short) it fails Q2.
+
+### The recordings that are published (2026-11-13)
+
+Added 2026-11-13 by order RP-01, part e. Seven files the game wrote in Sets H, I, M and O are in the repository,
+under `tests/recordings/files/`, each the game's file byte for byte, with a plain 44-byte header and no other
+chunk (measured with `tests/recordings/inspect.mjs`). [`recordings/manifest.json`](recordings/manifest.json) is
+the list, with each file's SHA-256, what made it, and its check. Each was made from a clip that
+`tests/recordings/make-inputs.mjs` makes. For each, `tests/reproduce.mjs` at this merge gives the counts below,
+and every sample the check does not compare is zero (measured).
+
+| File | Check | Compared | Equal | Not compared, all zero |
+| --- | --- | --- | --- | --- |
+| `set-h_vaudio-celt_maxgain-1.wav` | `celt` | 291,840 | 291,839, the other one step off | the last packet, 512 |
+| `set-h_vaudio-celt-high_maxgain-1.wav` | `celt --high` | 291,840 | 291,765, the others one step off | the last packet, 1,024 |
+| `set-i_vaudio-celt-double-speed_maxgain-1.wav` | `celt --any-rate`, with the 11025 Hz clip | 145,408 | 145,407, the other one step off | the last packet, 512 |
+| `set-m_vaudio-speex_maxgain-1.wav` | `speex` | 145,840 | 145,840 | the 80 samples before the codec's delay |
+| `set-m-o_vaudio-speex_maxgain-10.wav` | `speex --maxgain 10` | 145,966 | 145,966 | 80 before the delay and 34 after the render |
+| `set-o_vaudio-speex_maxgain-1.wav` | `speex` | 145,966 | 145,966 | 80 before the delay and 34 after the render |
+| `set-m-o_capture_vaudio-speex.wav` | `inputs --against` | 145,964 | 145,964 | the last two, which the check counts as zeros |
+
+`gain` on each `voice_maxgain 1` Speex file with the `voice_maxgain 10` file: no sample differs before the last
+160, and none in them (measured).
+
+**Two recordings stay private:** the `voice_maxgain 10` recordings of Sets H and I. A check counts a recording's
+last packet apart, and in these two that packet holds sound the clip does not: in Set H's, 511 of its 512 samples
+are not zero, some at full scale, with their energy at 7.6 to 9.5 kHz, where the clip has none; Set I's second
+recording is one packet longer than its first, and 235 samples of that packet are not zero, none above 39 steps
+(measured). The same packet of each `voice_maxgain 1` recording is silent. It is probably what the
+decoder made of a packet cut short when the key was released (guessed); it is not explained, and no code of this
+repository makes it. So a press's last packet can hold a burst that was never in the input, at up to full scale
+after the gain: a reader checking a recording of their own should expect it there and nowhere else.
 
 ### What was read
 

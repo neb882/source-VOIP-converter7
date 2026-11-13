@@ -1,5 +1,5 @@
 {
-  "about": "The game's recordings that are published, one row a file in tests/recordings/files/ (order RP-01, section 7). A file goes in only by the orchestrator, after the check its row names has shown it to be what this repository's code makes of a clip that tests/recordings/make-inputs.mjs makes, and after its header was read with tests/recordings/inspect.mjs: exactly a 44-byte header and its samples, the game's file byte for byte. Only Sets H, I, M and O can have rows. The suite recordings (tests/recordings.verify.mjs) holds every row to this frame and to the folder. No recording is published yet.",
+  "about": "The game's recordings that are published, one row a file in tests/recordings/files/ (order RP-01, section 7). A file goes in only by the orchestrator, after the check its row names has shown it to be what this repository's code makes of a clip that tests/recordings/make-inputs.mjs makes, and after its header was read with tests/recordings/inspect.mjs: exactly a 44-byte header and its samples, the game's file byte for byte. Only Sets H, I, M and O can have rows. The suite recordings (tests/recordings.verify.mjs) holds every row to this frame and to the folder. Seven files are published (2026-11-13); every sample of each is either compared by its check or zero (the order's section 16).",
   "fields": {
     "name": "set-<letter>_<what>_<settings>.wav, lower case, with no date: the file's name in tests/recordings/files/",
     "sets": "one or two of H, I, M and O; two where two sets' files are one file byte for byte",
@@ -14,5 +14,328 @@
     "findings": "the record's findings the file bears on, by number",
     "used_by": "the files of this repository that read it"
   },
-  "rows": []
+  "rows": [
+    {
+      "name": "set-h_vaudio-celt_maxgain-1.wav",
+      "sets": [
+        "H"
+      ],
+      "kind": "decoded voice",
+      "input": {
+        "script": "tests/recordings/make-inputs.mjs",
+        "sha256": "fc1c6cbd9aabd8ed1b64d4381eae3c2f56dce23eff36e14ba7d9f67dc5505a58"
+      },
+      "made_with": {
+        "game": "TF2",
+        "bits": 64,
+        "codec": "vaudio_celt",
+        "voice_maxgain": 1,
+        "other": {}
+      },
+      "format": {
+        "rate": 22050,
+        "channels": 1,
+        "bits": 16,
+        "samples": 292352
+      },
+      "bytes": 584748,
+      "sha256": "d56e5c4ef317d3aa6ff96e52cbf50fac18056a71465b8283ee5129731f727531",
+      "pcm_sha256": "b4c107645f8bbf9ebe50c90637e6f19152ee7532c869d0c3a958368658af3cca",
+      "check": {
+        "name": "celt",
+        "options": [],
+        "files": [
+          "this"
+        ],
+        "lag": 0,
+        "compared": 291840,
+        "equal": 291839,
+        "largest": 1,
+        "apart": "the last packet, 512 samples, every one zero"
+      },
+      "findings": [
+        27,
+        31
+      ],
+      "used_by": []
+    },
+    {
+      "name": "set-h_vaudio-celt-high_maxgain-1.wav",
+      "sets": [
+        "H"
+      ],
+      "kind": "decoded voice",
+      "input": {
+        "script": "tests/recordings/make-inputs.mjs",
+        "sha256": "fc1c6cbd9aabd8ed1b64d4381eae3c2f56dce23eff36e14ba7d9f67dc5505a58"
+      },
+      "made_with": {
+        "game": "TF2",
+        "bits": 64,
+        "codec": "vaudio_celt_high",
+        "voice_maxgain": 1,
+        "other": {}
+      },
+      "format": {
+        "rate": 22050,
+        "channels": 1,
+        "bits": 16,
+        "samples": 292864
+      },
+      "bytes": 585772,
+      "sha256": "bbcdcb4902ed77ec2d5563d3206c7cca17992cde0032662cbbedc5b194509498",
+      "pcm_sha256": "9257aff21af66907b50dd66952f1a68b9fdf2a93e4ea66a43581aa6d26ebe1e7",
+      "check": {
+        "name": "celt",
+        "options": [
+          "--high"
+        ],
+        "files": [
+          "this"
+        ],
+        "lag": 0,
+        "compared": 291840,
+        "equal": 291765,
+        "largest": 1,
+        "apart": "the last packet, 1,024 samples, every one zero"
+      },
+      "findings": [
+        27,
+        31
+      ],
+      "used_by": []
+    },
+    {
+      "name": "set-i_vaudio-celt-double-speed_maxgain-1.wav",
+      "sets": [
+        "I"
+      ],
+      "kind": "decoded voice",
+      "input": {
+        "script": "tests/recordings/make-inputs.mjs",
+        "sha256": "bd31df844cee4b38fe705be1fbdfb1b17acb9f161f9314b06b1eb2ba0d560dbd"
+      },
+      "made_with": {
+        "game": "HL2DM",
+        "bits": 64,
+        "codec": "vaudio_celt",
+        "voice_maxgain": 1,
+        "other": {
+          "sv_voicecodec": "vaudio_speex was asked for and the 64-bit game ran vaudio_celt in its place",
+          "clip": "the 11025 Hz clip, which the game took as 22050 Hz sound"
+        }
+      },
+      "format": {
+        "rate": 22050,
+        "channels": 1,
+        "bits": 16,
+        "samples": 145920
+      },
+      "bytes": 291884,
+      "sha256": "726d75cbf240b274a3756cbee5e4131379cc5f231384a470544f202d85df6378",
+      "pcm_sha256": "4965676cf4fa29da5de563a6f62e88eb4ffa5f35de9034c51b356c4b5b16096b",
+      "check": {
+        "name": "celt",
+        "options": [
+          "--any-rate"
+        ],
+        "files": [
+          "this",
+          "input"
+        ],
+        "lag": 0,
+        "compared": 145408,
+        "equal": 145407,
+        "largest": 1,
+        "apart": "the last packet, 512 samples, every one zero"
+      },
+      "findings": [
+        27,
+        31
+      ],
+      "used_by": []
+    },
+    {
+      "name": "set-m_vaudio-speex_maxgain-1.wav",
+      "sets": [
+        "M"
+      ],
+      "kind": "decoded voice",
+      "input": {
+        "script": "tests/recordings/make-inputs.mjs",
+        "sha256": "bd31df844cee4b38fe705be1fbdfb1b17acb9f161f9314b06b1eb2ba0d560dbd"
+      },
+      "made_with": {
+        "game": "HL2DM",
+        "bits": 32,
+        "codec": "vaudio_speex",
+        "voice_maxgain": 1,
+        "other": {}
+      },
+      "format": {
+        "rate": 11025,
+        "channels": 1,
+        "bits": 16,
+        "samples": 145920
+      },
+      "bytes": 291884,
+      "sha256": "5d68a8723ad156df7f48c58d68c7b27e6943a1e368ecc2e188563b685eba66d1",
+      "pcm_sha256": "83e5c532f035b6856d1712a87fedbce61770ce7d8ce6cc1bb0c222c8af6d94b6",
+      "check": {
+        "name": "speex",
+        "options": [],
+        "files": [
+          "this"
+        ],
+        "lag": 80,
+        "compared": 145840,
+        "equal": 145840,
+        "largest": 0,
+        "apart": "the 80 samples before the codec's delay, every one zero; the file ends 126 samples before the render"
+      },
+      "findings": [
+        31
+      ],
+      "used_by": []
+    },
+    {
+      "name": "set-m-o_vaudio-speex_maxgain-10.wav",
+      "sets": [
+        "M",
+        "O"
+      ],
+      "kind": "decoded voice",
+      "input": {
+        "script": "tests/recordings/make-inputs.mjs",
+        "sha256": "bd31df844cee4b38fe705be1fbdfb1b17acb9f161f9314b06b1eb2ba0d560dbd"
+      },
+      "made_with": {
+        "game": "HL2DM and TF2",
+        "bits": 32,
+        "codec": "vaudio_speex",
+        "voice_maxgain": 10,
+        "other": {}
+      },
+      "format": {
+        "rate": 11025,
+        "channels": 1,
+        "bits": 16,
+        "samples": 146080
+      },
+      "bytes": 292204,
+      "sha256": "0083bf85e42a71c65c99b24bf9bbf11df4edb1a63394f09d6f87038f21251962",
+      "pcm_sha256": "7589dd2b9598ab8a12ca0d1cb5d3f54dd951c80e14733f0f2ae809ce8f0a3e14",
+      "check": {
+        "name": "speex",
+        "options": [
+          "--maxgain",
+          "10"
+        ],
+        "files": [
+          "this"
+        ],
+        "lag": 80,
+        "compared": 145966,
+        "equal": 145966,
+        "largest": 0,
+        "apart": "the 80 samples before the codec's delay and the 34 after the render, every one zero"
+      },
+      "findings": [
+        26,
+        31
+      ],
+      "used_by": []
+    },
+    {
+      "name": "set-o_vaudio-speex_maxgain-1.wav",
+      "sets": [
+        "O"
+      ],
+      "kind": "decoded voice",
+      "input": {
+        "script": "tests/recordings/make-inputs.mjs",
+        "sha256": "bd31df844cee4b38fe705be1fbdfb1b17acb9f161f9314b06b1eb2ba0d560dbd"
+      },
+      "made_with": {
+        "game": "TF2",
+        "bits": 32,
+        "codec": "vaudio_speex",
+        "voice_maxgain": 1,
+        "other": {}
+      },
+      "format": {
+        "rate": 11025,
+        "channels": 1,
+        "bits": 16,
+        "samples": 146080
+      },
+      "bytes": 292204,
+      "sha256": "d52b111144c0d94bad49086f2c487f13847e2390cbd2b4901f78bc6cc55ab8a2",
+      "pcm_sha256": "0a126ac4495601ded2308076b10d6dc9c456d9611c41161d78a602e8878ea555",
+      "check": {
+        "name": "speex",
+        "options": [],
+        "files": [
+          "this"
+        ],
+        "lag": 80,
+        "compared": 145966,
+        "equal": 145966,
+        "largest": 0,
+        "apart": "the 80 samples before the codec's delay and the 34 after the render, every one zero"
+      },
+      "findings": [
+        31
+      ],
+      "used_by": []
+    },
+    {
+      "name": "set-m-o_capture_vaudio-speex.wav",
+      "sets": [
+        "M",
+        "O"
+      ],
+      "kind": "capture",
+      "input": {
+        "script": "tests/recordings/make-inputs.mjs",
+        "sha256": "bd31df844cee4b38fe705be1fbdfb1b17acb9f161f9314b06b1eb2ba0d560dbd"
+      },
+      "made_with": {
+        "game": "HL2DM and TF2",
+        "bits": 32,
+        "codec": "vaudio_speex",
+        "voice_maxgain": 1,
+        "other": {
+          "voice_maxgain": "the capture is taken before the gain: the takes at 1 and at 10 wrote this one file"
+        }
+      },
+      "format": {
+        "rate": 11025,
+        "channels": 1,
+        "bits": 16,
+        "samples": 145966
+      },
+      "bytes": 291976,
+      "sha256": "2879e06feefd18c4ebee1986696d29960c9e44d3b0ce85b2c2abd9923ab610db",
+      "pcm_sha256": "99f4221538f6247305d7d9bbf3bc0940b1810a766fa1d85b99429c9216cbd5e9",
+      "check": {
+        "name": "inputs",
+        "options": [
+          "--against"
+        ],
+        "files": [
+          "this"
+        ],
+        "lag": 0,
+        "compared": 145964,
+        "equal": 145964,
+        "largest": 0,
+        "apart": "the last two samples, which are zero: the game's reader skips the clip's first two"
+      },
+      "findings": [
+        27
+      ],
+      "used_by": []
+    }
+  ]
 }

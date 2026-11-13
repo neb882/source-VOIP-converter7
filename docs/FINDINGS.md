@@ -7,7 +7,7 @@ This document is about the game and Steam, not about the app. It follows a voice
 Every statement carries one of four words.
 
 - **Read**: taken from the game's or Steam's own files as the owner has them installed. Nothing of those files is in this repository, only what was learnt from them.
-- **Measured**: seen in the owner's recordings, console logs or demos. The recordings are private, and only numbers from them are given.
+- **Measured**: seen in the owner's recordings, console logs or demos. The recordings are private, and only numbers from them are given, but for the game's recordings of Sets H, I, M and O that `tests/recordings/manifest.json` lists; [REPRODUCE.md](REPRODUCE.md) says how to check them.
 - **Inferred**: a conclusion from what was read or measured, with what it rests on.
 - **Guessed**: a stand-in with nothing under it.
 

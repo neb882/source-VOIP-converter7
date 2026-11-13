@@ -147,7 +147,7 @@ pnpm exec playwright install chromium   # once, for the browser suite
 pnpm test:all                           # every suite, the page in a browser last
 ```
 
-The suites hold each stage to the rule as read and to numbers taken from the recordings, and hold the live chain to a render. The owner's recordings are private, so the checks that need them are run privately and reported as numbers. CI runs the same suites as five jobs side by side on every push that changes more than `docs/`; a push has its result about five minutes later (measured on CI on 2026-11-12). [tests/README.md](tests/README.md) lists the suites.
+The suites hold each stage to the rule as read and to numbers taken from the recordings, and hold the live chain to a render. The owner's recordings are private, so the checks that need them are run privately and reported as numbers. The exceptions are the game's recordings of the file-input sets that `tests/recordings/manifest.json` lists: they are in the repository, the suite `recordings` holds them to that list in CI, and [docs/REPRODUCE.md](docs/REPRODUCE.md) says how to run the checks on them. CI runs the same suites as five jobs side by side on every push that changes more than `docs/`; a push has its result about five minutes later (measured on CI on 2026-11-12). [tests/README.md](tests/README.md) lists the suites.
 
 ## Files and licences
 

@@ -2,7 +2,7 @@
 
 This document says how close the app's sound is to the game's, stage by stage, and what each claim rests on. What is not exact comes first. For the game's own rules see [FINDINGS.md](FINDINGS.md), for what each stage of the app does see [VOICE-PATH.md](VOICE-PATH.md), and for the evidence see [tests/REFERENCE_2026.md](../tests/REFERENCE_2026.md), named here by finding number.
 
-Every figure carries its standing: **read**, **measured**, **inferred**, **guessed** or **not built yet**. A "fit" is a number chosen so that the app agrees with a measurement. All measurements are from the owner's PC unless a line says otherwise, and the recordings are private: only numbers from them are here.
+Every figure carries its standing: **read**, **measured**, **inferred**, **guessed** or **not built yet**. A "fit" is a number chosen so that the app agrees with a measurement. All measurements are from the owner's PC unless a line says otherwise, and the recordings are private, but for the seven game recordings of Sets H, I, M and O that `tests/recordings/manifest.json` lists, which the checks of [REPRODUCE.md](REPRODUCE.md) run on: only numbers from the others are here.
 
 ## What is not exact
 

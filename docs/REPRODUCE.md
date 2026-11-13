@@ -26,11 +26,12 @@ and no script yet.
 `gain`, `celt` and `speex` were run on the owner's recordings of the game on 2026-11-13, with the script as it
 stands here, and gave "as expected" (measured; the record's entry "The script run on the game's files"). Their
 sections give that run's figures beside the record's older ones, which were made with other code (findings 26 and
-31). Those recordings are not published yet (order RP-01e), so nobody else can repeat that run today. `ceiling`,
+31). Seven of those recordings are in this repository, so that run can be repeated without the game: the section
+"Without the game" says how. `ceiling`,
 `clock` and `demo` were run on the owner's recordings of the PC's output and on one demo the same day (measured;
-their sections give the figures), and those files stay private. `gate` and `queue` have not been run on a log of
-the game. What CI runs is the suite `reproduce`, on stand-ins that this repository makes, and a stand-in cannot
-show that the script lines up a file as the game wrote it.
+their sections give the figures), and those files stay private. What CI runs is the suite `reproduce`, on
+stand-ins that this repository makes, and the suite `recordings`, which holds the seven files to their list; CI
+does not run the script on the seven files yet (not built yet: order RP-01f).
 
 ## What you need
 
@@ -50,6 +51,31 @@ place among the arguments ("file 1", "file 2").
 
 `node tests/reproduce.mjs` alone lists the checks. Each check ends with one line: `<check>: as expected` (exit 0),
 `<check>: differs: <the reason>` (exit 1), or `<check>: cannot check: <the reason>` (exit 2).
+
+## Without the game: the recordings in this repository
+
+Seven files the game wrote are under `tests/recordings/files/`, each the game's file byte for byte, and
+`tests/recordings/manifest.json` lists them with their SHA-256 and what made each (measured; the record's entry
+"The recordings that are published"). They are recordings of the two clips below, made by the owner on one PC,
+and hold no voice. A check on them shows that this repository's code makes what that game made; a check on a
+recording of your own shows it for your game. From the repository's folder (on Windows a `\` in place of each
+`/` also works):
+
+```
+node tests/reproduce.mjs inputs clips
+node tests/reproduce.mjs celt tests/recordings/files/set-h_vaudio-celt_maxgain-1.wav
+node tests/reproduce.mjs celt tests/recordings/files/set-h_vaudio-celt-high_maxgain-1.wav --high
+node tests/reproduce.mjs celt tests/recordings/files/set-i_vaudio-celt-double-speed_maxgain-1.wav clips/voice_input_11025.wav --any-rate
+node tests/reproduce.mjs speex tests/recordings/files/set-o_vaudio-speex_maxgain-1.wav
+node tests/reproduce.mjs speex tests/recordings/files/set-m-o_vaudio-speex_maxgain-10.wav --maxgain 10
+node tests/reproduce.mjs gain tests/recordings/files/set-o_vaudio-speex_maxgain-1.wav tests/recordings/files/set-m-o_vaudio-speex_maxgain-10.wav
+node tests/reproduce.mjs inputs --against tests/recordings/files/set-m-o_capture_vaudio-speex.wav
+```
+
+Each should end "as expected", with the counts of the record's entry. Set H's and Set I's recordings at
+`voice_maxgain 10` are not among the files: their last packet holds a burst that is not the clip's and is not
+explained, so they stay private (measured; the same entry). `gain` therefore runs here on the `vaudio_speex`
+pair.
 
 ## The clips
 

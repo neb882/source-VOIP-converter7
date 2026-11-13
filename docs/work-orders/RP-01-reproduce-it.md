@@ -1,10 +1,12 @@
 # RP-01: a page a stranger can check findings from, the files behind the read findings, and which recordings are published
 
-**Status 2026-11-13: parts a, c and d are merged** (reports: [RP-01a](../reports/RP-01a-reproduce-script.md),
-[RP-01c](../reports/RP-01c-ceiling-clock-demo.md), [RP-01d](../reports/RP-01d-files-and-manifest.md); every built
-check was also run privately by the orchestrator on the game's files, and section 18 says what that run changed in
-part c). Of part e, the files table is filled and merged; the step that publishes the recordings is prepared and
-waits for the owner's word (section 17), and part f waits with it. Part b was planned again as [RP-01b](RP-01b-gate-hold-queue.md) and is merged: `gate` and `queue` are built, `hold` has steps and no script. Sections 14 (the
+**Status 2026-11-13: parts a, c, d and e are merged** (reports: [RP-01a](../reports/RP-01a-reproduce-script.md),
+[RP-01c](../reports/RP-01c-ceiling-clock-demo.md), [RP-01d](../reports/RP-01d-files-and-manifest.md),
+[RP-01e](../reports/RP-01e-published-recordings.md); every built check was also run privately by the orchestrator
+on the game's files, and section 18 says what that run changed in part c). Seven recordings are published, on the
+owner's word (section 19), and two candidates stayed private (section 16). Part f is next. Part b was planned again
+as [RP-01b](RP-01b-gate-hold-queue.md) and is merged: `gate` and `queue` are built, `hold` has steps and no script.
+Sections 14 (the
 orchestrator's rulings) and 15 (after the plan review) hold where an earlier section differs; sections 7, 8 and 9
 were edited in place to agree with them.
 
@@ -774,3 +776,14 @@ numbers only, all measured). Two rulings follow, given to the builder in the fix
   record's takes, all made at 300 frames a second, the check lined up 30 to 223 one-second windows; the
   unsteadiness the reviewer saw at 300 was on a 30 s synthetic source.
 - The owner's takes are FLAC: the page says the recording must be saved as WAV or how to convert it.
+
+## 19. Part e published (2026-11-13, the orchestrator)
+
+The owner gave their word on 2026-11-13, in their own words: "Yes to publishing synthetic clip recordings." The
+change held by section 17 was applied on `main` as it then stood, with three places merged by hand where `main` had
+moved since it was prepared (the status above, `docs/REPRODUCE.md`'s opening and its section "Without the game",
+and the record's entry beside part c's run). Before the push the orchestrator read each of the seven files' headers
+once more with `tests/recordings/inspect.mjs` and ran the suite `recordings` and each file's check as
+`docs/REPRODUCE.md` gives it. The hard rule in `CLAUDE.md` is amended in the same change. Part f, CI running the
+script on the published files, is next.
+

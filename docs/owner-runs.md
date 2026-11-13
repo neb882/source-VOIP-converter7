@@ -2,7 +2,7 @@
 
 The recordings and console runs only the owner can make, on the owner's own PC and game, gathered from the orders
 they were written in. Each says what it would settle. The originals stay in their orders; where the two differ,
-the order is the one the builder works from. What comes back is private: the recordings, logs and demos stay in the
+the order is the one the builder works from. What comes back is private, but for what an order names in `tests/recordings/manifest.json`: the recordings, logs and demos stay in the
 owner's private repository, and only numbers measured from them are written here or in
 [tests/REFERENCE_2026.md](../tests/REFERENCE_2026.md) (CLAUDE.md, the hard rules).
 
