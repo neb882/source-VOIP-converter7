@@ -24,6 +24,8 @@ import { fileURLToPath } from 'node:url';
 import { logToFixture } from './voicequeue/log-to-fixture.mjs';
 import { createReferenceChannel, referenceWaitTicks, referenceLatency } from './voicequeue/reference-channel.mjs';
 import { engineRun, syntheticResults } from './voicequeue/synthetic-results.mjs';
+import { FAULTS, validFixture, replayFixture } from './voicequeue/replay.mjs';
+import { mulberry32, UNRELATED, synthesize } from './voicequeue/synthetic-log.mjs';
 
 const require = createRequire(import.meta.url);
 const V = require('../voice-channel.js');
@@ -65,63 +67,6 @@ function faded(x, r, fade = 4410) {
 // ---------------------------------------------------------------------------------------
 // The replay of a fixture.
 
-const FAULTS = [
-  ['ring + 1', () => ({ ring: VOICE_CHANNEL.ring + 1 })],
-  ['ring - 1', () => ({ ring: VOICE_CHANNEL.ring - 1 })],
-  ['wait + 1', (w) => ({ waitTicks: w + 1 })],
-  ['wait - 1', (w) => ({ waitTicks: w - 1 })],
-  ['sample kept', () => ({ keepSample: true })],
-  ['no grace', () => ({ noGrace: true })],
-];
-
-// A section without a name is named by its place, one without bufferMs has voice_buffer_ms's
-// default; fps and the events must be there.
-function validFixture(f) {
-  if (!f || !Array.isArray(f.sections) || !f.sections.length) throw new Error('a fixture is { about, sections: [...] } with at least one section');
-  f = { ...f, sections: f.sections.map((s, i) => ({ ...s, name: typeof s.name === 'string' ? s.name : `section ${i + 1}`, bufferMs: s.bufferMs === undefined ? VOICE_CHANNEL.bufferMs : s.bufferMs })) };
-  for (const [i, s] of f.sections.entries()) {
-    const where = `section ${i + 1}`;
-    for (const k of ['fps', 'bufferMs']) if (typeof s[k] !== 'number' || !Number.isFinite(s[k]) || s[k] <= 0) throw new Error(`${where}: ${k} is not a positive number`);
-    const ev = s.events;
-    if (!Array.isArray(ev) || ev.length % 2) throw new Error(`${where}: events must be a flat list of pairs`);
-    for (let k = 0; k < ev.length; k += 2) {
-      const kind = ev[k], v = ev[k + 1];
-      if (!Number.isInteger(kind) || kind < 0 || kind > 3 || !Number.isInteger(v)) throw new Error(`${where}: event pair ${k / 2} is not kind 0 to 3 and a whole number`);
-      // A packet is at most 11264 samples (Steam's decoder writes into 22528 bytes, W3-03 §3);
-      // a million bounds packets and pulls far above any log.
-      if ((kind === 0 && v !== 0) || ((kind === 1 || kind === 2) && (v < 0 || v > 1e6)) || (kind === 3 && v < -1)) throw new Error(`${where}: event pair ${k / 2} has an impossible value`);
-    }
-  }
-  return f;
-}
-
-// One section through createChannel: packets of zeros, the mixer's demand, ticks; after each
-// tick the channel's bytes (-1 when free) against the log's.
-function replay(section, test) {
-  const opts = { fps: section.fps, bufferMs: section.bufferMs, test };
-  const ev = section.events;
-  let ch = createChannel(opts), opens = 0, packets = 0, ticks = 0, bad = 0, first = null;
-  for (let k = 0; k < ev.length; k += 2) {
-    const kind = ev[k], v = ev[k + 1];
-    if (kind === 0) { opens += ch.opens; ch = createChannel(opts); }
-    else if (kind === 1) { ch.add(new Float32Array(v)); packets++; }
-    else if (kind === 2) { if (v > 0) ch.pull(v); }      // a demand of 0: the mixer did not ask
-    else {
-      ch.tick(); ticks++;
-      const got = ch.inUse ? 2 * ch.count : -1;
-      if (got !== v) { bad++; if (!first) first = { pair: k / 2, tick: ticks, logged: v, model: got }; }
-    }
-  }
-  return { packets, ticks, opens: opens + ch.opens, bad, first };
-}
-
-function replayFixture(fixture) {
-  return validFixture(fixture).sections.map((s) => {
-    const w = waitTicks(s.bufferMs, s.fps);
-    return { name: s.name, waitTicks: w, engine: replay(s), faults: FAULTS.map(([label, make]) => ({ label, ...replay(s, make(w)) })) };
-  });
-}
-
 // Prints the table; returns the reasons the replay fails (none: it passed).
 function report(rows) {
   const reasons = [];
@@ -139,123 +84,6 @@ function report(rows) {
   }
   console.log(reasons.length ? `replay FAILED: ${reasons.join('; ')}` : 'replay passed: the engine matches every tick and each fault mismatches somewhere');
   return reasons;
-}
-
-// ---------------------------------------------------------------------------------------
-// A console log in the game's format, from a seeded run of the channel itself.
-
-function mulberry32(seed) {   // as in engine/dsp.js
-  let a = seed >>> 0;
-  return function () {
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const UNRELATED = 'Not a voice line: synthetic console output qXzUnrelated';
-// Spurts in order; each starts when its condition holds after the previous one's last packet.
-//   tick: at that tick; below: when the playing ring holds fewer samples (an append);
-//   dry: on the tick after a pull emptied the ring (the grace); freed: that many ticks after
-//   the channel was freed; after: that many ticks after the previous spurt's last packet.
-const SCRIPT = [
-  { start: { tick: 5 }, later: 30, unrelatedAt: 6 },   // opens a channel; at 300 fps it overflows while it waits
-  { start: { below: 6000 }, later: 12 },               // appended to the playing channel
-  { start: { dry: true }, later: 8 },                  // the grace
-  { start: { freed: 12 }, later: 10 },                 // a new channel after a free nobody printed
-  { start: { freed: 6 }, empty: true },                // a key press: an empty packet, then a short silence record
-  { start: { after: 18 }, later: 10 },                 // speech 20 ticks after it (inside its wait at 300 fps)
-  { start: { below: 3000 }, session: true, later: 6 }, // three unrelated lines, then a second session (the old channel still queued)
-];
-
-function synthesize({ fps, seed }) {
-  const rand = mulberry32(seed);
-  const pick = (table) => { const u = rand(); for (const [v, p] of table) if (u < p) return v; return table[table.length - 1][0]; };
-  // The logs' sizes and spacing (W3-02's "The sender's packets"); the mixer takes 0, 1 or 2
-  // blocks of 512 between ticks, 0.07 / 0.568 / 0.362 (44.1 kHz on average).
-  const OPENING = [[7056, 0.77], [5292, 0.92], [6174, 0.96], [7938, 1]];
-  const SIZES = [[2646, 0.65], [1764, 0.79], [3528, 0.90], [882, 1]];
-  const GAPS = [[3, 0.41], [4, 0.90], [5, 1]];
-  const RECORD = [[2756, 0.85], [1378, 1]];
-  const BLOCKS = [[0, 0.07], [1, 0.638], [2, 1]];
-
-  const lines = [];
-  // marks: one per bufsize line: { line, b, packet (n or null), opened, playedBefore (the
-  // channel was playing while the mixer ran before this tick) }.
-  const marks = [];
-  const truth = { packets: 0, ticks: 0, opens: 0, opensAfterFree: 0, appends: 0, graces: 0, emptyPackets: 0, sessions: 0, dropped: 0, starts: 0, firstBlocks: 0 };
-  let ch = createChannel({ fps }), openedThisSession = false, firstBlock = true;
-  let si = 0, schedule = null, lastPacketTick = -1, freedAt = -1, spurtFirst = false;
-  for (let k = 0; ; k++) {
-    if (k > 50000) throw new Error('the synthetic script did not finish');
-    // The mixer, between the last tick and this one: only a playing channel is pulled.
-    const blocks = pick(BLOCKS), playedBefore = ch.playing;
-    let packet = null, opened = false;
-    if (ch.playing) {
-      for (let b = 0; b < blocks; b++) {
-        ch.pull(firstBlock ? VOICE_CHANNEL.firstBlock : VOICE_CHANNEL.mixBlock);
-        if (firstBlock) truth.firstBlocks++;
-        firstBlock = false;
-      }
-    } else firstBlock = true;
-
-    // Does the next spurt start on this tick?
-    if (!schedule && si < SCRIPT.length) {
-      const c = SCRIPT[si].start;
-      const go = c.tick !== undefined ? k >= c.tick
-        : c.below !== undefined ? ch.inUse && ch.playing && !ch.starved && ch.count > 0 && ch.count < c.below
-          : c.dry ? ch.inUse && ch.starved
-            : c.freed !== undefined ? freedAt > lastPacketTick && k >= freedAt + c.freed
-              : k >= lastPacketTick + c.after;
-      if (go) {
-        const sp = SCRIPT[si++];
-        if (sp.session) {
-          for (let i = 0; i < 3; i++) lines.push(UNRELATED);
-          truth.dropped += ch.dropped;
-          ch = createChannel({ fps }); openedThisSession = false; firstBlock = true; truth.sessions++;
-        }
-        schedule = new Map();
-        let at = k;
-        if (sp.empty) { schedule.set(at, 0); at += 2; schedule.set(at, pick(RECORD)); }
-        else {
-          schedule.set(at, pick(OPENING));
-          for (let i = 0; i < sp.later; i++) { at += pick(GAPS); schedule.set(at, pick(SIZES)); }
-          at += pick(GAPS); schedule.set(at, pick(RECORD));
-        }
-        schedule.last = at; schedule.unrelated = sp.unrelatedAt === undefined ? -1 : [...schedule.keys()][sp.unrelatedAt];
-        spurtFirst = true;
-      }
-    }
-
-    // This tick's packet, then the tick's pass, then the channel's line.
-    if (schedule && schedule.has(k)) {
-      const n = schedule.get(k);
-      packet = n; opened = !ch.inUse;
-      if (!ch.inUse) { truth.opens++; if (openedThisSession) truth.opensAfterFree++; openedThisSession = true; }
-      else if (ch.starved) truth.graces++;
-      else if (spurtFirst && ch.playing && ch.count > 0) truth.appends++;
-      if (n === 0) truth.emptyPackets++;
-      spurtFirst = false;
-      lines.push(`Voice - ${n} incoming samples added to channel 0`);
-      if (schedule.unrelated === k) lines.push(UNRELATED);
-      ch.add(new Float32Array(n));
-      truth.packets++;
-      if (k === schedule.last) { lastPacketTick = k; schedule = null; }
-    }
-    const was = ch.inUse, wasPlaying = ch.playing;
-    ch.tick();
-    if (!wasPlaying && ch.playing) truth.starts++;
-    if (was && !ch.inUse) freedAt = k;
-    if (ch.inUse) {
-      marks.push({ line: lines.length, b: 2 * ch.count, packet, opened, playedBefore });
-      lines.push(`Voice - chan 0, ent 1, bufsize: ${2 * ch.count}`);
-      truth.ticks++;
-    }
-    if (!schedule && si === SCRIPT.length && !ch.inUse) break;
-  }
-  truth.dropped += ch.dropped;
-  return { lines, marks, truth };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -860,8 +688,8 @@ function publicChecks() {
   console.log('The synthetic console log, the log tool and the replay');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf2ve-voicequeue-'));
   try {
-    const run300 = synthesize({ fps: 300, seed: 0x5EED300 });
-    const run67 = synthesize({ fps: 66.67, seed: 0x5EED067 });
+    const run300 = synthesize({ fps: 300, seed: 0x5EED300 }, createChannel);
+    const run67 = synthesize({ fps: 66.67, seed: 0x5EED067 }, createChannel);
     const t = run300.truth;
     check('the 300 fps log has two opens, one after an unseen free, an append, a grace, an overflow, an empty packet and a second session',
       t.opens >= 2 && t.opensAfterFree >= 1 && t.appends >= 1 && t.graces >= 1 && t.emptyPackets === 1 && t.sessions === 1
