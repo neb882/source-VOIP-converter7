@@ -13,14 +13,19 @@
       "order": "RP-01, the reproduce-it order",
       "state": "planned and ruled on 2026-11-13; the plan review by the builders' model came back the same day: build after edits. The orchestrator edits the order in place before any builder starts",
       "note": "A document a stranger can check findings from on their own PC with one script (docs/REPRODUCE.md, not built yet), the names, builds, dates and hashes of the files behind the findings marked read, and which of the game's recordings are published. Ruled: the document is docs/REPRODUCE.md; the script runs in Node alone; no device recordings; the published files go in the repository (tests/recordings/files/), not a release, this session having no tool that makes one. Measured 2026-11-13 for the rulings: the two synthetic clips the game was fed in Sets H, I, M and O are regenerated bit for bit by a script, in Python and in Node (SHA-256 in the order); the thirteen recordings of those sets are nine different contents, 3.5 MB, each with a plain 44-byte header and no metadata; the game's captured-input file is the clip from its third sample on in 145,964 of 145,964 samples. Sets J, K and L carry the owner's voice (J and L by clips cut from the owner's speech, K spoken into the microphone) and are never published, so no recording of the modern path can be published today. A file goes out only in part e, the orchestrator's, after the repository's code is shown to make it from the generated clip (at least 999 samples in 1,000 equal); until part e is merged the hard rule stands as written. The plan review (2026-11-13): parts a, d and f can be built once the order is edited in place (text of sections 7 to 9 that still speaks of a release, a fetch step, a rewrite of the files and an ignore line for the folder section 14 commits); part b cannot be built as written, because the check of Steam's hold needs the game's packet log beside Steam's console and a rebuild of Steam's read times that no code in the repository does yet, and the gate's check needs the generated clip; the test for a published file needs its denominator, lag and last-packet rule stated for each kind, with differences bounded to one step; several checks pass on empty input and need a floor; what section 14 measured goes into the record before part a. Also from the review: parts a and d share three files and the input generator, so they are not built side by side as planned."
+    },
+    {
+      "order": "RP-01a",
+      "state": "a builder is at work since 2026-11-13 (branch claude/rp-01a-reproduce-script)",
+      "note": "The script's frame, the two clips' generator, the checks gain, celt and speex on stand-ins, the suite reproduce, docs/REPRODUCE.md, and section 14's measurements entered in the record. No recording goes into the repository in this part."
     }
   ],
   "next": [
     {
-      "order": "The sender's capture phase (no order yet; the orchestrator writes it)",
-      "file": "docs/reports/W3-02c2-render-channel.md, 'The investigation that followed'",
+      "order": "W3-21",
+      "file": "docs/work-orders/W3-21-capture-phase.md",
       "after": "the investigation of 2026-11-13",
-      "line": "steam-sender.js cuts its capture steps from the render's first sample, so a signal whose edges lie on multiples of 31.25 ms loses one step of every burst that Steam sent (Set D's session lay 318 samples off the grid, inferred from measured lags). The steps get a phase against the source: a seeded draw of 0 to 749 samples, or a lead the caller gives. It moves every recorded hash of a seeded steam render and the measured arrival figure of 50.5 ms, and the private runs on a 'game' render are made again after it, at Steam's own threshold. Before W3-02d, so that W3-02d pins the hashes once."
+      "line": "the sender's capture steps take the phase the clock already draws (c0): the steps' edges lie c0 after the multiples of 31.25 ms of the source, and the times and positions the sender reports are shifted back by the same amount, so a render's sound and the measured arrival figure are expected not to move. It moves every recorded hash of a seeded steam render. The private runs on a 'game' render are made again after it, at Steam's own threshold. Before W3-02d, so that W3-02d pins the hashes once."
     },
     {
       "order": "Miles after the 2006 sitting (no order yet)",
