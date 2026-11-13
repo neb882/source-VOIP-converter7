@@ -7,6 +7,12 @@ turns two parts of [the old order](../work-orders/W3-02-receiver-queue.md) into 
 - [W3-02c-3](../work-orders/W3-02c3-live-channel.md): the live monitor can run the game's voice queue. 12 hours,
   recommended off the finish line.
 
+*Corrected 2026-11-13, after the plan review: W3-02d is now two orders.
+[W3-02d-1](../work-orders/W3-02d-page-timeline.md) holds the controls, the default and the words, 12 hours.
+[W3-02d-2](../work-orders/W3-02d2-auto-rerender.md) holds the automatic re-render of longer sources, 6 hours.
+Where this report says "W3-02d" of that re-render, read W3-02d-2. The orchestrator ruled that W3-02c-3 stays on
+the list of builds, after BC-4.*
+
 Every figure carries its standing: **read**, **measured**, **inferred**, **guessed** or **not built yet**.
 "Measured on the model" means a run of the app's own modules on a synthetic signal. The model's rules are read
 from the game; no recording of the owner's shows minutes of unbroken sound through the queue.
@@ -92,6 +98,12 @@ processor at full speed and slowed 4 and 6 times by the browser's own throttle. 
 table. It shows how the time grows with the length and what a processor that much slower would take. It does not
 show a phone's memory limit, its heat, another browser's engine or a tab in the background.
 
+*Corrected 2026-11-13, after the plan review: the browser's throttle cannot slow that re-render. It slows the
+page's main thread only, and the page renders in a worker. Measured in headless Chrome on the build machine: a
+loop in a worker took 394 ms unthrottled and 376 ms at rate 4, and on the main thread 127 ms and 550 ms; the
+worker's own target refuses the call. W3-02d-2 therefore asks for two timings: the page's own re-render at full
+speed, and the engine's render from the kept stage run on the page's main thread at rates 1, 4 and 6.*
+
 ## The default
 
 **The case for the game's timeline** on a clip that is mostly music and longer than a minute:
@@ -143,6 +155,10 @@ Each has a recommendation, and W3-02d is written to it.
    no new encode re-renders by itself when the render on screen took at most 30 s on this device. The ruling
    asks for a length limit set from a phone's timing; a length that suits a phone marks most long clips on a
    desktop, and no phone is at hand. A fixed length is one constant if the orchestrator prefers it.
+   *Corrected 2026-11-13, after the plan review: comparing the settings is not enough to know that no new
+   encode is needed. The engine drops a kept codec result as soon as a render with other sender or network
+   settings starts, even if that render is cancelled, and a recorded live take was never in the page's worker.
+   W3-02d-2's rule has the conditions for that, and says which render's time is compared with the 30 s.*
 9. **The live monitor's queue (W3-02c-3).** Recommended: not on the finish line; built on the owner's word,
    after BC-4 if BC-4 is built. The switch is off by default, the monitor would play 0.13 to 0.38 s later than
    today (inferred), and BC-4 changes how packets reach the channel, so the monitor's hold-back would be worked
@@ -162,6 +178,10 @@ Each has a recommendation, and W3-02d is written to it.
 - **Whether the real-take panel reads right for a render on the game's timeline.** It compares levels over the
   whole overlap, which a shift of a third of a second should not disturb (inferred from
   `app/realtake.js:183-205`). W3-02e owns that panel and is not built yet. It should follow W3-02d directly.
+  *Corrected 2026-11-13, after the plan review: "a third of a second" was the takes' largest early start (80 to
+  350 ms, measured, finding 19), not the model's bound. By the rule a phrase can come early by up to about the
+  wait, 0.44 s at 300 frames a second (read) and less at a lower rate. The inference is the same for a shift of
+  under half a second.*
 - **Whether a render should say when its own queue ran low.** `codecInfo.channel` does not count the samples
   played inside the fade. A count there would let the page say "the queue ran low from 3:40 on" for the render
   on screen. It needs a field in `voice-channel.js` and is in neither order.
