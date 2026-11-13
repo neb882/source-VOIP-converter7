@@ -1,6 +1,6 @@
 # W3-02d-1: the page renders on the game's timeline
 
-**Status 2026-11-13: planned, read by a plan reviewer, not built.** This is the second text of the order. The
+**Status 2026-11-13: built; reviewed and read a second time (merge after fixes: the last section); the builder is on the fix round.** This is the second text of the order. The
 first was written by a planner at `9d5113a`, ruled on by the orchestrator, and read by a plan reviewer as its
 builder would read it. The reviewer's ten findings are written in, the rulings are folded into the text (a list
 of them is at the end), and the order is split in two: this one, and
@@ -382,3 +382,76 @@ from an automatic render (part 2), and the break for the `voice_timeline source`
     `'source'` is caught by the key check, which is where it does harm.
 
 Both are in the text above and bind the builder as the other rulings do.
+
+## After the review and the second read (2026-11-13, the orchestrator)
+
+The reviewer and the second reader both said: merge after fixes. Every finding is taken. This section adds to
+"May touch" where it says so.
+
+### What the second read measured (on the model, with the page's options; the page sends no seed, so every page render is the same draw)
+
+| What | Figure |
+| --- | --- |
+| The pitch of a 440 Hz tone on the game's queue | 440.17 to 440.18 Hz between cuts, at 300 and at 66.67 frames a second: the clock's 0.04% and nothing more |
+| A half-second tone at 300 frames a second | as long as the source; sounds from 35 ms; the first 12 ms of the source never play; 32.7 ms more are cut out in four places (1.9, 10.9, 15.5 and 4.4 ms) |
+| A 3 s tone at 300 | three cuts in its first 1.4 s (1.9, 10.9 and 8.2 ms) |
+| 60 s of unbroken sound at 300 | nine cuts, the last at 17.3 s |
+| The same tones at 66.67 | no cut; the sound starts 31 ms late (39 ms on speech) |
+| A phrase after a pause of 0.5 to 1 s | at most 374 ms early at 300 (the wait is 435), 78 at 100 (135), 67 at 66.67 (90) |
+| The gain against the source from 10 s to 59 s | 0.41 ms a second at both rates |
+
+Standing: measured on the model. The record has the game's side of the cuts: at 300 frames a second the ring was
+full when it started to play in 24 of 28 channels, and each of 16 restarts dropped 55 to 136 ms of what was
+queued, Steam's pre-roll first and then the onset (measured, Set G's logs, finding 23); the takes show skips of
+any size after a restart (findings 22 and 23). So the cuts are the game's behaviour as read and as logged. Where
+each piece falls inside the sound is the model's.
+
+The "443 Hz" of the three older checks is those cuts read by a count of zero crossings, which takes a broken
+cycle for a change of pitch. Moving the three checks to the file's own timing stands.
+
+### The fixes
+
+1. **The batch's key** (the second read, reproduced in the browser). With a video as the page's source, the
+   batch renders with `renderOptions()` (`batch.js:291`) and compares its rows with `settingsKey()`
+   (`batch.js:120`, `:141`, `:148`), which now reads the page's source. Every row is then marked stale and
+   "Render all" starts nothing. The batch's key must not see the page's source. `batch.js` is touched for this.
+   A browser check holds it: a video as the page's source, two audio files in the batch, both rows end "Done";
+   it fails when the fix is taken back.
+2. **An audio-only MP4 or MOV is not a video.** `TF2Video.inspect` already says whether the file has a video
+   track, before the load (`app/source.js`, `loadSourceFile`). The flag is true for a video file unless
+   `inspect` read the file and found no video track. A WebM cannot be told apart and keeps the flag. A check
+   with an audio-only MP4 (the suite's `tone_22050.m4a` under an `.mp4` name will do): it renders on the
+   game's queue and no reason line shows.
+3. **The page says what the queue does to the first seconds.** One help sentence under Phrase timing, at most
+   115 characters, such as: "At 300 frames a second a sound that opens the queue loses short pieces in its
+   first seconds." In `README.md` ("What is not exact", the entry on the start and the end) and
+   `docs/ACCURACY.md` (its twin), the figures of the table above with their standing and the record's side.
+   `docs/PAGE.md` points there.
+4. **Two sentences of the documents are wrong.**
+   - "11 ms at 300 in about one seed in a hundred" (`README.md`, `docs/ACCURACY.md`). The W3-02c-2 report has:
+     at 300 the head 0 to 16.5 ms in seeds 1 to 10, and 11.4 ms in the worst case it rendered. The sentence
+     gives those, and that the page's own draw loses the first 12 ms (the table above).
+   - "At 300 ten minutes of unbroken sound play with no dip and no gap". The planning run counted fades and
+     underruns. The sentence says: no fade and no underrun in ten minutes in 26 seeds, and cuts to overflow in
+     the first seconds (the table above).
+5. **The accuracy table's row** for the render on the game's queue says its 57% is a mean over 30 seeds and
+   that the page shows one fixed draw.
+6. **The line beside Hear** is two sentences, each at most 115 characters.
+7. **The check with the codec skipped** also reads that the line beside Hear is hidden
+   (`tests/browser.verify.js`, the reviewer's finding 1; its break passed the whole suite).
+8. **The pitch.** The comment at the three moved checks and the report's sentence say what happens: the queue
+   cuts short pieces out of the tone inside the window and a count of zero crossings reads them as pitch. One
+   check on the default measures pitch in a way a cut does not move (the median length of a cycle) and holds it
+   to 440 Hz within 1 Hz.
+9. **The held live take's download label** says "(earlier settings)", and nothing was earlier. If the label can
+   say that it is a live take in a line or two, it does; if not, the report says so and it stays.
+10. **Words outside the first "May touch", now allowed:** `tests/README.md:71` ("which the page does not
+    offer") is corrected. In `tests/REFERENCE_2026.md`, the sentences at `:864` and `:1429` that say the render
+    keeps the source's timeline by default each get a dated correction beside them (added lines only; the
+    sentences stay). The comment at `engine/render.js:389` stays as it is until an order that touches the
+    engine: this order's engine diff stays empty.
+11. **The reviewer's own break,** `updateTimelineNote()` taken out of `updateSignalChain`, passed the two
+    sections it was run against. The builder runs it against the whole browser suite and adds a check if
+    nothing fails.
+12. **The report** gives no count of checks or suites ("the suite passed"), by the documents' rule.
+
