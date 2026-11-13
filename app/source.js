@@ -418,7 +418,11 @@ async function loadSourceFile(f) {
     // Decoding takes the buffer over, so a remuxable video keeps a copy.
     const info = video && window.TF2Video ? TF2Video.inspect(new Uint8Array(bytes)) : null;
     const keep = info && info.video ? bytes.slice(0) : null;
-    if (!(await loadSourceFromArrayBuffer(bytes, f.name, () => f.arrayBuffer(), { video }))) return;
+    // A video keeps the file's own timing (W3-02d-1); an MP4 or MOV that
+    // inspect() read whole and found no video track in is audio, and does not.
+    // A WebM, or a file it could not read, cannot be told apart and keeps it.
+    const audioOnly = !!(info && !info.note && !info.video);
+    if (!(await loadSourceFromArrayBuffer(bytes, f.name, () => f.arrayBuffer(), { video: video && !audioOnly }))) return;
     if (keep) {
       state.sourceVideo = { bytes: keep, name: f.name, info };
       logLine(`FS_MountFile: video (${info.container.toUpperCase()}, ${info.codec}) kept; Download video puts the render back into it.`, 'sys');

@@ -446,8 +446,11 @@ function saveBlob(blob, name) {
 
 // "(earlier settings)" while the render on screen was made with other
 // settings than the controls hold (W4-01a).
+// A recorded live take held back (W3-02d-1) is marked too, but it was not
+// made with earlier settings: the label says it is the live take.
 function updateDownloadLabel() {
-  if (els.dl && !els.dl.dataset.busy) els.dl.textContent = `Download ${TF2Formats.FORMATS[currentFormat()].label}${state.stale ? ' (earlier settings)' : ''}`;
+  const marked = !state.stale ? '' : liveTakeHeld() ? ' (the live take)' : ' (earlier settings)';
+  if (els.dl && !els.dl.dataset.busy) els.dl.textContent = `Download ${TF2Formats.FORMATS[currentFormat()].label}${marked}`;
 }
 
 if (els.format) {
@@ -841,6 +844,12 @@ document.addEventListener('tf2:settings', reconcileRender);
 // label and the views and the table, dimmed. They go when the controls
 // return to the rendered key.
 const STALE_TEXT = 'These settings are not rendered yet. What you see and hear was made with the earlier ones.';
+// A recorded live take on screen, held back from a render by itself
+// (presentRender), with no setting changed since.
+function liveTakeHeld() {
+  return !!(state.lastCodecInfo && state.lastCodecInfo.live && state.decodedSource
+    && state.cancelledSource === state.decodedSource && state.cancelledKey === currentRenderKey());
+}
 const LIVE_HELD_TEXT = 'on the file\'s own timing; Render gives it on the game\'s voice queue';
 function updateStale() {
   const coming = autoRenderTimer || renderAfter || (state.processing && state.renderingKey === (state.decodedSource ? currentRenderKey() : null));
@@ -853,8 +862,7 @@ function updateStale() {
   updateDownloadLabel();
   // A recorded live take held back (presentRender), with no setting changed
   // since: its own line says how it was made (W3-02d-1).
-  const heldTake = stale && state.lastCodecInfo && state.lastCodecInfo.live
-    && state.cancelledSource === state.decodedSource && state.cancelledKey === currentRenderKey();
+  const heldTake = stale && liveTakeHeld();
   if (stale) setRenderStatus(heldTake ? `${state.lastRenderStatus} · ${LIVE_HELD_TEXT}` : STALE_TEXT, 'stale');
   else if (was && els.renderStatus && els.renderStatus.classList.contains('stale')) setRenderStatus(state.lastRenderStatus || '');
 }

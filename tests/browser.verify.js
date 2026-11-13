@@ -208,9 +208,11 @@ async function verifySampleRateMatrix(browser, base) {
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(base, { waitUntil: 'domcontentloaded' });
-      // On the file's own timing (W3-02d-1): the game's voice queue drops part
-      // of an unbroken tone's first moments when its channel opens, which moves
-      // the pitch read from the zero crossings; this checks the rates.
+      // On the file's own timing (W3-02d-1): on the game's voice queue a tone
+      // that opens the channel has short pieces cut out of its first seconds,
+      // and the count of zero crossings below reads a broken cycle as a change
+      // of pitch. The pitch itself does not move ([Browser 8c] measures it on
+      // the queue by the median length of a cycle); this checks the rates.
       await page.evaluate(() => execCommand('voice_timeline source'));
       for (const fileRate of [44100, 48000]) {
         const label = `${fileRate} Hz file -> ${decodeRate} Hz browser`;
@@ -369,8 +371,9 @@ async function verifyNativeRate(browser, base) {
     // Every source rate the page can now meet renders through the default preset.
     await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
     // On the file's own timing (W3-02d-1), as in [Browser 3] and [Browser 5]:
-    // the game's voice queue drops part of an unbroken tone's first moments
-    // when its channel opens, which moves the pitch read below.
+    // on the game's voice queue a tone that opens the channel has short pieces
+    // cut out of its first seconds, which the count of zero crossings below
+    // reads as a change of pitch; the pitch does not move ([Browser 8c]).
     await page.evaluate(() => execCommand('voice_timeline source'));
     const rendered = [];
     for (const rate of [8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000]) {
@@ -1182,13 +1185,14 @@ async function verifyLiveMonitor(page) {
     const held = await page.evaluate(() => {
       const lines = [...document.getElementById('console-out').children].map((e) => e.textContent);
       const from = lines.map((t) => t.startsWith('voice_record: live take of')).lastIndexOf(true);
-      return { key: JSON.parse(state.renderedKey), live: !!state.lastCodecInfo.live, stale: state.stale, idle: renderIdle(), tl: els.timeline.value,
+      return { key: JSON.parse(state.renderedKey), live: !!state.lastCodecInfo.live, stale: state.stale, idle: renderIdle(), tl: els.timeline.value, download: els.dl.textContent,
         line: !els.hearTimeline.hidden, status: els.renderStatus.textContent, started: lines.slice(from + 1).filter((t) => t.startsWith('S_StartSound: initializing render')).length };
     });
     check(held.tl === 'game' && held.live && held.key.timeline === 'source' && !('fps' in held.key) && held.stale && held.idle && held.started === 0 && !held.line
+      && held.download === 'Download WAV (the live take)'
       && /^Recorded live · .* · on the file's own timing; Render gives it on the game's voice queue$/.test(held.status),
-      'a recorded live take with Phrase timing on the game\'s queue: its key holds timeline source and no fps; it is marked, no render starts by itself, the line beside Hear is hidden',
-      `${held.started} started; ${held.status}`);
+      'a recorded live take with Phrase timing on the game\'s queue: its key holds timeline source and no fps; it is marked, no render starts by itself, the line beside Hear is hidden, the download says it is the live take',
+      `${held.started} started; ${held.status}; ${held.download}`);
     await renderNow(page);
     const rendered = await page.evaluate(() => ({ channel: !!(state.lastCodecInfo && state.lastCodecInfo.channel), stale: state.stale, line: !els.hearTimeline.hidden }));
     check(rendered.channel && !rendered.stale && rendered.line, 'one press of Render gives the take a render on the game\'s timeline, with the line beside Hear', JSON.stringify(rendered));
@@ -1702,6 +1706,7 @@ async function verifySettingsWords(page) {
     // W3-02d-1: Phrase timing and the game's voice queue's two settings.
     && t.timeline[0] === 'Phrase timing' && JSON.stringify(words.options.timeline) === '["The game\'s voice queue","The file\'s own timing"]'
     && t.timeline[1] === 'The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. '
+      + 'At 300 frames a second a sound that opens the queue loses short pieces in its first seconds. '
       + 'Which phrases move depends on the sender\'s clock, which no recording shows. The file\'s own timing keeps every sound where the source has it. The live monitor always keeps the file\'s own timing.'
     && t.fps[0] === 'Listener\'s frame rate fps_max' && t.fps[1] === 'How many frames a second the listener\'s game draws. A new phrase waits before it plays, longer at a higher rate: about 0.09 s at 67 and 0.44 s at 300. '
       + 'The game\'s fps_max caps the rate; 300 is its default. At 200 or less, sound that never pauses for minutes thins out; at 67 the level first dips after about 2 minutes. '
@@ -2186,6 +2191,26 @@ async function verifyPageTimeline(browser, base) {
       check(JSON.stringify(onLoad) === want && JSON.stringify(afterReset) === want,
         'on load and after Reset, Phrase timing is the game\'s voice queue at fps_max 300 and voice_buffer_ms 100, and renderOptions() sends those and no retime', JSON.stringify(onLoad));
 
+      // The line under Phrase timing follows the settings with no render: no source yet.
+      const noteAlone = await page.evaluate(() => {
+        execCommand('snd_codec 0'); const skipped = els.timelineNote.hidden ? null : els.timelineNote.textContent;
+        execCommand('snd_codec 1'); return { skipped, back: els.timelineNote.hidden };
+      });
+      check(/the codec is skipped/.test(noteAlone.skipped || '') && noteAlone.back,
+        'with no source on the page, the codec skipped shows the line under Phrase timing and the codec on hides it, with no render', JSON.stringify(noteAlone));
+
+      // The pitch on the game's queue: a 3 s tone of 440 Hz, its pitch by the
+      // median length of a cycle, which a piece cut out of the tone does not move.
+      await chooseFile(page, { name: 'pitch.wav', mimeType: 'audio/wav', buffer: wavTone(3) });
+      const pitch = await page.evaluate(() => {
+        const x = state.processedBuffer, rate = state.processedRate, ups = [];
+        for (let i = 1; i < x.length; i++) if (x[i - 1] <= 0 && x[i] > 0) ups.push(i - 1 - x[i - 1] / (x[i] - x[i - 1]));
+        const cycles = ups.slice(1).map((u, k) => u - ups[k]).sort((a, b) => a - b);
+        return { hz: rate / cycles[Math.floor(cycles.length / 2)], channel: !!(state.lastCodecInfo && state.lastCodecInfo.channel), cycles: cycles.length };
+      });
+      check(pitch.channel && Math.abs(pitch.hz - 440) < 1,
+        'a 3 s tone of 440 Hz on the game\'s queue keeps its pitch: by the median length of a cycle, within 1 Hz of 440', `${pitch.hz.toFixed(2)} Hz over ${pitch.cycles} cycles`);
+
       // The default render of the speech fixture is the engine's on the game's timeline.
       await chooseFile(page, { name: 'timeline.wav', mimeType: 'audio/wav', buffer: wavSpeech(4) });
       const gameOpts = { ...MAIN_DEFAULT_OPTIONS, retime: undefined, timeline: 'game', fps: 300, bufferMs: 100 };
@@ -2252,9 +2277,9 @@ async function verifyPageTimeline(browser, base) {
       // The codec skipped: the file's own timing, and the line under the control says why.
       await renderAfter(page, 'snd_codec 0');
       const skipped = await timelineState(page);
-      check(!skipped.failed && !skipped.unrendered && !skipped.channel && skipped.key.timeline === 'source' && !('fps' in skipped.key) && /the codec is skipped/.test(skipped.note || '')
+      check(!skipped.failed && !skipped.unrendered && !skipped.channel && !skipped.line && skipped.key.timeline === 'source' && !('fps' in skipped.key) && /the codec is skipped/.test(skipped.note || '')
         && await page.evaluate(() => (els.timeline.getAttribute('aria-describedby') || '').split(' ').includes('timeline-note')),
-        'with the codec skipped the render is made on the file\'s own timing, does not throw, and the line under Phrase timing gives the reason', skipped.note);
+        'with the codec skipped the render is made on the file\'s own timing, does not throw, the line beside Hear is hidden, and the line under Phrase timing gives the reason', skipped.note);
       await renderAfter(page, 'snd_codec 1');
       check(await page.evaluate(() => els.timelineNote.hidden && !(els.timeline.getAttribute('aria-describedby') || '').includes('timeline-note')),
         'with the codec on again the line under Phrase timing is hidden');
@@ -2332,6 +2357,21 @@ async function verifyPageTimeline(browser, base) {
           `${label}, ${seconds.toFixed(1)} s: exactly one render follows the load, on the file's own timing (no channel), not marked, and the line under the control gives the reason`,
           `${started} render${started === 1 ? '' : 's'} started; ${got.note}`);
       }
+      // An MP4 with no video track is audio: it renders on the game's queue, with no reason under the control.
+      await chooseFile(page, { name: 'audio-only.mp4', mimeType: 'video/mp4', buffer: fs.readFileSync(path.join(__dirname, 'filerate', 'tone_22050.m4a')) });
+      const audioOnly = await timelineState(page);
+      check(audioOnly.channel && audioOnly.note === null && audioOnly.key.timeline === 'game' && !audioOnly.stale,
+        'an MP4 with no video track (tone_22050.m4a under an .mp4 name) renders on the game\'s queue, with no reason under the control', JSON.stringify(audioOnly.key && audioOnly.key.timeline));
+      // The batch's key does not see the page's source: with a video on the
+      // page, two audio files in the batch render, and both rows end "Done".
+      await chooseFile(page, path.join(__dirname, 'video', 'vp9_opus.mp4'));
+      await page.locator('#batch-files').setInputFiles([
+        { name: 'batch-a.wav', mimeType: 'audio/wav', buffer: wavSpeech(1) }, { name: 'batch-b.wav', mimeType: 'audio/wav', buffer: wavTone(0.5) }]);
+      await page.locator('#batch-run').click();
+      await page.waitForFunction(() => /2 rendered/.test(document.getElementById('batch-summary').textContent), null, { timeout: 60000 }).catch(() => {});
+      const rows = await page.locator('.batch-item .bi-status').allTextContents();
+      check(rows.length === 2 && rows.every((t) => /^Done/.test(t)),
+        'with a video as the page\'s source, two audio files in the batch render and both rows end "Done"', rows.join(' | '));
       // An audio file after a video is on the game's timeline again.
       await chooseFile(page, { name: 'after.wav', mimeType: 'audio/wav', buffer: wavSpeech(2) });
       const after = await timelineState(page);
@@ -2402,7 +2442,8 @@ async function verifyPageTimeline(browser, base) {
       const take = await timelineState(page);
       const started = await rendersStartedSince(page, mark);
       check(take.key.timeline === 'source' && !('fps' in take.key) && take.stale && !take.processing && !take.line && started === 0
-        && take.status.startsWith('Recorded live · 90.0 s') && take.status.endsWith('on the file\'s own timing; Render gives it on the game\'s voice queue'),
+        && take.status.startsWith('Recorded live · 90.0 s') && take.status.endsWith('on the file\'s own timing; Render gives it on the game\'s voice queue')
+        && await page.evaluate(() => els.dl.textContent) === 'Download WAV (the live take)',
         'a 90 s live take with Phrase timing on the game\'s queue: its key holds timeline source and no fps; it is marked, nothing renders, the line beside Hear is hidden, and its line says how it was made',
         `${started} started; ${take.status}`);
     } finally { await context.close(); }
@@ -3684,10 +3725,11 @@ async function main() {
       'the mock console\'s player names and chat lines are the lists recorded in S3-03', mockListsHash);
 
     console.log('\n[Browser 3] Worker render and cancellation');
-    // On the file's own timing (W3-02d-1), as in [Browser 5]: the game's voice
-    // queue drops part of an unbroken tone's first moments when its channel
-    // opens, which moves the pitch read below. The Laggy and Modern presets
-    // in 3b set the game's queue again.
+    // On the file's own timing (W3-02d-1), as in [Browser 5]: on the game's
+    // voice queue a tone that opens the channel has short pieces cut out of its
+    // first seconds, which the count of zero crossings below reads as a change
+    // of pitch; the pitch does not move ([Browser 8c]). The Laggy and Modern
+    // presets in 3b set the game's queue again.
     await page.evaluate(() => execCommand('voice_timeline source'));
     // The chosen file renders by itself (W4-01a).
     await chooseFile(page, { name: 'tone.wav', mimeType: 'audio/wav', buffer: wavTone(0.5) });

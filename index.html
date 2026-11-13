@@ -298,7 +298,7 @@
               <option value="game" selected>The game's voice queue</option>
               <option value="source">The file's own timing</option>
             </select>
-            <p id="timeline-help" class="control-help">The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. Which phrases move depends on the sender's clock, which no recording shows. The file's own timing keeps every sound where the source has it. The live monitor always keeps the file's own timing.</p>
+            <p id="timeline-help" class="control-help">The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. At 300 frames a second a sound that opens the queue loses short pieces in its first seconds. Which phrases move depends on the sender's clock, which no recording shows. The file's own timing keeps every sound where the source has it. The live monitor always keeps the file's own timing.</p>
             <p id="timeline-note" class="control-help" hidden></p>
           </div>
           <div class="control">
@@ -355,7 +355,7 @@
             <button class="ab-choice" type="button" data-ab="real" aria-pressed="false" disabled hidden title="The real TF2 take loaded below, lined up with the source. B switches">Real take</button>
           </div>
           <!-- Shown while the render on screen was made on the game's voice queue (app/render.js, updateHearTimeline). -->
-          <p id="hear-timeline" class="hear-timeline" hidden>On the game's voice queue, Rendered and Original do not stay in step: a phrase can start early, by up to about the wait. At 300 frames a second the render also gains about 0.4 ms every second.</p>
+          <p id="hear-timeline" class="hear-timeline" hidden>Rendered and Original do not stay in step on the game's queue: a phrase can start early, by up to about the wait. At 300 frames a second the render also gains about 0.4 ms every second.</p>
           <!-- Which version plays, for a screen reader (the B key moves no focus). -->
           <span id="ab-now" class="visually-hidden" aria-live="polite"></span>
           <div class="ab-match-wrap">

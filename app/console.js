@@ -339,7 +339,7 @@ const cvars = {
   // W3-02d-1: the game's voice queue and its two settings. The page's
   // render runs the queue for Steam voice with the codec on; the live
   // monitor always keeps the file's own timing.
-  'voice_timeline':  { help: 'The game queues each voice, so a phrase after a short pause can start early (game). It can come early by up to about the wait, and the sound runs 0.04% fast. source: the file\'s own timing keeps every sound where the source has it. The live monitor always keeps the file\'s own timing. The app\'s name, not a game variable', link: 'timeline' },
+  'voice_timeline':  { help: 'The game queues each voice, so a phrase after a short pause can start early (game). It can come early by up to about the wait, and the sound runs 0.04% fast. At 300 frames a second a sound that opens the queue loses short pieces in its first seconds. source: the file\'s own timing keeps every sound where the source has it. The live monitor always keeps the file\'s own timing. The app\'s name, not a game variable', link: 'timeline' },
   'fps_max':         { help: 'How many frames a second the listener\'s game draws. A new phrase waits before it plays, longer at a higher rate: about 0.09 s at 67 and 0.44 s at 300. The game\'s fps_max caps the rate; 300 is its default. From 10 to 1000', link: 'fps' },
   'voice_buffer_ms': { help: 'The wait before a new phrase plays, in milliseconds. The game counts it down one frame at a time, so it lasts longer at a higher frame rate. The game\'s default is 100. A whole number from 1 to 5000', link: 'buffer_ms',
     normalize: (v) => wholeBufferMs(v) },
