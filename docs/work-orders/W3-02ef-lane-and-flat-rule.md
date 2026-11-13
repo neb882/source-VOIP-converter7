@@ -574,3 +574,24 @@ W3-02c-3b.
 The order of work: f's builder starts at once. A plan reviewer reads the whole order meanwhile; an edit it finds
 for f reaches f's builder before its merge. Part e waits for the plan review and for the orchestrator's private
 look before its build (the report's item 1).
+
+## The orchestrator's private look 1 (2026-11-13)
+
+Run on `main` at `81718a9` (measured, private; the takes stay private). In place of the page's panel by hand, the
+accuracy suite, which runs the page's own `TF2Reference.track` and `compareTake` in Chromium, on the owner's speech
+take (Set B, take 4) and the network signal's take without loss (Set C), each rendered on the file's own timing as
+the suite does and on the game's voice queue at 300 frames a second, `voice_buffer_ms` 100 (a scratch copy of the
+manifest).
+
+| Take | Timing | Clock, ppm | Timeline r | Level rms / worst, dB | Level r | Pieces |
+| --- | --- | ---: | ---: | --- | ---: | ---: |
+| Speech | the file's own | +408 | 0.88 | 0.99 / 8.7 | 0.987 | 21 |
+| Speech | the game's queue | +5 | 0.95 | 1.74 / 16.0 | 0.975 | 24 |
+| Network | the file's own | +413 | 0.79 | 0.39 / 2.1 | 0.996 | 19 |
+| Network | the game's queue | +0 | 0.86 | 0.24 / 1.2 | 0.998 | 22 |
+
+The clock reads within 150 ppm of 0 on the queue, as the planner expected. The speech take's level rms is 0.75 dB
+worse on the queue: outside the expected 0.5 dB, inside the 1 dB stop. The level's correlation falls by 0.012. The
+likely cause is that the render's draw of early phrase starts differs from the take's at some phrases (inferred, not
+measured). **Ruling: ruling 5 stands; part e is built after its plan review, and its documents give these figures
+with their standing.**
