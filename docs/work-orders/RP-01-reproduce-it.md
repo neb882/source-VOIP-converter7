@@ -751,3 +751,25 @@ the owner to say so in their own words, whatever the decision of 2026-11-12 alre
   game", and part e's report. The prepared change is kept privately. Until it is merged the hard rule stands as
   written and nothing of the takes is public.
 - **Part f waits for it.** Part c does not.
+
+## 18. Part c after its private run (2026-11-13)
+
+The orchestrator ran part c's three checks on the owner's takes and Set D's demo before the merge (private;
+numbers only, all measured). Two rulings follow, given to the builder in the fix round.
+
+- **`demo`** came out as expected on Set D's demo: 1,816 voice messages and 5,109 frames, every frame a 20 ms
+  hybrid frame of one channel, every message with one 24000 Hz record, and the frame number at 0 after each of the
+  end markers.
+- **`ceiling` checks the mixer's ceiling and `volume` only.** As built it looked for flat tops at
+  32639 x `volume` and said "differs" on every take that has flat tops. In eight takes the largest sample is
+  exactly round(32767 x `volume`) (4,915 at `volume 0.15` in seven, 3,604 at 0.11 in one), with up to 179,781
+  samples on it and none above, and there is no pile at 4,895 to 4,896: the clip acts on the sum of the voice and
+  the game's other sound (finding 30), so on a map the flat tops are the mixer's. The voice's own 255/256 was
+  measured in the record another way (the median of the middle samples of the clipped 1 kHz plateaus of one take)
+  and becomes a steps-only entry with no script.
+- **`clock`'s window is the record's range widened by the check's own spread.** On fourteen takes the check's
+  reading differs from the accuracy suite's figure for the same take by -11 to +10 parts in a million, so the
+  window without `--packets` is +386 to +427, and the one with `--packets` is widened the same way. On the
+  record's takes, all made at 300 frames a second, the check lined up 30 to 223 one-second windows; the
+  unsteadiness the reviewer saw at 300 was on a 30 s synthetic source.
+- The owner's takes are FLAC: the page says the recording must be saved as WAV or how to convert it.
