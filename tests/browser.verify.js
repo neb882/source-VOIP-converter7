@@ -840,7 +840,7 @@ async function verifySpeexPage(page) {
 // under the control, a render's words, its playback and download, the console
 // and a share link.
 const MILES_NOTE = 'vaudio_miles is not a TF2 codec. The Source engines of 2006 and 2007 could run it; current TF2 ships its files and refuses the name. '
-  + 'It has not been checked against any recording of a running engine. Everything after the receiver\'s gain is TF2\'s of today.';
+  + 'Its codec was checked against one recording of a 2006 engine; the rest of the profile was not. Everything after the receiver\'s gain is TF2\'s of today.';
 async function verifyMilesPage(page) {
   console.log('\n[Browser 3c2b] The miles profile on the page (W3-20b)');
   const menu = await page.evaluate(() => {
@@ -905,7 +905,7 @@ async function verifyMilesPage(page) {
   const lines = seen.console.filter(l => l.includes('S_Voice'));
   const first = lines.findIndex(l => /S_Voice: Voxware VR12/.test(l));
   check(first >= 0 && /S_Voice: Voxware VR12 \(voxware-vr12 eedf465\), 2\.94 kbps CBR, 12-byte packets of 32\.7 ms, a lost frame plays as zeros \(VR12 100%\)/.test(lines[first])
-    && /S_Voice: vaudio_miles is not a TF2 codec \(Source engines of 2006 and 2007\); not checked against any recording/.test(lines[first + 1] || ''),
+    && /S_Voice: vaudio_miles is not a TF2 codec \(Source engines of 2006 and 2007\); its codec was checked against one recording of a 2006 engine; the rest of the profile was not$/.test(lines[first + 1] || ''),
     'the S_Voice line names Voxware VR12, its 12-byte frames and zeros for a lost frame, and the next line says it is not a TF2 codec', lines.join(' | '));
   // W4-01a: the render's status line names the codec by the menu's words,
   // which keep "not in TF2" for vaudio_miles.

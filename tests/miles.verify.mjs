@@ -2,8 +2,8 @@
 // 2007 ran it, set into the app's chain. vaudio_miles is not a Team Fortress 2
 // codec: it is a codec of the Source engine family that could be selected in
 // the Source engines of 2006 and 2007, and current TF2 ships its files and
-// refuses the name. It has not been checked against any recording of a running
-// engine.
+// refuses the name. Its codec stage was checked against one sitting of a 2006
+// engine on 2026-11-13; the profile as the app runs it was not.
 //   node tests/miles.verify.mjs
 //
 // The reference samples and packets come from the vendored module
@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import * as opus from '../opus-codec.mjs';
 import * as VR12 from '../vendor/voxware-vr12/index.mjs';
-import { loadEngine } from './lib/engine.cjs';
+import { loadEngine, ENGINE_FILES } from './lib/engine.cjs';
 
 let passed = 0;
 const failed = [];
@@ -721,16 +721,82 @@ console.log('\n[miles] 13. The words');
   const html = read('index.html');
   const note = /<p id="codec-note"[^>]*>([\s\S]*?)<\/p>/.exec(html)?.[1].replace(/\s+/g, ' ').trim() || '';
   const NOTE = 'vaudio_miles is not a TF2 codec. The Source engines of 2006 and 2007 could run it; current TF2 ships its files and refuses the name. '
-    + 'It has not been checked against any recording of a running engine. Everything after the receiver\'s gain is TF2\'s of today.';
+    + 'Its codec was checked against one recording of a 2006 engine; the rest of the profile was not. Everything after the receiver\'s gain is TF2\'s of today.';
   check('index.html holds the note\'s four sentences word for word', note === NOTE, note);
   const group = /<optgroup label="Not in Team Fortress 2">([\s\S]*?)<\/optgroup>/.exec(html)?.[1] || '';
   check('the Miles option is inside the group labelled "Not in Team Fortress 2"', /<option value="miles">vaudio_miles: not in TF2/.test(group),
     /<option value="miles">([^<]*)/.exec(html)?.[1] || 'no option');
-  const SENTENCE = 'It has not been checked against any recording of a running engine.';
-  const files = ['README.md', 'tests/LEGACY_CODECS.md', 'tests/REFERENCE_2026.md', 'vendor/voxware-vr12/README.md'];
-  const missing = files.filter(f => !read(f).replace(/\s+/g, ' ').includes(SENTENCE));
-  check('README.md, tests/LEGACY_CODECS.md, tests/REFERENCE_2026.md and vendor/voxware-vr12/README.md each say it has not been checked against any recording',
-    missing.length === 0, missing.length ? `missing in ${missing.join(', ')}` : '');
+  // W3-22: the codec stage was checked against one sitting of a 2006 engine
+  // (docs/FINDINGS.md, entry 11). Each place holds the new sentence word for
+  // word and not the old one; the record keeps the old one readable only where
+  // the correction mark and the new sentence follow it. A comment is read as
+  // its text, the // marks taken out.
+  const SENTENCE = 'Its codec stage was checked against one sitting of a 2006 engine on 2026-11-13; the profile as the app runs it was not.';
+  const OLD = /has not been checked against any recording of a running engine\./i;
+  const flat = (t) => t.replace(/\s+/g, ' ');
+  const comment = (t) => flat(t.split('\n').filter(l => /^\s*\/\//.test(l)).map(l => l.replace(/^\s*\/\/ ?/, '')).join(' '));
+  const headComment = (f) => comment(read(f).split('\n').slice(0, read(f).split('\n').findIndex(l => !/^\s*\/\//.test(l))).join('\n'));
+  // The profiles' file is the first of the helper's list (the harness keeps
+  // its name out of the suites).
+  const profiles = ENGINE_FILES[0];
+  // The comment block right above the first line that matches.
+  const commentAbove = (f, re) => { const lines = read(f).split('\n'), at = lines.findIndex(l => re.test(l));
+    let from = at; while (from > 0 && /^\s*\/\//.test(lines[from - 1])) from--; return at < 0 ? '' : comment(lines.slice(from, at).join('\n')); };
+  const kept = 'It has not been checked against any recording of a running engine. *Corrected by W3-22 (2026-11-13): ' + SENTENCE + '*';
+  const places = {
+    'README.md': flat(read('README.md')),
+    'tests/LEGACY_CODECS.md': flat(read('tests/LEGACY_CODECS.md')),
+    'tests/REFERENCE_2026.md': flat(read('tests/REFERENCE_2026.md')),
+    'vendor/voxware-vr12/README.md': flat(read('vendor/voxware-vr12/README.md')),
+    'vendor/voxware-vr12/index.mjs (its head)': headComment('vendor/voxware-vr12/index.mjs'),
+    [`${profiles} (the miles profile's comment)`]: commentAbove(profiles, /^\s*miles: \{/),
+    'tests/miles.verify.mjs (its head)': headComment('tests/miles.verify.mjs'),
+    'docs/VOICE-PATH.md': flat(read('docs/VOICE-PATH.md')),
+    'docs/owner-runs.md': flat(read('docs/owner-runs.md')),
+    'opus-codec.mjs (the comment above VR12_RATE)': commentAbove('opus-codec.mjs', /^export const VR12_RATE\b/),
+  };
+  // The record and LEGACY_CODECS keep this older sentence only where a
+  // correction marks it: it is looked for in the text left after each marked
+  // correction is taken out (in the record the sentence it corrects, kept
+  // readable in front of it, goes with it).
+  const OLD_TOO = /nothing of a running engine with this codec has been recorded/i;
+  const unmarked = (t) => t.replace(/(Nothing of a running engine with this codec has been recorded\. )?\*Corrected by W3-22 \(2026-11-13\):[^*]*\*/g, ' ');
+  const wrong = Object.entries(places).filter(([f, t]) => {
+    const rest = f === 'tests/REFERENCE_2026.md' ? t.split(kept).join(' ') : t;
+    return t.length < 200 || !t.includes(SENTENCE) || OLD.test(rest) || OLD_TOO.test(unmarked(t));
+  }).map(([f]) => f);
+  check(`the sentence on the 2006 sitting stands word for word, and the old sentence does not, in ${Object.keys(places).join(', ')}`,
+    wrong.length === 0, wrong.length ? `wrong in ${wrong.join(', ')}` : '');
+  const record = places['tests/REFERENCE_2026.md'];
+  check('tests/REFERENCE_2026.md keeps the old sentence readable beside its correction, and finding 31 has the sitting',
+    record.split(kept).length >= 3 && /Added 2026-11-13 \(W3-22\): `vaudio_miles` \(not in TF2\) against a running engine/.test(record)
+      && record.includes('143,796 of the game\'s 145,800 decoded samples exactly and 144,952 within one step'),
+    `${record.split(kept).length - 1} corrections`);
+  const owner = places['docs/owner-runs.md'];
+  check('docs/owner-runs.md says what the 2006 sitting ran, points to FINDINGS entry 11, and no longer says nobody has run it',
+    !/nobody has run/i.test(owner) && /It was run once, on 2026-11-13: one sitting of Source SDK Base 2006/.test(owner)
+      && owner.includes('(FINDINGS.md#11-vaudio_miles-and-voxware-vr12-never-in-tf2)') && /One press a file/.test(owner));
+  const page = flat(read('docs/PAGE.md'));
+  check('docs/PAGE.md describes the note as it now stands',
+    page.includes('a note under the menu says it is not a TF2 codec, that its codec was checked against one recording of a 2006 engine, and that the rest of the profile was not.')
+      && !/not checked against any recording/.test(page));
+  const render = read('app/render.js');
+  check('the render\'s console line for vaudio_miles says its codec was checked against one recording of a 2006 engine and the rest of the profile was not',
+    render.includes('\'S_Voice: vaudio_miles is not a TF2 codec (Source engines of 2006 and 2007); its codec was checked against one recording of a 2006 engine; the rest of the profile was not\'')
+      && !/not checked against any recording/.test(render));
+  // W3-22, after the review: the help of sv_voicecodec and the comment at the
+  // head of the profiles say the same as the note, and not "unverified".
+  const consoleSrc = read('app/console.js');
+  const voicecodecHelp = /help: '(What the game sends voice with:[^\n]*?)',?\n/.exec(consoleSrc)?.[1] || '';
+  const profilesHead = (() => { const src = read(profiles), at = src.indexOf(' * Codec profiles.');
+    const text = at < 0 ? '' : flat(src.slice(at, src.indexOf('*/', at)).replace(/^\s*\*\s?/gm, ' '));
+    // Its sentence on miles (the list of status values below it keeps 'unverified').
+    return /`miles` is not a TF2 codec[^.]*\./.exec(text)?.[0] || ''; })();
+  const BOTH = 'its codec checked against one recording of a 2006 engine, the rest of the profile not';
+  check('the console\'s help for sv_voicecodec and the comment at the head of the profiles say its codec was checked against one recording of a 2006 engine, the rest of the profile not, and neither says unverified',
+    voicecodecHelp.length > 100 && voicecodecHelp.includes(BOTH) && !/unverified/i.test(voicecodecHelp)
+      && profilesHead.length > 100 && profilesHead.includes(BOTH) && !/unverified/i.test(profilesHead),
+    `${voicecodecHelp.slice(-120)} | ${profilesHead}`);
   const readme = read('README.md'), accuracy = /\n## Accuracy\n([\s\S]*?)(\n## |$)/.exec(readme)?.[1] || '';
   check('README\'s "Accuracy" section names neither the profile nor the codec', accuracy.length > 100 && !/miles|vr12|voxware/i.test(accuracy),
     `${accuracy.length} characters`);
