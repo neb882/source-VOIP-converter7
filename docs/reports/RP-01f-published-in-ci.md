@@ -93,3 +93,23 @@ reproduce` run in the copy:
 - The time of the suite `reproduce` in `tests/README.md` is not changed: one CI run is not the slowest of three.
 - The commit of this report changes `docs/` only, so it starts no run of `tests` (the workflow's rule); the run to
   read is the one on `e6ada28`.
+
+## The fix round (2026-11-13)
+
+The order's section 20 lists two items. Each is done here.
+
+- **A wrong codec in a row.** Section [13] built the `gain` pairs from each row's `made_with.codec`. With Set O's
+  row naming `vaudio_celt`, `gain` ran on Set M's pair alone, and nothing failed. Section [13] now holds each row's
+  codec to its check: `celt` with `vaudio_celt`, `celt --high` with `vaudio_celt_high`, and `speex` with
+  `vaudio_speex`. It also requires that every `voice_maxgain 1` file sharing a set with a `voice_maxgain 10` file
+  is in a pair, whatever codec its row names.
+- **The break.** The reviewer's break was made again on a copy in the builder's scratch folder: Set O's row names
+  `vaudio_celt`, and no file was changed. With `node tests/run.mjs reproduce recordings` run in the copy,
+  `recordings` passed and `reproduce` failed on two checks. One was "set-o_vaudio-speex_maxgain-1.wav: its row's
+  codec, vaudio_celt, is the one speex runs" ("speex runs vaudio_speex"). The other was "every voice_maxgain 1 file
+  that shares a set with a voice_maxgain 10 file is paired with it for gain" ("set-o_vaudio-speex_maxgain-1.wav
+  (vaudio_celt) has no pair").
+- **Where the zero test lives.** Section 16 says the suite `recordings` gains the zero test. It went into
+  `reproduce` because part f's row of the files table does not allow `tests/recordings.verify.mjs`. The brief
+  also put it in `reproduce`.
+- `origin/main` was merged into the branch before the fix (documents only).
