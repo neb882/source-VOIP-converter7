@@ -382,5 +382,16 @@ The review's five points, as the orchestrator passed them on. `main` merged in a
    repository" (exit 128, in a folder outside any repository) is read as no answer. Break: the CI case made a skip
    (the verdict check fails). With `CI=true` the suite passes here, git answering.
 
-Runs after the fix round: see "Runs, fix round" below.
+### Runs, fix round
+
+- `node tests/run.mjs recordings miles site harness`: every suite passed (`recordings` 0.8 s, `miles` 10.5 s).
+- `node tests/cache-number.mjs origin/main --report`: `cache number against origin/main (d246af9): no cached file
+  changed; the number stays v39`.
+- The break script again, the earlier breaks and the new ones (`0X180058D80`, `1000a2f0h` and a Windows path put
+  into the record's row F1): each made the suite fail; the file restored after each.
+- `git diff origin/main -- tests/REFERENCE_2026.md`: the only lines removed are the eleven of the table "What was
+  read", each added again with its column "Files".
+- The diff and the commit messages scanned again: no recordings, personal details, SteamIDs, paths or model names
+  but the trailer lines.
+- CI on the head: see the hand-back.
 
