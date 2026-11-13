@@ -450,9 +450,10 @@
 
   // Talk spurt by talk spurt. TF2's receiver re-times every talk spurt, so
   // the delay can change by hundreds of ms from one to the next, and within
-  // a spurt it trims buffered latency in 256-sample (5.8 ms) skips
-  // (tests/REFERENCE_2026.md, findings 10 and 15). One offset and clock
-  // ratio cannot follow that.
+  // a spurt it shortens: the receiver drops one sample from every packet and
+  // skips what overflows its ring, any size; the voice path has no
+  // 256-sample (5.8 ms) step (read; tests/REFERENCE_2026.md, findings 10 and
+  // 15). One offset and clock ratio cannot follow that.
   //
   // track() takes the talk spurts from the gate model (options.gate, as the
   // render's profile and settings have it; 98.7% of frames agree with

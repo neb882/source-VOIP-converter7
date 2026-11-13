@@ -16,7 +16,7 @@
  *   [7] [8] room presets, the automatic room, the custom room and under water
  *   [9] packet loss and jitter, and the codec's own concealment
  *   [10] [10b] [10c] option robustness; the live chain a block at a time;
- *       talk-spurt re-timing
+ *       opts.retime no longer read (W3-02f)
  *   [11] WAV integrity
  * The steam profile's three sections ([5c], [5d], and [10b] for steam) are in
  * tests/steam.verify.js; the signals both files use are in tests/lib/signals.cjs.
@@ -25,6 +25,7 @@
 'use strict';
 
 const path = require('path');
+const { isDeepStrictEqual } = require('util');
 const { loadEngine, sourceRoot } = require('./lib/engine.cjs');
 const { mkBuffer, tone, speechLike, rms, peakAbs, db } = require('./lib/signals.cjs');
 
@@ -698,32 +699,48 @@ async function main() {
     }
   }
 
-  console.log('\n[10c] Receiver talk-spurt re-timing (voice_retime)');
+  console.log('\n[10c] opts.retime is no longer read (W3-02f took the flat re-timing rule out of the engine)');
   {
-    // Noise bursts 0.6 s long with 0.8 s between them: the gate's 440 ms hold
-    // leaves about 0.24 s of silence, short enough for TF2 to start early.
+    // Noise bursts 0.6 s long with 0.8 s between them, seed 3. Before W3-02f
+    // the flat rule moved three spurts of this source on `steam` and on
+    // celt_22 with the gate on; now a render given retime is the render
+    // without it, from process() and from createRender().
     const src = new Float32Array(SR * 12);
     let seed = 11;
     for (let b = 0; b < 8; b++) for (let i = 0; i < SR * .6; i++) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       src[Math.round((.3 + b * 1.4) * SR) + i] = ((seed / 2 ** 32) - .5) * .3;
     }
-    // The same seed for both: since W3-11a the seed also sets the sender's clock.
-    const plain = await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam', seed: 3 });
-    const moved = await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam', retime: true, seed: 3 });
-    const again = await TF2Audio.process(mkBuffer(src, SR), { codec: 'steam', retime: true, seed: 3 });
-    const moves = moved.codecInfo.retimed || [];
-    check('re-timing starts some spurts early, never the one after an early start, and never by more than the silence',
-      moves.length > 0 && moves.length < 7 && moves.every(m => m.shiftMs > 0 && m.shiftMs <= 350)
-      && moves.every((m, i) => i === 0 || m.time - moves[i - 1].time > 2), moves.map(m => `${m.time.toFixed(2)} s −${m.shiftMs.toFixed(0)} ms`).join(', '));
-    check('re-timing is repeatable for a seed and keeps the length', moved.samples.length === plain.samples.length
-      && moved.samples.every((v, i) => v === again.samples[i]));
-    // The moved burst is the same audio, earlier.
-    const m = moves[0], shift = Math.round(m.shiftMs / 1000 * plain.sampleRate), at = Math.round((m.time + .1) * plain.sampleRate);
-    let dot = 0, ea = 0, eb = 0;
-    for (let i = at; i < at + plain.sampleRate * .3; i++) { dot += plain.samples[i] * moved.samples[i - shift]; ea += plain.samples[i] ** 2; eb += moved.samples[i - shift] ** 2; }
-    check('a re-timed spurt is the same audio, earlier', dot / Math.sqrt(ea * eb) > .9, `r ${(dot / Math.sqrt(ea * eb)).toFixed(3)}`);
-    check('off by default: the render keeps the source timing', !plain.codecInfo.retimed);
+    const bytes = async (blob) => Buffer.from(await blob.arrayBuffer());
+    // createRender in pieces of 0.37 s, its output joined.
+    const streamed = async (opts) => {
+      const r = await TF2Audio.createRender({ sampleRate: SR, length: src.length, numberOfChannels: 1 }, opts);
+      const parts = [];
+      for (let o = 0, n = Math.round(0.37 * SR); o < src.length; o += n) parts.push(await r.push(src.subarray(o, Math.min(o + n, src.length))));
+      const end = await r.finish();
+      parts.push(end.samples);
+      const samples = new Float32Array(parts.reduce((t, p) => t + p.length, 0));
+      for (let o = 0, k = 0; k < parts.length; o += parts[k].length, k++) samples.set(parts[k], o);
+      return { samples, sampleRate: r.sampleRate, codecInfo: end.codecInfo };
+    };
+    for (const [name, base] of [['steam', { codec: 'steam', seed: 3 }], ['celt_22 with the gate on', { codec: 'celt_22', gate: true, seed: 3 }]]) {
+      const plain = await TF2Audio.process(mkBuffer(src, SR), base);
+      const given = await TF2Audio.process(mkBuffer(src, SR), { ...base, retime: true });
+      const plainBytes = await bytes(plain.blob);
+      check(`${name}: process() with retime true gives the WAV bytes and codecInfo of process() without it, and neither codecInfo has retimed`,
+        Buffer.compare(await bytes(given.blob), plainBytes) === 0 && isDeepStrictEqual(given.codecInfo, plain.codecInfo)
+        && !('retimed' in plain.codecInfo) && !('retimed' in given.codecInfo),
+        `${plain.codecInfo.spurts} spurts; ${given.codecInfo.retimed ? `${given.codecInfo.retimed.length} moved` : 'none moved'}`);
+      const without = await streamed(base);
+      const withoutBytes = await bytes(TF2Audio.encodeWav(without.samples, without.sampleRate));
+      let stream = null, error = null;
+      try { stream = await streamed({ ...base, retime: true }); } catch (e) { error = e; }
+      const streamBytes = stream && await bytes(TF2Audio.encodeWav(stream.samples, stream.sampleRate));
+      check(`${name}: createRender() with retime true does not throw, and its WAV bytes and codecInfo are createRender()'s without it and process()'s without it`,
+        !error && Buffer.compare(streamBytes, withoutBytes) === 0 && isDeepStrictEqual(stream.codecInfo, without.codecInfo)
+        && Buffer.compare(streamBytes, plainBytes) === 0 && isDeepStrictEqual(stream.codecInfo, plain.codecInfo),
+        error ? `${error.name}: ${error.message}` : `${stream.samples.length} samples`);
+    }
   }
 
   console.log('\n[11] WAV encoding');

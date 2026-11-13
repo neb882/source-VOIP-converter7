@@ -1,5 +1,5 @@
-/* TF2 Voice Emulator, engine/network.js: loss and jitter: the retiming, the loss masks, the steam profile's loss by
- * message and its arrival times (BC-4).
+/* TF2 Voice Emulator, engine/network.js: loss and jitter: the loss masks, the steam profile's loss by message and
+ * its arrival times (BC-4).
  *
  * One of the engine's files (the list and the load order are in audio.js's header). It takes what it needs from the
  * files before it as TF2Engine's parts and adds its own. */
@@ -32,63 +32,6 @@
   /* (mask 2) instead of being concealed (a fit; the game makes no frame */
   /* late). See tests/REFERENCE_2026.md, finding 9.                      */
   /* ------------------------------------------------------------------ */
-
-  // TF2's receiver re-timing of talk spurts (tests/REFERENCE_2026.md,
-  // finding 19): after a silence of up to 0.45 s, 41% of spurts play early,
-  // by the silence less 0-130 ms (at most 350 ms); the spurt after keeps its
-  // time. Moves the decoded audio (codec rate) and the frame log in place;
-  // returns the moves as { time, shiftMs }.
-  // A spurt's samples are its frames' on the frame path. On the steam path
-  // (info.spans: the laid packets' sample ranges, which run up to half a slot
-  // past the slots they mark) they are every laid span its slots meet, moved
-  // whole, and never onto the spurt before; slots whose spans meet are one
-  // spurt, so the empty time a gap of more than ten lost frames leaves inside
-  // a sender's spurt (BC-1) does not split it.
-  const RETIME = { maxGap: 0.45, chance: 0.41, leftMax: 0.13, maxShift: 0.35 };
-  function retimeSpurts(samples, info, rate, rand) {
-    const log = info.frameLog, size = info.frameSamples, lookahead = info.lookahead || 0;
-    if (!log || !size) return [];
-    const spurts = [];
-    for (let f = 0; f < log.length; f++) {
-      if (!log[f]) continue;
-      const first = f;
-      while (f + 1 < log.length && log[f + 1]) f++;
-      spurts.push({ first, last: f });
-    }
-    const range = ({ first, last }) => {
-      let from = first * size - lookahead, to = (last + 1) * size - lookahead;
-      if (info.spans) {
-        let a = Infinity, b = -Infinity;
-        for (const [p, q] of info.spans) if (q > from && p < to) { a = Math.min(a, p); b = Math.max(b, q); }
-        if (a < b) { from = a; to = b; }
-      }
-      return { from, to };
-    };
-    if (info.spans) {
-      for (let k = spurts.length - 1; k > 0; k--) {
-        if (range(spurts[k - 1]).to > range(spurts[k]).from) { spurts[k - 1].last = spurts[k].last; spurts.splice(k, 1); }
-      }
-    }
-    const moves = [];
-    let early = false;
-    for (let k = 1; k < spurts.length; k++) {
-      const gap = (spurts[k].first - spurts[k - 1].last - 1) * size / rate;
-      if (early || gap > RETIME.maxGap || rand() >= RETIME.chance) { early = false; continue; }
-      let shift = Math.round(Math.min(RETIME.maxShift, gap - RETIME.leftMax * rand()) * rate);
-      const here = range(spurts[k]);
-      if (info.spans) shift = Math.min(shift, here.from - range(spurts[k - 1]).to);
-      const frames = Math.round(shift / size);
-      if (frames < 1) { early = false; continue; }
-      const { first, last } = spurts[k];
-      const start = Math.max(shift, here.from), end = Math.min(samples.length, here.to);
-      if (end > start) { samples.copyWithin(start - shift, start, end); samples.fill(0, Math.max(start - shift, end - shift), end); }
-      log.copyWithin(first - frames, first, last + 1); log.fill(0, last + 1 - frames, last + 1);
-      if (info.frameBytes) { info.frameBytes.copyWithin(first - frames, first, last + 1); info.frameBytes.fill(0, last + 1 - frames, last + 1); }
-      moves.push({ time: start / rate, shiftMs: 1000 * shift / rate });
-      early = true;
-    }
-    return moves;
-  }
 
   function buildLossMask(nFrames, framesPerPacket, lossPct, rand, jitterMs = 0) {
     nFrames = Math.max(0, Math.floor(finiteOr(nFrames, 0)));
@@ -313,7 +256,7 @@
   }
 
   E.network = Object.freeze({
-    STEAM_CROSSINGS, buildLossMask, fakeLagList, retimeSpurts, steamArrivalPlan, steamArrivals, steamLoser, steamMessageLoss,
+    STEAM_CROSSINGS, buildLossMask, fakeLagList, steamArrivalPlan, steamArrivals, steamLoser, steamMessageLoss,
     streamLossMask
   });
 })((typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : globalThis));
