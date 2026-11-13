@@ -189,11 +189,17 @@ each kind of path, and a line under the control says which, while the control is
 - On Steam voice on the file's own timing (the setting itself, the codec skipped, a demo's voice or a video) it
   does nothing, since there is no queue for it to act on. The line says: "Jitter does nothing on the file's own
   timing: it moves when packets reach the game's voice queue."
-- On the other codecs it is still a fit to one recording: single frames marked late, 3.2% of them at 50 ms (finding
-  9). The game makes no frame late (read). The line says so.
+- On the other codecs, with the codec on and not on a demo's voice, it is still a fit to one recording: single
+  frames marked late, 3.2% of them at 50 ms (finding 9). The game makes no frame late (read). The line says so.
+- Where no codec runs it does nothing on any codec: with the codec skipped, and for a demo's voice, which is played
+  as the game received it. On a codec other than Steam voice the line then says "Jitter does nothing here: the codec
+  is skipped." or "Jitter does nothing here: a demo's voice is played as the game received it." Loss does nothing
+  there either.
 
 The chain strip's Network cell follows the same rule: "50 ms jitter" where it runs on the queue, "50 ms jitter (a
-fit)" on another codec, and "jitter off (no queue)" on Steam voice on the file's own timing. The live monitor keeps
+fit)" on another codec, "jitter off (no queue)" on Steam voice on the file's own timing, and "loss and jitter off"
+with the reason where no codec runs; it is marked only where loss or jitter acts. Its Receiver cell names the queue
+only where a render runs it, so for a demo's voice or a video it says "the file's own timing". The live monitor keeps
 the file's own timing, so on Steam voice jitter does nothing there yet (the queue in the monitor is W3-02c-3, not
 built yet); while the monitor runs on Steam voice with jitter above 0, its note under the panel says so. There is
 no lag control: a steady lag delays every packet alike and a render does not show it. The console's `net_fakelag`

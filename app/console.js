@@ -615,8 +615,18 @@ function steamJitterOff() {
 }
 const JITTER_NOTES = {
   off: 'Jitter does nothing on the file\'s own timing: it moves when packets reach the game\'s voice queue.',
-  fit: 'On this codec jitter is a fit: single frames marked late, 3.2% of them at 50 ms. The game makes no frame late.'
+  fit: 'On this codec jitter is a fit: single frames marked late, 3.2% of them at 50 ms. The game makes no frame late.',
+  skipped: 'Jitter does nothing here: the codec is skipped.',
+  demo: 'Jitter does nothing here: a demo\'s voice is played as the game received it.'
 };
+// BC-4b fix round: where no codec runs, neither loss nor jitter acts, on any
+// codec: with the codec skipped, and for a demo's voice (played as the game
+// received it). 'skipped', 'demo', or null when the codec runs.
+function noCodecRuns() {
+  if (els.warble.value !== '1') return 'skipped';
+  if (state.sourceDemo) return 'demo';
+  return null;
+}
 // The chain strip's Network cell: [title, detail, class]. BC-4b: jitter as
 // the game's on Steam voice on its queue, a fit on the other codecs, nothing
 // on Steam voice on the file's own timing. updateJitterNote() refreshes the
@@ -624,13 +634,37 @@ const JITTER_NOTES = {
 function networkStep() {
   const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
   const codec = CODEC_PROFILES[els.codec.value] || CODEC_PROFILES.steam;
-  const loss = num(els.loss, 0), jitter = num(els.jitter, 0), off = steamJitterOff();
+  const loss = num(els.loss, 0), jitter = num(els.jitter, 0), off = steamJitterOff(), none = noCodecRuns();
   // net_split picks whole codec frames per packet, as audio.js counts them;
   // a packet lasts that many of the profile's own frames.
   const framesPerPacket = Math.min(10, Math.max(1, Math.round(num(els.frameMs, 20) / 20)));
   const packetMs = +(framesPerPacket * (codec.frameSize ? 1000 * codec.frameSize / codec.codecRate : 20)).toFixed(1);
+  // Where no codec runs, the cell shows neither loss nor jitter as acting.
+  if (none && (loss > 0 || jitter > 0)) {
+    return ['Network', `${packetMs} ms packets · loss and jitter off (${none === 'skipped' ? 'the codec is skipped' : 'a demo\'s voice as received'})`, ''];
+  }
   const jitterText = jitter <= 0 ? '' : els.codec.value !== 'steam' ? ` · ${jitter} ms jitter (a fit)` : off ? ' · jitter off (no queue)' : ` · ${jitter} ms jitter`;
   return ['Network', `${packetMs} ms packets · ${loss}% lost${jitterText}`, loss > 0 || (jitter > 0 && !off) ? 'hot' : ''];
+}
+// The chain strip's Receiver cell: [title, detail, class]. On Steam voice the
+// game's voice queue only where a render runs it: renderOptions() asks for it
+// and sourceTimingReason() gives no reason (a demo's voice and a video keep
+// the file's own timing; BC-4b fix round).
+function receiverStep() {
+  const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
+  const maxGain = num(els.maxGain, VOICE_ENGINE.autoGain.maxGain), voiceScale = num(els.voiceScale, 1);
+  const avgGain = num(els.avgGain, VOICE_ENGINE.autoGain.avgGain), agcOn = els.agc.value === '1';
+  const queue = renderOptions().timeline === 'game' && !sourceTimingReason();
+  // What differs from the game's defaults is named, so the strip is a full
+  // account (W4-01d): voice_scale when it is not 1, the gain target when
+  // voice_avggain is not 0.5.
+  // "16-bit clip": the receiver's clamp to 16 bits (W4-01a: the page's
+  // words, not the code's "int16").
+  return ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · 16-bit clip` : 'unity gain · 16-bit clip'}`
+    + `${voiceScale !== 1 ? ` · voice_scale ${voiceScale}` : ''}${agcOn && avgGain !== VOICE_ENGINE.autoGain.avgGain ? ` · gain target ${avgGain}` : ''}`
+    // W3-02d-1: on Steam voice, the game's voice queue at the frame rate
+    // the controls give, or the file's own timing.
+    + `${els.codec.value !== 'steam' ? '' : queue ? ` · queue at ${num(els.fps, 300)} fps` : ' · the file\'s own timing'}`, ''];
 }
 // The line under the jitter control (BC-4b), shown only while the control is
 // above 0 and jitter cannot run as the game's: on Steam voice on the file's
@@ -639,16 +673,17 @@ function networkStep() {
 function updateJitterNote() {
   if (!els.jitterNote) return;
   const on = Number(els.jitter.value) > 0;
-  const text = !on ? '' : els.codec.value !== 'steam' ? JITTER_NOTES.fit : steamJitterOff() ? JITTER_NOTES.off : '';
+  const none = noCodecRuns();
+  const text = !on ? '' : els.codec.value !== 'steam' ? (none ? JITTER_NOTES[none] : JITTER_NOTES.fit) : steamJitterOff() ? JITTER_NOTES.off : '';
   els.jitterNote.textContent = text;
   els.jitterNote.hidden = !text;
   const ids = (els.jitter.getAttribute('aria-describedby') || '').split(/\s+/).filter((id) => id && id !== 'jitter-note');
   els.jitter.setAttribute('aria-describedby', [...ids, ...(text ? ['jitter-note'] : [])].join(' '));
-  const cell = els.chain && [...els.chain.children].find((li) => li.firstChild && li.firstChild.textContent === 'Network');
-  if (cell) {
-    const [, detail, cls] = networkStep();
-    cell.className = cls;
-    cell.lastChild.textContent = detail;
+  // The Network and Receiver cells follow the source too: a demo's voice is
+  // set after the strip was drawn.
+  for (const [title, detail, cls] of [networkStep(), receiverStep()]) {
+    const cell = els.chain && [...els.chain.children].find((li) => li.firstChild && li.firstChild.textContent === title);
+    if (cell) { cell.className = cls; cell.lastChild.textContent = detail; }
   }
 }
 
@@ -687,10 +722,9 @@ function updateSignalChain() {
   const codec = CODEC_PROFILES[els.codec.value] || CODEC_PROFILES.steam;
   const num = (el, fallback) => { const v = Number(el.value); return Number.isFinite(v) ? v : fallback; };
   const gain = num(els.gain, 1), bits = num(els.bits, 16);
-  const maxGain = num(els.maxGain, VOICE_ENGINE.autoGain.maxGain), volume = num(els.volume, VOICE_ENGINE.volume);
-  const voiceScale = num(els.voiceScale, 1), avgGain = num(els.avgGain, VOICE_ENGINE.autoGain.avgGain);
+  const volume = num(els.volume, VOICE_ENGINE.volume);
   const deviceRate = els.deviceRate ? num(els.deviceRate, VOICE_ENGINE.deviceRate) : VOICE_ENGINE.deviceRate;
-  const codecOn = els.warble.value === '1', agcOn = els.agc.value === '1';
+  const codecOn = els.warble.value === '1';
   const gateOn = codecOn && (els.vad.value === 'auto' ? !!codec.senderGate : els.vad.value === '1');
   const gateDb = typedGateDb() ?? gateDefaultDb(els.codec.value);
   // Steam's sender gates its capture chunks (W3-11a); the others, 20 ms frames.
@@ -713,16 +747,7 @@ function updateSignalChain() {
       : codec.engine === 'vr12' ? `VR12 on ${codec.codecRate / 1000} kHz sound · ${codec.packetBytes}-byte frames of ${(1000 * codec.frameSize / codec.codecRate).toFixed(2)} ms · ${codec.bitrate / 1000} kbit/s · not a TF2 codec${bits !== 16 ? ' · snd_bits not used' : ''}`
       : `Opus ${codec.codecRate / 1000} kHz · ${codec.encoder?.vbr ? 'VBR ' : ''}${kbps} kbps${codec.encoder?.dtx ? ' · DTX' : ''} · ${mode}`, codecOn ? '' : 'off'],
     networkStep(),
-    // What differs from the game's defaults is named, so the strip is a full
-    // account (W4-01d): voice_scale when it is not 1, the gain target when
-    // voice_avggain is not 0.5.
-    // "16-bit clip": the receiver's clamp to 16 bits (W4-01a: the page's
-    // words, not the code's "int16").
-    ['Receiver', `${agcOn ? `auto-gain ≤${maxGain}× · 16-bit clip` : 'unity gain · 16-bit clip'}`
-      + `${voiceScale !== 1 ? ` · voice_scale ${voiceScale}` : ''}${agcOn && avgGain !== VOICE_ENGINE.autoGain.avgGain ? ` · gain target ${avgGain}` : ''}`
-      // W3-02d-1: on Steam voice, the game's voice queue at the frame rate
-      // the controls give, or the file's own timing.
-      + `${els.codec.value !== 'steam' ? '' : renderOptions().timeline === 'game' ? ` · queue at ${num(els.fps, 300)} fps` : ' · the file\'s own timing'}`, ''],
+    receiverStep(),
     ['Mixer', `44.1 kHz · ${room}`, ''],
     // The mixer's 44.1 kHz output, at the listener's device's rate (W3-10).
     ['Output', `volume ${Math.round(volume * 100)}% · ${+(deviceRate / 1000).toFixed(1)} kHz device`, '']

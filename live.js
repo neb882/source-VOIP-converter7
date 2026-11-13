@@ -73,8 +73,10 @@
     }
     const ptt = ui.ptt && ui.ptt.closest('label');
     if (ptt) ptt.title = t.ptt;
+    // BC-4b fix round: on Steam voice the live chain makes no frame late
+    // (jitter does nothing there yet), so its count stays 0.
     const net = ui.loss && ui.loss.closest('.live-stat');
-    if (net) net.title = steamCodec() ? 'Frames concealed (lost frames the decoder filled in when the next one arrived) and late (silence), by the network settings'
+    if (net) net.title = steamCodec() ? 'Frames concealed: lost frames (net_fakeloss) the decoder filled in when the next one arrived. On Steam voice no frame is late'
       : 'Frames lost (concealed) and late (silence) by the network settings';
   }
   document.addEventListener('tf2:settings', updateTexts);

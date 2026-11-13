@@ -1279,9 +1279,10 @@ async function verifyLiveMonitor(page) {
   // runs there), not at jitter 0, and not once the monitor has stopped.
   const liveJitter = await page.evaluate(() => {
     const note = () => document.getElementById('live-note').textContent;
-    const out = { start: note() };
+    const netTitle = () => document.getElementById('live-loss').closest('.live-stat').title;
+    const out = { start: note(), steamTitle: netTitle() };
     execCommand('net_fakejitter 50'); out.steam = note();
-    execCommand('sv_voicecodec celt_22'); out.celt = note();
+    execCommand('sv_voicecodec celt_22'); out.celt = note(); out.celtTitle = netTitle();
     execCommand('sv_voicecodec steam'); out.again = note();
     execCommand('net_fakejitter 0'); out.zero = note();
     execCommand('net_fakejitter 50');
@@ -1291,6 +1292,12 @@ async function verifyLiveMonitor(page) {
   check(!liveJitter.start.includes(jitterLine) && liveJitter.steam === `${liveJitter.start} ${jitterLine}` && liveJitter.celt === liveJitter.start
     && liveJitter.again === liveJitter.steam && liveJitter.zero === liveJitter.start,
     'while the live monitor runs on Steam voice with jitter 50, its note adds "Jitter does nothing in the live monitor yet."; on celt_22 and at jitter 0 it does not', JSON.stringify(liveJitter));
+  // The fix round: the "net" figure's title on Steam voice says no frame is late; index.html's first title is the same.
+  const liveNetTitle = 'Frames concealed: lost frames (net_fakeloss) the decoder filled in when the next one arrived. On Steam voice no frame is late';
+  const htmlNetTitle = /<span class="live-stat" title="([^"]*)">net <b id="live-loss">/.exec(fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8'))?.[1];
+  check(liveJitter.steamTitle === liveNetTitle && htmlNetTitle === liveNetTitle && liveJitter.celtTitle === 'Frames lost (concealed) and late (silence) by the network settings',
+    'the live "net" figure\'s title on Steam voice says the frames are concealed lost frames, by net_fakeloss, and that no frame is late, as index.html\'s first title does; on celt_22 it keeps the late frames',
+    `${liveJitter.steamTitle} | ${htmlNetTitle} | ${liveJitter.celtTitle}`);
   await page.locator('#live-toggle').click();
   await page.waitForFunction(() => !TF2Live.running);
   check(await page.locator('#live-toggle').getAttribute('aria-pressed') === 'false', 'the live monitor stops');
@@ -2491,6 +2498,9 @@ async function verifyPageTimeline(browser, base) {
 // The live monitor's note is checked in [Browser 3f].
 const JITTER_OFF_TEXT = 'Jitter does nothing on the file\'s own timing: it moves when packets reach the game\'s voice queue.';
 const JITTER_FIT_TEXT = 'On this codec jitter is a fit: single frames marked late, 3.2% of them at 50 ms. The game makes no frame late.';
+// Where no codec runs (the fix round): on a codec other than Steam voice.
+const JITTER_SKIPPED_TEXT = 'Jitter does nothing here: the codec is skipped.';
+const JITTER_DEMO_TEXT = 'Jitter does nothing here: a demo\'s voice is played as the game received it.';
 const NET_FAKELAG_TEXT = 'A steady lag delays every packet alike and a render does not show it. '
   + 'The app takes net_fakelag as twice net_fakejitter, the least at which the game applies the whole jitter';
 // The line under the jitter control (null when hidden), whether the control
@@ -2499,6 +2509,8 @@ const jitterState = (page) => page.evaluate(() => ({
   note: els.jitterNote.hidden ? null : els.jitterNote.textContent, jitter: els.jitter.value,
   named: (els.jitter.getAttribute('aria-describedby') || '').split(/\s+/).includes('jitter-note'),
   network: [...document.querySelectorAll('#signal-chain li')].find((li) => li.querySelector('b').textContent === 'Network').textContent,
+  hot: [...document.querySelectorAll('#signal-chain li')].find((li) => li.querySelector('b').textContent === 'Network').classList.contains('hot'),
+  receiver: [...document.querySelectorAll('#signal-chain li')].find((li) => li.querySelector('b').textContent === 'Receiver').textContent,
   timelineNote: els.timelineNote.hidden ? null : els.timelineNote.textContent,
   arrivals: state.lastCodecInfo ? state.lastCodecInfo.arrivals || null : null, channel: !!(state.lastCodecInfo && state.lastCodecInfo.channel),
   key: state.renderedKey ? JSON.parse(state.renderedKey) : null, from: state.renderedFrom }));
@@ -2530,13 +2542,20 @@ async function verifyJitterPage(browser, base) {
     try {
       // With no source, the line follows the settings at once.
       const steps = await page.evaluate(() => {
+        const cell = () => [...document.querySelectorAll('#signal-chain li')].find((li) => li.querySelector('b').textContent === 'Network');
         const now = () => ({ note: els.jitterNote.hidden ? null : els.jitterNote.textContent,
-          named: (els.jitter.getAttribute('aria-describedby') || '').split(/\s+/).includes('jitter-note') });
+          named: (els.jitter.getAttribute('aria-describedby') || '').split(/\s+/).includes('jitter-note'),
+          network: cell().textContent, hot: cell().classList.contains('hot') });
+        // A demo's voice on celt_22, with no source decoded: the page's demo
+        // state alone, read by the line (the render is not asked for).
+        const fakeDemo = (on) => { state.sourceDemo = on ? { codecKey: 'celt_22' } : null; updateJitterNote(); };
         const out = {};
-        for (const [label, command] of [['game', 'net_fakejitter 50'], ['skipped', 'snd_codec 0'], ['codecOn', 'snd_codec 1'],
+        for (const [label, command] of [['game', 'net_fakejitter 50'], ['skipped', 'snd_codec 0; net_fakeloss 10'], ['codecOn', 'net_fakeloss 0; snd_codec 1'],
           ['source', 'voice_timeline source'], ['sourceZero', 'net_fakejitter 0'], ['celt', 'sv_voicecodec celt_22; net_fakejitter 50'],
+          ['celtSkipped', 'snd_codec 0; net_fakeloss 10'], ['celtOn', 'net_fakeloss 0; snd_codec 1'], ['celtDemo', () => fakeDemo(true)], ['celtNoDemo', () => fakeDemo(false)],
           ['celtZero', 'net_fakejitter 0'], ['back', 'sv_voicecodec steam; voice_timeline game; net_fakejitter 50'], ['gameZero', 'net_fakejitter 0']]) {
-          execCommand(command); out[label] = now();
+          if (typeof command === 'function') command(); else execCommand(command);
+          out[label] = now();
         }
         return out;
       });
@@ -2545,7 +2564,19 @@ async function verifyJitterPage(browser, base) {
         'with no source: on Steam voice on the game\'s queue at jitter 50 the line under the jitter control is hidden and not named', JSON.stringify(steps.game));
       check(shows(steps.skipped, JITTER_OFF_TEXT) && shows(steps.source, JITTER_OFF_TEXT),
         'with no source: with the codec skipped, and with voice_timeline source, the line says jitter does nothing on the file\'s own timing, and the control names it', JSON.stringify([steps.skipped, steps.source]));
-      check(shows(steps.celt, JITTER_FIT_TEXT), 'with no source: on celt_22 at jitter 50 the line says jitter is a fit there, and the control names it', JSON.stringify(steps.celt));
+      check(shows(steps.celt, JITTER_FIT_TEXT) && shows(steps.celtOn, JITTER_FIT_TEXT) && shows(steps.celtNoDemo, JITTER_FIT_TEXT)
+        && steps.celt.network.includes('· 50 ms jitter (a fit)') && steps.celt.hot,
+        'with no source: on celt_22 at jitter 50 the line says jitter is a fit there, the control names it, and the chain strip marks "50 ms jitter (a fit)" hot', JSON.stringify(steps.celt));
+      // The fix round: where no codec runs, jitter does nothing on every codec, and neither loss nor jitter acts.
+      const offCell = (x, why) => x.network.endsWith(`loss and jitter off (${why})`) && !/% lost|ms jitter/.test(x.network) && !x.hot;
+      check(shows(steps.celtSkipped, JITTER_SKIPPED_TEXT) && offCell(steps.celtSkipped, 'the codec is skipped'),
+        'with no source: celt_22 with the codec skipped, jitter 50 and loss 10: the line says "Jitter does nothing here: the codec is skipped.", and the chain strip shows neither loss nor jitter as acting, not hot',
+        JSON.stringify(steps.celtSkipped));
+      check(shows(steps.celtDemo, JITTER_DEMO_TEXT) && offCell(steps.celtDemo, 'a demo\'s voice as received'),
+        'with no source: celt_22 with a demo\'s voice (the page\'s demo state), jitter 50: the line says "Jitter does nothing here: a demo\'s voice is played as the game received it.", and the strip shows no jitter acting, not hot',
+        JSON.stringify(steps.celtDemo));
+      check(offCell(steps.skipped, 'the codec is skipped'), 'with no source: Steam voice with the codec skipped, jitter 50 and loss 10: the chain strip shows neither loss nor jitter as acting, not hot',
+        JSON.stringify(steps.skipped));
       check(cleared(steps.sourceZero) && cleared(steps.celtZero) && cleared(steps.gameZero),
         'with no source: jitter back to 0 hides the line and the control no longer names it, on the file\'s own timing, on celt_22 and on the game\'s queue', JSON.stringify([steps.sourceZero, steps.celtZero, steps.gameZero]));
 
@@ -2571,7 +2602,7 @@ async function verifyJitterPage(browser, base) {
       await chooseFile(page, { name: 'jitter.wav', mimeType: 'audio/wav', buffer: wavSpeech(4) });
       await renderAfter(page, 'net_fakejitter 50');
       const game = await jitterState(page);
-      check(jitterLineCleared(game) && game.channel && game.arrivals && game.arrivals.jitterMs === 50 && game.key.jitterMs === 50 && game.key.timeline === 'game'
+      check(jitterLineCleared(game) && game.hot && game.receiver.includes('queue at 300 fps') && game.channel && game.arrivals && game.arrivals.jitterMs === 50 && game.key.jitterMs === 50 && game.key.timeline === 'game'
         && game.network.includes('· 50 ms jitter') && !/\(a fit\)|jitter off/.test(game.network),
         'Steam voice on the game\'s queue, jitter 50: the line is hidden, the render on screen has codecInfo.arrivals, and the chain strip says "50 ms jitter"',
         `${game.network}; ${JSON.stringify(game.arrivals)}`);
@@ -2582,9 +2613,9 @@ async function verifyJitterPage(browser, base) {
       const source = await jitterState(page);
       const zeroOpts = await page.evaluate(() => ({ ...renderOptions(), jitterMs: 0 }));
       const same = await renderIs(page, zeroOpts);
-      check(source.note === JITTER_OFF_TEXT && source.named && source.timelineNote === null && source.key.timeline === 'source' && source.key.jitterMs === 50 && !source.arrivals
+      check(source.note === JITTER_OFF_TEXT && source.named && !source.hot && source.timelineNote === null && source.key.timeline === 'source' && source.key.jitterMs === 50 && !source.arrivals
         && source.network.includes('· jitter off (no queue)') && !source.network.includes('50 ms jitter'),
-        'voice_timeline source, jitter 50: the line says jitter does nothing on the file\'s own timing, the control names it, and the chain strip says "jitter off (no queue)"', source.network);
+        'voice_timeline source, jitter 50: the line says jitter does nothing on the file\'s own timing, the control names it, and the chain strip says "jitter off (no queue)", not hot', source.network);
       check(same.same, 'voice_timeline source, jitter 50: the render on screen is TF2Audio.process at jitter 0, sample for sample', `${same.length} samples`);
       await renderAfter(page, 'net_fakejitter 0');
       const sourceZero = await jitterState(page);
@@ -2636,18 +2667,21 @@ async function verifyJitterPage(browser, base) {
       await settled(page);
       const demo = await jitterState(page);
       check(demo.note === JITTER_OFF_TEXT && demo.named && /a demo's voice/.test(demo.timelineNote || '') && demo.key.timeline === 'source' && !demo.arrivals
-        && demo.network.includes('· jitter off (no queue)'),
-        'a demo\'s voice with jitter 50 on Steam voice on the game\'s queue: the line says jitter does nothing on the file\'s own timing, and the chain strip says "jitter off (no queue)"',
-        `${demo.note}; ${demo.network}`);
+        && demo.network.endsWith('loss and jitter off (a demo\'s voice as received)') && !demo.hot
+        && demo.receiver.endsWith('the file\'s own timing') && !demo.receiver.includes('queue at'),
+        'a demo\'s voice with jitter 50 on Steam voice on the game\'s queue: the line says jitter does nothing on the file\'s own timing; the chain strip shows neither loss nor jitter as acting, and its Receiver cell says "the file\'s own timing"',
+        `${demo.note}; ${demo.network}; ${demo.receiver}`);
       await chooseFile(page, path.join(__dirname, 'video', 'vp9_opus.mp4'), 120000);
       await settled(page);
       const video = await jitterState(page);
-      check(video.note === JITTER_OFF_TEXT && video.named && /a video keeps its picture's timing/.test(video.timelineNote || '') && !video.arrivals,
-        'a video with jitter 50: the line says jitter does nothing on the file\'s own timing', `${video.note}`);
+      check(video.note === JITTER_OFF_TEXT && video.named && /a video keeps its picture's timing/.test(video.timelineNote || '') && !video.arrivals
+        && video.network.includes('· jitter off (no queue)') && !video.hot && video.receiver.endsWith('the file\'s own timing') && !video.receiver.includes('queue at'),
+        'a video with jitter 50: the line says jitter does nothing on the file\'s own timing, the strip says "jitter off (no queue)", and its Receiver cell says "the file\'s own timing"',
+        `${video.note}; ${video.network}; ${video.receiver}`);
       await chooseFile(page, { name: 'after.wav', mimeType: 'audio/wav', buffer: wavSpeech(2) });
       await settled(page);
       const after = await jitterState(page);
-      check(jitterLineCleared(after) && after.arrivals && after.network.includes('· 50 ms jitter'),
+      check(jitterLineCleared(after) && after.arrivals && after.network.includes('· 50 ms jitter') && after.receiver.includes('queue at 300 fps'),
         'an audio file after them renders on the game\'s queue with its arrivals, and the line is hidden again', after.network);
     } finally { await context.close(); }
   }
