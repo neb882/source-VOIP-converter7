@@ -2,8 +2,8 @@
 // 2007 ran it, set into the app's chain. vaudio_miles is not a Team Fortress 2
 // codec: it is a codec of the Source engine family that could be selected in
 // the Source engines of 2006 and 2007, and current TF2 ships its files and
-// refuses the name. It has not been checked against any recording of a running
-// engine.
+// refuses the name. Its codec stage was checked against one sitting of a 2006
+// engine on 2026-11-13; the profile as the app runs it was not.
 //   node tests/miles.verify.mjs
 //
 // The reference samples and packets come from the vendored module
@@ -721,16 +721,44 @@ console.log('\n[miles] 13. The words');
   const html = read('index.html');
   const note = /<p id="codec-note"[^>]*>([\s\S]*?)<\/p>/.exec(html)?.[1].replace(/\s+/g, ' ').trim() || '';
   const NOTE = 'vaudio_miles is not a TF2 codec. The Source engines of 2006 and 2007 could run it; current TF2 ships its files and refuses the name. '
-    + 'It has not been checked against any recording of a running engine. Everything after the receiver\'s gain is TF2\'s of today.';
+    + 'Its codec was checked against one recording of a 2006 engine; the rest of the profile was not. Everything after the receiver\'s gain is TF2\'s of today.';
   check('index.html holds the note\'s four sentences word for word', note === NOTE, note);
   const group = /<optgroup label="Not in Team Fortress 2">([\s\S]*?)<\/optgroup>/.exec(html)?.[1] || '';
   check('the Miles option is inside the group labelled "Not in Team Fortress 2"', /<option value="miles">vaudio_miles: not in TF2/.test(group),
     /<option value="miles">([^<]*)/.exec(html)?.[1] || 'no option');
-  const SENTENCE = 'It has not been checked against any recording of a running engine.';
-  const files = ['README.md', 'tests/LEGACY_CODECS.md', 'tests/REFERENCE_2026.md', 'vendor/voxware-vr12/README.md'];
-  const missing = files.filter(f => !read(f).replace(/\s+/g, ' ').includes(SENTENCE));
-  check('README.md, tests/LEGACY_CODECS.md, tests/REFERENCE_2026.md and vendor/voxware-vr12/README.md each say it has not been checked against any recording',
-    missing.length === 0, missing.length ? `missing in ${missing.join(', ')}` : '');
+  // W3-22: the codec stage was checked against one sitting of a 2006 engine
+  // (docs/FINDINGS.md, entry 11). Each place holds the new sentence word for
+  // word and not the old one; the record keeps the old one readable only where
+  // the correction mark and the new sentence follow it. A comment is read as
+  // its text, the // marks taken out.
+  const SENTENCE = 'Its codec stage was checked against one sitting of a 2006 engine on 2026-11-13; the profile as the app runs it was not.';
+  const OLD = /has not been checked against any recording of a running engine\./i;
+  const flat = (t) => t.replace(/\s+/g, ' ');
+  const comment = (t) => flat(t.split('\n').filter(l => /^\s*\/\//.test(l)).map(l => l.replace(/^\s*\/\/ ?/, '')).join(' '));
+  const headComment = (f) => comment(read(f).split('\n').slice(0, read(f).split('\n').findIndex(l => !/^\s*\/\//.test(l))).join('\n'));
+  const milesComment = (() => { const lines = read('constants.js').split('\n'), at = lines.findIndex(l => /^\s*miles: \{/.test(l));
+    let from = at; while (from > 0 && /^\s*\/\//.test(lines[from - 1])) from--; return comment(lines.slice(from, at).join('\n')); })();
+  const kept = 'It has not been checked against any recording of a running engine. *Corrected by W3-22 (2026-11-13): ' + SENTENCE + '*';
+  const places = {
+    'README.md': flat(read('README.md')),
+    'tests/LEGACY_CODECS.md': flat(read('tests/LEGACY_CODECS.md')),
+    'tests/REFERENCE_2026.md': flat(read('tests/REFERENCE_2026.md')),
+    'vendor/voxware-vr12/README.md': flat(read('vendor/voxware-vr12/README.md')),
+    'vendor/voxware-vr12/index.mjs (its head)': headComment('vendor/voxware-vr12/index.mjs'),
+    'constants.js (the miles profile\'s comment)': milesComment,
+    'tests/miles.verify.mjs (its head)': headComment('tests/miles.verify.mjs'),
+  };
+  const wrong = Object.entries(places).filter(([f, t]) => {
+    const rest = f === 'tests/REFERENCE_2026.md' ? t.split(kept).join(' ') : t;
+    return t.length < 200 || !t.includes(SENTENCE) || OLD.test(rest);
+  }).map(([f]) => f);
+  check(`the sentence on the 2006 sitting stands word for word, and the old sentence does not, in ${Object.keys(places).join(', ')}`,
+    wrong.length === 0, wrong.length ? `wrong in ${wrong.join(', ')}` : '');
+  const record = places['tests/REFERENCE_2026.md'];
+  check('tests/REFERENCE_2026.md keeps the old sentence readable beside its correction, and finding 31 has the sitting',
+    record.split(kept).length >= 3 && /Added 2026-11-13 \(W3-22\): `vaudio_miles` \(not in TF2\) against a running engine/.test(record)
+      && record.includes('143,796 of the game\'s 145,800 decoded samples exactly and 144,952 within one step'),
+    `${record.split(kept).length - 1} corrections`);
   const readme = read('README.md'), accuracy = /\n## Accuracy\n([\s\S]*?)(\n## |$)/.exec(readme)?.[1] || '';
   check('README\'s "Accuracy" section names neither the profile nor the codec', accuracy.length > 100 && !/miles|vr12|voxware/i.test(accuracy),
     `${accuracy.length} characters`);

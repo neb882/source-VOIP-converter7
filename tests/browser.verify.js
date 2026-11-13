@@ -840,7 +840,7 @@ async function verifySpeexPage(page) {
 // under the control, a render's words, its playback and download, the console
 // and a share link.
 const MILES_NOTE = 'vaudio_miles is not a TF2 codec. The Source engines of 2006 and 2007 could run it; current TF2 ships its files and refuses the name. '
-  + 'It has not been checked against any recording of a running engine. Everything after the receiver\'s gain is TF2\'s of today.';
+  + 'Its codec was checked against one recording of a 2006 engine; the rest of the profile was not. Everything after the receiver\'s gain is TF2\'s of today.';
 async function verifyMilesPage(page) {
   console.log('\n[Browser 3c2b] The miles profile on the page (W3-20b)');
   const menu = await page.evaluate(() => {

@@ -392,9 +392,13 @@ const CODEC_PROFILES = {
   // gain is held through time nothing was sent, where the engines reset it
   // when a channel is assigned; a lost or late frame plays as 360 zeros in its
   // own place, where in the engines nothing is queued for it. Everything after
-  // the gain (the mixer, rooms, output) is TF2's of today. Unverified: it has
-  // not been checked against any recording of a running engine. snd_bits picks
-  // nothing.
+  // the gain (the mixer, rooms, output) is TF2's of today. Its codec stage was
+  // checked against one sitting of a 2006 engine on 2026-11-13; the profile as
+  // the app runs it was not. That sitting's second press came out in 143,913
+  // of the game's 145,800 samples after the gain when the receiver's codec was
+  // reset twice before it and the sender's once (measured; why twice was not
+  // read); the profile's rule for a new talk spurt was left a stand-in.
+  // snd_bits picks nothing.
   miles: {
     displayName: 'vaudio_miles (Voxware VR12 on 11 kHz sound, 2.9 kbps; Source 2006/2007, not TF2)',
     engine: 'vr12', codecRate: 11025, frameSize: 360, packetBytes: 12, bitrate: 2940,
