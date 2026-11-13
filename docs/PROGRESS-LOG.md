@@ -596,3 +596,7 @@ parts a and d merged 2026-11-13; part e is next and is the orchestrator's alone 
 ## 2026-11-13: RP-01b merged; RP-01's state replaced
 
 - RP-01, state, the part replaced: "part b was planned again 2026-11-13 as its own order (docs/work-orders/RP-01b-gate-hold-queue.md: `gate` and `queue` are built, `hold` stays a steps-only entry until the owner's run with both consoles at two uptimes; the orchestrator's private counts and rulings are at its end) a plan reviewer read it (build after edits, every finding taken, the order's last section) and a builder is on it"
+
+## 2026-11-13: next, BC-4 (replaced when its order was written)
+
+jitter as in-order arrival delays through the queue; retires the late-frame fit. With W3-02c-2 and W3-02d it is the last build before the tool's finish line. The comment at engine/render.js:389 still says the page does not offer the game's timeline; the first order that touches the engine corrects it.
