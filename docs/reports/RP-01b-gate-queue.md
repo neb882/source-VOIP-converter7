@@ -181,6 +181,8 @@ Q2 on the model.
   origin/main --report`: "cache number against origin/main (aa76f91): no cached file changed; the number stays v41".
   `git diff origin/main --stat`: only files the order allows; the record's diff adds lines only; `steam-sender.js`,
   `voice-channel.js`, `engine`, `sw.js`, `log-to-fixture.mjs` and `reference-channel.mjs`: no diff.
+- CI on the fix round: run 43412524931 on `b30c633`: `verify` success, all five jobs success; the clip's pin line
+  holds on CI; `== reproduce: passed, 64.4 s`.
 - The first build: `flock /tmp/tf2ve-heavy.lock node tests/run.mjs reproduce site harness recordings miles
   steam-sender`: each suite passed; `reproduce units passed 63.1`.
 - `node tests/run.mjs voice-channel` under the lock on `main` (`f855dd2`) and on the branch after the move, the times
