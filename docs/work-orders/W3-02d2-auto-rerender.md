@@ -219,3 +219,84 @@ measurements in place of the processor throttle; the one field `audio-worker.js`
 15. The timing is the two measurements of "The timing". The browser's processor throttle is not used for the
     page's own render, since it does not slow the worker (measured, the table under "Why").
 16. `audio-worker.js` may add the one field to its `result` reply. Nothing else in that file changes.
+
+### Ruled after the build (2026-11-13, the orchestrator)
+
+17. **`AUTO_RENDER_KEPT_MS` stays 30,000.** The builder stopped on the stop condition: in the page, a render from
+    the kept stage of a ten-minute source took 0.45 to 0.54 of the whole render (five runs; once 16.6 s against
+    31.0 s), about half, not two to three times faster as "What D compares" put it (measured by the builder in
+    headless Chromium on the build machine; the report has the table). The builder's figures include a wait for the previous
+    render's meter; with the worker free the reviewer measured 0.38 to 0.42 (one run). The ruling stands either way. The limit is a limit on the automatic
+    render's own time. At about half, an automatic render after a whole render under 30 s takes at most about
+    16 s, and one after a render from the kept stage under 30 s takes at most about 30 s, a few seconds more when
+    the timeline goes from the file's to the game's. Both are what ruling 8 meant. "Two to three times" in "What
+    D compares" reads "about twice (0.45 to 0.54 of the whole render, measured in the page)".
+
+## After the review (2026-11-13, the orchestrator)
+
+The reviewer read head `0ddf487` against `main` `85b4467` and tried every way of losing the kept stage the order
+names in the page (scripts of its own; each result below is measured in headless Chromium on the build machine
+unless marked). Everything not listed behaved as rules A to D say. The fix round is the list below; each point
+binds the builder and holds over the text above.
+
+1. **Ruling 18: an automatic render of a longer source runs only where the kept stage is.** The reviewer found, and
+   a skeptic confirmed with nothing held back in the page, that the decision of rules A to D is not read again when
+   the job starts. A second change while an automatic render is in its last stretch (the output stage, the WAV and
+   the meter do not yield: about 4 s of a 6.5 s render from the kept stage of 300 s, measured) can miss the cancel's
+   5 s bound; the worker is ended, rule C's mark is cleared, and the render already queued runs in a new worker from
+   the start. Measured by the skeptic with the browser on one core shared with a busy loop (a whole render 2.3 times
+   slower): the render from the kept stage took 14.2 s, the unasked render from the start 39.4 s, past the limit.
+   A device about 1.3 times slower than the build machine is enough (inferred from the measured stretch and bound).
+   It is the order's first stop-and-ask; ruled as the skeptic proposes:
+   - `runRender` passes to `processInWorker` whether the render started by itself for a source over
+     `AUTO_RENDER_SECONDS` (not by the button). In `prepare`, before the source is posted, such a render with
+     `state.workerKeepsShown` false throws an `AbortError` carrying a flag of its own. `pumpPageWorker`'s catch
+     settles the job and frees the queue; `runAudioProcess` rethrows an `AbortError`, so nothing falls back to the
+     page's thread. Never a plain error there: `runAudioProcess` would then render whole on the main thread.
+   - `runRender`'s catch has one branch for the flag: a console line of its own, no `cancelledKey`; the `finally`'s
+     `reconcileRender` then marks the render, since the mark is clear.
+   - The same holds where the worker breaks (`onerror`) during such a render: a render that started by itself for a
+     source over 60 s does not go to the compatibility path; it is marked.
+   - A source of 60 s or less and a render the user asked for never carry the flag; nothing changes for them.
+   - Checks: the suite's rig for "worker ended after cancel" (`tests/browser.verify.js`, near :3469) on a source over
+     60 s, two volume changes inside the bound: no render "from the start", the render marked, the console's line.
+     The break "the flag ignored in `prepare`" fails it. If the worker's `onerror` can be raised in the suite, a
+     second check; if not, the report says so.
+   - Not taken: a superseded render in its last stretch is not stopped at full speed either, so the next one waits
+     for it (11.2 s against 6.5 s, measured once); that is `main`'s behaviour for every render and is left as it
+     is.
+
+2. **Three checks [Browser 8d] lacks** (each break left the section green, 20 of 20):
+   - `startedFrom` taken after `TF2Audio.process` in `audio-worker.js` makes every render report "from the kept
+     codec result". Assert the first render's `renderedFrom` is null (from the start) and the press in the
+     reviewer's sequence `'a'` (from the kept capture signal), as values, not only in the detail text.
+   - `changedAfterCodecOnly` over the names of the render on screen's key only: with `vad_threshold` -30 (a name
+     absent from that key) a render then starts by itself from the kept capture signal, a new encode. Add a check
+     that such a change marks the render and starts none.
+   - `workerKeepsShown` set without `inWorker`: from `file://` with the codec skipped, a changed volume then
+     renders by itself on the page's thread. Add a check with the worker unavailable: the render is marked and
+     none starts.
+3. **A demo's sender settings.** For a demo the page's key drops mic gain, the filters and the capture channel
+   (`DEMO_IGNORES`, `app/render.js` near :304-310), but the engine's capture key holds them, so after a changed
+   `gain` a later volume change renders a demo over 60 s from the start (measured on a synthetic 66 s Steam demo:
+   from the kept capture 615 ms; after `gain` 2, from the start 1260 ms). Keep the render on screen's values of
+   the `DEMO_IGNORES` names with it, and treat a difference in them as a change outside the list (rule C's mark
+   cleared, the render marked). One check: a demo, `gain` changed, then volume: marked, none starts.
+4. **The words.**
+   - `docs/PAGE.md` (near :55-56) says the render starts from the codec's result the worker kept. With the codec
+     skipped, and for a demo, it starts from the kept capture signal and plays first seconds. Name both cases. The
+     older README sentence in step 3 that lists "a change on the receiver's side alone" among the cases with no
+     first seconds is wrong with the codec skipped; correct it the same way.
+   - `docs/PAGE.md` (near :89-90): "in about a third of a first render's time (measured on the build machine)"
+     becomes the page's figure with its standing: about half a whole render in the page on the build machine,
+     0.38 to 0.54 by the builder's and the reviewer's runs (ruling 17 and point 5), or the sentence says it is the engine's in
+     Node.
+   - The comment of [Browser 8] part 4 that jitter "needs a new encode" becomes untrue for Steam voice after BC-4;
+     it says jitter is read in the codec stage today.
+5. **The report's timing.** `timing.cjs` changed a setting while the worker still ran the previous render's meter
+   (4.0 s after a ten-minute first render), so the report's kept-stage times include that wait. The reviewer's run
+   with the worker free: whole 33.1 s, from the kept stage 13.9 and 12.5 s (0.38 to 0.42), right after another
+   render 15.4 s (one run). The report says so beside its table. Ruling 17 stands; `renderedTook` includes such
+   waits too, so rule D errs toward marking.
+
+The cache number rises at the merge (v42 to v43). Nothing outside the files the order allows.
