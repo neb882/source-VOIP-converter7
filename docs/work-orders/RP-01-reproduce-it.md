@@ -448,6 +448,7 @@ passes, and `node tests/cache-number.mjs origin/main --report` says the number s
 7. `node tests/run.mjs miles` passes (it reads `README.md` and `tests/REFERENCE_2026.md`).
 8. `git diff origin/main -- tests/REFERENCE_2026.md` shows added lines only.
 
+*Superseded 2026-11-13: part b's order is [RP-01b-gate-hold-queue.md](RP-01b-gate-hold-queue.md); the text below is kept as written.*
 **RP-01b.** Points 1, 3, 4 and 6 of part a for `gate`, `hold` and `queue`, and:
 1. `hold` on its stand-in at two uptimes of different rows gives every end at the stand-in's own uptime and
    fewer at the other.
