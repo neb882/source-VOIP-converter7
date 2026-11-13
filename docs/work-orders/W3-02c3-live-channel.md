@@ -478,3 +478,16 @@ Each has the planner's recommendation.
    keyed on the file's own timing, would mark a take made on the queue as made on the file's own timing.
 6. **The finish line.** Recommended wording for PROGRESS: this order is the last build the line's list names,
    and the line's measurement does not wait for it.
+
+## Rulings (2026-11-13, the orchestrator)
+
+All six as the planner recommends: the monitor runs BC-4's arrivals with no cap, no refusal and no warning beyond
+the box's help; the hold is D; two parts, a then b, a with a second reader; the chain refuses `opts.arriveAt`; a
+recorded take's key follows the timing the monitor ran (part b may touch `app/render.js` for that); PROGRESS gets
+the finish line's wording. The owner said on 2026-11-13 to keep moving with the list that named this order next;
+the box is off on every load, the default left with the orchestrator. PROGRESS's line to the owner gave the
+queue's wait (about 90 ms and 435 ms) as the monitor's cost: it is corrected to the hold's cost over today's
+monitor, about 102 ms at 66.67 frames a second and 357 ms at 300 (inferred, this order's "The hold-back"). Today's
+chain growing about 2 MB an hour in `steamTimeline`'s open-ended frame log (inferred from the code, with or
+without the queue) goes on PROGRESS's deferred list; this order does not fix it. A plan reviewer reads the order
+before part a is built.
