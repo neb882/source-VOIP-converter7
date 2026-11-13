@@ -68,7 +68,7 @@ seconds).
 | `video.verify.mjs` | `video`, units | The video remux on the fixtures in `tests/video/`: every picture sample comes out as it went in, and the new audio starts where the old did. | under 1 s |
 | `demo.verify.mjs` | `demo`, units | The demo reader on a synthetic SourceTV demo written bit by bit (`tests/demo/synthetic.dem`). | 1 s |
 | `output-stage.verify.mjs` | `output-stage`, units | The mixer and the output stage against the engine's read: the entry at 255/256, the upsampler, the clip, `volume`, the device's rate, the file's bytes; and the live chain equal to a render after its mix point. | 8 s |
-| `voice-channel.verify.mjs` | `voice-channel`, units | The receiver's voice channel (`voice-channel.js`; a render runs it when `opts.timeline` is `'game'`, which the page does not offer) against the rule read from the engine, and a replay of a console log in the game's format. | 1 min 4 s |
+| `voice-channel.verify.mjs` | `voice-channel`, units | The receiver's voice channel (`voice-channel.js`; a render runs it when `opts.timeline` is `'game'`, as the page's render on Steam voice does by default) against the rule read from the engine, and a replay of a console log in the game's format. | 1 min 4 s |
 | `steam-sender.verify.mjs` | `steam-sender`, units | Steam's sender against the orders' text and a second model written with plain arrays: the clock, the float hold, the gate, the pre-roll. | 12 s |
 | `swresample.verify.mjs` | `swresample`, units | The port of FFmpeg's resampler against hashes the native library made, on each of its kernels. | 4 s |
 | `room-dsp.verify.mjs` | `room-dsp`, units | The rooms as the engine does them, against a reference model's recorded outputs (`tests/roomdsp/`). | 12 s |

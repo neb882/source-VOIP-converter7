@@ -70,8 +70,9 @@ queue, a line beside **Hear** says that Rendered and Original do not stay in ste
 to about the wait, and at 300 frames a second the render gains about 0.4 ms every second. The line follows the
 render on screen, not the controls. A recorded live session is the monitor's sound, on the file's own timing: with
 Phrase timing on the game's queue it is marked as made with other settings, its line says so, and it does not
-render by itself, whatever its length; a changed setting or **Render** renders it. What is not exact on the queue
-is listed in the README's "Accuracy" and in [ACCURACY.md](ACCURACY.md).
+render by itself, whatever its length; a changed setting or **Render** renders it. What is not exact on the queue,
+the short pieces it cuts from a sound's first seconds among it, is listed in the README's "Accuracy" and in
+[ACCURACY.md](ACCURACY.md).
 
 **What a render runs again.** The page renders in one worker, which it keeps for its renders, its downloads, the
 meter and the real take's jobs. It sends the worker the source once. Each render leaves two of its stages there for

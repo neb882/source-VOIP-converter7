@@ -45,9 +45,12 @@ Phrase timing. `constants.js`, `sw.js` and everything under `engine/` are unchan
   place after its source is mounted, and the codec change that follows dispatches a `change` that does not bubble,
   so no settings event reaches the line before the render.
 - **Three pitch checks of a half-second tone** (`checkRenderedTone` in [Browser 3] and [Browser 5], the rate loop of
-  [Browser 7]) failed on the new default: the queue drops part of an unbroken tone's first moments when its channel
-  opens (the table's last row), and the pitch read from the zero crossings moved from 440 to 443 Hz. The reason is
-  the new default, so each now renders with `voice_timeline source` first and says why. The checks are unchanged.
+  [Browser 7]) failed on the new default. The pitch did not move: on the game's queue a tone that opens the channel
+  has short pieces cut out of its first seconds, inside the checks' window, and a count of zero crossings takes a
+  broken cycle for a change of pitch (the second read measured 440.17 to 440.18 Hz between the cuts, the clock's
+  0.04%). Each of the three now renders with `voice_timeline source` first and says why; a check on the default,
+  [Browser 8c], measures the pitch by the median length of a cycle, which a cut does not move, and holds it to
+  440 Hz within 1 Hz. *Corrected in the fix round (2026-11-13): this sentence first said the pitch moved.*
 - **Section 4 of `tests/stages.verify.mjs`** had a case `{ timeline: 'game' }`, now the page's default; it became
   `{ timeline: 'source', fps: undefined, bufferMs: undefined }`, so `steam` on the file's own timing stays covered.
   On the `celt_22` base, section 2 changes no timeline (the engine refuses `'game'` there).
@@ -82,13 +85,12 @@ were (the suite passes).
 ## Done means
 
 1. `CHROMIUM_EXECUTABLE=… flock /tmp/tf2ve-heavy.lock node tests/run.mjs browser`, on the final tree (after the
-   merge of `main`): 445 browser checks passed, `browser  browser  passed  313.5`, "1 of 1 suites passed". The new checks are listed under [Browser 8c] and [Browser 3f].
-2. `node tests/run.mjs stages` (in `pnpm test`, final tree): `355 stages checks passed, 0 failed`, `== stages:
-   passed, 248.4 s`; the browser check that holds `RENDER_OPTION_NAMES` to the page's passes ("tests/stages.verify.mjs
+   merge of `main`): the suite passed. The new checks are in [Browser 8c] and [Browser 3f].
+2. `node tests/run.mjs stages` (in `pnpm test`, final tree): the suite passed; the browser check that holds `RENDER_OPTION_NAMES` to the page's passes ("tests/stages.verify.mjs
    changes every option the page sends, and no other").
-3. `flock /tmp/tf2ve-heavy.lock pnpm test`, final tree: "27 of 27 suites passed. 1073.3 s summed" (17 min 54 s).
-   `git diff origin/main --stat -- tests/` shows `tests/accuracy.mjs`, `tests/browser.verify.js` and
-   `tests/stages.verify.mjs` only. `git diff origin/main --stat -- engine audio.js audio-worker.js live-worker.js
+3. `flock /tmp/tf2ve-heavy.lock pnpm test`, final tree: every suite passed.
+   `git diff origin/main --stat -- tests/` shows `tests/README.md`, `tests/REFERENCE_2026.md`, `tests/accuracy.mjs`,
+   `tests/browser.verify.js` and `tests/stages.verify.mjs` only (the first two allowed by the fix round). `git diff origin/main --stat -- engine audio.js audio-worker.js live-worker.js
    voice-channel.js steam-sender.js constants.js` prints nothing.
 4. `node tests/cache-number.mjs origin/main --report`: "cached files changed since origin/main (f855dd2):
    app/console.js, app/core.js, app/render.js, app/source.js, index.html, live.js, style.css" and "cache number
@@ -149,3 +151,27 @@ following the controls on every change of the settings.
 Checked against this branch's `main` (`584466e`): every number the order gives for `app/`, `index.html`, `live.js`,
 `batch.js`, `engine/`, `voice-channel.js`, `live-worker.js` and the suites it names held. `presentRender` runs
 436-531 (the order says 436-528, which holds the lines it cites).
+
+## The fix round (2026-11-13)
+
+The order's section "After the review and the second read", its twelve points. Each new check was seen to fail on
+its break (run through a temporary harness of [Browser 8c] and [Browser 3f], deleted after; point 11 against the
+whole browser suite), and each break was taken back.
+
+| Point | What was done | The check, and its break |
+| --- | --- | --- |
+| 1. The batch's key | `batch.js` keys its rows and its run by `batchKey()`, the controls' settings alone (`JSON.stringify(renderOptions())`), not `settingsKey()` | with a video as the page's source, two audio files in the batch end "Done"; with `main`'s code (rows by `settingsKey()`, the run by `renderOptions()`) both rows read "Rendered with older settings" |
+| 2. An audio-only MP4 or MOV | the flag is false where `TF2Video.inspect` read the file whole (no note) and found no video track; a WebM or an unreadable file keeps it | `tone_22050.m4a` under an `.mp4` name renders on the game's queue with no reason line; with the flag set for every video file it rendered on `source` |
+| 3. The first seconds on the page | the help under Phrase timing gains "At 300 frames a second a sound that opens the queue loses short pieces in its first seconds." (92 characters; also in `voice_timeline`'s console help); the README's and ACCURACY's entry "The start and the end" give the second read's figures (measured on the model) and the record's side (measured, Set G's logs, finding 23); PAGE.md points there | the words check holds the new help |
+| 4. Two wrong sentences | "11 ms at 300 in about one seed in a hundred" is now the W3-02c-2 report's 0 to 16.5 ms in seeds 1 to 10 and 11.4 ms in the worst case it rendered, with the page's own draw losing the first 12 ms; "no dip and no gap" is now "no fade and no underrun in 26 seeds", with the cuts of the first seconds | words only |
+| 5. The accuracy table's row | the row says 57% is the mean over 30 seeds and that the page shows one fixed draw | words only |
+| 6. The line beside Hear | two sentences, of 113 and 71 characters | (the words) |
+| 7. The codec skipped | the check also reads that the line beside Hear is hidden | with the line following Phrase timing's control at each render, that check failed |
+| 8. The pitch | the three comments and this report's sentence say that the queue cuts pieces out of the tone and a count of zero crossings reads them as pitch; a check on the default measures a 3 s tone of 440 Hz by the median length of a cycle (440.13 Hz) | with the page's rate of the render set 1% high, it read 444.53 Hz and failed |
+| 9. The held live take's download | the label reads "Download WAV (the live take)" while the take is held, "(earlier settings)" otherwise | the monitor's take and the 90 s take; with the old label both failed |
+| 10. Words outside the first list | `tests/README.md:71` corrected; `tests/REFERENCE_2026.md` gains a dated correction after each of the two sentences (added lines only) | — |
+| 11. The reviewer's break | `updateTimelineNote()` taken out of `updateSignalChain`: a new check fails on it in the whole suite (with no source on the page, `snd_codec 0` shows the line under Phrase timing and `snd_codec 1` hides it, with no render) | that check |
+| 12. No counts | this report gives no count of checks or suites | — |
+
+The engine's diff stays empty. The status line of an audio-only MP4 still says "the video's audio only (only MP4
+and MOV can take the render back)", as before this order; that sentence is not this order's.
