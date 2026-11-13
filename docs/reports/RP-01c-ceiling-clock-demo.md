@@ -1,7 +1,7 @@
 # RP-01c: the checks `ceiling`, `clock` and `demo`, their sections of the page, the steps-only entries
 
 The builder's report. The order is `docs/work-orders/RP-01-reproduce-it.md`, part c (sections 3, 4, 5, 9, 14 and
-15). Branch `claude/rp-01c-ceiling-clock-demo`, from `main` at `aae2a36`; `main` merged in at `35b3672`.
+15). Branch `claude/rp-01c-ceiling-clock-demo`, from `main` at `aae2a36`; `main` merged in at `35b3672` and, with W3-21, at `d1b72d7`.
 
 **Status:** built. Every done-means of part c passes on this machine; CI is in "Runs". No private file was opened:
 no step needed one.
@@ -46,7 +46,7 @@ Each ends as part a's do: `<check>: as expected` (exit 0), `differs: <reason>` (
 | Check | The stand-in | What its pass shows |
 | --- | --- | --- |
 | `ceiling` | a 1 kHz tone at 0.3 with pauses, rendered by `TF2Audio.process` at `volume` 0.15 and 0.5 | the reading of 24-bit stereo, 16-bit mono and float files; the plateau found and counted; both pass lines. The record's 4895 to 4896 and 16320 are the render's 4896 and 16320 here (finding 30, as built) |
-| `clock` | 30 s of a speech-like source in phrases of 8 s, rendered with `timeline: 'game'` at 66.67 frames a second (seed 2) against the default render | the render, the line-up and the verdicts: the stand-in reads +409, its own packets a second 17.7 (403 computed). The clock comes from the channel as built, which drops one sample a packet as read, not from the game's output |
+| `clock` | 30 s of a speech-like source in phrases of 8 s, rendered with `timeline: 'game'` at 66.67 frames a second (seed 2) against the default render | the render, the line-up and the verdicts: the stand-in reads +404 (+409 before W3-21 was merged in), its own packets a second 17.7 (401 computed). The clock comes from the channel as built, which drops one sample a packet as read, not from the game's output |
 | `demo` | a demo written by the suite: three phrases of libopus 1.1.5 frames at Steam's settings (135 frames, 10 of one byte), eight frames in a phrase's first message and three after, numbered from 0, end markers and silence records, a SteamID in universe 0, marker strings in every text field of the header and in a printed line | the reading of frames, rate records and numbers; nothing of the header or a SteamID printed |
 
 Why 66.67 frames a second for the clock's stand-in: at 300 the channel's wait overflows the ring at every restart
@@ -57,7 +57,7 @@ kind (long phrases, 300 frames a second), on which the accuracy suite reads +397
 
 The cases, besides each stand-in's pass: `ceiling` with the tops two and three steps up (4,898 and 4,899), one sample
 three steps over the ceiling (4,918), checked at the wrong volume, zeros, a tone too quiet to clamp, and no
-`--volume`. `clock` with the take 100 parts in a million faster (+509; with and without `--packets`), judged at 22.3
+`--volume`. `clock` with the take 100 parts in a million faster (+533; with and without `--packets`), judged at 22.3
 packets a second, zeros, its first 7 s (10 windows) and first 5 s (`track()`'s fall-back), unrelated noise, and a
 source of zeros. `demo` with the second phrase numbered from 7, one frame's TOC made SILK-only, one marked two
 channels, one phrase's rate records at 48000, no voice, one phrase, `vaudio_celt`, a file that is not a demo, and
@@ -89,7 +89,7 @@ Each break was made in the file, the suite run, the file restored (`break.sh` in
 
 ## Done means
 
-1. `node tests/run.mjs reproduce` passes (`reproduce  units  passed  46.0`), and `node tests/reproduce.mjs` lists the
+1. `node tests/run.mjs reproduce` passes (`reproduce  units  passed  45.8`, after `main` with W3-21 was merged in), and `node tests/reproduce.mjs` lists the
    checks: `ceiling`, `clock` and `demo` with their usage, `hold`, `gate` and `queue` as not built yet (exit 0).
 2. Each check's last line and exit, on the suite's files:
 
@@ -99,8 +99,8 @@ Each break was made in the file, the suite run, the file restored (`break.sh` in
    | `ceiling`, the tops three steps up | `ceiling: differs: the flat tops are not at 32639 x volume: they give a volume of 0.1501 where --volume says 0.15. ...` | 1 |
    | `ceiling`, zeros | `ceiling: differs: file 1 holds no sound (every sample is zero)` | 1 |
    | `ceiling`, a voice too quiet | `ceiling: differs: file 1 has no flat top (0 samples sit flat at its loudest level, fewer than 384): ...` | 1 |
-   | `clock` on its stand-in | `clock: as expected` (+409, expected +397 to +416) | 0 |
-   | `clock`, 100 parts faster | `clock: differs: the clock +509 is outside the record's range: count the packets a second ... and give them as --packets` | 1 |
+   | `clock` on its stand-in | `clock: as expected` (+404, expected +397 to +416) | 0 |
+   | `clock`, 100 parts faster | `clock: differs: the clock +533 is outside the record's range: count the packets a second ... and give them as --packets` | 1 |
    | `clock`, zeros | `clock: differs: file 1 holds no sound (every sample is zero)` | 1 |
    | `clock`, its first 5 s | `clock: differs: the windows that line up span too little time to measure the clock: ...` | 1 |
    | `demo` on its stand-in | `demo: as expected` | 0 |
@@ -114,7 +114,7 @@ Each break was made in the file, the suite run, the file restored (`break.sh` in
 5. Every figure on the page is the record's, with its standing and its finding's number: the table below.
 
 All parts: `node tests/run.mjs site harness` passes; `node tests/cache-number.mjs origin/main --report` prints
-`cache number against origin/main (beedc69): no cached file changed; the number stays v39`.
+`cache number against origin/main (57f354d): no cached file changed; the number stays v40`.
 
 The script and the suite also run in a `git archive` copy of the branch with no `node_modules`: the suite passes
 there (101 checks).
@@ -199,6 +199,9 @@ Figures that are not the record's, and say so on the page:
   starting at 0").
 - **`docs/README.md`'s row for RP-01** still says the checks other than `inputs`, `gain`, `celt` and `speex` are not
   built: that row is the index the orchestrator keeps, and I left it.
+- **W3-21 moved the clock's stand-in** from +409 to +404 (its sender's capture phase changes the render's packets).
+  The stand-in stays inside the record's range, but it is one render's figure: a later change to the sender or the
+  channel can move it again, and the suite would then say so.
 - **The suite takes 46 s** where it took 10 s. The clock's 30 s source and its two renders are most of it; a shorter
   source made the clock's stand-in unstable.
 - **"Not yet run on a recording of the game"** stands on all three sections; it is the orchestrator's to lift.
