@@ -115,10 +115,23 @@
 
   // The note under the live panel (a status a screen reader hears); an error
   // in the status line's error style (W4-01c).
+  let noteText = '';
   function setNote(text, error = false) {
-    ui.note.textContent = text;
+    noteText = text;
     ui.note.classList.toggle('error', !!error);
+    showNote();
   }
+  // BC-4b: while the monitor runs on Steam voice with jitter above 0, the
+  // note adds that jitter does nothing there: the monitor keeps the file's
+  // own timing, which has no voice queue (W3-02c-3, not built yet). The text
+  // is written only when it changes, so a screen reader hears it once.
+  const JITTER_NOTE = 'Jitter does nothing in the live monitor yet.';
+  function showNote() {
+    const jitter = !!live && steamCodec() && Number(els.jitter && els.jitter.value) > 0;
+    const text = jitter ? (noteText ? `${noteText} ${JITTER_NOTE}` : JITTER_NOTE) : noteText;
+    if (ui.note.textContent !== text) ui.note.textContent = text;
+  }
+  document.addEventListener('tf2:settings', showNote);
 
   function deliverRecording(message) {
     if (live) { live.saving = false; live.recording = null; }
