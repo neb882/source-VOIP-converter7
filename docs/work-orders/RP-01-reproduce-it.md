@@ -787,3 +787,15 @@ once more with `tests/recordings/inspect.mjs` and ran the suite `recordings` and
 `docs/REPRODUCE.md` gives it. The hard rule in `CLAUDE.md` is amended in the same change. Part f, CI running the
 script on the published files, is next.
 
+
+## 20. Part f after its review (2026-11-13, the orchestrator)
+
+The reviewer read `3fb4f65` (merge; every break it made on copies was caught but the one below). The fix round:
+
+1. **A wrong codec in a row drops a `gain` pair without a failure.** Section [13] builds the pairs from
+   `made_with.codec`, `voice_maxgain` and `sets`; with Set O's row naming `vaudio_celt`, [13] and `recordings`
+   still pass and `gain` runs on Set M's pair alone (shown on a copy). [13] holds each row's `made_with.codec` to
+   its check (`celt` with `vaudio_celt`, `celt --high` with `vaudio_celt_high`, `speex` with `vaudio_speex`), and
+   requires that every `voice_maxgain 1` row sharing a set with a `voice_maxgain 10` row of its codec is paired.
+2. **The report** says that section 16's zero test went into `reproduce`, not `recordings`, because part f's file
+   row does not allow `tests/recordings.verify.mjs`.
