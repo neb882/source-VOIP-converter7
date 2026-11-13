@@ -696,3 +696,41 @@ parts' order). What else it found, and what is ruled:
   folder check; hashes of files the record has no hash for cannot do it.
 - **Not taken:** folding part f into part e. Part e is the one change that touches private files and it stays
   as small as it can be.
+
+## 16. Before part e: two files stay out (2026-11-13, the orchestrator)
+
+Section 7's test counts a file's last packet apart, because the last packet differs between two key presses. So
+the test does not cover it, and a file may go out only if what the test does not cover holds nothing. Measured
+on the nine candidates, privately (counts only): the samples a file's check does not compare (the last packet of
+a CELT file, the 80 samples before the codec's delay and the tail after the render in a Speex file).
+
+| File | Samples its check does not compare | Of them not zero |
+| --- | --- | --- |
+| Set H, `vaudio_celt`, `voice_maxgain 1` | 512 | 0 |
+| Set H, `vaudio_celt`, `voice_maxgain 10` | 512 | 511, up to full scale, with their energy at 7.6 to 9.5 kHz, where the clip has none |
+| Set H, `vaudio_celt_high`, `voice_maxgain 1` | 1,024 | 0 |
+| Set I, first file (`voice_maxgain 1`) | 512 | 0 |
+| Set I, second file (`voice_maxgain 10`) | 1,024 (it is one packet longer than the first) | 235, none above 39 steps |
+| Set M, `vaudio_speex`, `voice_maxgain 1` | 80 | 0 |
+| Sets M and O, `vaudio_speex`, `voice_maxgain 10` (one file) | 114 | 0 |
+| Set O, `vaudio_speex`, `voice_maxgain 1` | 114 | 0 |
+| Sets M and O, the captured input (one file) | 0 | 0 |
+
+**Ruled.** The two `voice_maxgain 10` files of Sets H and I stay private. Their last packet holds sound that is
+not the clip's and that no code of this repository makes. It is probably what the decoder made of a packet cut
+short at the key's release (guessed: the energy lies where the clip has none, and the same packet of the
+`voice_maxgain 1` press is silent), and the read of the capture says a file input never reaches the microphone
+(read, W3-03's report). But it is not shown, a doubt leaves a file out, and publishing cannot be undone. Seven
+files go out, each with every sample either compared by its check or zero; the manifest's row says which.
+
+**What follows.**
+
+- Part e adds seven files, 2,630,672 bytes together where section 14 says nine and 3,508,328, and every "nine"
+  in section 8's wording becomes "the recordings that `tests/recordings/manifest.json` lists".
+- The suite `recordings` gains, in part f, the test this section applies by hand: every sample of a published
+  file that its row's check does not compare is zero.
+- `gain` has no published CELT pair. It runs in public on the Speex pair of Set M and on Set O's first file with
+  the shared `voice_maxgain 10` file (measured privately on both: no sample differs before the last 160). The
+  page's `gain` section keeps Set H's count as the record's and says that pair is not published.
+- A press's last packet that holds sound the clip does not is entered in the record as measured and not
+  explained. The real plug-in or the game's own decoder on a cut packet would settle it; no order asks for that.
