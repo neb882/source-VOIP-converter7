@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import * as opus from '../opus-codec.mjs';
 import * as VR12 from '../vendor/voxware-vr12/index.mjs';
-import { loadEngine } from './lib/engine.cjs';
+import { loadEngine, ENGINE_FILES } from './lib/engine.cjs';
 
 let passed = 0;
 const failed = [];
@@ -736,7 +736,10 @@ console.log('\n[miles] 13. The words');
   const flat = (t) => t.replace(/\s+/g, ' ');
   const comment = (t) => flat(t.split('\n').filter(l => /^\s*\/\//.test(l)).map(l => l.replace(/^\s*\/\/ ?/, '')).join(' '));
   const headComment = (f) => comment(read(f).split('\n').slice(0, read(f).split('\n').findIndex(l => !/^\s*\/\//.test(l))).join('\n'));
-  const milesComment = (() => { const lines = read('constants.js').split('\n'), at = lines.findIndex(l => /^\s*miles: \{/.test(l));
+  // The profiles' file is the first of the helper's list (the harness keeps
+  // its name out of the suites).
+  const profiles = ENGINE_FILES[0];
+  const milesComment = (() => { const lines = read(profiles).split('\n'), at = lines.findIndex(l => /^\s*miles: \{/.test(l));
     let from = at; while (from > 0 && /^\s*\/\//.test(lines[from - 1])) from--; return comment(lines.slice(from, at).join('\n')); })();
   const kept = 'It has not been checked against any recording of a running engine. *Corrected by W3-22 (2026-11-13): ' + SENTENCE + '*';
   const places = {
@@ -745,7 +748,7 @@ console.log('\n[miles] 13. The words');
     'tests/REFERENCE_2026.md': flat(read('tests/REFERENCE_2026.md')),
     'vendor/voxware-vr12/README.md': flat(read('vendor/voxware-vr12/README.md')),
     'vendor/voxware-vr12/index.mjs (its head)': headComment('vendor/voxware-vr12/index.mjs'),
-    'constants.js (the miles profile\'s comment)': milesComment,
+    [`${profiles} (the miles profile's comment)`]: milesComment,
     'tests/miles.verify.mjs (its head)': headComment('tests/miles.verify.mjs'),
   };
   const wrong = Object.entries(places).filter(([f, t]) => {
