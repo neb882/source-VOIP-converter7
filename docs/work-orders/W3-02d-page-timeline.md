@@ -1,6 +1,6 @@
 # W3-02d-1: the page renders on the game's timeline
 
-**Status 2026-11-13: built; reviewed and read a second time (merge after fixes: the last section); the builder is on the fix round.** This is the second text of the order. The
+**Status 2026-11-13: built, reviewed, read a second time, fixed and merged (cache v42).** What follows is the order as it was built from; the last section is the fix round. This is the second text of the order. The
 first was written by a planner at `9d5113a`, ruled on by the orchestrator, and read by a plan reviewer as its
 builder would read it. The reviewer's ten findings are written in, the rulings are folded into the text (a list
 of them is at the end), and the order is split in two: this one, and

@@ -191,6 +191,8 @@ Changed after registration, 2026-11-13, before any predicted take existed: `stea
 
 Changed after registration, 2026-11-13, before any predicted take existed: `constants.js` and `opus-codec.mjs` changed in comments only for W3-22 (the words on `vaudio_miles`, which is not a TF2 codec). No render changed and no recorded hash moved; the predictions are scored as registered.
 
+Changed after registration, 2026-11-13, before any predicted take existed: no hashed model file changed for W3-02d-1. The page's `renderOptions()` (`app/render.js`, not a hashed model file), from which `tests/accuracy.mjs` builds every prediction's options, now sends `timeline` `'game'` with `fps` and `bufferMs` on Steam voice and no longer sends `retime`. `tests/accuracy.mjs` sets `timeline` `'source'` and leaves `fps` and `bufferMs` out in its four renders, so every prediction renders as registered, and the note above that no prediction asks for `'game'` stays true. The predictions are scored as registered.
+
 ## Results
 
 Not recorded yet.
