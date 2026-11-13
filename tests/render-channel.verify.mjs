@@ -649,7 +649,7 @@ if (runs(8)) {
   const ROWS = [
     ['celt_22', { codec: 'celt_22' }], ['celt_44', { codec: 'celt_44' }], ['speex', { codec: 'speex' }],
     ['steam_48 (not in TF2)', { codec: 'steam_48' }], ['miles (not in TF2)', { codec: 'miles' }],
-    ['the codec bypassed', { enableWarble: false }], ['a demo\'s received voice', { received }], ['retime on', { retime: true }],
+    ['the codec bypassed', { enableWarble: false }], ['a demo\'s received voice', { received }],
     ['timeline \'gmae\'', { timeline: 'gmae' }], ['timeline \'\'', { timeline: '' }], ['timeline 0', { timeline: 0 }],
     ['timeline false', { timeline: false }], ['timeline \'GAME\'', { timeline: 'GAME' }]
   ];
@@ -667,6 +667,27 @@ if (runs(8)) {
   for (const value of ['source', null, undefined]) {
     const r = await A.process(buffer(x, rate), { ...BASE, timeline: value });
     check(`timeline ${JSON.stringify(value) ?? 'undefined'}: the default render's WAV and codecInfo`, await hashOf(r) === plain && !('channel' in r.codecInfo) && !('sent' in r.codecInfo));
+  }
+  // retime, which the engine no longer reads (W3-02f): 'game' with it is the
+  // 'game' render, from process() and from createRender().
+  {
+    const o = { ...BASE, timeline: 'game' };
+    const game = await hashOf(await A.process(buffer(x, rate), o));
+    let given;
+    try { given = await hashOf(await A.process(buffer(x, rate), { ...o, retime: true })); } catch (e) { given = e; }
+    let streamedHash = null;
+    const failed = await thrown(async () => {
+      const r = await A.createRender({ sampleRate: rate, length: x.length, numberOfChannels: 1 }, { ...o, retime: true });
+      const first = await r.push(x), end = await r.finish();
+      const out = new Float32Array(first.length + end.samples.length);
+      out.set(first);
+      out.set(end.samples, first.length);
+      streamedHash = await hashOf({ blob: A.encodeWav(out, r.sampleRate), codecInfo: end.codecInfo });
+    });
+    const text = (h) => (h instanceof Error ? `${h.name}: ${h.message}` : h === game ? 'equal' : 'differs');
+    check('timeline \'game\' with retime true: the \'game\' render\'s WAV and codecInfo, from process() and from createRender()',
+      given === game && !failed && streamedHash === game,
+      `process() ${text(given)}; createRender() ${failed ? text(failed) : text(streamedHash)}`);
   }
 }
 

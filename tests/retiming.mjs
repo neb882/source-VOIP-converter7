@@ -17,8 +17,9 @@
  * With the Set D SourceTV demo, the Set D takes are checked transition by
  * transition against the packets' arrival at the server. Every take is then
  * predicted transition by transition from its own earlier transitions only
- * (the model learns the session's L0), against the app's current rule (a
- * 41% chance after a silence of at most 0.45 s, `voice_retime`).
+ * (the model learns the session's L0), against the flat rule the app ran
+ * until W3-02f, kept here as a copy (a 41% chance after a silence of at most
+ * 0.45 s, `voice_retime`).
  *
  * --generative adds, after the output above, the queue model as a render
  * could run it: from the gate model's talk spurts alone, with every
