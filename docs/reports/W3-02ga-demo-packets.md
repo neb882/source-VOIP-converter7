@@ -226,8 +226,11 @@ On this branch, before the merge, with nothing of the record copied out but numb
 
 - Part b (the page, its checks and the documents) is the next part, after W3-02c-3b and the private look (ii).
 - The figures of the order's tables "The zero" and the worked table were the prototype's; the suite holds what this
-  build measures (above). They agree with the prototype's at 100 and 66.67 fps; at 300 fps the first two opened
-  phrases start 9.2 and 9.7 ms late (the prototype: 9.2 and 11.8).
+  build measures (above). The worked table's counts are the prototype's. The phrases differ: at 300 fps the first two
+  opened phrases start 9.2 and 9.7 ms late (the prototype: 9.2 and 11.8), and the phrase after 26 ticks opens 3.1 ms
+  early at 100 fps and 8.5 ms late at 66.67 on the fixture, where the prototype's opened phrases started 2.6 and 3.0
+  ms late. (Corrected in the fix round: this item said the figures "agree with the prototype's at 100 and 66.67
+  fps".)
 - A message that holds an empty Opus record or a sample-rate record and nothing else gives no entry in `decode()`'s
   packets, so the game's handling of it (an empty packet that would open a channel) is not modelled; none is known.
 - The suite's render-stream case makes its frames from seeded bytes behind Opus TOCs (render-stream's shared

@@ -1644,17 +1644,42 @@ if (runs(21)) {
   {
     // The silence record behind the message's sound (read; the unit, output samples, inferred):
     // 11 frames (9,702 samples) then 750 zeros, dropped; 10 frames (8,820, not more than 8,820) then
-    // 750, kept: 8,820 + 1,379 (measured).
+    // 750, kept: 8,820 + 1,379 (measured). Then (W3-02g-a's fix round) a message of a silence record
+    // alone, which closes the spurt, and a message with a silence record in front of its frames: its
+    // packet starts with the zeros, and its source is its first frame's place less them (the choice
+    // of "After the plan review", point 6).
     const f = dec.packets[0].records[0].frames.concat(dec.packets[1].records[0].frames, dec.packets[2].records[0].frames).filter((e) => !e.end);
     const frames = (n) => f.slice(0, n).map((e, s) => ({ seq: s, data: e.data }));
     const packets = [{ tick: 0, rate: 24000, at: 0, records: [{ frames: frames(11) }, { silence: 750 }] },
-      { tick: 200, rate: 24000, at: 72000, records: [{ frames: [{ end: true }, ...frames(10)] }, { silence: 750 }] }];
-    const n = 72000 + 20 * 480, x = new Float32Array(n);
-    const g = await demoRender({ frameLog: Array(Math.ceil(n / 480)).fill(2), frameBytes: Array(Math.ceil(n / 480)).fill(60), frameMs: 20, spurts: 2, packets, firstTick: 0, tickSeconds: 0.015 },
+      { tick: 200, rate: 24000, at: 72000, records: [{ frames: [{ end: true }, ...frames(10)] }, { silence: 750 }] },
+      { tick: 240, rate: 24000, at: 76800, records: [{ silence: 750 }] },
+      { tick: 250, rate: 24000, at: 90000, records: [{ silence: 750 }, { frames: [{ end: true }, ...frames(6)] }] }];
+    const n = 6 * 24000, x = new Float32Array(n), silent = { samples: x, packets, firstTick: 0, tickSeconds: 0.015 };
+    const g = await demoRender({ frameLog: Array(Math.ceil(n / 480)).fill(2), frameBytes: Array(Math.ceil(n / 480)).fill(60), frameMs: 20, spurts: 3, packets, firstTick: 0, tickSeconds: 0.015 },
       {}, buffer(x, 24000));
     const sizes = (k) => g.resampled.filter((y) => y.p === packets[k]).map((y) => y.n).join();
     check('a silence record behind more than 8,820 samples of its message is dropped (11 frames, then 750: dropped); behind 8,820 it is kept (10 frames, then 750: 8,820 and 1,379)',
-      g.r.codecInfo.demo.droppedSilence === 1 && sizes(0) === '9702' && sizes(1) === '8820,1379' && g.decoded.length === 3, `${sizes(0)}; ${sizes(1)}`);
+      g.r.codecInfo.demo.droppedSilence === 1 && sizes(0) === '9702' && sizes(1) === '8820,1379' && g.decoded.length === 6, `${sizes(0)}; ${sizes(1)}`);
+    const ref = await demoReference(silent, { fps: 300, bufferMs: 100 }), ch = g.r.codecInfo.channel;
+    const zeros = Number(sizes(3).split(',')[0]), place = Math.round(90000 * 147 / 80) - zeros;
+    check('a message whose packet starts with a silence record\'s zeros: its source is its first frame\'s place less the zeros; codecInfo.channel (source map and spurts) and the voice are the reference\'s',
+      isDeepStrictEqual(ch, ref.info) && firstDiff(g.voice, ref.samples) === -1 && ch.spurts.length === 2 && Math.round(ch.spurts[1].start * 44100) === place
+      && zeros > 1300 && Array.from(ch.source).some((v) => v >= place && v < place + zeros), `its packet ${sizes(3)}, its source ${place}`);
+  }
+  {
+    // A source cut short (72,000 samples, 3 s): the messages after the render's end are counted and
+    // not pushed, and those that arrive between the end and the end plus the zero, which still sound
+    // in it, are pushed (W3-02g-a's fix round: the first block past the end is counted with the zero).
+    const cut = 72000, decCut = { ...dec, samples: dec.samples.subarray(0, cut), frameLog: dec.frameLog.slice(0, cut / 480), frameBytes: dec.frameBytes.slice(0, cut / 480) };
+    for (const fps of [300, 66.67]) {
+      const game = await demoRender(receivedOf(decCut), { fps }, buffer(decCut.samples, 24000)), ref = await demoReference(decCut, { fps, bufferMs: 100 });
+      const length = Math.round(cut * 147 / 80), Z = ref.Z;
+      const inside = dec.packets.filter((p) => { const t = 1323 * Math.round((p.tick - dec.firstTick) * dec.tickSeconds / 0.015) / 2; return t >= length && t < length + Z; }).length;
+      check(`queue.dem cut at 72,000 samples, at ${fps} fps: process() is the reference, sample for sample and member for member, with messages that arrive between the end and the end plus the zero pushed`,
+        firstDiff(game.voice, ref.samples) === -1 && isDeepStrictEqual(game.r.codecInfo.channel, ref.info) && isDeepStrictEqual(game.r.codecInfo.demo, ref.counts)
+        && inside >= 1 && ref.counts.pastEnd > 0 && game.voice.length === length,
+        `${inside} message${inside === 1 ? '' : 's'} in [${length}, ${length + Z}); ${ref.counts.pushed} pushed, ${ref.counts.pastEnd} past the end`);
+    }
   }
   {
     // The ticks: halved, with tickSeconds 0.03, the same samples; firstTick and every tick moved by

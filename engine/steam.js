@@ -387,11 +387,18 @@
   //     at 44.1 kHz; read, W3-09 section 4; that the wait is counted in
   //     output samples is inferred), else n zeros go to the resampler; a
   //     type 6 record is walked by decoder.record(), and the blocks it made,
-  //     if any, go to the resampler in one call;
+  //     if any, go to the resampler in one call. A record that made no block
+  //     and a silence record of 0 samples make no call: both are choices
+  //     (whether Steam's client calls its resampler with no samples was not
+  //     read);
   //   - its packet is what the resampler gave, joined. Over 11,264 samples
-  //     (steamFits) it is refused: nothing of it reaches the gain or the
-  //     channel, which is given an empty packet on the message's tick, and
-  //     the decoder and the resampler keep the state it left them in;
+  //     (steamFits) it is refused: nothing of it reaches the gain, and the
+  //     decoder and the resampler keep the state it left them in (read,
+  //     finding 29). The channel is given an empty packet on the message's
+  //     tick, so a refused message opens a channel when none is open: that is
+  //     chosen, not read (ruling 5 of 2026-11-11 in
+  //     docs/work-orders/W3-02-receiver-queue.md, resting on one line of Set
+  //     J's log; what the engine does with Steam's refusal was not read);
   //   - otherwise the channel is given the packet over 32768 on the
   //     message's tick (empty for a message that made no sample: an end
   //     marker alone still opens a channel).
@@ -454,7 +461,7 @@
         if (record.silence !== undefined) {
           silence = true;
           if (size > silenceWait) { info.droppedSilence++; continue; }
-          if (!record.silence) continue;
+          if (!record.silence) continue;                     // a choice: no call with no samples
           const pcm = new Int16Array(record.silence);
           onDecoded?.(pcm, p);
           const y16 = resampler.packet(pcm);
@@ -472,7 +479,7 @@
           before = size;
           while (ahead < made.blocks.length && made.blocks[ahead].code === FRAME_CODES.lost) ahead++;
         }
-        if (made.blocks.length) {
+        if (made.blocks.length) {                             // a choice: no call when no block was made
           onDecoded?.(made.pcm, p);
           const y16 = resampler.packet(made.pcm);
           onResampled?.(y16, p);
