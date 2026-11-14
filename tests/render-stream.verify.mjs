@@ -145,6 +145,60 @@ function receivedVoice(seconds, seed) {
   return { samples, received: { frameLog, frameBytes, frameMs: 20, spurts } };
 }
 
+// A demo's own packets (W3-02g), made here as the received voice above is: a
+// demo's messages in Set D's shape, phrases that open with 8 frames from
+// number 0 (13 in the third phrase, which the game refuses) and go on with 3
+// frames every fourth tick, an end marker with the last and a silence record
+// of 1,500 samples four ticks later, pauses of 10 to 80 ticks, 2 frames that
+// never came in front of a message of the second phrase, two messages on one
+// tick in the fourth, and an end marker alone past the end. The frames are
+// seeded bytes behind the TOC of a 20 ms Opus frame (hybrid, SILK or CELT),
+// which Steam's decoder takes as it takes any packet. `at`, the frame log and
+// the sizes are where demo.js's decode would lay each frame (from the
+// phrase's tick, frames back to back, the 2 that never came concealed); the
+// source is speech-like talk of the same length, of which a render on the
+// game's timeline uses the length alone.
+function demoQueueVoice(seconds, seed) {
+  let s = seed >>> 0;
+  const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const total = Math.round(seconds * 50) * 480, slots = total / 480;
+  const frameLog = new Array(slots).fill(0), frameBytes = new Array(slots).fill(0), packets = [];
+  const frame = () => {
+    const data = new Uint8Array(20 + Math.floor(rnd() * 90));
+    data[0] = [13, 13, 13, 9, 31][Math.floor(rnd() * 5)] << 3;
+    for (let i = 1; i < data.length; i++) data[i] = Math.floor(rnd() * 256);
+    return data;
+  };
+  const lay = (pos, code, bytes) => { const f = Math.round(pos / 480); if (f < slots) { frameLog[f] = code; frameBytes[f] = bytes; } };
+  let tick = 20, pos = 0, phrase = 0;
+  for (;;) {
+    const length = 20 + Math.floor(rnd() * 50);
+    pos = Math.max(pos, (tick - 20) * 360);
+    if (pos + (length + 6) * 480 > total) break;
+    phrase++;
+    let seq = 0, message = 0;
+    while (seq < length) {
+      const n = message === 0 ? (phrase === 3 ? 13 : 8) : 3, frames = [];
+      if (phrase === 2 && message === 3) { lay(pos, 5, 0); lay(pos + 480, 5, 0); pos += 960; seq += 2; }
+      const at = pos;
+      for (let k = 0; k < n && seq < length; k++, seq++, pos += 480) {
+        const data = frame();
+        frames.push({ seq, data });
+        lay(pos, (data[0] >> 3) < 12 ? 1 : (data[0] >> 3) < 16 ? 2 : 3, data.length);
+      }
+      if (seq >= length) frames.push({ end: true });
+      packets.push({ tick, rate: 24000, at, records: [{ frames }] });
+      if (!(phrase === 4 && message === 2)) tick += 4;
+      message++;
+    }
+    packets.push({ tick, rate: 24000, at: pos, records: [{ silence: 1500 }] });
+    tick += 10 + Math.floor(rnd() * 70);
+  }
+  packets.push({ tick: tick + 400, rate: 24000, at: pos, records: [{ frames: [{ end: true }] }] });
+  return { samples: voice(seconds, 24000, seed, total),
+    received: { frameLog, frameBytes, frameMs: 20, spurts: phrase, packets, firstTick: 20, tickSeconds: 0.015 } };
+}
+
 /* ---------------- the cases ---------------- */
 
 // The options the page sends (app/render.js), at its settings before W3-10,
@@ -375,6 +429,13 @@ for (const [name, opts] of [
   ['steam, timeline game, device at 44100 Hz', { deviceRate: 44100 }]
 ]) add(name, 48000, at48(15, 2), { timeline: 'game', ...opts }, []);
 addRoom('steam, timeline game, room: preset 6, seed 7', { timeline: 'game', room: { preset: 6 }, seed: 7 }, presetRoom(6), STEAM_PLANS);
+// W3-02g: a demo's own packets on the game's timeline (Steam's decoder as read, its resampler
+// once per record, the voice channel on the demo's own ticks), at the received voice's chunk
+// plans and a sample at a time but for 7.
+const demoQueue = demoQueueVoice(8, 13);
+add('demo voice on the game\'s timeline', 24000, () => demoQueue.samples, { received: demoQueue.received, timeline: 'game' }, ['uneven', 'whole', '7']);
+add('demo voice on the game\'s timeline at 66.67 fps, auto-gain off', 24000, () => demoQueue.samples,
+  { received: demoQueue.received, timeline: 'game', fps: 66.67, agc: false }, ['uneven', 'whole']);
 
 // SHA-256 of process()'s WAV, then of its codecInfo (canonical JSON, below).
 // The first 40 were recorded in commit 7e1862c, before createRender existed.

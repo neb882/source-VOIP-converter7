@@ -347,6 +347,25 @@ const queueFixture = new URL('./demo/queue.dem', import.meta.url);
 if (process.argv.includes('--write-fixture')) fs.writeFileSync(queueFixture, queueBytes);
 check('tests/demo/queue.dem is the demo these checks make', fs.existsSync(queueFixture) && Buffer.compare(fs.readFileSync(queueFixture), Buffer.from(queueBytes)) === 0,
   'node tests/demo.verify.mjs --write-fixture rewrites it');
+{
+  // The reader on queue.dem: the server's float tick length; every frame,
+  // end marker and silence record of each message in decode()'s packets, in
+  // order, two records where the message has two.
+  const q = D.parse(queueBytes), [q1, q2] = q.speakers;
+  const opusDecoders1 = { opus: (r) => opus.createDecoder({ sampleRate: r, channels: 1 }) };
+  const [d1, d2] = [await D.decode(q, q1, opusDecoders1), await D.decode(q, q2, opusDecoders1)];
+  const flat = (d) => d.packets.flatMap((m) => m.records.flatMap((r) => (r.frames ? r.frames.map((e) => (e.end ? 'end' : `${e.seq}:${Buffer.from(e.data).toString('hex')}`)) : [`silence ${r.silence}`])));
+  const want = (sp) => sp.packets.map((p) => (p.kind === 'end' ? 'end' : p.kind === 'silence' ? `silence ${p.samples}` : `${p.seq}:${Buffer.from(p.data).toString('hex')}`));
+  const shape = d1.packets.map((m) => m.records.map((r) => (r.frames ? r.frames.filter((e) => !e.end).length : 's')).join('+'));
+  const ticks = d1.packets.map((m) => m.tick);
+  check('queue.dem as read: the float tick length, two speakers, each message\'s frames, end markers and silence records in order, 7 + 7 and 4 + 5 in two records, two messages on one tick',
+    q.errors === 0 && q.intervalPerTick === Math.fround(0.015) && d1.tickSeconds === Math.fround(0.015) && q.speakers.length === 2
+    && q1.id === QUEUE_IDS[0] && q2.id === QUEUE_IDS[1] && isDeepStrictEqual(flat(d1), want(q1)) && isDeepStrictEqual(flat(d2), want(q2))
+    && d1.packets.length === 88 && d2.packets.length === 5 && shape.includes('7+7') && shape.includes('4+5') && shape.includes('13') && shape.includes('12')
+    && shape.filter((s) => s === 's').length === 6 && ticks.some((t, k) => k && t === ticks[k - 1]) && d1.firstTick === 100 && d2.firstTick === 400
+    && d1.packets.every((m) => m.rate === 24000) && q1.packets.every((p) => !p.short),
+    `${d1.packets.length} and ${d2.packets.length} messages; ${q.intervalPerTick} s a tick`);
+}
 
 // Talk spurts after a lost end marker. One speaker's frames as SourceTV
 // writes them: the 3 frames (60 ms) sent since the last batch go out together
@@ -652,4 +671,55 @@ check('Received voice runs through the receiver only: the sender gate does not a
 check('and its codec lane is the demo\'s frames', received.codecInfo.backend === 'demo' && received.codecInfo.frames === decoded.frameLog.length
   && received.codecInfo.lostFrames === 1 && received.codecInfo.dtxFrames === 1 && received.codecInfo.modes.hybrid + received.codecInfo.modes.silk + received.codecInfo.modes.celt === 29
   && received.codecInfo.lookahead === 0);   // the lane places frame f at (f * frame - lookahead) / rate
+
+// W3-02g: synthetic.dem on the game's timeline, through Steam's decoder as
+// read and the voice channel (inferred from the rules; measured on the
+// planner's prototype). Both speakers begin at a number above 0, which a
+// decoder that has decoded nothing takes as ahead of the 0 it expects
+// (ruling 7). Speaker 1: 10 concealed and 7 decoded, the record cut (3
+// frames not decoded); then 3 concealed and 10 decoded; then, after the end
+// marker, 7 concealed and 10 decoded: each over 12 frames, all three refused,
+// and the render is silent. Speaker 2: its first message, 7 concealed and 5
+// decoded, is taken; its second comes on the demo's tick 400, 3 s after the
+// render's end (the file's own timing lays the two back to back, 0.2 s), and
+// is past it.
+{
+  const onQueue = async (sp, d) => A.process({ sampleRate: rate, length: d.samples.length, numberOfChannels: 1, getChannelData: () => d.samples },
+    { codec: 'steam', timeline: 'game', received: { frameLog: Array.from(d.frameLog), frameBytes: Array.from(d.frameBytes), frameMs: 20, spurts: d.spurts,
+      packets: d.packets, firstTick: d.firstTick, tickSeconds: d.tickSeconds } });
+  const [g1, g2] = [await onQueue(s1, decoded), await onQueue(s2, decoded2)];
+  const c1 = g1.codecInfo.demo, c2 = g2.codecInfo.demo;
+  check('synthetic.dem on the game\'s timeline: speaker 1\'s three messages are refused (one record cut, 3 frames not decoded, 20 concealed), and the render is silent',
+    g1.samples.every((v) => v === 0) && c1.messages === 3 && c1.pushed === 3 && c1.refusedMessages === 3 && c1.cutRecords === 1 && c1.unreadFrames === 3
+    && c1.concealed === 20 && c1.resets === 2 && c1.pastEnd === 0 && g1.codecInfo.channel.packets === 3, JSON.stringify(c1));
+  check('and speaker 2\'s first message is taken with 7 frames concealed in front of it; its second arrives past the render\'s end',
+    c2.messages === 2 && c2.pushed === 1 && c2.refusedMessages === 0 && c2.concealed === 7 && c2.pastEnd === 1 && g2.codecInfo.channel.packets === 1
+    && g2.codecInfo.channel.opens === 1, JSON.stringify(c2));
+}
+
+// The tool on queue.dem: --timeline game renders each speaker on the game's
+// voice queue and writes the render and its phrases; without it, what it
+// wrote and printed before.
+{
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'tf2ve-extract-'));
+  const tool = fileURLToPath(new URL('./demovoice/extract.mjs', import.meta.url));
+  try {
+    const plain = execFileSync(process.execPath, [tool, fileURLToPath(queueFixture), '--out', out], { encoding: 'utf8' });
+    const plainFiles = fs.readdirSync(out).sort();
+    const game = execFileSync(process.execPath, [tool, fileURLToPath(queueFixture), '--out', out, '--timeline', 'game'], { encoding: 'utf8' });
+    const files = fs.readdirSync(out).sort(), id = QUEUE_IDS[0];
+    const line = game.split('\n').find((l) => l.includes('game\'s timeline at 300 fps')) || '';
+    const rows = fs.readFileSync(path.join(out, `queue.${id}.game-300.phrases.tsv`), 'utf8').trim().split('\n');
+    const wav = fs.readFileSync(path.join(out, `queue.${id}.game-300.wav`));
+    check('tests/demovoice/extract.mjs --timeline game on queue.dem prints the counts of codecInfo.demo and the channel\'s opens and joins, and writes the render and its phrases',
+      /88 messages, 87 given to the channel, 1 on the tick of the one before, 3 refused \(over 12 frames\), 1 record cut at 17 frames \(5 frames not decoded\), 18 frames concealed, 7 decoder resets, 0 silence records dropped, 1 past the render's end; the channel opened 4 times, 2 phrases joined the queue/.test(line)
+      && files.length === plainFiles.length + 4 && files.includes(`queue.${QUEUE_IDS[1]}.game-300.phrases.tsv`)
+      && rows.length === 7 && rows[0] === 'start_s\tend_s\tqueue\toffset_start_ms\toffset_end_ms\tdropped_ms\tchange_ms'
+      && rows.slice(1).map((r) => r.split('\t')[2]).join() === 'opened,opened,joined,joined,opened,opened'
+      && wav.readUInt32LE(24) === 48000 && wav.readUInt32LE(40) === 2 * Math.round(8.96 * 48000), line.trim());
+    check('and without --timeline it writes and prints what it did before: three files a speaker, no line on the game\'s timeline, the same lines as the run with it before those',
+      plainFiles.length === 6 && !/game's timeline/.test(plain) && game.split('\n').filter((l) => !/game's timeline|game-300/.test(l)).join('\n') === plain,
+      `${plainFiles.length} files`);
+  } finally { fs.rmSync(out, { recursive: true, force: true }); }
+}
 console.log(`\n${passed} demo checks passed`);

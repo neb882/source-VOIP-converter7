@@ -13,7 +13,9 @@
  * audio as the receiving game would: talk spurts at their tick, frames back
  * to back, lost frames concealed, DTX frames as comfort noise, the decoder
  * reset at each end of transmission, and a new spurt at its tick when the
- * sequence breaks late (an end marker lost with its packet).
+ * sequence breaks late (an end marker lost with its packet). For Steam voice
+ * it also gives each message as it came, with the place it has on that
+ * timing, for the game's decoder and voice queue (W3-02g, engine/steam.js).
  * tests/demovoice/extract.mjs prints and writes the same for a demo file.
  *
  * Message layouts follow tf-demo-parser 0.6 (MIT or Apache-2.0).

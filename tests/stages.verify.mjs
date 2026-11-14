@@ -85,7 +85,8 @@ const sameSamples = (x, y) => x.length === y.length && Buffer.compare(Buffer.fro
 const streamText = fs.readFileSync(new URL('tests/render-stream.verify.mjs', root), 'utf8');
 const from = streamText.indexOf('/* ---------------- signals ---------------- */');
 const to = streamText.indexOf('/* ---------------- helpers ---------------- */');
-const { CASES, GOLDEN, voice, receivedVoice } = new Function('engine', 'roomModule', 'roomTable', `${streamText.slice(from, to)}\nreturn { CASES, GOLDEN, voice, receivedVoice };`)(
+const { CASES, GOLDEN, voice, receivedVoice, demoQueueVoice } = new Function('engine', 'roomModule', 'roomTable',
+  `${streamText.slice(from, to)}\nreturn { CASES, GOLDEN, voice, receivedVoice, demoQueueVoice };`)(
   engine, roomModule, roomTable);
 
 console.log('\n[1] Every recorded render, made with stages first used for other settings of the same source');
@@ -493,6 +494,24 @@ console.log('\n[3] The keys');
     let early = null;
     try { await A.process(source, { ...base, signal: { aborted: true } }); } catch (e) { early = e; }
     check('a render whose signal is already set does not start', early && early.name === 'AbortError');
+  }
+  {
+    // W3-02g: a demo's own packets on the game's timeline keep A and nothing else (ruling 5): the
+    // second render starts from A with the same samples, a setting used after A (fps) starts from
+    // A too, and stagesHold() answers as for a demo on the file's own timing (null, then 'a').
+    const dq = demoQueueVoice(5, 31), src = buffer(dq.samples, 24000), o = { ...PAGE_DEFAULTS, received: dq.received };
+    const st = {}, plain = {}, key = { stages: st, sourceKey: 'demo' };
+    const before = A.stagesHold(src, { ...o, ...key });
+    const first = await A.process(src, { ...o, ...key });
+    const hold = A.stagesHold(src, { ...o, ...key });
+    const again = await A.process(src, { ...o, ...key });
+    const fresh = await A.process(src, o), other = await A.process(src, { ...o, fps: 66.67, ...key }), otherFresh = await A.process(src, { ...o, fps: 66.67 });
+    await A.process(src, { ...SOURCE_BASE, received: dq.received, stages: plain, sourceKey: 'demo' });
+    const sourceHold = A.stagesHold(src, { ...SOURCE_BASE, received: dq.received, stages: plain, sourceKey: 'demo' });
+    check('a demo\'s packets on the game\'s timeline keep A and nothing else; the second render starts from A with the fresh render\'s samples, so does one at 66.67 fps; stagesHold() gives null, then \'a\', as for a demo on the file\'s own timing',
+      first.codecInfo.demo && before === null && hold === 'a' && sourceHold === 'a' && !('b' in st) && st.counts.a.kept === 1 && st.counts.b.kept === 0
+      && st.counts.a.reused === 2 && st.counts.b.reused === 0 && await hashes(again) === await hashes(fresh) && await hashes(first) === await hashes(fresh)
+      && await hashes(other) === await hashes(otherFresh) && await hashes(other) !== await hashes(fresh), counts(st));
   }
 }
 

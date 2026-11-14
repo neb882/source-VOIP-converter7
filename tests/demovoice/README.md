@@ -34,6 +34,20 @@ It writes, per speaker, into `tests/demovoice/out/` (wherever the demo is; `--ou
 
 Lost frames are concealed, DTX frames give comfort noise, and each end-of-transmission marker resets the decoder, as Steam's receiver does. When the packet carrying a marker was lost, the next spurt shows as a sequence number going backwards; if its tick is more than four frames after the write position, it starts a new spurt at its tick with a fresh decoder (`demo.js` explains the rule).
 
+`--speaker <id>` keeps to one speaker.
+
+### On the game's voice queue
+
+```sh
+node tests/demovoice/extract.mjs voicetest.dem --timeline game --fps 300 --buffer-ms 100
+```
+
+`--timeline game` also renders each Steam speaker whose voice is at 24,000 Hz the way the game plays it: the demo's own packets on the demo's own ticks, through Steam's decoder as read (16 bits, at most 10 frames concealed, a record cut at 17 frames, a message over 12 frames refused) and the receiver's voice queue (`voice-channel.js`) at the listener's `fps_max` (`--fps`, default 300) and `voice_buffer_ms` (`--buffer-ms`, default 100), with the game's defaults for the receiver's gain, `volume` 1, a sound device at 48,000 Hz and no room. It prints what the decoder and the queue did (messages refused, records cut, frames concealed, messages past the render's end, how often the queue opened, how many phrases joined it) and writes, per speaker:
+- `<demo>.<speaker>.game-<fps>.wav`: the render, 16-bit at 48,000 Hz
+- `<demo>.<speaker>.game-<fps>.phrases.tsv`: one row per phrase of the queue, with its start and end in the source's seconds, whether it opened the queue or joined it, how much later than the source its start (`offset_start_ms`, at the first sample 0.2 s in) and its end came out, the ms it lost to the queue's overflow, and its change against the phrase before (its start offset less that phrase's end offset)
+
+A demo has the tick SourceTV wrote each message on, every fourth tick in the one demo measured, not the tick a player's client got it on, so the arrival times are known to about 60 ms (measured, finding 21). The listener's frame rate is not in a demo: try several. These files hold a player's voice like the others.
+
 Speakers are named by SteamID. Demos and everything extracted from them contain players' SteamIDs and voices. Keep them out of the repository; `.gitignore` covers this folder's demos, WAVs, TSVs and `out/`, but not a folder you choose with `--out` inside the repository.
 
 ## History

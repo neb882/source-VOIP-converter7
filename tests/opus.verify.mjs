@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import * as opus from '../opus-codec.mjs';
 import { createEncoder, getPacketInfo } from '../vendor/libopus/index.mjs';
+import { createRequire } from 'node:module';
 import { loadEngine } from './lib/engine.cjs';
 
 let passed = 0;
@@ -494,6 +495,174 @@ check('Invalid PCM is rejected before encoding', true);
   check(`Steam's decoder: sequence numbers wrap at 16 bits, 65535 then 0 with no reset and nothing concealed; a frame lost at 65535 makes 0 behind (blocks ${counts.join(' ')})`,
     counts.join() === '11,1,1,1,1,1,1,1,1,1,1,1' && got.length === want.length && got.every((b, i) => sameBlock(b, want[i]))
     && afterLoss.length === 1 && sameBlock(afterLoss[0], reset));
+}
+// W3-02g: record(entries), one type 6 record of a demo's message as Steam's
+// client walks it under its buffer of 17 frames (W3-16 read, section 3;
+// finding 29), on the decoder alone. The order's worked table first, row by
+// row on one decoder and one resampler (the port of Steam's, 147/80), then
+// each rule against the library's own decoder driven by hand (`walk` below,
+// written here from the read: a buffer of `room` frames).
+{
+  const { createEncoder: enc11, createDecoder: dec11 } = await import('../vendor/libopus-1.1/index.mjs');
+  const SWR = createRequire(import.meta.url)('../vendor/swresample/swresample.js');
+  // A voice-like signal that never settles (no DTX frame: each frame decodes from the decoder's state).
+  const voiced = Float32Array.from({ length: 80 * 480 }, (_, i) => (.6 + .4 * Math.sin(2 * Math.PI * 3.3 * i / rate))
+    * (.1 * Math.sin(2 * Math.PI * (180 + 40 * Math.sin(i / 7000)) * i / rate) + .05 * Math.sin(2 * Math.PI * 1311 * i / rate + Math.sin(i / 900))));
+  const enc = await enc11({ sampleRate: 24000, channels: 1, frameSize: 480, application: 2048, signal: 3001, bitrate: 32000, complexity: 9, vbr: true, dtx: false, fec: false });
+  const pk = Array.from({ length: 80 }, (_, f) => enc.encodeFloat(voiced.subarray(f * 480, (f + 1) * 480)));
+  enc.free();
+  const fr = (a, b) => Array.from({ length: b - a + 1 }, (_, k) => ({ seq: a + k, data: pk[(a + k) % 80] }));
+  const END = { end: true };
+  const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  const joined = (blocks) => { const out = new Int16Array(blocks.length * 480); blocks.forEach((b, k) => out.set(b, 480 * k)); return out; };
+  const joinInt16 = (parts) => { const out = new Int16Array(parts.reduce((n, p) => n + p.length, 0)); parts.reduce((at, p) => { out.set(p, at); return at + p.length; }, 0); return out; };
+  const { FRAME } = opus;
+  // The library's decoder driven by hand, by the read's walk.
+  const walker = (room) => {
+    let d = null, next = 0;
+    const reset = async () => { d?.free(); d = await dec11({ sampleRate: 24000, channels: 1 }); next = 0; };
+    return {
+      async record(entries) {
+        if (!d) await reset();
+        const made = [];
+        let cut = false;
+        for (const e of entries) {
+          if (e.end) { await reset(); continue; }
+          const seq = e.seq & 0xFFFF;
+          if (seq < next) await reset();
+          else for (let k = 0; k < Math.min(seq - next, 10) && made.length < room; k++) made.push(d.decodePacketLossInt16(480));
+          next = (seq + 1) & 0xFFFF;
+          if (e.short) break;
+          if (made.length >= room) { cut = true; break; }
+          made.push(e.data.length ? d.decodeInt16(e.data, { frameSize: 480 }) : new Int16Array(480));
+        }
+        return { pcm: joined(made), blocks: made.length, cut };
+      },
+      free() { d?.free(); }
+    };
+  };
+  // The worked table: after the one before, on one decoder.
+  const ROWS = [['frames 0 to 7, a fresh decoder', fr(0, 7), 8, false, 0, 0, 7056],
+    ['12 frames, the first 34 numbers ahead', fr(42, 53), 17, true, 5, 10, 14994],
+    ['the 5 frames after those 12', fr(54, 58), 9, false, 0, 4, 7938],
+    ['an end marker, then 12 frames from 0', [END, ...fr(0, 11)], 12, false, 0, 0, 10584],
+    ['an end marker, then 13 frames from 0', [END, ...fr(0, 12)], 13, false, 0, 0, 11466],
+    ['18 frames in one record', fr(13, 30), 17, true, 1, 0, 14994],
+    ['the frame after those 18', fr(31, 31), 1, false, 0, 0, 882]];
+  const d = await opus.createSteamDecoder(), rs = SWR.createResampler(), ref = walker(17);
+  const got = [];
+  let allSame = true;
+  for (const [, entries] of ROWS) {
+    const r = await d.record(entries), w = await ref.record(entries);
+    got.push({ blocks: r.blocks.length, cut: r.cut, unread: r.unread, concealed: r.concealed, out: rs.packet(r.pcm).length, codes: r.blocks.map((b) => b.code) });
+    if (!same(r.pcm, w.pcm) || r.pcm.length !== 480 * r.blocks.length) allSame = false;
+  }
+  d.free(); ref.free();
+  const table = ROWS.map((row, k) => `${row[0]}: ${got[k].blocks} blocks, ${got[k].out} at 44.1 kHz${got[k].cut ? `, cut (${got[k].unread} unread)` : ''}`);
+  check(`record(), the worked table, row by row on one decoder: ${table.join('; ')}`,
+    ROWS.every(([, , blocks, cut, unread, concealed, out], k) => got[k].blocks === blocks && got[k].cut === cut && got[k].unread === unread
+      && got[k].concealed === concealed && got[k].out === out) && allSame
+    && got[1].codes.slice(0, 10).every((c) => c === FRAME.lost) && got[1].codes.slice(10).every((c) => c !== FRAME.lost));
+  // With no gap, no end marker and at most 17 frames a record, record() gives
+  // what receive() gives frame by frame (which has no buffer).
+  {
+    const a = await opus.createSteamDecoder(), b = await opus.createSteamDecoder(), byRecord = [], byFrame = [];
+    for (const [x, y] of [[0, 16], [17, 20], [21, 37], [38, 38]]) {
+      byRecord.push((await a.record(fr(x, y))).pcm);
+      for (let s = x; s <= y; s++) byFrame.push(...(await b.receive(s, pk[s % 80])));
+    }
+    a.free(); b.free();
+    check('record(): records of up to 17 frames with no gap and no end marker give receive()\'s samples, frame by frame', same(joinInt16(byRecord), joined(byFrame)) && byFrame.length === 39);
+  }
+  // An end marker inside a record resets: the frames after it are a fresh decoder's.
+  {
+    const a = await opus.createSteamDecoder(), r = await a.record([...fr(0, 4), END, ...fr(0, 3)]);
+    a.free();
+    const f = await dec11({ sampleRate: 24000, channels: 1 }), want = joined(fr(0, 3).map((e) => f.decodeInt16(e.data, { frameSize: 480 })));
+    f.free();
+    check('record(): an end marker inside a record resets the decoder (the frames after it are a fresh decoder\'s), and counts as a reset',
+      r.blocks.length === 9 && r.resets === 1 && same(r.pcm.subarray(5 * 480), want));
+  }
+  // An end marker behind a cut is not read: the next frame, one past the cut
+  // frame, continues the same decoder with nothing concealed; a number behind
+  // then resets it.
+  {
+    const a = await opus.createSteamDecoder();
+    const cutRecord = await a.record([...fr(0, 17), END]), next = await a.record(fr(18, 18)), behind = await a.record(fr(2, 2));
+    a.free();
+    const one = await dec11({ sampleRate: 24000, channels: 1 });
+    for (let s = 0; s <= 16; s++) one.decodeInt16(pk[s], { frameSize: 480 });
+    const want = one.decodeInt16(pk[18], { frameSize: 480 });
+    one.free();
+    const f = await dec11({ sampleRate: 24000, channels: 1 }), fresh = f.decodeInt16(pk[2], { frameSize: 480 });
+    f.free();
+    check('record(): an end marker behind a cut is not read: the next record\'s frame continues the decoder, nothing concealed; a number behind then resets it',
+      cutRecord.cut && cutRecord.unread === 1 && cutRecord.resets === 0 && next.blocks.length === 1 && same(next.pcm, want)
+      && behind.blocks.length === 1 && behind.resets === 1 && behind.concealed === 0 && same(behind.pcm, fresh));
+  }
+  // A number behind the expected one resets and conceals nothing.
+  {
+    const a = await opus.createSteamDecoder();
+    await a.record(fr(0, 4));
+    const r = await a.record(fr(2, 3));
+    a.free();
+    const f = await dec11({ sampleRate: 24000, channels: 1 }), want = joined(fr(2, 3).map((e) => f.decodeInt16(e.data, { frameSize: 480 })));
+    f.free();
+    check('record(): a number behind the expected one resets and conceals nothing', r.blocks.length === 2 && r.concealed === 0 && r.resets === 1 && same(r.pcm, want));
+  }
+  // A frame of length 0 gives 480 zeros, does not touch the decoder, and moves the expected number.
+  {
+    const a = await opus.createSteamDecoder(), r = await a.record([...fr(0, 1), { seq: 2, data: new Uint8Array(0) }, ...fr(3, 3)]);
+    a.free();
+    const f = await dec11({ sampleRate: 24000, channels: 1 }), want = joined([0, 1, 3].map((s) => f.decodeInt16(pk[s], { frameSize: 480 })));
+    f.free();
+    check('record(): a frame of length 0 gives 480 zeros (a DTX code), leaves the decoder alone and moves the expected number',
+      r.blocks.length === 4 && r.concealed === 0 && r.pcm.subarray(960, 1440).every((v) => v === 0) && r.blocks[2].code === FRAME.dtx && r.blocks[2].bytes === 0
+      && same(r.pcm.subarray(0, 960), want.subarray(0, 960)) && same(r.pcm.subarray(1440), want.subarray(960)));
+  }
+  // A short frame (its data ran past its record) spends its number and ends the record.
+  {
+    const a = await opus.createSteamDecoder();
+    const r = await a.record([...fr(0, 1), { seq: 2, data: pk[2].subarray(0, 5), short: true }, ...fr(3, 3)]), next = await a.record(fr(3, 3));
+    a.free();
+    check('record(): a short frame spends its number and ends the record, undecoded; the next record\'s frame 3 conceals nothing',
+      r.blocks.length === 2 && !r.cut && r.unread === 0 && next.blocks.length === 1 && next.concealed === 0);
+  }
+  // 65535 is followed by 0 with no reset; gaps of 10, 11 and 65535; a cut
+  // reached by concealment twice in one record; end markers alone.
+  {
+    const a = await opus.createSteamDecoder(), b = await opus.createSteamDecoder();
+    const wrap = await a.record([65533, 65534, 65535, 0, 1].map((s, k) => ({ seq: s, data: pk[k] })));
+    const byFrame = [];
+    for (const [k, s] of [65533, 65534, 65535, 0, 1].entries()) byFrame.push(...(await b.receive(s, pk[k])));
+    const gaps = [];
+    for (const gap of [10, 11]) { const c = await opus.createSteamDecoder(); await c.record(fr(0, 0)); gaps.push(await c.record(fr(1 + gap, 1 + gap))); c.free(); }
+    const far = await opus.createSteamDecoder(), farGap = await far.record([{ seq: 65535, data: pk[0] }]);
+    far.free();
+    const twice = await opus.createSteamDecoder(), tw = await twice.record([{ seq: 10, data: pk[10] }, { seq: 21, data: pk[21] }, { seq: 22, data: pk[22] }, END]);
+    const after = await twice.record(fr(0, 0));
+    twice.free();
+    const ends = await opus.createSteamDecoder(), e1 = await ends.record([END]), e2 = await ends.record([END, END]);
+    ends.free(); a.free(); b.free();
+    check('record(): 65535 then 0 with no reset (receive()\'s samples); gaps of 10, 11 and 65535 conceal 10; ten concealed twice in one record cut it at 17, its end marker unread; end markers alone reset and make nothing',
+      wrap.blocks.length === 15 && wrap.concealed === 10 && wrap.resets === 0 && same(wrap.pcm, joined(byFrame))
+      && gaps.every((g) => g.concealed === 10 && g.blocks.length === 11) && farGap.concealed === 10 && farGap.blocks.length === 11
+      && tw.blocks.length === 17 && tw.concealed === 16 && tw.cut && tw.unread === 2 && tw.resets === 0 && after.resets === 1
+      && e1.blocks.length === 0 && e1.resets === 1 && e2.resets === 2 && e2.pcm.length === 0,
+      `gaps ${gaps.map((g) => g.concealed).join(', ')}; twice: ${tw.concealed} concealed, unread ${tw.unread}`);
+  }
+  // The cut changes what follows: the 5 frames after the cut record decode to
+  // other samples than after the same record walked with a buffer of 32.
+  {
+    const a = await opus.createSteamDecoder(), wide = walker(32), narrow = walker(17);
+    const rows = [fr(0, 7), fr(42, 53), fr(54, 58)], cutRun = [], wideRun = [], narrowRun = [];
+    for (const r of rows) { cutRun.push(await a.record(r)); wideRun.push(await wide.record(r)); narrowRun.push(await narrow.record(r)); }
+    a.free(); wide.free(); narrow.free();
+    const tail = (x) => x.pcm.subarray(x.pcm.length - 5 * 480);
+    check('record(): the cut changes what follows: the 5 frames after the cut record are other samples than after it walked with a buffer of 32 frames (and the walk with 17 gives record()\'s)',
+      wideRun[1].blocks === 22 && !wideRun[1].cut && wideRun[2].blocks === 5 && cutRun[2].blocks.length === 9 && !same(tail(cutRun[2]), tail(wideRun[2]))
+      && same(cutRun[2].pcm, narrowRun[2].pcm) && pk.every((p) => p.length > 2));
+  }
 }
 // W3-11a rebuilt the libopus 1.1.5 module with the library's 16-bit decoder,
 // opus_decode, exported (Steam decodes to 16 bits), and changed nothing else.
