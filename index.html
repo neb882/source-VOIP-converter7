@@ -299,12 +299,16 @@
               <option value="game" selected>The game's voice queue</option>
               <option value="source">The file's own timing</option>
             </select>
-            <p id="timeline-help" class="control-help">The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. At 300 frames a second a sound that opens the queue loses short pieces in its first seconds. Which phrases move depends on the sender's clock, which no recording shows. The file's own timing keeps every sound where the source has it. The live monitor always keeps the file's own timing.</p>
+            <p id="timeline-help" class="control-help">The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. At 300 frames a second a sound that opens the queue loses short pieces in its first seconds. Which phrases move depends on the sender's clock, which no recording shows. The file's own timing keeps every sound where the source has it. The live monitor keeps the file's own timing unless its own switch for the queue is on.</p>
             <p id="timeline-note" class="control-help" hidden></p>
           </div>
           <div class="control">
             <label title="Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. Saves the figure shown once the monitor runs. Not how TF2 sounds." class="check-label"><input id="live-lowlat" type="checkbox" aria-describedby="live-lowlat-help"> Live monitor: low latency (shorter pre-roll)</label>
             <p id="live-lowlat-help" class="control-help">Plays the live monitor sooner by cutting part of each phrase's start. Not how TF2 sounds.</p>
+          </div>
+          <div class="control">
+            <label class="check-label"><input id="live-queue" type="checkbox" autocomplete="off" aria-describedby="live-queue-help"> Live monitor: the game's voice queue</label>
+            <p id="live-queue-help" class="control-help">Plays the live monitor through the game's voice queue, on Steam voice with the codec on. Off on every load.</p>
           </div>
           <div id="custom-env" class="control control-full">
             <div class="section-label">The custom room (dsp_room 99)</div>

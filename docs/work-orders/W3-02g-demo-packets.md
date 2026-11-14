@@ -215,7 +215,7 @@ frame's index on the file's own timing.
   not the tick a player's client got it on. A player gets messages 3 to 5 ticks apart and never two on one tick
   (measured, Set G). So a demo's render on the queue is the queue of a listener fed as SourceTV was, to 60 ms.
   On the prototype every second message was held to the tick of the next, 60 ms later. At 300 frames a second
-  every phrase stayed within 2 ms. At 66.67 the two phrases whose opening message was among those held started
+  every phrase stayed within 2 ms *(corrected 2026-11-14 by the second read: that held on the prototype's regular alternation of ticks; on ticks bunched as Set D's are, an opened phrase starts 49 ms early to 65 ms late at 300 frames a second, measured on a synthetic sender)*. At 66.67 the two phrases whose opening message was among those held started
   58 and 61 ms late, and the one of them that had joined the queue opened it instead (measured on a prototype).
   The page says the limit in the render's console line (part b).
 - **`opts.arriveAt`, jitter and loss.** With a demo's packets `opts.arriveAt` is a `RangeError`: the packets
@@ -819,3 +819,52 @@ never below 0), all measured. Each point binds part a's builder and holds over t
 
 Size stands: 12 hours for part a (the edits add under one), 5 for part b. Part a starts after W3-02c-3a is merged and
 may run beside W3-02c-3b.
+
+## The private look (ii), the review, the second read and the rulings (2026-11-14, the orchestrator)
+
+**Private look (ii)** (measured, private; the demo and takes stay private), on `51520dd`, Set D's demo for the sender
+at eight frame rates. At every rate: 1,816 messages given to the channel, 276 on the tick of the one before, none
+refused, cut or past the end. Against the 17 transitions readable in the sender's take (finding 21: early starts at
+spurts 4, 6, 9 and 13; four returns; nine unchanged):
+
+| Frame rate | Opens | Joins | Dropped | Of the four early starts, joined | Within 60 ms of the take |
+| --- | ---: | ---: | ---: | --- | --- |
+| 300 | 17 | 2 | 2,357 ms | spurt 6 only (−298.2 ms, 27 off) | 8 of 17 |
+| 250, 240, 230 | 18 | 1 | 1,114, 870, 628 ms | none | 9 of 17 (the nine unchanged) |
+| 200, 150, 100, 66.67 | 18 | 1 | 107, 0, 0, 0 ms | none | 9 of 17 (the nine unchanged) |
+
+Rates 251 to 600 give spurt 6 alone; 1000 gives spurts 4, 6 and 9 but not 13. **No frame rate gives the four early
+starts.** The second listener's take (no phrase moved) agrees with no join up to 250 frames a second. The last phrase
+falls at most 0.5 ms past the render's end. Set J's cut, made again with the built `record()`: 524,256 of 524,288
+samples, the second read's count.
+
+**The review** (merge after two test gaps) and **the second read** (merge; no fault in the code). The second read adds
+(synthetic, measured): above about 231 frames a second the ring caps the latency and joins stop moving with the frame
+rate, so look (ii) bounds the listener's rate but cannot find it; the join threshold is a band about 90 ms wide; and
+Set D's ticks are more bunched than a 60 ms grid alone explains (146 empty and 276 doubled slots against about 2.7%
+and 11.1% from the grid), about 6% of messages one slot later.
+
+**Rulings.**
+
+1. **Part a merges after its fix round.** The engine runs a demo's own packets on the game's timeline when asked, as
+   built and tested; the record rule reproduces Set J's count.
+2. **Ruling 3 is withdrawn: part b is not built as written.** Even scored leniently, at every frame rate the demo's
+   render misses most of the eight transitions that move in the sender's take, so the page keeps a demo's voice on the
+   file's own timing, as today. The finding goes on record as open: on Set D's demo with its own ticks the queue
+   starts at most one of the take's four early phrases at any frame rate up to 600 (three at 1000), which agrees with
+   W3-02c-2's earlier finding that at Set D's pauses the render's queue runs out sooner than the take's. A log of the
+   receiver's queue in a two-PC session (the run sheet's block 5) is the next evidence. Part b is planned again only
+   after it.
+3. **The fix round (part a), binding on the builder:**
+   - Section 21 compares `process()` with the reference on `queue.dem` with the source cut (for example at 72,000
+     samples, at 300 and 66.67 frames a second) and asserts that at least one message falls in [length, length + Z)
+     (the break "`endBlock` without the zero" passed every check).
+   - A message of `[{ silence: 750 }, { frames: … }]` among section 21's silence packets, its `codecInfo.channel.source`
+     and spurts compared with `demoReference` (the break "`before` dropped" passed every check).
+   - The comment in `engine/steam.js` and finding 29 give "a refused message opens a channel" its standing: chosen
+     (ruling 5 of 2026-11-11, one line of Set J's log), not read. The two choices that make no resampler call (a record
+     that made no block, a silence record of 0 samples) are marked as choices in their comments.
+   - The report's sentence that the figures "agree with the prototype's at 100 and 66.67" is corrected (phrase 4 is
+     3.1 ms early and 8.5 ms late on the fixture, against the prototype's 2.6 and 3.0 late).
+   - The record (`tests/REFERENCE_2026.md`, added and dated lines): an entry with this section's look (ii) table and
+     ruling 2's open finding, and Set D's slot counts beside the grid's expectation, each figure with its standing.
