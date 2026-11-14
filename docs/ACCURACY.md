@@ -247,9 +247,16 @@ at `take1_default`, `sender_A` and `music_take_it_off`, privately on 2026-11-14 
   second piece to 166.9 s, while the source plays on. On the queue the line-up ran 2 s into that piece. With the cut
   at 163.6 s (AC-01) it reads as above on both timings, where it read 2.14 / 24.0 dB on the queue.
 - **`take3_voice_avggain_0.25`**: on the queue the line-up places the first 30 s half a second off (+1599 and
-  +1574 ms against +2069 to +2116 for the rest), on the test signal's repeated bursts; on the file's own timing two
-  pieces of 2 s are off the same way. `take1_default` has two such pieces on each timing. The largest blocks of the
-  level are there. That is the line-up, not the render.
+  +1574 ms against +2069 to +2116 for the rest). The cause is the test signal's three sync beeps: they are 0.5 s
+  apart, and the line-up's waveform step lands on the wrong one (reproduced on a stand-in take; AC-03). The largest
+  blocks of the level are there: that is the line-up, not the render. *Corrected 2026-11-14 (AC-03's planner): the
+  pieces of 2 s that sit about 0.3 s off on either timing are not the line-up's. A piece's delay is the take's against
+  the render, so a phrase that starts early in one and not the other moves it. On the file's own timing the render
+  starts none early, and take3's pieces at 51.16 and 57.16 s (+1773, +1778 ms) and take1's at 55.16 and 59.16 s
+  (+4514, +4510) are the take's own early starts. On the queue the render at the default seed starts its phrases at
+  47.36, 51.36 and 59.36 s early by 316, 294 and 335 ms (measured on the model), which gives the queue's pieces in
+  place and size: take3's 47.16 (+2424), 57.16 (+1771) and 59.16 (+2433), and take1's 47.16 (+5154), 51.16 (+5127)
+  and 55.16 (+4502) (inferred from the two, and the figures are the private run's).*
 - **`take4_my_own_speech`**: the queue's worst blocks are three phrase ends where the take sits at −46 to −57 dBFS,
   the game's ambience (the take reads the same before the first phrase and after the last, where the render is
   digital silence), against the render's codec noise and then silence. Which of those blocks pass the level's rule

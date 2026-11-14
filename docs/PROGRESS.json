@@ -14,6 +14,12 @@
       "file": "docs/work-orders/W3-23-low-frame-rates.md",
       "stage": "builder",
       "line": "the live monitor's chain on the frame clock: a hold of ceil(88200 / (1024 x fps)) blocks over D, onOpen, and the three cases W3-23a moved put back. Nothing moves at 66.67 and above."
+    },
+    {
+      "order": "AC-03",
+      "file": "docs/work-orders/AC-03-line-up-on-repeats.md",
+      "stage": "planned 2026-11-14; being built",
+      "line": "the line-up's waveform step lands on the wrong one of the test signal's three sync beeps (0.5 s apart) and overrules the envelope: a tonal place far from the envelope's is dropped (track() only). The pieces of 2 s about 0.3 s off are early starts, not the line-up's (corrected in docs/ACCURACY.md)."
     }
   ],
   "next": [
@@ -56,7 +62,8 @@
     "Optional, for the receiver's queue: one take of several minutes of steady sound (no pauses) at fps_max 67 with the channel's log on, to see whether a long unbroken phrase really reaches the queue's fade and underruns as the read rules predict (after 1.3 to 2.8 minutes at 67 fps).",
     "W3-11c's key run (docs/work-orders/W3-11-steam-gate.md, 'The run'; docs/owner-runs.md): six cases with Steam's and the game's console logs, two tones, the uptimes. Nothing else waits for it.",
     "Not urgent, new 2026-11-13: one take of the modern path that could be published. Every Steam take in the record carries the owner's voice, so none can go out. A clip made by a script of ours, fed through Steam's mic_inputfile, with voice_recordtofile 1 and voice_maxgain 1 in the game, would give the game's decoded voice of a signal anyone can regenerate. The procedure is written into docs/owner-runs.md by RP-01's part e.",
-    "Not urgent, new 2026-11-14: in the same session as the run sheet's queue block, two short stretches at fps_max 30 and 20 with voice_showchannels 2 (docs/owner-runs.md, 'The queue at low frame rates'), for W3-23's check against the game."
+    "Not urgent, new 2026-11-14: in the same session as the run sheet's queue block, two short stretches at fps_max 30 and 20 with voice_showchannels 2 (docs/owner-runs.md, 'The queue at low frame rates'), for W3-23's check against the game.",
+    "Not urgent, new 2026-11-14: type fps_max in the game's console and say what it prints, and whether it was the same when Set C was recorded. The record has 300 (Set G's logs); Set C's jitter photograph shows about 336 frames a second, over a cap of 300; the variable's start value in engine.dll is 400 (W3-23r). The page's default stays 300 until this is known."
   ],
   "open_questions": [
     "Steam's sender: the 8-step (250 ms) pattern of chunk ends, which createClock lacks (Set D's demo, Set L).",
@@ -171,10 +178,6 @@
     {
       "finding": "The live chain's steamTimeline keeps an open-ended frame log, so a monitor session grows about 2 MB an hour, with or without the queue (inferred from the code by W3-02c-3's planner, 2026-11-13).",
       "why": "Nothing breaks within a session's usual length; W3-02c-3 does not fix it, and an order of its own can cap the log."
-    },
-    {
-      "finding": "The accuracy suite's line-up places some pieces of the test signal 0.3 to 0.5 s off, on its repeated bursts, on both timings and at different pieces: take3_voice_avggain_0.25's first 30 s on the queue, two pieces of 2 s on each timing in take1_default (measured privately 2026-11-14; docs/ACCURACY.md, 'Against the file's own timing').",
-      "why": "It moves the level figures of those takes, not the render; a fix is in TF2Reference.track (the page's real-take check too), so it is an order of its own."
     }
   ],
   "ideas_not_started": [
