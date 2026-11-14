@@ -113,6 +113,50 @@ read, and the planner's figures above are run again on it before the build.
 
 If no reader can be started, W3-23a may still be built on the chosen order, by ruling 1 below.
 
+## W3-23r: what was read (2026-11-14)
+
+The read is done. Its report is `docs/reports/W3-23r-frame-read.md`. The evidence is in
+`tests/REFERENCE_2026.md`, in the lines added to findings 22 and 30.
+
+**The order of a frame's steps is packets, ticks, mixer, as this order chose it.** W3-23a builds the order of
+steps it already has.
+
+| Question | Answer | Standing |
+| --- | --- | --- |
+| 1. Where the client takes its packets | Inside the tick loop, once for each tick, at the head of the client's part of the tick and before that tick's pass over the voice channels. One read takes every packet waiting. A frame with no tick takes none | read |
+| 2. Where `S_Update` paints | Once a frame, after the tick loop and after the frame is drawn | read |
+| 3. Where the "extra update" can paint | Only from the client module's drawing of the view, between the tick loop and `S_Update`. None falls between the packets and the ticks | the engine's side read; the client module's six calls read by a search; "no other way in" inferred |
+
+What this changes in the tables of "What is read, inferred and chosen":
+
+| Row | Was | Is |
+| --- | --- | --- |
+| Order in a frame: packets, then the ticks, then the mixer | chosen | read |
+| Looks: the client takes packets at most once a frame | inferred (finding 9) | read: once for each tick, at its head. Under 66.67 frames a second every frame has a tick, so it is once a frame in effect, before the frame's ticks |
+| Ticks: `floor(t / 15 ms)` are due by time `t` | inferred | read. The frame's duration, limited to 0.001 to 0.1 s, is added to a remainder and the whole ticks are taken off it. A tick whose time has just come runs in that frame, which is the clock's `1323 i <= F(k)` |
+| Pulls: the mixer paints `9 − queued` blocks | read (W3-07) | corrected. The target is `snd_mixahead` plus a smoothed frame duration. The blocks kept are 9 at 223 frames a second and above, 10 from 63 to 222, 11 from 37 to 62, 12 from 26 to 36 and the device's 13 at 25 and under (arithmetic on the read rule). At a steady rate that is a fixed lead, as the next row of the table assumes, so step 3 of the clock keeps its form |
+| Pulls: the "extra update" is not modelled | chosen | need not be modelled (inferred from read). When it acts it paints a few of the frame's blocks a little before `S_Update` does, after the same packets and ticks, so it changes no sample of the model. Its 90 ms run from the last paint of either kind (read), so it acts only at 11.1 frames a second and under |
+
+What W3-23a must change: **nothing in the clock or the arrival rule.** Its words change in three places.
+
+1. The standings above go into its records (finding 22's and finding 30's lines of W3-23a, the Model table's
+   rows, the help sentence). "Read in part" in the help sentence stands.
+2. The report and the records do not say "9 blocks" for a rate under 66.67. They say the count by the table
+   above, or "a fixed lead".
+3. 10 frames a second is no longer the least sure rate because of the extra update. It stays unlogged, like every
+   rate under 66.
+
+One thing the model does not have, and this order does not add: in the game the paint comes later in the frame
+than the packets, by the time the frame takes to draw. On a machine held by `fps_max` that time is short. On a
+machine that is slow because drawing is slow it is most of the frame (inferred).
+
+**The log request needs one more line.** With `sv_cheats` 0 the game sets `fps_max` back to 30 when it is set
+under 30 (read). So the section at `fps_max 20` of "What would settle it against the game" needs `sv_cheats 1`
+typed first on the owner's local game, or it is recorded at 30. It also means a player's game is under 30 frames
+a second only on a machine that cannot draw faster. The page's rates from 10 to 29 stand for that machine.
+
+The planner's figures were run on this order of steps (its clock CL). They need no second run for the order.
+
 ## W3-23a: the clock, the arrival at jitter 0, the render
 
 ### The frame clock (`voice-channel.js`, `createTimeline`)

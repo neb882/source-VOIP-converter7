@@ -1145,6 +1145,14 @@ Read from the game's engine (W3-03) and checked against the game's own console o
 
 The app does not run this queue in a render yet (see the Model table).
 
+*Added 2026-11-14 (W3-23r, `docs/reports/W3-23r-frame-read.md`; read from the same `engine.dll`).* Where a frame takes its packets, counts its ticks and pulls from the ring:
+
+- **Packets are taken inside the tick loop, once for each tick**, as the first step of the client's part of the tick and before that tick's pass over the channels (read: `CL_ReadPackets`, `0x18008e4f0`, has one caller, at `0x1801a724d`, ahead of the pass at `0x1801a730e`). One call takes every packet that is waiting (read). A frame with no tick due takes none (read). So under 66.67 frames a second the packets are in effect taken once a frame, before the frame's ticks, and at 66.67 and above at most once a tick.
+- **The ticks a frame runs** are the whole ticks in the frame time gathered so far, each frame's duration limited to 0.001 to 0.1 s (read, `0x1801a6063` to `0x1801a6136`). A tick whose time has just come runs in that frame.
+- **The mixer pulls after the tick loop and after the frame is drawn**, once a frame (read: `S_Update` is called at `0x1801a6b75`, behind `_Host_RunFrame_Render`). A frame's order is packets, ticks, mixer.
+- **The "extra update"** is called only by the client module while it draws the view, between the tick loop and `S_Update` (the engine's callers read; six calls in the owner's `client.dll` read by a search). None falls between the packets and the ticks (inferred). It acts only when 90 ms have passed since the last pull of either kind (read), so at a steady rate only at 11.1 frames a second and under.
+- **With `sv_cheats` 0 the game sets `fps_max` back to 30** when it is set under 30 (read, `0x18020e44d` to `0x18020e490`). No log exists under 66 frames a second.
+
 ### 23. The wait before a channel plays follows the listener's frame rate
 
 The wait is `voice_buffer_ms` (100; limited to 1 to 5000), but the engine counts it down by one frame's duration on each 15 ms tick (read, W3-03). It therefore lasts `ceil(0.1 × frames a second)` ticks, the packet's own tick included. The owner then ran the game at three frame rates (measured, Set G):
@@ -1358,6 +1366,12 @@ Read from the engine (W3-07) and measured in five recordings from two PCs (Set D
 Since W3-10 (2026-11-10) the app runs these stages as read: the voice entered at 255/256, truncated, at its own rate; the engine codecs upsampled by the rule above; the clip at ±32767, `volume` in single precision and the rounding to 16 bits, ties to even; and the device's linear interpolation as a model (its kernel fixed by the recordings, its precision and rounding the app's), at 48000 Hz by default and none on a 44100 Hz device (the page's "Listener's sound device", `snd_device_rate`). The fitted filter and the app's soft limiter are gone. A render's plateaus at `volume 0.15` sit at 4896 and −4896, as Set B's do.
 
 **Corrected 2026-11-10 (W3-10).** Until W3-10 every download's positive samples were one unit low: the WAV writer scaled a positive sample by 32767 and truncated it, so a render's 4896 was written 4895 and a ceiling of 4915 as 4914. Since W3-10 the file holds the render's 16-bit values exactly (round(s × 32768), ties to even), and so does a MOV's PCM.
+
+*Added 2026-11-14 (W3-23r, `docs/reports/W3-23r-frame-read.md`; read from the same `engine.dll`).* How far ahead the mixer paints, and when in a frame:
+
+- **The mixer's target is `snd_mixahead` plus a smoothed frame duration** (read, `0x180031346` to `0x18003137c`). `S_Update` keeps `e = 0.9 e + 0.1 d`, with `d` the frame's real duration and `e` starting at 0.1, and paints up to `e + snd_mixahead`. W3-07 had it as `snd_mixahead` alone. The device buffers of 512 samples kept queued are `floor((0.1 + frame duration) × 86.1328) + 1`, never more than the device's 13: 9 at 223 frames a second and above, 10 from 63 to 222, 11 from 37 to 62, 12 from 26 to 36, 13 at 25 and under (arithmetic on the read rule). At a steady frame rate this is a fixed lead: it delays every sound alike, by 104.5 ms at 300 frames a second and 150.9 ms at 20. No take measures it.
+- **The paint is the last step of `S_Update`**, which runs once a frame after the tick loop and after the frame is drawn (read). It runs on the main thread with `snd_mix_async` 0, the start value (read).
+- **The "extra update"** paints with `snd_mixahead` alone (read, `0x18002b350`). Its 90 ms are counted from the last paint of either kind (read: its timer at `0x1804a75e0` is also written by `S_Update` at `0x18003133b`). In play it is reached only from the client module's drawing of the view (read; see finding 22's added lines).
 
 ### 31. The engine codecs, read and matched
 

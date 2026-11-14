@@ -23,6 +23,26 @@ speakers and Sound quality), given privately; its blocks are named in `docs/PROG
 `waiting_on_the_owner`, and in [reports/bad-connections-plan.md](reports/bad-connections-plan.md), "The
 recordings".
 
+## The queue at low frame rates, for W3-23 (added 2026-11-14)
+
+Not urgent; nothing waits on it but W3-23's check against the game. It goes in the same session as the run sheet's
+block on the queue (block 2 or block 5, whichever is recorded first), after that block's part at `fps_max 67`, with
+its console log still on. The game sets `fps_max` under 30 back to 30 unless cheats are on (read, W3-23r).
+
+1. On the console of the PC that ran `map`, and on the listener's if that is another PC:
+   `sv_cheats 1`
+2. On the listener's console:
+   `voice_showchannels 2; fps_max 30`
+3. On the talker: `+voicerecord`, about 20 s of speech, then `-voicerecord`.
+4. On the listener's console:
+   `fps_max 20`
+5. On the talker: `+voicerecord`, about 20 s of speech, then `-voicerecord`.
+6. On the listener's console, and `sv_cheats 0` on the PC that ran `map`:
+   `fps_max 300; voice_showchannels 0; sv_cheats 0`
+
+What it gives: `voice_showchannels 2` prints a line for every pull of the mixer, so the console's own order of lines
+shows a frame's steps at 30 and 20 frames a second (W3-23, "What would settle it against the game").
+
 ## The re-check after a Steam update
 
 **What it settles.** Since 2026-11-10 a `steam` render runs Steam's own sender, the libopus release Steam's packets

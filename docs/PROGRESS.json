@@ -8,15 +8,14 @@
     "cache": 50,
     "last_merge": "AC-02 (no cache change, 2026-11-14): the accuracy suite's --seeds n measures each row at n different seeds (its own or the default, then the first n - 1 others from seed 1) and prints each figure as a median with its range, the worst band as the median seed's by size; without the option the suite is unchanged; tests/retiming.mjs refuses seeded JSON. Before it: AC-01 (no cache change, 2026-11-14): the accuracy suite renders each take as the page does by default, Steam voice on the game's voice queue (300 frames a second, voice_buffer_ms 100; Set C's photographed 295 and 336); with loss or jitter on the queue the render is lined up as the take is (the review's finding); the predictions keep the file's own timing; tests/retiming.mjs refuses JSON rendered on the queue; music_take_it_off's cut ends before the take's key release. docs/ACCURACY.md's table is the suite on the queue (private run, measured)."
   },
-  "in_flight": [
-    {
-      "order": "W3-23",
-      "file": "docs/work-orders/W3-23-low-frame-rates.md",
-      "stage": "planned 2026-11-14; W3-23r (the read of the game's frame, private) running",
-      "line": "frame rates under 67 on the game's voice queue: ticks, looks and pulls in frames together (a look alone makes the delay worse: the planner's prototype). Nothing moves at 66.67 and above. W3-23a and W3-23b wait for the read, a plan review and the weekly usage reset."
-    }
-  ],
+  "in_flight": [],
   "next": [
+    {
+      "order": "W3-23a, W3-23b",
+      "file": "docs/work-orders/W3-23-low-frame-rates.md",
+      "after": "W3-23r (read 2026-11-14: a frame's order is packets, ticks, mixer, as chosen), a plan reviewer's pass, and the weekly usage reset (2026-11-16)",
+      "line": "frame rates under 67 on the game's voice queue: the voice channel's frame clock and the arrival at jitter 0 (a), the live monitor's chain (b). Nothing moves at 66.67 and above."
+    },
     {
       "order": "W3-02g-b",
       "file": "docs/work-orders/W3-02g-demo-packets.md",
@@ -55,7 +54,8 @@
     "Not urgent: the live monitor's box \"the game's voice queue\" (W3-02c-3, merged 2026-11-14) is off on every load. With it on the monitor is about 102 ms later at 66.67 frames a second and 357 ms later at 300 than with it off (read), and each phrase waits as the game's does. Say if it should be on by default instead.",
     "Optional, for the receiver's queue: one take of several minutes of steady sound (no pauses) at fps_max 67 with the channel's log on, to see whether a long unbroken phrase really reaches the queue's fade and underruns as the read rules predict (after 1.3 to 2.8 minutes at 67 fps).",
     "W3-11c's key run (docs/work-orders/W3-11-steam-gate.md, 'The run'; docs/owner-runs.md): six cases with Steam's and the game's console logs, two tones, the uptimes. Nothing else waits for it.",
-    "Not urgent, new 2026-11-13: one take of the modern path that could be published. Every Steam take in the record carries the owner's voice, so none can go out. A clip made by a script of ours, fed through Steam's mic_inputfile, with voice_recordtofile 1 and voice_maxgain 1 in the game, would give the game's decoded voice of a signal anyone can regenerate. The procedure is written into docs/owner-runs.md by RP-01's part e."
+    "Not urgent, new 2026-11-13: one take of the modern path that could be published. Every Steam take in the record carries the owner's voice, so none can go out. A clip made by a script of ours, fed through Steam's mic_inputfile, with voice_recordtofile 1 and voice_maxgain 1 in the game, would give the game's decoded voice of a signal anyone can regenerate. The procedure is written into docs/owner-runs.md by RP-01's part e.",
+    "Not urgent, new 2026-11-14: in the same session as the run sheet's queue block, two short stretches at fps_max 30 and 20 with voice_showchannels 2 (docs/owner-runs.md, 'The queue at low frame rates'), for W3-23's check against the game."
   ],
   "open_questions": [
     "Steam's sender: the 8-step (250 ms) pattern of chunk ends, which createClock lacks (Set D's demo, Set L).",
