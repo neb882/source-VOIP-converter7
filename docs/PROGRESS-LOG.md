@@ -696,3 +696,8 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 
 - live.last_merge, earlier merges cut: "AC-02 (no cache change, 2026-11-14): the accuracy suite's --seeds n measures each row at n different seeds (its own or the default, then the first n - 1 others from seed 1) and prints each figure as a"
 - in_flight, AC-03 removed (merged)
+
+## 2026-11-14: W3-23b merged (cache v53); W3-23 done; entries replaced
+
+- live.last_merge, earlier merges cut: "W3-23a (cache v51, 2026-11-14): on the game's voice queue at a listener frame rate under 1000/15, the voice channel runs a frame clock in the order W3-23r read from the owner's engine.dll (in each fra"
+- in_flight, W3-23b removed (merged)
