@@ -505,7 +505,7 @@
           codecInfo = { ...steamCodecInfo(codec, voice, steam.timeline, steam.sender, steam.settings, steam.resampler, bitrate, steam.lossSet),
             framesPerPacket };
           if (steam.played) codecInfo = steamPlayedInfo(codecInfo, steam.played, voice.lookahead);
-          if (steam.arrivals) {
+          if (steam.arrivals && !steam.arrivals.frames) {   // not the look once a frame at jitter 0 (W3-23a)
             codecInfo.arrivals = { jitterMs: steam.arrivals.jitterMs, fps: steam.arrivals.fps, floorTicks: steam.arrivals.floorTicks,
               ...steam.channel.arrivals() };
           }

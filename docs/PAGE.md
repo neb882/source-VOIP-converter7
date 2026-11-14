@@ -171,9 +171,13 @@ what it adds to the monitor's delay at the page's own frame rate and buffer, and
 ([LIVE.md](LIVE.md)).
 
 **The game's voice queue.** Three controls set it, for Steam voice only (another codec hides them):
-- **Listener's frame rate** (`fps_max`, 10 to 1000, 300 by default) is how many frames a second the listener's game
-  draws, which the game's `fps_max` caps. The page takes one figure for the whole render. A new phrase waits longer
-  at a higher rate. It is a property of the listener's PC, so a preset leaves it alone.
+- **Listener's frame rate** (`fps_max`, 10 to 1000, 300 by default, the rate the recordings' game ran at; the
+  engine's own start value is 400, read) is how many frames a second the listener's game draws, which the game's
+  `fps_max` caps. The page takes one figure for the whole render. A new phrase waits longer at a higher rate. The game
+  mixes once a frame; under 67 it also takes packets and counts down once a frame, and a render does the same there
+  (W3-23a; read in part, no recording). At 67 and above the render mixes evenly (chosen). The live monitor keeps
+  even ticks and pulls at every rate until W3-23b (not built yet). It is a property of the listener's PC, so a
+  preset leaves it alone.
 - **Voice buffer ms** (`voice_buffer_ms`, a whole number from 1 to 5000, the game's 100 by default) is the wait
   before a new phrase plays, counted down one frame at a time. A preset sets it to 100.
 - **Phrase timing** (`voice_timeline`, the app's name) is "The game's voice queue" by default, or "The file's own

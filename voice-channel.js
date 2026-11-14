@@ -54,8 +54,10 @@
     // voice_buffer_ms's default; limited to 1..5000 when a channel is assigned (W3-03 §1, read).
     bufferMs: 100,
     bufferMsRange: [1, 5000],
-    // fps_max's default. The countdown loses one frame's duration per tick, and the frame's
-    // duration is limited to 0.001..0.1 s (W3-03 §1, read): so the rate counts as 10..1000.
+    // The rate the owner's game ran at in the recordings (logged, Set G); fps_max's own start
+    // value in the engine is 400 (read, W3-23r). The countdown loses one frame's duration per
+    // tick, and the frame's duration is limited to 0.001..0.1 s (W3-03 §1, read): so the rate
+    // counts as 10..1000.
     fps: 300,
     fpsRange: [10, 1000],
     // voice_fadeouttime's default (W3-03 §1, read): the fade covers
@@ -300,6 +302,18 @@
   // and mixer block b at 1024 b. Events run in time order; a block that starts before a tick
   // runs before it, one that starts on it runs after it. A message with arrival tick k is added
   // on tick k, before the tick's pass. Block b is output samples 512 b - D to 512 b - D + 511.
+  //
+  // The frame clock (W3-23a, docs/work-orders/W3-23-low-frame-rates.md, "The frame clock"): with a
+  // whole length and a frame longer than a tick (88200 / fps > 1323, fps limited to 10..1000 as
+  // waitTicks limits it: under 1000/15 frames a second), the game takes packets, counts its ticks
+  // and mixes once a frame (read: W3-03, W3-07 and W3-23r), and so does the timeline. Frame k is at
+  // F(k) = (88200 k) / fps half samples, in double precision; in each frame, in this order (read,
+  // W3-23r): every message given and not yet added whose tick a has 1323 a <= F(k) is added, in
+  // the order given; every tick i not yet run with 1323 i <= F(k) runs its pass; every block b not
+  // yet run with 1024 b <= F(k) runs. A message waits in the timeline from its push until its frame.
+  // At 1000/15 and above (66.67, the default 300) the clock is the one above, to the last sample. A
+  // timeline with no end keeps the clock above at every frame rate (the live monitor's chain:
+  // W3-23b, not built yet).
   // D, the zero, is taken out so that a restarted spurt sits where the source has it, in the
   // mean: the delay at which a restarted spurt plays (latency) plus the mean time its opening
   // packet takes to arrive after its last sample (ARRIVAL_SECONDS) plus what the caller took
@@ -334,9 +348,12 @@
   // empty for an end marker alone; zeros for a silence record) and source, the 44.1 kHz source
   // position of pcm[0] (-1 for a silence record). advance(tick): no message will come before
   // tick. Both return the output samples that became final (a Float32Array, maybe empty): those
-  // of every block that starts before the tick. finish() -> { samples, info }: the rest, so
-  // that everything returned is length samples. The timeline calls no sender, codec or
-  // resampler: its caller does.
+  // of every block that starts before the tick (under the frame clock, those of the blocks run
+  // by every frame k with F(k) < 1323 tick, which no message to come can reach; a message pushed
+  // is added in its own frame, later). finish() -> { samples, info }: the rest, so that
+  // everything returned is length samples (under the frame clock it runs frames until the
+  // blocks cover the length and every message given has been added). The timeline calls no
+  // sender, codec or resampler: its caller does.
   //
   // info: { timeline: 'game', fps, bufferMs, codecDelay, waitTicks, latency, packets, opens, appended,
   // gainResets, droppedSamples, drops: [{ time, ms }], spurts: [{ start, end, opened,
@@ -359,10 +376,12 @@
   //   - appended: the spurts that did not open a channel; gainResets: the channel's calls to
   //     the gain's reset (one per open).
   // counts(), at any time: { timeline, fps, bufferMs, codecDelay, waitTicks, latency, packets,
-  // opens, appended, gainResets, droppedSamples }, as info will have them for the calls so far.
+  // opens, appended, gainResets, droppedSamples }, as info will have them for the calls so far
+  // (under the frame clock, opens, appended, gainResets and droppedSamples count the messages
+  // added so far, not those still waiting for their frame).
   // held(): how many entries the timeline holds in its lists (its records of messages and
-  // spurts, its overflows, the source map's slots and the channel's drops), for a test to see
-  // that a timeline with no end does not grow.
+  // spurts, its overflows, the source map's slots, the channel's drops and the messages waiting
+  // for their frame), for a test to see that a timeline with no end does not grow.
   //
   // length Infinity (W3-02c-3, the live monitor's chain): a timeline with no end. push and
   // advance return the samples a whole length returns for the same calls (output before
@@ -400,6 +419,12 @@
     const PER_MS = VOICE_CHANNEL.rate / 1000;
     const SLOT = Math.round(VOICE_CHANNEL.rate * 0.02), MID = SLOT >> 1;      // 882; its centre 441
     const INTO = Math.round(VOICE_CHANNEL.rate * 0.2);                        // 0.2 s into a spurt
+    // The frame clock (W3-23a): the frame rate as waitTicks limits it; frame k at
+    // (88200 k) / rate half samples; on with a whole length when a frame is longer than a tick.
+    const HALF = 2 * VOICE_CHANNEL.rate;                                      // 88200 half samples a second
+    const rate = clamp(fps, VOICE_CHANNEL.fpsRange[0], VOICE_CHANNEL.fpsRange[1]);
+    const frames = !endless && HALF / rate > TICK;
+    const frameAt = (k) => (HALF * k) / rate;
 
     const slots = endless ? null : new Int32Array(Math.ceil(length / SLOT)).fill(-1);
     // Per message: where pcm[0] is in the source (null: a record), its spurt (-1: none), how
@@ -413,6 +438,10 @@
     let packets = 0, appended = 0;                // counted as they come (counts())
     let kept = null;                              // the sample the mixer loaded last and has not played
     let pieces = [];                              // the output of the blocks run since the last return
+    // The frame clock: the next frame, and the messages pushed and not yet added, in the order
+    // given (from waitHead on).
+    let nextFrame = 0, waitHead = 0;
+    const waiting = [];
 
     function runTick() { ch.tick(); nextTick++; }
 
@@ -486,6 +515,25 @@
       }
     }
 
+    // The frame clock: one frame's three steps, in the order read (W3-23r): the messages whose
+    // tick has come, in the order given; the ticks due; the blocks due. A tick or block whose
+    // time is the frame's own runs in it.
+    function runFrame() {
+      const t = frameAt(nextFrame);
+      nextFrame++;
+      while (waitHead < waiting.length && TICK * waiting[waitHead].tick <= t) {
+        addMessage(waiting[waitHead]);
+        waiting[waitHead++] = null;
+      }
+      if (waitHead === waiting.length) { waiting.length = 0; waitHead = 0; }
+      while (TICK * nextTick <= t) runTick();
+      while (BLOCK * nextBlock <= t) runBlock();
+    }
+    // Every frame before time t (half samples): those no message to come can reach.
+    function runFramesBefore(t) {
+      while (frameAt(nextFrame) < t) runFrame();
+    }
+
     function take() {
       let n = 0;
       for (const p of pieces) n += p.length;
@@ -508,7 +556,7 @@
       if (!Number.isInteger(tick) || tick < floor) throw new RangeError('push() takes messages in tick order: a whole tick at or after the last one given');
       if (!(pcm instanceof Float32Array)) throw new TypeError('push() takes the message\'s decoded samples as a Float32Array');
       floor = tick;
-      runBefore(TICK * tick);
+      if (frames) runFramesBefore(TICK * tick); else runBefore(TICK * tick);
       const p = packets++;                        // the message's tag: its index (pSource.length)
       let s = -1, first = false;
       if (!record) {
@@ -528,6 +576,14 @@
         open = false;
       }
       if (!endless) { pSource.push(record ? null : source); pSpurt.push(s); pIn.push(Math.max(0, pcm.length - 1)); pOut.push(0); }
+      const entry = { tick, pcm, p, s, first };
+      if (frames) waiting.push(entry); else addMessage(entry);
+      return take();
+    }
+
+    // A message reaches the channel: on its tick before the tick's pass, or under the frame
+    // clock in its frame. Whether its spurt opened a channel is known only here.
+    function addMessage({ pcm, p, s, first }) {
       const opensBefore = ch.opens, droppedBefore = ch.dropped;
       ch.add(pcm, p);
       const opened = ch.opens > opensBefore;
@@ -544,27 +600,35 @@
         const d = { time: null, ms: total / PER_MS };
         drops.push(d); unheard.push(d);
       }
-      return take();
     }
 
     function advance(tick) {
       if (finished) throw new Error('advance() after finish()');
       if (!Number.isInteger(tick)) throw new RangeError('advance() takes a whole tick');
-      if (tick > floor) { floor = tick; runBefore(TICK * tick); }
+      if (tick > floor) {
+        floor = tick;
+        if (frames) runFramesBefore(TICK * tick); else runBefore(TICK * tick);
+      }
       return take();
     }
 
     const counts = () => ({ timeline: 'game', fps, bufferMs, codecDelay, waitTicks: ch.waitTicks, latency: lat,
       packets, opens: ch.opens, appended, gainResets, droppedSamples: ch.dropped });
     const held = () => pSource.length + pSpurt.length + pIn.length + pOut.length + spurts.length + drops.length + unheard.length
-      + (slots ? slots.length : 0) + ch.drops.length;
+      + (slots ? slots.length : 0) + ch.drops.length + (waiting.length - waitHead);
 
     function finish() {
       if (finished) throw new Error('finish() twice');
       finished = true;
       if (endless) return { samples: take(), info: counts() };
-      while (N * nextBlock - D < length) {
-        if (TICK * nextTick <= BLOCK * nextBlock) runTick(); else runBlock();
+      if (frames) {
+        // Every message given is added, as on the clock above, where push adds it (a message
+        // whose frame lies past the end would otherwise never reach the channel).
+        while (N * nextBlock - D < length || waitHead < waiting.length) runFrame();
+      } else {
+        while (N * nextBlock - D < length) {
+          if (TICK * nextTick <= BLOCK * nextBlock) runTick(); else runBlock();
+        }
       }
       for (const d of unheard) d.time = (N * nextBlock - D) / VOICE_CHANNEL.rate;   // never heard: after the end
       const info = {

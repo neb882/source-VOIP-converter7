@@ -319,7 +319,10 @@ instructions, joined at `0x1801a6a80`). So the order of packets, ticks and mixer
 | A log at `fps_max 20` | needs `sv_cheats 1`, or the game runs it at 30 |
 
 The planner's figures were run on this order of steps (its clock CL), so they need no second run for the order.
-They do not hold the mixer's longer lead, which moves no sample of the model.
+They do not hold the mixer's longer lead, which moves no sample of the model. *Corrected 2026-11-14 (W3-23a's fix
+round, after its second read): that holds for a lead of whole blocks. The read paints block `b` at the first frame
+with `512 b <= A + played`, where `A = (0.1 + frame) × 44100` samples is not whole blocks, so the model's step 3 is
+the case `A mod 512 = 0` and its block phase is chosen, beside the tick and frame phase.*
 
 ## What was not read
 

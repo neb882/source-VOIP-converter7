@@ -176,7 +176,7 @@
           <div class="control">
             <label for="fps">Listener's frame rate <code class="cvar">fps_max</code></label>
             <input id="fps" type="number" value="300" min="10" max="1000" step="any" aria-describedby="fps-help">
-            <p id="fps-help" class="control-help">How many frames a second the listener's game draws. A new phrase waits before it plays, longer at a higher rate: about 0.09 s at 67 and 0.44 s at 300. The game's fps_max caps the rate; 300 is its default. At 200 or less, sound that never pauses for minutes thins out; at 67 the level first dips after about 2 minutes. That is the game's rule as read, run on the model; no recording shows it.</p>
+            <p id="fps-help" class="control-help">How many frames a second the listener's game draws. A new phrase waits before it plays, longer at a higher rate: about 0.09 s at 67 and 0.44 s at 300. The game's fps_max caps the rate. The recordings' game ran at 300 (logged); the engine's own start value is 400 (read). The game mixes once a frame, and under 67 it also takes packets and counts down once a frame. Under 67 the model does the same (read in part, no recording); at 67 and above it mixes evenly. At 200 or less, sound that never pauses for minutes thins out; at 67 the level first dips after about 2 minutes. That is the game's rule as read, run on the model; no recording shows it.</p>
           </div>
           <div class="control">
             <label for="buffer_ms">Voice buffer ms <code class="cvar">voice_buffer_ms</code></label>

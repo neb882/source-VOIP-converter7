@@ -136,3 +136,15 @@ node -e 'const fs = require("fs"), [a, b, name] = process.argv.slice(1);
 A console log holds player names, server addresses and whatever else the console printed. Logs, and fixtures made
 from real logs, stay out of this repository (CLAUDE.md, "Hard rules"); keep them in a folder outside it. The public
 test writes a synthetic log from the module's own channel and deletes it when it is done.
+
+## The second models
+
+The suites compare the modules with models written again from the orders' words, which share no code with them:
+
+- `reference-channel.mjs`: the channel (W3-02a), with plain arrays; `tests/voice-channel.verify.mjs` drives it.
+- `reference-arrivals.mjs`: BC-4's arrival times through `net_fakelag`'s lists, and at jitter 0 under 1000/15 frames a
+  second the closed form of W3-23a; `tests/render-channel.verify.mjs` holds `steamArrivals` to it tick for tick.
+- `reference-frames.mjs`: the frame clock of W3-23a, a timeline under 1000/15 frames a second that takes the messages
+  whose tick has come, runs the ticks due and runs the blocks due, once a frame; both suites hold `createTimeline`
+  and the renders on the game's voice queue to it. It shares with the module only the definition of a frame's time,
+  `(88200 k) / fps` half samples.

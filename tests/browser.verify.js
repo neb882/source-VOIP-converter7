@@ -1997,7 +1997,10 @@ async function verifySettingsWords(page) {
       + 'At 300 frames a second a sound that opens the queue loses short pieces in its first seconds. '
       + 'Which phrases move depends on the sender\'s clock, which no recording shows. The file\'s own timing keeps every sound where the source has it. The live monitor keeps the file\'s own timing unless its own switch for the queue is on.'
     && t.fps[0] === 'Listener\'s frame rate fps_max' && t.fps[1] === 'How many frames a second the listener\'s game draws. A new phrase waits before it plays, longer at a higher rate: about 0.09 s at 67 and 0.44 s at 300. '
-      + 'The game\'s fps_max caps the rate; 300 is its default. At 200 or less, sound that never pauses for minutes thins out; at 67 the level first dips after about 2 minutes. '
+      // W3-23a: the default's standing (W3-23r read 400 as the engine's start value) and the frame clock's sentence.
+      + 'The game\'s fps_max caps the rate. The recordings\' game ran at 300 (logged); the engine\'s own start value is 400 (read). '
+      + 'The game mixes once a frame, and under 67 it also takes packets and counts down once a frame. Under 67 the model does the same (read in part, no recording); at 67 and above it mixes evenly. '
+      + 'At 200 or less, sound that never pauses for minutes thins out; at 67 the level first dips after about 2 minutes. '
       + 'That is the game\'s rule as read, run on the model; no recording shows it.'
     && t.buffer_ms[0] === 'Voice buffer ms voice_buffer_ms' && t.buffer_ms[1] === 'The wait before a new phrase plays, in milliseconds. The game counts it down one frame at a time, so it lasts longer at a higher frame rate. The game\'s default is 100.'
     && t.maxgain[1] === 'The most the receiver\'s auto-gain may amplify. The game\'s default is 10.'
