@@ -162,6 +162,10 @@
     {
       "finding": "The live chain's steamTimeline keeps an open-ended frame log, so a monitor session grows about 2 MB an hour, with or without the queue (inferred from the code by W3-02c-3's planner, 2026-11-13).",
       "why": "Nothing breaks within a session's usual length; W3-02c-3 does not fix it, and an order of its own can cap the log."
+    },
+    {
+      "finding": "On the game's voice queue the accuracy suite's level on music_take_it_off is 2.14 / 24.0 dB (r 0.370) against 0.08 / 0.4 dB (r 0.997) on the file's own timing (measured privately 2026-11-14, docs/ACCURACY.md, 'Every take on the game's voice queue').",
+      "why": "Not looked into; the clock and the timeline agree better on the queue for every take without loss, and moving the suite's rows onto the queue is a later order, where this is looked at first."
     }
   ],
   "ideas_not_started": [

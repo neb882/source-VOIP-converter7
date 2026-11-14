@@ -203,6 +203,37 @@ How to read each column:
 
 *Measured again 2026-11-13 after BC-4a's merge (measured, private; the takes stay private). The two rows above are now the suite as it stands: it renders on the file's own timing, where jitter does nothing on Steam voice, so they compare each take with a render without jitter. The rows as measured before, with late frames: `net_jitter` level 0.78 / 3.8 dB, r 0.982, worst band −0.6 dB at 3 to 5 kHz, level −0.1; `net_combined` clock +2792, level 5.28 / 21.7, r 0.441, worst band −1.0 dB at 8 to 10 kHz, level +0.3. The same takes rendered on the game's voice queue (a scratch copy of the manifest, not committed: timeline 'game', voice_buffer_ms 100, 336 frames a second for jitter and combined and 295 for the baseline, the photographs' rates): `net_baseline` clock +0 ppm against +413, timeline r 0.86 against 0.79, level 0.24 / 1.2 dB against 0.39 / 2.1; `net_jitter` clock +18 against +726, r 0.87, level 1.62 / 7.7 dB (the render's skips fall at other places than the take's), level +0.0 dB; `net_combined` clock −1348 against +2490, r 0.65, level 5.60 / 20.2 dB, level −0.3 dB. On the queue the clock the suite reads on these takes is gone: it was the queue's skips. Moving the suite's rows onto the game's queue is for a later order.*
 
+### Every take on the game's voice queue (2026-11-14)
+
+Measured privately (the takes stay private): every take through the suite twice at `main` `2548bbe`, once as committed
+(the file's own timing) and once with a scratch copy of the manifest, not committed, giving every Steam row the
+game's voice queue (`voice_buffer_ms` 100, 300 frames a second; Set C's baseline at 295 and its jitter and combined
+takes at 336, the photographs' rates). The rows with random loss are statistics only and are left out here.
+
+| Take | Clock, ppm: file's own / queue | Timeline r: file's own / queue | Level rms / worst, dB: file's own / queue |
+| --- | --- | --- | --- |
+| `take1_default` | +405 / −3 | 0.77 / 0.88 | 1.41 / 12.6 · 1.47 / 12.7 |
+| `take2_voice_scale_0.5` | +404 / +5 | 0.75 / 0.86 | 0.28 / 1.7 · 0.49 / 3.0 |
+| `take3_voice_maxgain_1` | +499 / −4 | 0.76 / 0.84 | 0.14 / 0.5 · 0.16 / 0.8 |
+| `take3_voice_avggain_0.25` | +404 / +1 | 0.77 / 0.86 | 1.36 / 13.3 · 2.03 / 14.7 |
+| `take4_my_own_speech` | +408 / +5 | 0.88 / 0.95 | 0.99 / 8.7 · 1.74 / 16.0 |
+| `net_baseline` | +413 / +0 | 0.79 / 0.86 | 0.39 / 2.1 · 0.24 / 1.2 |
+| `sender_A` | +407 / +4 | 0.76 / 0.86 | 0.12 / 0.5 · 0.10 / 0.4 |
+| `listener_B` | +403 / +7 | 0.78 / 0.88 | 0.41 / 2.2 · 0.42 / 2.2 |
+| `river_artifact` | +404 / +0 | 0.85 / 0.86 | 0.14 / 0.4 · 0.15 / 0.3 |
+| `lowtone_default` | +402 / −4 | 0.82 / 0.83 | 4.08 / 29.4 · 4.08 / 29.0 |
+| `lowtone_maxgain_1` | +401 / +35 | 0.80 / 0.78 | 4.94 / 14.7 · 5.20 / 19.1 |
+| `music_river` | +408 / +2 | 0.85 / 0.95 | 0.16 / 1.1 · 0.14 / 0.9 |
+| `music_take_it_off` | +408 / +2 | 0.78 / 0.92 | 0.08 / 0.4 · 2.14 / 24.0 |
+
+**What it shows** (measured). On the game's queue the clock reads within 7 ppm of 0 on every take without loss but
+`lowtone_maxgain_1` (+35), against +401 to +499 on the file's own timing: the clock the suite has been reading on the
+takes is the queue's dropped samples and skips, not a clock. The timeline's correlation rises on 11 of these 13 takes.
+The short-term level's rms is worse on the queue on several takes, most on `music_take_it_off` (0.08 / 0.4 dB against
+2.14 / 24.0, r 0.997 against 0.370): not looked into yet; the render's skips and early starts are one draw, and where
+they differ from the take's a block of the level compares unlike sound (inferred). Moving the suite's committed rows
+onto the game's queue is for a later order.
+
 How the takes were rendered: every take at `volume 0.15` except `listener_B`, at `volume 0.11` and `voice_scale 0.77`; the Set C takes with the automatic room that set carries, and `sender_A` with its street room; the takes marked "random" with the loss the rule gives for their `net_fakeloss` (21.7%, 49.8% and 37.0% of messages) and, when these figures were measured, the jitter fit at 50 ms (see the note of 2026-11-13 under the table).
 
 What the figures say, the weak ones included:
