@@ -648,3 +648,9 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 
 - in_flight, W3-02e/W3-02f, state replaced: "planned again 2026-11-13 as one order of two parts (docs/work-orders/W3-02ef-lane-and-flat-rule.md, the orchestrator's rulings at its end): W3-02f, the flat re-timing rule taken out of the engine (3 hours), its builder started at once; W3-02e, the lane and the real-take panel on the game's queue (8 hours), after a plan review and the orchestrator's private look. f is merged before W3-02c-3a."
 - next, W3-02e/W3-02f replaced: "{'order': 'W3-02e, W3-02f', 'file': 'docs/work-orders/W3-02ef-lane-and-flat-rule.md', 'after': 'W3-02d-1 (merged 2026-11-13)', 'line': 'the codec lane's marks and the real-take check; the flat re-timing rule retired; in flight since 2026-11-13 (in_flight).'}"
+
+## 2026-11-14: W3-02e merged (cache v47); entries replaced
+
+- in_flight, W3-02e removed: "{'order': 'W3-02e', 'state': 'W3-02f merged 2026-11-13 (cache v46); W3-02e (the lane and the real-take panel on the game's queue) is being built, after its plan review and the orchestrator's private look 1 (docs/work-orders/W3-02ef-lane-and-flat-rule.md)', 'note': 'The codec lane's marks and the real-take check's words (W3-02e); the flat re-timing rule retired (W3-02f).'}"
+- next, W3-02e removed: "{'order': 'W3-02e', 'file': 'docs/work-orders/W3-02ef-lane-and-flat-rule.md', 'after': 'W3-02d-1 (merged 2026-11-13)', 'line': 'the lane and the real-take panel on the game's queue; in flight since 2026-11-13 (in_flight). W3-02f merged 2026-11-13.'}"
+- next, W3-02g, after replaced: "W3-02c-2 and W3-02f, and a planner's pass"
