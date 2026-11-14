@@ -558,7 +558,16 @@ add('demo voice on the game\'s timeline at 66.67 fps, auto-gain off', 24000, () 
 // the same source and settings without jitter. No other hash moved: no render
 // at jitter 0, no render of another profile (the celt_22, speex, steam_48 and
 // miles cases with jitter among them), and not 'odd options'.
+// W3-02g (a demo's own packets through Steam's decoder and the voice channel
+// on the game's timeline) added two cases of a demo on the game's timeline
+// and recorded them in a commit of their own. No other hash moved.
 const GOLDEN = {
+  // W3-02g: a demo's own packets on the game's timeline, recorded once from the run in which every
+  // other check of this suite passed (every recorded hash above and below unmoved, and these two
+  // cases streamed at their plans equal to process()), and every check of
+  // tests/render-channel.verify.mjs, in a commit of their own.
+  "demo voice on the game's timeline": ["0e339664734108571cf3bdd723070f02b391becf8bd8dcc7d0c1e64474541ceb", "88939d83252ac45b55fdd69d2412c55d425b8d48d54e180c9bbb8de1ec4b93bd"],
+  "demo voice on the game's timeline at 66.67 fps, auto-gain off": ["fa987b36a70fc7cfe5362097940b1149b27c97c2799dce61dd5556a5a269ecb0", "70ba435eb738bd7fcf92c068739c8cc4359e8e2cf6ada53bbb676383aa6ec453"],
   // W3-02c-2: the renders on the game's timeline (opts.timeline 'game'), recorded once from
   // the run in which every check of tests/render-channel.verify.mjs passed, in a commit of
   // their own. No hash above or below moved.
@@ -657,6 +666,9 @@ const GOLDEN = {
 // output stage; a change before the mix point re-records them in a commit
 // of its own that says why.
 const GAIN_GOLDEN = {
+  // W3-02g: a demo's own packets on the game's timeline.
+  "demo voice on the game's timeline": "a144401c71c91c480a8d9bd0d5472d6293a2f766c1ff84be7a5fc33fcc48f5e5",
+  "demo voice on the game's timeline at 66.67 fps, auto-gain off": "42ebf4e2789b759267f67c353f33e6d9aae1c18a21e5ac3815c87ee4913b0f7b",
   // W3-02c-2: the renders on the game's timeline.
   "steam, timeline game": "4c9e3a714e5a012aa94bf8e553007356391c4a533797bc9950b8921bd9ce0fe0",
   "steam, timeline game at 66.67 fps": "d41873a687070d12d2bc3e522a2038aee66af37e91a3271719b1add7271ccb04",
