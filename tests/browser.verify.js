@@ -1550,7 +1550,8 @@ async function verifyLiveRoom(page) {
       if (e.data.type === 'stats') latencies.push(e.data.stats.latencyMs);
       if (e.data.type === 'roomprobe') probe = e.data;
     };
-    const opts = { ...renderOptions(), codec, volume: 1, ...first, roomProbe: true, seed: 11 };
+    // The monitor's own timing, as live.js's liveOptions() sends it (W3-02c-3a); part b adds the queue's case.
+    const opts = { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, codec, volume: 1, ...first, roomProbe: true, seed: 11 };
     const heard = () => outs.reduce((n, o) => n + o.length, 0);
     const until = async (f) => { const t = performance.now(); while (!f() && performance.now() - t < 30000) await new Promise((r) => setTimeout(r, 20)); };
     let fed = 0;

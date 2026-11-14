@@ -30,7 +30,7 @@ import { mulberry32, UNRELATED, synthesize } from './voicequeue/synthetic-log.mj
 const require = createRequire(import.meta.url);
 const V = require('../voice-channel.js');
 const { createSender } = require('../steam-sender.js');
-const { VOICE_CHANNEL, waitTicks, latency, createChannel, createTimeline } = V;
+const { VOICE_CHANNEL, waitTicks, latency, zero, createChannel, createTimeline } = V;
 const TOOL = fileURLToPath(new URL('./voicequeue/log-to-fixture.mjs', import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
 // Set for the copies of this script that the public checks start: they only replay.
@@ -236,10 +236,10 @@ function publicChecks() {
     const src = fs.readFileSync(fileURLToPath(new URL('../voice-channel.js', import.meta.url)), 'utf8');
     const page = vm.createContext({}), worker = vm.createContext({ self: {} });
     vm.runInContext(src, page); vm.runInContext(src, worker);
-    // W3-02a exported four names; W3-02b adds createTimeline.
+    // W3-02a exported four names; W3-02b adds createTimeline; W3-02c-3a adds zero.
     check('it loads as a page script and in a worker as TF2VoiceChannel, with no imports',
-      ['VOICE_CHANNEL', 'waitTicks', 'latency', 'createChannel', 'createTimeline'].every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
-      && Object.keys(V).join() === 'VOICE_CHANNEL,waitTicks,latency,createChannel,createTimeline' && !/\bimport\b|\brequire\(/.test(src));
+      ['VOICE_CHANNEL', 'waitTicks', 'latency', 'zero', 'createChannel', 'createTimeline'].every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
+      && Object.keys(V).join() === 'VOICE_CHANNEL,waitTicks,latency,zero,createChannel,createTimeline' && !/\bimport\b|\brequire\(/.test(src));
     check('its constants are frozen: 22050, 0.015 s, 100 ms, 300 fps, 0.1 s, 512 and 513; the fraction 0.999 and the unit 32768', Object.isFrozen(VOICE_CHANNEL) && Object.isFrozen(VOICE_CHANNEL.fpsRange)
       && VOICE_CHANNEL.fraction === 0.999 && VOICE_CHANNEL.unit === 32768 && VOICE_CHANNEL.ring === 22050 && VOICE_CHANNEL.tick === 0.015 && VOICE_CHANNEL.bufferMs === 100 && VOICE_CHANNEL.fps === 300
       && VOICE_CHANNEL.fadeTime === 0.1 && VOICE_CHANNEL.mixBlock === 512 && VOICE_CHANNEL.firstBlock === 513 && VOICE_CHANNEL.rate === 44100);
@@ -838,6 +838,7 @@ function publicChecks() {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   timelineChecks();
+  endlessChecks();
   console.log(`\n${passed} voice channel checks passed`);
 }
 
@@ -1360,6 +1361,116 @@ function timelineChecks() {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// The timeline with no end (W3-02c-3a, docs/work-orders/W3-02c3-live-channel.md, part a, item 1):
+// what the live monitor's chain runs. It returns what a whole length returns, call for call, and
+// keeps nothing that grows with time.
+
+// Each call's return, kept apart: push's and advance's, in order.
+function callsRun(messages, opts, advanceEvery = 0) {
+  const tl = createTimeline(opts);
+  const calls = [];
+  let lastTick = 0;
+  for (const m of messages) {
+    if (advanceEvery) for (let t = lastTick + 1; t < m.tick; t += advanceEvery) calls.push(tl.advance(t));
+    calls.push(tl.push(m));
+    lastTick = m.tick;
+  }
+  return { tl, calls };
+}
+const INFO_FIELDS = ['timeline', 'fps', 'bufferMs', 'codecDelay', 'waitTicks', 'latency', 'packets', 'opens', 'appended', 'gainResets', 'droppedSamples'];
+
+function endlessChecks() {
+  console.log('The timeline with no end (W3-02c-3a)');
+  {
+    // The clock's streams of the first check, with the codec's delay as a render gives it on one setting.
+    const cases = [[300, 100, 0.1, 0], [100, 100, 0.1, 0], [66.67, 100, 0.1, OPUS_DELAY], [150, 50, 0.05, 0], [30, 200, 0.1, 0], [300, 30, 0.02, OPUS_DELAY]];
+    let calls = 0, same = 0, all = 0, first = '', countsSame = 0, finished = 0, dropped = 0, appended = 0;
+    for (const [fps, bufferMs, fadeTime, codecDelay] of cases) {
+      for (let seed = 1; seed <= 8; seed++) {
+        const messages = madeUpMessages(seed, 900), length = 44100 * 14 + seed * 37;
+        for (const advanceEvery of [0, 3]) {
+          all++;
+          const whole = callsRun(messages, { fps, bufferMs, fadeTime, codecDelay, length }, advanceEvery);
+          const endless = callsRun(messages, { fps, bufferMs, fadeTime, codecDelay, length: Infinity }, advanceEvery);
+          let ok = whole.calls.length === endless.calls.length;
+          for (let k = 0; ok && k < whole.calls.length; k++) {
+            calls++;
+            const a = whole.calls[k], b = endless.calls[k];
+            if (a.length !== b.length || a.some((v, i) => !Object.is(v, b[i]))) { ok = false; if (!first) first = `${fps} fps, seed ${seed}: call ${k}`; }
+          }
+          if (ok) same++;
+          const mid = endless.tl.counts(), info = whole.tl.finish().info, end = endless.tl.finish();
+          if (INFO_FIELDS.every((f) => Object.is(mid[f], info[f])) && Object.keys(mid).join() === INFO_FIELDS.join()) countsSame++;
+          if (end.samples.length === 0 && INFO_FIELDS.every((f) => Object.is(end.info[f], info[f]))) finished++;
+          dropped += info.droppedSamples; appended += info.appended;
+        }
+      }
+    }
+    check('length Infinity: every return of push() and advance() is the whole length\'s for the same calls (48 made-up streams at six settings, with and without advance())',
+      same === all, first || `${all} runs, ${calls} calls`);
+    check('counts() after the last call has the whole length\'s info in each of its fields, and only those; finish() runs no block, returns nothing more and counts() as its info',
+      countsSame === all && finished === all && dropped > 0 && appended > 0, `${countsSame} and ${finished} of ${all} runs; ${dropped} samples dropped and ${appended} spurts appended in all`);
+    // Nothing is cut at an end: advance() past any length keeps returning every block that starts before
+    // the tick, from sample 0 on (the samples before it dropped, as a whole length drops them).
+    const D = zeroOf(100, 300), tl = createTimeline({ fps: 300, length: Infinity });
+    let total = 0, bad = 0;
+    for (const m of madeUpMessages(4, 600)) total += tl.push(m).length;
+    for (let t = 600; t <= 40000; t += 997) { total += tl.advance(t).length; if (total !== Math.max(0, 512 * Math.ceil(1323 * t / 1024) - D)) bad++; }
+    check('length Infinity: advance() to tick 40,000 (10 minutes) returns every block that starts before the tick, from sample 0, and nothing is cut',
+      bad === 0 && total > 44100 * 590, `${total} samples`);
+    let refused = 0;
+    for (const length of [-1, 1.5, NaN, -Infinity, '100', undefined]) { try { createTimeline({ length }); } catch (e) { if (e instanceof RangeError) refused++; } }
+    check('length -1, 1.5, NaN, -Infinity, \'100\' and none are still refused', refused === 6);
+  }
+  {
+    // An hour of packets at 300 fps, a little more sound than the hour (2,700 samples every 4 ticks), so the ring
+    // overflows again and again. held(): the entries the timeline keeps in its lists (records of messages and
+    // spurts, overflows, the source map and the channel's drops).
+    const run = (length, ticks) => {
+      const tl = createTimeline({ fps: 300, length });
+      const pcm = new Float32Array(2700).fill(0.25), at = {};
+      for (let t = 0, k = 0; t < ticks; t += 4, k++) {
+        tl.push({ tick: t, pcm, source: 2700 * k });
+        if (t === 4000) at.minute = { held: tl.held(), dropped: tl.counts().droppedSamples };
+      }
+      at.end = { held: tl.held(), dropped: tl.counts().droppedSamples };
+      return at;
+    };
+    const hour = run(Infinity, 240000), whole = run(44100 * 70, 4400);
+    check('an hour of packets at 300 fps with the ring overflowing: the timeline with no end holds no more entries than after a minute (held(), 0 and 0), where a whole length\'s grows',
+      hour.end.held <= hour.minute.held && hour.minute.dropped > 0 && hour.end.dropped > 30 * hour.minute.dropped && whole.end.held > whole.minute.held,
+      `with no end ${hour.minute.held} after a minute and ${hour.end.held} after an hour, ${hour.end.dropped} samples dropped; a whole length ${whole.minute.held} then ${whole.end.held}`);
+  }
+  {
+    // createChannel's listDrops: false lists nothing and changes nothing else.
+    const drive = (listDrops) => {
+      const ch = createChannel(listDrops === undefined ? { fps: 300 } : { fps: 300, listDrops });
+      const out = [];
+      const rand = mulberry32(99);
+      for (let t = 0; t < 3000; t++) {
+        if (t % 3 === 0) ch.add(Float32Array.from({ length: 1000 + Math.floor(rand() * 9000) }, () => Math.round((rand() * 2 - 1) * 20000)), t);
+        ch.tick();
+        for (let b = 0; b < 2; b++) { const r = ch.pull(512); out.push(...r.samples, ...r.tags); }
+      }
+      return { out, dropped: ch.dropped, drops: ch.drops.length, opens: ch.opens };
+    };
+    const plain = drive(undefined), off = drive(false), on = drive(true);
+    check('createChannel with listDrops false: the samples, tags, opens and dropped of one without it, and an empty drops (true is the default)',
+      plain.dropped > 0 && plain.drops > 0 && off.drops === 0 && off.dropped === plain.dropped && off.opens === plain.opens
+      && off.out.length === plain.out.length && off.out.every((v, i) => Object.is(v, plain.out[i])) && on.drops === plain.drops,
+      `${plain.dropped} samples dropped in ${plain.drops} runs listed; with listDrops false ${off.drops} listed`);
+  }
+  {
+    const z = [66.67, 100, 300].map((fps) => zero(100, fps, OPUS_DELAY));
+    let refused = 0;
+    for (const bad of [-0.001, NaN, Infinity, '0.0065', null]) { try { zero(100, 300, bad); } catch (e) { if (e instanceof RangeError) refused++; } }
+    check('the exported zero: 13,312, 15,360 and 24,576 samples at 66.67, 100 and 300 fps with the codec\'s 156 samples, 24,064 at 300 with none; the suite\'s own reading; a codecDelay that is not a finite number of 0 or more refused',
+      z.join() === '13312,15360,24576' && zero(100, 300) === 24064 && zero(100, 300, 0) === 24064 && [66.67, 100, 300].every((fps) => zero(100, fps, OPUS_DELAY) === zeroOf(100, fps, OPUS_DELAY))
+      && zero(undefined, undefined) === zeroOf(100, 300) && refused === 5, `${z.join(', ')}; ${zero(100, 300)}`);
   }
 }
 

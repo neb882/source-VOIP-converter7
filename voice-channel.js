@@ -31,7 +31,8 @@
  * createChannel(opts) -> { add(pcm, tag), tick(), pull(n), and read-only
  * inUse, playing, starved, count, opens, waitTicks, dropped, drops, fraction }, in
  * 16-bit units; createTimeline(opts), the game's clock around one channel, at
- * 1/32768 of them.
+ * 1/32768 of them, over a whole length or with no end (the live monitor's, W3-02c-3);
+ * zero(bufferMs, fps, codecDelay), the samples the timeline takes out (D).
  * No imports; runs as a page script, in a worker and under Node.
  */
 (function (root) {
@@ -112,17 +113,33 @@
       (waitTicks(bufferMs, fps) - 1) * VOICE_CHANNEL.tick + OPENING_SECONDS);
   }
 
+  // The samples the game's timeline takes out, D (createTimeline's zero; the reasoning is
+  // there): the delay at which a restarted spurt plays, latency(bufferMs, fps), plus the mean
+  // time its opening packet takes to arrive after its last sample (ARRIVAL_SECONDS) plus
+  // codecDelay (seconds, default 0; a finite number >= 0, else a RangeError), on whole mixer
+  // blocks. With no codecDelay, 13312 samples at 66.67 fps, 15360 at 100, 24064 at 300; with
+  // the Opus codec's 156 samples at 24 kHz, 13312, 15360 and 24576. A caller with no end (the
+  // live monitor's chain) holds its sound back by it.
+  function zero(bufferMs, fps, codecDelay) {
+    const delay = codecDelay === undefined ? 0 : codecDelay;
+    if (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0) throw new RangeError('createTimeline\'s codecDelay is a finite number of seconds, 0 or more');
+    return VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (latency(bufferMs, fps) + ARRIVAL_SECONDS + delay) / VOICE_CHANNEL.mixBlock);
+  }
+
   // Samples in and out are in 16-bit units (whole values, as the game's ring holds them; a
   // value that is not whole is truncated by the interpolator's arithmetic).
   // opts: fps, bufferMs, fadeTime (seconds), gain ({ process(pcm) -> pcm, reset() }: run on
   // every packet whole and reset when the channel opens; without it samples pass unchanged),
   // test (only to show that a replay of a log can fail, never from the page:
   // { ring: samples, waitTicks: number } replace the constants, keepSample writes the whole
-  // packet, noGrace frees the channel inside the pull that empties the ring).
+  // packet, noGrace frees the channel inside the pull that empties the ring), listDrops
+  // (false: nothing is added to drops, for a caller with no end, whose list would grow
+  // without limit; dropped and every sample are the same).
   function createChannel(opts) {
     const o = opts || {};
     const t = o.test || {};
     const gain = o.gain || null;
+    const listDrops = o.listDrops !== false;
     const size = t.ring !== undefined ? t.ring : VOICE_CHANNEL.ring;
     if (!Number.isInteger(size) || size < 1) throw new RangeError('test.ring must be a positive whole number of samples');
     const wait = t.waitTicks !== undefined ? t.waitTicks : waitTicks(o.bufferMs, o.fps);
@@ -143,7 +160,7 @@
 
     // k samples leave from the play position: an overflow, heard as a skip.
     function dropOldest(k) {
-      for (let i = 0; i < k;) {
+      for (let i = 0; listDrops && i < k;) {
         const tag = tags[(head + i) % size];
         let j = i + 1;
         while (j < k && tags[(head + j) % size] === tag) j++;
@@ -183,7 +200,7 @@
       if (n > size) {                             // more than the ring: the packet's oldest go too
         dropOldest(count);
         const lost = n - size;
-        drops.push({ pulled, count: lost, tag: label });
+        if (listDrops) drops.push({ pulled, count: lost, tag: label });
         dropped += lost; skip = lost; n = size;
       } else if (count + n > size) dropOldest(count + n - size);
       let w = (head + count) % size, k = 0;
@@ -280,9 +297,10 @@
   // 512 it asks for, and keeps the last. So every sample pulled is heard, in order.
   //
   // opts: fps, bufferMs, fadeTime (as createChannel), gain (as createChannel: reset when a
-  // channel opens, run on every message whole), length (output samples, required), codecDelay
-  // (seconds, default 0: how much earlier than the sender's frame the caller's sources are,
-  // the codec's look-ahead, e.g. 156 / 24000; a finite number >= 0).
+  // channel opens, run on every message whole), length (output samples, required: a whole
+  // number, or Infinity for a timeline with no end, below), codecDelay (seconds, default 0:
+  // how much earlier than the sender's frame the caller's sources are, the codec's
+  // look-ahead, e.g. 156 / 24000; a finite number >= 0).
   //
   // Scale: push's pcm, the gain and the output are at 1/32768 of the channel's 16-bit units
   // (1.0 is 32768 units). The boundary is here: the gain's output is multiplied by 32768 as it
@@ -317,10 +335,24 @@
   //     sample 0.
   //   - appended: the spurts that did not open a channel; gainResets: the channel's calls to
   //     the gain's reset (one per open).
+  // counts(), at any time: { timeline, fps, bufferMs, codecDelay, waitTicks, latency, packets,
+  // opens, appended, gainResets, droppedSamples }, as info will have them for the calls so far.
+  // held(): how many entries the timeline holds in its lists (its records of messages and
+  // spurts, its overflows, the source map's slots and the channel's drops), for a test to see
+  // that a timeline with no end does not grow.
+  //
+  // length Infinity (W3-02c-3, the live monitor's chain): a timeline with no end. push and
+  // advance return the samples a whole length returns for the same calls (output before
+  // sample 0 dropped as there); nothing is cut at an end. It keeps no source map, no record
+  // of a message, a spurt or an overflow, and no list that grows with time (the channel is
+  // made with listDrops false): what counts() reports is counted as it goes. finish() ends it,
+  // runs no block, and returns what was final and not yet returned (nothing, since every call
+  // returns what became final) with counts() as its info.
   function createTimeline(opts) {
     const o = opts || {};
     const length = o.length;
-    if (!Number.isInteger(length) || length < 0) throw new RangeError('createTimeline needs length, the output\'s whole number of samples');
+    const endless = length === Infinity;
+    if (!endless && (!Number.isInteger(length) || length < 0)) throw new RangeError('createTimeline needs length, the output\'s whole number of samples, or Infinity for no end');
     const fps = finiteOr(o.fps, VOICE_CHANNEL.fps), bufferMs = finiteOr(o.bufferMs, VOICE_CHANNEL.bufferMs);
     const codecDelay = o.codecDelay === undefined ? 0 : o.codecDelay;
     if (typeof codecDelay !== 'number' || !Number.isFinite(codecDelay) || codecDelay < 0) throw new RangeError('createTimeline\'s codecDelay is a finite number of seconds, 0 or more');
@@ -331,16 +363,16 @@
       process: (pcm) => Float64Array.from(user ? user.process(pcm) : pcm, (v) => v * UNIT),
       reset() { gainResets++; if (user) user.reset(); },
     };
-    const ch = createChannel({ fps, bufferMs, fadeTime: o.fadeTime, gain });
+    const ch = createChannel(endless ? { fps, bufferMs, fadeTime: o.fadeTime, gain, listDrops: false } : { fps, bufferMs, fadeTime: o.fadeTime, gain });
     const lat = latency(bufferMs, fps);
-    const D = VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (lat + ARRIVAL_SECONDS + codecDelay) / VOICE_CHANNEL.mixBlock);
+    const D = zero(bufferMs, fps, codecDelay);
     const TICK = Math.round(2 * VOICE_CHANNEL.rate * VOICE_CHANNEL.tick);      // 1323 half samples
     const N = VOICE_CHANNEL.mixBlock, BLOCK = 2 * N;                          // 512 samples; 1024
     const PER_MS = VOICE_CHANNEL.rate / 1000;
     const SLOT = Math.round(VOICE_CHANNEL.rate * 0.02), MID = SLOT >> 1;      // 882; its centre 441
     const INTO = Math.round(VOICE_CHANNEL.rate * 0.2);                        // 0.2 s into a spurt
 
-    const slots = new Int32Array(Math.ceil(length / SLOT)).fill(-1);
+    const slots = endless ? null : new Int32Array(Math.ceil(length / SLOT)).fill(-1);
     // Per message: where pcm[0] is in the source (null: a record), its spurt (-1: none), how
     // many of its samples the ring took (all but pcm[0]) and how many have left it (pulled or
     // dropped). They leave in order, so the next one out is pcm[1 + that]. An overflow drops
@@ -349,6 +381,7 @@
     let oldest = 0;
     const spurts = [], drops = [], unheard = [];
     let nextTick = 0, nextBlock = 0, floor = 0, fresh = false, open = false, finished = false;
+    let packets = 0, appended = 0;                // counted as they come (counts())
     let kept = null;                              // the sample the mixer loaded last and has not played
     let pieces = [];                              // the output of the blocks run since the last return
 
@@ -358,7 +391,9 @@
     // silence record's zeros (they have no spurt to time); its spurt, -1 for none. The samples
     // of a message leave the ring in order, so the next one out is pcm[1 + pOut]; pOut counts
     // a sample when it leaves the ring, heard now or kept for the next block.
-    const placeOf = (t) => {
+    // With no end there is no record: no place, and hear() has nothing to do.
+    const NOWHERE = Object.freeze({ pos: -1, s: -1 });
+    const placeOf = endless ? () => NOWHERE : (t) => {
       if (t < 0) return { pos: -1, s: -1 };
       const idx = 1 + pOut[t]++, src = pSource[t], s = pSpurt[t];
       return src === null || s < 0 ? { pos: -1, s: -1 } : { pos: src + idx, s };
@@ -445,25 +480,31 @@
       if (!(pcm instanceof Float32Array)) throw new TypeError('push() takes the message\'s decoded samples as a Float32Array');
       floor = tick;
       runBefore(TICK * tick);
-      const p = pSource.length;
+      const p = packets++;                        // the message's tag: its index (pSource.length)
       let s = -1, first = false;
       if (!record) {
         if (!open) {                              // a spurt's first message
           open = first = true;
-          spurts.push({ from: source, start: source / VOICE_CHANNEL.rate, end: source / VOICE_CHANNEL.rate,
-            opened: false, offsetFirst: null, offsetStartMs: null, offsetEndMs: null, dropped: 0 });
+          if (!endless) {
+            spurts.push({ from: source, start: source / VOICE_CHANNEL.rate, end: source / VOICE_CHANNEL.rate,
+              opened: false, offsetFirst: null, offsetStartMs: null, offsetEndMs: null, dropped: 0 });
+          }
         }
-        s = spurts.length - 1;
-        spurts[s].end = Math.max(spurts[s].end, (source + pcm.length) / VOICE_CHANNEL.rate);
+        if (!endless) {
+          s = spurts.length - 1;
+          spurts[s].end = Math.max(spurts[s].end, (source + pcm.length) / VOICE_CHANNEL.rate);
+        }
       } else {                                    // a silence record closes the spurt
-        if (open) s = spurts.length - 1;
+        if (open && !endless) s = spurts.length - 1;
         open = false;
       }
-      pSource.push(record ? null : source); pSpurt.push(s); pIn.push(Math.max(0, pcm.length - 1)); pOut.push(0);
+      if (!endless) { pSource.push(record ? null : source); pSpurt.push(s); pIn.push(Math.max(0, pcm.length - 1)); pOut.push(0); }
       const opensBefore = ch.opens, droppedBefore = ch.dropped;
       ch.add(pcm, p);
-      if (ch.opens > opensBefore) { fresh = true; if (first) spurts[s].opened = true; }
-      if (ch.dropped > droppedBefore) {           // an overflow: the oldest samples in the ring went
+      const opened = ch.opens > opensBefore;
+      if (first && !opened) appended++;
+      if (opened) { fresh = true; if (first && !endless) spurts[s].opened = true; }
+      if (!endless && ch.dropped > droppedBefore) {   // an overflow: the oldest samples in the ring went
         const total = ch.dropped - droppedBefore;
         for (let k = total; k > 0;) {
           while (pOut[oldest] >= pIn[oldest]) oldest++;
@@ -484,9 +525,15 @@
       return take();
     }
 
+    const counts = () => ({ timeline: 'game', fps, bufferMs, codecDelay, waitTicks: ch.waitTicks, latency: lat,
+      packets, opens: ch.opens, appended, gainResets, droppedSamples: ch.dropped });
+    const held = () => pSource.length + pSpurt.length + pIn.length + pOut.length + spurts.length + drops.length + unheard.length
+      + (slots ? slots.length : 0) + ch.drops.length;
+
     function finish() {
       if (finished) throw new Error('finish() twice');
       finished = true;
+      if (endless) return { samples: take(), info: counts() };
       while (N * nextBlock - D < length) {
         if (TICK * nextTick <= BLOCK * nextBlock) runTick(); else runBlock();
       }
@@ -505,10 +552,10 @@
       return { samples: take(), info };
     }
 
-    return Object.freeze({ push, advance, finish });
+    return Object.freeze({ push, advance, finish, counts, held });
   }
 
-  const TF2VoiceChannel = { VOICE_CHANNEL, waitTicks, latency, createChannel, createTimeline };
+  const TF2VoiceChannel = { VOICE_CHANNEL, waitTicks, latency, zero, createChannel, createTimeline };
   if (typeof module !== 'undefined' && module.exports) module.exports = TF2VoiceChannel;
   else root.TF2VoiceChannel = TF2VoiceChannel;
 })(typeof self !== 'undefined' ? self : this);
