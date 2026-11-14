@@ -203,6 +203,8 @@ Changed after registration, 2026-11-14, before any predicted take existed: `opus
 
 The predictions keep the file's own timing (AC-01, 2026-11-14): they were registered on it and are not registered again on the game's voice queue.
 
+Changed after registration, 2026-11-14, before any predicted take existed: `engine/network.js`, `engine/steam.js`, `engine/render.js` and `engine/render-stream.js` changed for W3-23a; `voice-channel.js`, not a hashed model file, changed too. On the game's voice queue (`opts.timeline` `'game'`) under 1000/15 frames a second, the receiver's voice channel takes its messages, runs its ticks and runs the mixer's blocks once a frame, in that order (`createTimeline`'s frame clock, W3-23r's read), and at jitter 0 each message reaches it at the listener's first look after the server's relay tick (`steamArrivals` at jitter 0, the model with jitter as its jitter goes to 0, REFERENCE finding 9); `steamChannel` hands the gain each message's own frame blocks when the channel adds it. At 1000/15 frames a second and above nothing changed, and a timeline with no end (the live monitor's chain) keeps even ticks and blocks at every rate (W3-23b, not built yet). Every prediction renders on the source's timeline, so no render a prediction rests on changes. Of `tests/render-stream.verify.mjs`'s recorded hashes none moved (its `--hashes` output is the same, byte for byte, before and after), and none was recorded. The predictions are scored as registered.
+
 ## Results
 
 Not recorded yet.

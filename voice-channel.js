@@ -54,8 +54,10 @@
     // voice_buffer_ms's default; limited to 1..5000 when a channel is assigned (W3-03 §1, read).
     bufferMs: 100,
     bufferMsRange: [1, 5000],
-    // fps_max's default. The countdown loses one frame's duration per tick, and the frame's
-    // duration is limited to 0.001..0.1 s (W3-03 §1, read): so the rate counts as 10..1000.
+    // The rate the owner's game ran at in the recordings (logged, Set G); fps_max's own start
+    // value in the engine is 400 (read, W3-23r). The countdown loses one frame's duration per
+    // tick, and the frame's duration is limited to 0.001..0.1 s (W3-03 §1, read): so the rate
+    // counts as 10..1000.
     fps: 300,
     fpsRange: [10, 1000],
     // voice_fadeouttime's default (W3-03 §1, read): the fade covers

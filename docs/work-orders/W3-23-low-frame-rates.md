@@ -33,8 +33,8 @@ a frame that the render does evenly:
 | What | The game, as the record reads it | The render today |
 | --- | --- | --- |
 | Ticks | Several in one frame: the voice channel's pass runs in the frame's tick loop, once for each tick due (read, W3-03, "Every client tick") | One every 15 ms (`voice-channel.js`, `createTimeline`; the order W3-02's table calls this "approximated below 67 fps") |
-| The mixer's pulls | Once a frame the mixer paints blocks of 512 samples until 9 are queued at the device (read, W3-07, "Mix-ahead"), so a frame's worth at once | One block every 512 samples (the same table: "approximated") |
-| When packets are taken | At most once a frame (inferred, finding 9; where the client reads its socket is not read) | On each message's own tick at jitter 0. The model with jitter looks at the listener's socket once a frame (chosen, BC-4) |
+| The mixer's pulls | Once a frame the mixer paints blocks of 512 samples until 10 to 13 are queued at the device under 66.67 frames a second (9 at 223 and above), so a frame's worth at once (read, W3-07, "Mix-ahead", and W3-23r: the target is `snd_mixahead` plus a smoothed frame duration). *Corrected 2026-11-14 (W3-23a, from W3-23r's read): this said "until 9 are queued".* | One block every 512 samples (the same table: "approximated") |
+| When packets are taken | Once for each tick, at its head, before that tick's pass; under 66.67 frames a second every frame has a tick, so once a frame in effect, before the frame's ticks (read, W3-23r). *Corrected 2026-11-14 (W3-23a, from W3-23r's read): this said "at most once a frame (inferred, finding 9; where the client reads its socket is not read)".* | On each message's own tick at jitter 0. The model with jitter looks at the listener's socket once a frame (chosen, BC-4) |
 
 The record measured the third row alone (finding 9, "The render at jitter 0 has no look once a frame"): no tick
 moves at 75 frames a second and above; at 66.67, 6.5% of ticks come a tick later; at 60 the mean is 1.5 ms; at 30,
@@ -80,18 +80,19 @@ look is built with the other two or not at all.
 | Part | Statement | Standing |
 | --- | --- | --- |
 | Ticks | The tick is 15 ms. A frame runs one pass of the voice channel for each tick due, in a loop; above 66.7 frames a second most frames have none, below it a frame has several | read (W3-03) |
-| Ticks | How many are due in a frame: the ticks whose time has come, so `floor(t / 15 ms)` of them by time `t` | inferred (the loop's count is read; the arithmetic of the remainder is not) |
+| Ticks | How many are due in a frame: the ticks whose time has come, so `floor(t / 15 ms)` of them by time `t` | read (W3-23r: the frame's limited duration is added to a remainder and the whole ticks are taken off it; a tick whose time has just come runs in that frame). *Corrected 2026-11-14 (W3-23a, from W3-23r's read): this said "inferred (the loop's count is read; the arithmetic of the remainder is not)".* |
 | The wait | Each tick takes the frame's duration off `voice_buffer_ms`, the duration limited to 0.001 to 0.1 s, so the wait is `ceil(0.1 × fps)` ticks, the packet's tick the first | read (W3-03); 7 ticks logged at `fps_max 67` (measured, finding 23). Nothing under 66 frames a second is logged |
 | The wait | At 30 frames a second it is 3 ticks, at 20 it is 2, at 10 it is 1, so a new phrase can start in the frame its packet is taken in | inferred from the two rows above |
-| Pulls | The mixer is called once a frame and paints `9 − queued` blocks of 512 samples, never more than the device has free of its 13 | read (W3-07) |
+| Pulls | The mixer is called once a frame and paints blocks of 512 samples up to a target of `snd_mixahead` plus a smoothed frame duration: 10 blocks kept from 63 to 222 frames a second, 11 from 37 to 62, 12 from 26 to 36, the device's 13 at 25 and under (9 at 223 and above), never more than the device has free of its 13. At a steady rate that is a fixed lead | read (W3-07, corrected by W3-23r; the counts are arithmetic on the read rule). *Corrected 2026-11-14 (W3-23a, from W3-23r's read): this said "paints `9 − queued` blocks".* |
 | Pulls | So block `b` is painted at the first frame at or after a fixed time before it plays; the fixed time delays every sound alike | inferred |
-| Pulls | An "extra update" paints again when 90 ms have passed since the last (read, W3-07). It can act only under 11.1 frames a second | read; not modelled (chosen), so 10 frames a second is the model's least sure rate |
-| Looks | With lag off the client takes packets at most once a frame | inferred (finding 9) |
+| Pulls | An "extra update" paints again when 90 ms have passed since the last paint of either kind (read, W3-07 and W3-23r). It can act only under 11.1 frames a second, and only while the view is drawn, after the frame's packets and ticks | read; it need not be modelled: it moves a few of a frame's blocks to an earlier paint in the same frame, behind the same packets and ticks, so it changes no sample of the model (inferred from read, W3-23r). 10 frames a second stays the least sure rate because nothing under 66 frames a second is logged. *Corrected 2026-11-14 (W3-23a, from W3-23r's read): this said "not modelled (chosen), so 10 frames a second is the model's least sure rate".* |
+| Looks | With lag off the client takes packets once for each tick, at its head: under 66.67 frames a second once a frame in effect, before the frame's ticks | read (W3-23r). *Corrected 2026-11-14 (W3-23a, from W3-23r's read): this said "at most once a frame", inferred (finding 9).* |
 | Looks | The server relays a message on its next tick, and the listener's socket is looked at once a frame | chosen in BC-4 for the model with jitter; kept here at jitter 0 so the two are one rule |
-| Order in a frame | Packets, then the ticks, then the mixer | chosen; not read. W3-23r reads it |
+| Order in a frame | Packets, then the ticks, then the mixer | read (W3-23r). In the game the paint comes later in the frame than the packets, by the time the frame takes to draw; the model puts the three at one instant (chosen). *Corrected 2026-11-14 (W3-23a, from W3-23r's read): this said "chosen; not read. W3-23r reads it".* |
 | Exactly 66.67 | A frame of 14.9993 ms is shorter than a tick, so this order's clock does not run and nothing moves. At jitter 0 no tick drifts: the rule below gives `at(p) = p` for every frame of 15 ms or less (arithmetic, and run over 40,000 ticks) | computed |
 | Exactly 66.67 with jitter | Finding 9's drift (96.3 ms in the first minute, 108.1 in the fifth) is the model with jitter's and stays as it is | measured (BC-4a's second reader); not changed here |
 | A steady frame rate | One figure for the whole render; the game's frames vary | chosen (as the wait already is) |
+| Pulls at 66.67 and above | The game paints once a frame at every rate (read, W3-23r), so below about 86 frames a second, where a frame outlasts a block of 512 samples (arithmetic), its pulls come in bursts. The model keeps one block every 512 samples at 66.67 and above | chosen, to keep every recorded figure at 66.67 and above. *Added 2026-11-14 (W3-23a, the plan review's edit 9).* |
 
 ## W3-23r: the read
 
@@ -112,6 +113,9 @@ dated section. If the order of a frame's steps is not "packets, ticks, mixer", W
 read, and the planner's figures above are run again on it before the build.
 
 If no reader can be started, W3-23a may still be built on the chosen order, by ruling 1 below.
+
+*Settled 2026-11-14 (W3-23a): W3-23r ran and read the order "packets, ticks, mixer", so neither condition above
+applies. W3-23a builds that order, and the planner's figures need no second run for it ("W3-23r: what was read").*
 
 ## W3-23r: what was read (2026-11-14)
 
@@ -357,7 +361,10 @@ The record has no log under 66 frames a second. Two things would settle the chos
 1. **W3-23r**, above, without the owner.
 2. **A log**, three typed lines more in the run sheet's queue block (block 2 or block 5, whichever is recorded
    first), after its section at `fps_max 67`: `voice_showchannels 2`, then about 20 s of speech at `fps_max 30`
-   and 20 s at `fps_max 20`, then the settings back. `voice_showchannels 2` adds a line for every pull of the
+   and 20 s at `fps_max 20`, then the settings back. `sv_cheats 1` is typed first on the PC that ran `map`: with
+   `sv_cheats` 0 the game sets `fps_max` back to 30 when it is set under 30 (read, W3-23r), and the section at 20
+   would be recorded at 30. *Added 2026-11-14 (W3-23a); the run sheet's lines in `docs/owner-runs.md` already have
+   it.* `voice_showchannels 2` adds a line for every pull of the
    mixer (read, W3-03), so the console's own order of lines shows a frame's steps. Read without a model first:
    - **the tick lines come in runs** with no pull line between them: twos and threes at 30 (seven twos to two
      threes), threes and fours at 20 (two threes to one four);
@@ -373,6 +380,9 @@ The record has no log under 66 frames a second. Two things would settle the chos
    written when the log exists.
 
 10 frames a second is left out of the log on purpose: there the "extra update" can paint inside a frame.
+*Corrected 2026-11-14 (W3-23a, from W3-23r's read): the extra update paints in the same frame, after the same packets
+and ticks, so it changes no sample of the model. In a log at 10 it would still split a frame's pull lines into two
+runs, which the reading above does not tell from two frames (inferred); that is why 10 stays out.*
 
 ## Rulings wanted before the build
 
