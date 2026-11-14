@@ -365,6 +365,13 @@ check('tests/demo/queue.dem is the demo these checks make', fs.existsSync(queueF
     && shape.filter((s) => s === 's').length === 6 && ticks.some((t, k) => k && t === ticks[k - 1]) && d1.firstTick === 100 && d2.firstTick === 400
     && d1.packets.every((m) => m.rate === 24000) && q1.packets.every((p) => !p.short),
     `${d1.packets.length} and ${d2.packets.length} messages; ${q.intervalPerTick} s a tick`);
+  // at, where the 3 frames that never reached the server are concealed in front of a message: after
+  // them (the frame log has them lost); where one is missing inside a message: at its first frame.
+  const m120 = d1.packets.find((m) => m.tick === 120), m140 = d1.packets.find((m) => m.tick === 140);
+  check('queue.dem\'s at: a message whose first frame comes after 3 concealed ones is laid after them, and one with a gap inside at its first frame',
+    m120.at === d1.packets.find((m) => m.tick === 112).at + 6 * 480 && [1, 2, 3].every((k) => d1.frameLog[Math.round(m120.at / 480) - k] === 5)
+    && d1.frameLog[Math.round(m120.at / 480)] === 2 && m140.at === d1.packets.find((m) => m.tick === 136).at + 3 * 480
+    && d1.frameLog[Math.round(m140.at / 480) + 2] === 5, `${m120.at}, ${m140.at}`);
 }
 
 // Talk spurts after a lost end marker. One speaker's frames as SourceTV

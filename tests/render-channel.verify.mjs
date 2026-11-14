@@ -1521,6 +1521,14 @@ if (runs(21)) {
     return { samples: join(out), info: end.info, counts, decoded, Z };
   }
 
+  // steamChannel's zero with zeroSamples is zeroSamples, and no codec delay is read; without it,
+  // the model's zero with the codec's delay, as before.
+  {
+    const { steamChannel } = engine.parts.steam, settings = { length: 1000, fps: 300, bufferMs: 100, autoGain: true, avgGain: 0.5, maxGain: 10, voiceScale: 1 };
+    const given = steamChannel({ ...settings, zeroSamples: 14848 }), model = steamChannel({ ...settings, lookahead: 156 });
+    check('steamChannel with zeroSamples 14,848: its zero is 14,848 and its timeline\'s codecDelay 0; without it, the model\'s 24,576 with the codec\'s 156 samples',
+      given.zero === 14848 && given.counts().codecDelay === 0 && model.zero === 24576 && model.zero === VC.zero(100, 300, 156 / 24000), `${given.zero}, ${model.zero}`);
+  }
   // The render is the reference's, at three frame rates, the auto-gain on and off.
   const renders = {};
   for (const fps of [300, 100, 66.67]) {
@@ -1543,10 +1551,10 @@ if (runs(21)) {
     check('the phrases at 300 fps: the one after the long pause opened the queue (0 to 20 ms late), the one after the short pause joined it (60 to 90 ms early), the one after 26 ticks joined it (285 to 320 ms early); the first opened 0 to 20 ms late',
       s300.length === 6 && s300[0].opened && within(s300[0].offsetStartMs, 0, 20) && s300[1].opened && within(s300[1].offsetStartMs, 0, 20)
       && !s300[2].opened && within(s300[2].offsetStartMs, -90, -60) && !s300[3].opened && within(s300[3].offsetStartMs, -320, -285),
-      s300.map((s) => `${s.opened ? 'opened' : 'joined'} ${s.offsetStartMs.toFixed(1)}`).join(', '));
+      s300.map((s) => `${s.opened ? 'opened' : 'joined'} ${(s.offsetStartMs ?? NaN).toFixed(1)}`).join(', '));
     check('at 66.67 and 100 fps the phrase after 26 ticks opens the queue (0 to 20 ms late), the one after 16 still joins; the first two open within 5 ms of their place',
       [s67, s100].every((s) => s[3].opened && within(s[3].offsetStartMs, -5, 20) && !s[2].opened && within(s[0].offsetStartMs, -5, 5) && within(s[1].offsetStartMs, -5, 5)),
-      `66.67: ${s67.map((s) => `${s.opened ? 'opened' : 'joined'} ${s.offsetStartMs.toFixed(1)}`).join(', ')}`);
+      `66.67: ${s67.map((s) => `${s.opened ? 'opened' : 'joined'} ${(s.offsetStartMs ?? NaN).toFixed(1)}`).join(', ')}`);
     check('the gain is reset once per open, at each frame rate', [300, 100, 66.67].every((f) => ch(f).gainResets === ch(f).opens && ch(f).opens >= 4),
       [300, 100, 66.67].map((f) => `${f}: ${ch(f).opens} opens, ${ch(f).gainResets} resets`).join('; '));
   }
@@ -1721,7 +1729,7 @@ if (runs(21)) {
     // at most 2,048 samples of the voice the source given so far stands for (its bound T, the order's).
     for (const [fps, size] of [[300, 7], [300, 960], [300, dec.samples.length], [66.67, 960]]) {
       const whole = renders[fps] ? renders[fps].game.r : (await demoRender(receivedOf(dec), { fps })).r;
-      let behind = 0;
+      let behind = 0, error = null;
       const voice = [], got = await (async () => {
         const r = await A.createRender({ sampleRate: 24000, length: dec.samples.length, numberOfChannels: 1 },
           { ...BASE, fps, received: receivedOf(dec), timeline: 'game', onGain: (g) => voice.push(g.length) });
@@ -1734,10 +1742,10 @@ if (runs(21)) {
         const end = await r.finish();
         out.push(end.samples);
         return { samples: join(out), codecInfo: end.codecInfo };
-      })();
+      })().catch((e) => { error = e; return null; });
       check(`queue.dem at ${fps} fps, createRender in pieces of ${size === dec.samples.length ? 'the whole source' : size}: process()'s samples and codecInfo, and the voice given out never more than 2,048 samples behind the source given`,
-        firstDiff(got.samples, whole.samples) === -1 && isDeepStrictEqual(got.codecInfo, whole.codecInfo) && behind <= 2048,
-        `at most ${behind} samples behind`);
+        got !== null && firstDiff(got.samples, whole.samples) === -1 && isDeepStrictEqual(got.codecInfo, whole.codecInfo) && behind <= 2048,
+        error ? `threw ${error.message}` : `at most ${behind} samples behind`);
     }
   }
   {
