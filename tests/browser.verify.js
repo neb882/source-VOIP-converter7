@@ -1075,6 +1075,108 @@ async function verifyLiveMonitor(page) {
   check(Math.round(fullMs - low.ms) === shown && /Saves \d+ ms/.test(low.title) && shown > 60 && shown < 100,
     'low-latency mode lowers the chain\'s latencyMs by the figure the page shows', `${(fullMs - low.ms).toFixed(2)} ms; the page: "${low.label.trim()}"`);
 
+  // W3-02c-3b: the game's voice queue in the monitor, behind its own switch
+  // (off on load). The page's config messages to the live worker are kept
+  // from here to the block's end.
+  {
+    await page.evaluate(() => {
+      window.__liveConfigs = [];
+      window.__livePost = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function (message, transfer) {
+        if (message && message.type === 'config') window.__liveConfigs.push(message.opts);
+        return window.__livePost.call(this, message, transfer);
+      };
+    });
+    const queueState = () => page.evaluate(() => ({ checked: document.getElementById('live-queue').checked, help: document.getElementById('live-queue-help').textContent,
+      low: { disabled: document.getElementById('live-lowlat').disabled, checked: document.getElementById('live-lowlat').checked, title: document.getElementById('live-lowlat').closest('label').title },
+      configs: window.__liveConfigs.length, opts: window.__liveConfigs[window.__liveConfigs.length - 1] || null, queue: TF2Live.queue, ms: TF2Live.stats.latencyMs,
+      channel: TF2Live.stats.channel || null, arrivals: TF2Live.stats.arrivals || null, codec: TF2Live.stats.codec, panel: document.getElementById('live-latency').textContent,
+      panelTitle: document.getElementById('live-latency').closest('.live-stat').title, note: document.getElementById('live-note').textContent,
+      noteError: document.getElementById('live-note').classList.contains('error'), running: TF2Live.running }));
+    const before = await queueState();
+    check(!before.checked && before.queue.timeline === 'source' && !before.channel, 'the live monitor\'s switch for the game\'s voice queue is off, and the chain keeps the file\'s own timing',
+      JSON.stringify({ checked: before.checked, queue: before.queue }));
+    // Checked on Steam voice with low latency ticked: the chain runs the
+    // queue at the page's frame rate and buffer, low latency disabled and
+    // sent as off.
+    await page.locator('#live-lowlat').check();
+    await page.locator('#live-queue').check();
+    await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'game' && TF2Live.stats && TF2Live.stats.channel && TF2Live.stats.channel.opens > 0,
+      null, { timeout: 20000 });
+    await page.waitForTimeout(600);
+    const on = await queueState();
+    const panelMs = Number(/^(\d+) ms/.exec(on.panel)?.[1]);
+    check(on.opts && on.opts.timeline === 'game' && on.opts.fps === 300 && on.opts.bufferMs === 100 && on.opts.lowLatency === false && on.low.disabled && on.low.checked
+      && /voice queue/.test(on.low.title),
+      'with the switch on, on Steam voice: the chain\'s options hold timeline game and the page\'s fps_max and voice_buffer_ms; the low-latency box is disabled and sent as off',
+      JSON.stringify({ opts: on.opts && { timeline: on.opts.timeline, fps: on.opts.fps, bufferMs: on.opts.bufferMs, lowLatency: on.opts.lowLatency }, low: on.low.disabled }));
+    check(Math.abs(on.ms - fullMs - on.queue.queueCostMs) < 1e-6 && on.queue.queueCostMs > 300 && panelMs >= on.ms && panelMs < on.ms + 400,
+      'the chain\'s delay rises by the cost the chain reports, and the panel shows between that delay and 400 ms more',
+      `${fullMs.toFixed(1)} ms off, ${on.ms.toFixed(1)} ms on, the chain's cost ${on.queue.queueCostMs.toFixed(2)} ms; the panel ${on.panel}`);
+    check(on.help.includes(`plays ${on.queue.queueCostMs.toFixed(0)} ms later`) && /fps_max 300 and voice_buffer_ms 100/.test(on.help)
+      && /114 to 181 ms/.test(on.help) && /each phrase comes later again by the time its first packet took/.test(on.help)
+      && /waits 30 ticks, 435 ms, at fps_max 300/.test(on.panelTitle) && on.channel.opens > 0,
+      'the switch\'s help holds the chain\'s cost and what a listener hears; the panel\'s title names the queue\'s wait; TF2Live.stats.channel.opens is above 0',
+      `${on.channel.opens} opens; ${on.help.slice(0, 160)}...`);
+    // Phrase timing does not decide the monitor.
+    await page.evaluate(() => execCommand('voice_timeline source'));
+    await page.waitForTimeout(900);
+    const sourceTimed = await queueState();
+    await page.evaluate(() => execCommand('voice_timeline game'));
+    check(sourceTimed.configs === on.configs && sourceTimed.queue.timeline === 'game' && sourceTimed.running,
+      'with Phrase timing on the file\'s own timing the monitor still runs the queue: nothing is sent to its chain', JSON.stringify({ configs: sourceTimed.configs - on.configs, queue: sourceTimed.queue }));
+    // A changed fps_max builds a new chain, and the help follows it.
+    await page.evaluate(() => execCommand('fps_max 67'));
+    await page.waitForFunction(() => TF2Live.stats.channel && TF2Live.stats.channel.fps === 67 && TF2Live.queue.queueCostMs < 200, null, { timeout: 20000 });
+    const at67 = await queueState();
+    await page.evaluate(() => execCommand('fps_max 300'));
+    await page.waitForFunction(() => TF2Live.stats.channel && TF2Live.stats.channel.fps === 300 && TF2Live.queue.queueCostMs > 300, null, { timeout: 20000 });
+    check(at67.configs > on.configs && at67.opts.fps === 67 && at67.help.includes(`plays ${at67.queue.queueCostMs.toFixed(0)} ms later`)
+      && at67.queue.queueCostMs.toFixed(0) !== on.queue.queueCostMs.toFixed(0) && /fps_max 67 and/.test(at67.help),
+      'with the switch on, a changed fps_max builds a new chain, and the help holds that chain\'s cost at the new frame rate',
+      `${at67.queue.queueCostMs.toFixed(2)} ms at fps_max 67`);
+    // Off: the help still gives the figure at the page's own frame rate, not
+    // the chain's (which, made with no fps, reports the module's default).
+    await page.locator('#live-queue').uncheck();
+    await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'source' && !TF2Live.stats.channel, null, { timeout: 20000 });
+    await page.evaluate(() => execCommand('fps_max 67'));
+    await page.waitForTimeout(400);
+    const off67 = await queueState();
+    await page.evaluate(() => execCommand('fps_max 300'));
+    check(off67.help.includes(`plays ${at67.queue.queueCostMs.toFixed(0)} ms later`) && Math.abs(off67.queue.queueCostMs - on.queue.queueCostMs) < 1e-6 && !off67.low.disabled,
+      'with the switch off at fps_max 67, the help gives the cost at 67 frames a second, not the chain\'s at its defaults; low latency is live again',
+      `${off67.help.slice(0, 140)}...; the chain's ${off67.queue.queueCostMs.toFixed(2)} ms`);
+    // On the other codecs, and with the codec skipped, the checked switch
+    // does nothing: the chain keeps the file's own timing, no error shows,
+    // and low latency still works.
+    await page.locator('#live-queue').check();
+    await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'game' && TF2Live.stats.channel, null, { timeout: 20000 });
+    const others = {};
+    for (const codec of ['celt_22', 'steam_48', 'miles']) {
+      await page.locator('#codec').selectOption(codec);
+      await page.waitForFunction((c) => TF2Live.stats && TF2Live.stats.codec === c && TF2Live.stats.sent > 10, codec, { timeout: 20000 });
+      await page.waitForTimeout(400);
+      others[codec] = await queueState();
+    }
+    await page.locator('#codec').selectOption('steam');
+    await page.waitForFunction(() => TF2Live.stats && TF2Live.stats.codec === 'steam' && TF2Live.queue.timeline === 'game', null, { timeout: 20000 });
+    await page.locator('#warble_on').selectOption('0');
+    await page.waitForFunction(() => window.__liveConfigs.length && window.__liveConfigs[window.__liveConfigs.length - 1].enableWarble === false, null, { timeout: 5000 });
+    await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'source', null, { timeout: 20000 });
+    await page.waitForTimeout(800);
+    others.skipped = await queueState();
+    await page.locator('#warble_on').selectOption('1');
+    await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'game' && TF2Live.stats.channel, null, { timeout: 20000 });
+    const quiet = Object.entries(others).filter(([, o]) => !(o.opts.timeline === 'source' && o.opts.fps === undefined && o.queue.timeline === 'source' && !o.channel
+      && !o.noteError && o.running && o.opts.lowLatency === true && !o.low.disabled && /off on every load|keeps the file's own timing/i.test(o.help)));
+    check(quiet.length === 0, 'on celt_22, steam_48 and miles (neither in TF2) and with the codec skipped the checked switch does nothing: the chain keeps the file\'s own timing, no error shows, low latency still works',
+      quiet.map(([c, o]) => `${c}: ${JSON.stringify({ timeline: o.opts.timeline, queue: o.queue, low: o.opts.lowLatency, error: o.noteError })}`).join('; ') || Object.keys(others).join(', '));
+    await page.locator('#live-queue').uncheck();
+    await page.locator('#live-lowlat').uncheck();
+    await page.waitForFunction((full) => TF2Live.queue.timeline === 'source' && TF2Live.stats.latencyMs === full, fullMs, { timeout: 15000 });
+    await page.evaluate(() => { Worker.prototype.postMessage = window.__livePost; });
+  }
+
   // Push-to-talk: nothing is sent once the key is up. On steam the key up is
   // the app's stand-in (zeros in place of the microphone): the spurt in hand
   // ends by the gate's own hold, so the count waits 1.5 s first (the hold, a
@@ -1220,6 +1322,66 @@ async function verifyLiveMonitor(page) {
       'the live monitor: a changed fps_max, voice_buffer_ms or Phrase timing while it runs sends its chain nothing, so it does not restart; voice_scale does', JSON.stringify(configs));
     await page.waitForFunction(() => renderIdle(), null, { timeout: 30000 });
   }
+  // W3-02c-3b: a session recorded with the queue's switch on. Its key is the
+  // page's on the game's voice queue at the chain's frame rate and buffer; it
+  // carries the channel's counts, so the line beside Hear shows and the
+  // console prints the queue's line. With Phrase timing on the queue it is
+  // not marked and no render starts; with Phrase timing on the file's own
+  // timing it is held, with its own line.
+  {
+    await page.locator('#live-queue').check();
+    await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'game' && TF2Live.stats.channel && TF2Live.stats.channel.opens > 0, null, { timeout: 20000 });
+    await page.waitForTimeout(4000);
+    const queueTake = async () => {
+      await page.waitForFunction(() => renderIdle(), null, { timeout: 30000 });
+      // The chain's count of packets just before the recording starts and
+      // 1.5 s after the take is loaded (the panel's stats come ten times a
+      // second, so the take's own count lies between 0 and their difference;
+      // the chain's count since it was built, 4 s more, does not).
+      const packetsBefore = await page.evaluate(() => { window.__takeBefore = state.decodedSource; return TF2Live.stats.channel.packets; });
+      await page.locator('#live-record').click();
+      await page.waitForTimeout(3000);
+      await page.locator('#live-record').click();
+      await page.waitForFunction(() => state.sourceName && state.sourceName.startsWith('live-') && state.processedBuffer
+        && state.decodedSource && state.decodedSource !== window.__takeBefore, null, { timeout: 20000 });
+      await page.waitForTimeout(1500);
+      const packetsAfter = await page.evaluate(() => TF2Live.stats.channel.packets);
+      return page.evaluate(({ packetsBefore, packetsAfter }) => {
+        const lines = [...document.getElementById('console-out').children].map((e) => e.textContent);
+        const from = lines.map((t) => t.startsWith('voice_record: live take of')).lastIndexOf(true);
+        const wet = state.processedBuffer;
+        let loud = 0;
+        for (const v of wet) if (Math.abs(v) > 0.01) loud++;
+        return { key: JSON.parse(state.renderedKey), channel: state.lastCodecInfo.channel || null, packetsBefore, packetsAfter, stale: state.stale, idle: renderIdle(), line: !els.hearTimeline.hidden,
+          status: els.renderStatus.textContent, loud, length: wet.length, rate: state.processedRate,
+          queueLine: lines.slice(from).find((t) => t.startsWith('S_Voice: the game\'s voice queue at fps_max')) || '',
+          started: lines.slice(from + 1).filter((t) => t.startsWith('S_StartSound: initializing render')).length };
+      }, { packetsBefore, packetsAfter });
+    };
+    const onQueue = await queueTake();
+    check(onQueue.loud > onQueue.rate * 0.5 && onQueue.key.timeline === 'game' && onQueue.key.fps === 300 && onQueue.key.bufferMs === 100 && onQueue.channel
+      && onQueue.channel.fps === 300 && onQueue.channel.packets > 0 && onQueue.channel.packets <= onQueue.packetsAfter - onQueue.packetsBefore && !onQueue.stale && onQueue.idle && onQueue.started === 0 && onQueue.line
+      && /^S_Voice: the game's voice queue at fps_max 300, voice_buffer_ms 100: a new phrase waits 30 ticks \(435 ms\)/.test(onQueue.queueLine)
+      && /^Recorded live · /.test(onQueue.status),
+      'a session recorded with the switch on is not silent; its key holds timeline game, fps 300 and voice_buffer_ms 100; its channel counts are the recording\'s, not the chain\'s since it was built; with Phrase timing on the queue it is not marked, no render starts by itself, the line beside Hear shows and the console prints the queue\'s line',
+      `${onQueue.loud} samples above 0.01 of ${onQueue.length}; ${onQueue.channel && onQueue.channel.packets} packets, the chain's count from ${onQueue.packetsBefore} to ${onQueue.packetsAfter}; ${onQueue.started} started; ${onQueue.queueLine}; ${onQueue.status}`);
+    // Phrase timing on the file's own timing renders that take again (it is
+    // short); the next take is held.
+    await page.evaluate(() => execCommand('voice_timeline source'));
+    await page.waitForFunction(() => renderIdle() && !state.lastCodecInfo.live, null, { timeout: 30000 });
+    const heldQueue = await queueTake();
+    check(heldQueue.key.timeline === 'game' && heldQueue.stale && heldQueue.idle && heldQueue.started === 0 && heldQueue.line
+      && /^Recorded live · .* · on the game's voice queue; Render gives it on the file's own timing$/.test(heldQueue.status),
+      'a session recorded with the switch on and Phrase timing on the file\'s own timing is held: marked, no render starts by itself, and its line says it was made on the game\'s voice queue',
+      `${heldQueue.started} started; ${heldQueue.status}`);
+    // Back on the queue, the controls' key is the take's: nothing is marked and nothing renders.
+    await page.evaluate(() => execCommand('voice_timeline game'));
+    await page.waitForTimeout(900);
+    const back = await page.evaluate(() => ({ stale: state.stale, idle: renderIdle(), live: !!state.lastCodecInfo.live, status: els.renderStatus.textContent }));
+    check(!back.stale && back.idle && back.live && !/Render gives it/.test(back.status), 'with Phrase timing back on the queue, the held take is the controls\' render: not marked, no render started', JSON.stringify(back));
+    await page.locator('#live-queue').uncheck();
+    await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'source', null, { timeout: 20000 });
+  }
   // steam_48 runs the frame path in the render and in the live chain alike.
   const take48 = await recordTake('steam_48');
   check(Math.abs(take48.lag) <= 1 && take48.r > 0.8, 'steam_48: the recorded voice lines up with an offline render of the recorded microphone, within a sample',
@@ -1274,9 +1436,11 @@ async function verifyLiveMonitor(page) {
   check(celtLive.mode === 'CELT' && celtLive.stats.modes.celt > 20 && celtLive.stats.modes.celt === celtLive.stats.sent,
     'the live chain runs celt_44: every frame sent is CELT', `mode ${celtLive.mode}; ${celtLive.stats.modes.celt} CELT of ${celtLive.stats.sent} sent`);
   await page.getByRole('button', { name: 'Modern (Steam Voice)', exact: true }).click();
-  // BC-4b: the monitor keeps the file's own timing, so on Steam voice its
-  // note says that jitter does nothing there; not on another codec (the fit
-  // runs there), not at jitter 0, and not once the monitor has stopped.
+  // BC-4b: with the queue's switch off the monitor keeps the file's own
+  // timing, so on Steam voice its note says that jitter does nothing there;
+  // not on another codec (the fit runs there), not at jitter 0, and not once
+  // the monitor has stopped. With the switch on it says nothing of it
+  // (W3-02c-3b), and the chain counts the packets' arrivals.
   const liveJitter = await page.evaluate(() => {
     const note = () => document.getElementById('live-note').textContent;
     const netTitle = () => document.getElementById('live-loss').closest('.live-stat').title;
@@ -1288,10 +1452,17 @@ async function verifyLiveMonitor(page) {
     execCommand('net_fakejitter 50');
     return out;
   });
-  const jitterLine = 'Jitter does nothing in the live monitor yet.';
+  const jitterLine = 'Jitter does nothing in the live monitor on the file\'s own timing.';
   check(!liveJitter.start.includes(jitterLine) && liveJitter.steam === `${liveJitter.start} ${jitterLine}` && liveJitter.celt === liveJitter.start
     && liveJitter.again === liveJitter.steam && liveJitter.zero === liveJitter.start,
-    'while the live monitor runs on Steam voice with jitter 50, its note adds "Jitter does nothing in the live monitor yet."; on celt_22 and at jitter 0 it does not', JSON.stringify(liveJitter));
+    'while the live monitor runs on Steam voice with jitter 50 and its queue\'s switch off, its note adds "Jitter does nothing in the live monitor on the file\'s own timing."; on celt_22 and at jitter 0 it does not', JSON.stringify(liveJitter));
+  await page.locator('#live-queue').check();
+  await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'game' && TF2Live.stats.arrivals && TF2Live.stats.arrivals.messages > 0, null, { timeout: 20000 });
+  const queueJitter = await page.evaluate(() => ({ note: document.getElementById('live-note').textContent, arrivals: TF2Live.stats.arrivals }));
+  await page.locator('#live-queue').uncheck();
+  await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'source', null, { timeout: 20000 });
+  check(!queueJitter.note.includes('Jitter does nothing') && queueJitter.note === liveJitter.start && queueJitter.arrivals.jitterMs === 50,
+    'with the queue\'s switch on at jitter 50 the note says nothing of jitter, and TF2Live.stats.arrivals is there', JSON.stringify(queueJitter));
   // The fix round: the "net" figure's title on Steam voice says no frame is late; index.html's first title is the same.
   const liveNetTitle = 'Frames concealed: lost frames (net_fakeloss) the decoder filled in when the next one arrived. On Steam voice no frame is late';
   const htmlNetTitle = /<span class="live-stat" title="([^"]*)">net <b id="live-loss">/.exec(fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8'))?.[1];
@@ -1315,7 +1486,7 @@ const CONTROLS_GAME = ['codec', 'listener_position', 'env', 'a_sky', 'a_w', 'a_l
   'avggain', 'maxgain', 'voice_scale', 'volume', 'loss', 'jitter', 'live-ptt', 'buffer_ms'];
 const CONTROLS_PCS = ['capture_channel', 'steam_uptime', 'device_rate', 'live-input', 'live-output', 'fps'];
 const CONTROLS_EXTRAS = ['gain', 'hp', 'lp', 'vad', 'vad_threshold', 'warble_on', 'bits', 'frameMs', 'agc', 'timeline',
-  'c_dur', 'c_dec', 'c_mix', 'live-lowlat'];
+  'c_dur', 'c_dec', 'c_mix', 'live-lowlat', 'live-queue'];
 // The game's controls whose label shows the game's variable (`class="cvar"`).
 const CONTROLS_NAMED = { codec: 'sv_voicecodec', listener_position: 'dsp_room', env: 'dsp_room', avggain: 'voice_avggain',
   maxgain: 'voice_maxgain', voice_scale: 'voice_scale', volume: 'volume', loss: 'net_fakeloss', jitter: 'net_fakejitter', 'live-ptt': '+voicerecord',
@@ -1535,7 +1706,7 @@ async function verifyRoomsPage(page) {
 // the 0.8 s pauses end each talk spurt (Steam's hold is 0.4 s).
 async function verifyLiveRoom(page) {
   console.log('\n[Browser 3f2] The room in the live chain (W3-17d)');
-  const run = (spec) => page.evaluate(async ({ codec, first, steps, seconds }) => {
+  const run = (spec) => page.evaluate(async ({ codec, first, steps, seconds, queue = false }) => {
     const rate = 44100, block = 882;
     let seed = 7;
     const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
@@ -1550,8 +1721,12 @@ async function verifyLiveRoom(page) {
       if (e.data.type === 'stats') latencies.push(e.data.stats.latencyMs);
       if (e.data.type === 'roomprobe') probe = e.data;
     };
-    // The monitor's own timing, as live.js's liveOptions() sends it (W3-02c-3a); part b adds the queue's case.
-    const opts = { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, codec, volume: 1, ...first, roomProbe: true, seed: 11 };
+    // The monitor's own timing, as live.js's liveOptions() sends it with the
+    // queue's switch off (W3-02c-3a); with `queue` the game's voice queue at
+    // 300 frames a second and voice_buffer_ms 100, as it sends them with the
+    // switch on at the page's defaults (W3-02c-3b).
+    const timing = queue ? { timeline: 'game', fps: 300, bufferMs: 100 } : { timeline: 'source', fps: undefined, bufferMs: undefined };
+    const opts = { ...renderOptions(), ...timing, codec, volume: 1, ...first, roomProbe: true, seed: 11 };
     const heard = () => outs.reduce((n, o) => n + o.length, 0);
     const until = async (f) => { const t = performance.now(); while (!f() && performance.now() - t < 30000) await new Promise((r) => setTimeout(r, 20)); };
     let fed = 0;
@@ -1559,7 +1734,8 @@ async function verifyLiveRoom(page) {
       const to = Math.round(seconds * rate);
       for (; fed < to; fed += block) { const b = mic.slice(fed, Math.min(to, fed + block)); channel.port1.postMessage({ type: 'in', samples: b.buffer }, [b.buffer]); }
       fed = to;
-      await until(() => heard() >= fed - rate * (codec === 'steam' ? 0.3 : 0.1));
+      // The chain's hold: about 0.21 s on steam, 0.56 s on its queue at 300 frames a second.
+      await until(() => heard() >= fed - rate * (queue ? 0.6 : codec === 'steam' ? 0.3 : 0.1));
     };
     worker.postMessage({ type: 'start', rate, port: channel.port2, opts }, [channel.port2]);
     await until(() => readies.length > 0);
@@ -1620,7 +1796,7 @@ async function verifyLiveRoom(page) {
     let same = 0;
     for (let i = 0; i < m; i++) if (Math.max(-32767, Math.min(32767, mix[i])) / 32768 === out[i]) same++;
     const loud = (at) => voice.slice(Math.max(0, at - 4410), at).some((v) => Math.abs(v) > 300);
-    return { blocks, same, m, mixLength: mix.length, outLength: out.length, readies: readies.map((r) => r.room), spurts, senderSpurts: probe.stats.spurts,
+    return { blocks, same, m, mixLength: mix.length, outLength: out.length, readies: readies.map((r) => r.room), spurts, senderSpurts: probe.stats.spurts, opens: probe.stats.opens,
       sharesSeen, setAt, attach, detach, attachLoud: attach.map(loud), latencies, final: { holding: probe.holding, attached: probe.attached, latencyMs: probe.stats.latencyMs },
       state: probe.state, created: probe.log.find((c) => c.call === 'create'), sets };
   }, spec);
@@ -1645,6 +1821,18 @@ async function verifyLiveRoom(page) {
   check(Math.abs(Math.max(...steam.latencies) - steam.final.latencyMs - hold) < 1e-6 && !steam.final.holding && !steam.final.attached,
     'stats.latencyMs counts the room\'s 11.6 ms only while the chain holds a block: none once the room has faded to none',
     `${Math.max(...steam.latencies).toFixed(2)} ms with the room, ${steam.final.latencyMs.toFixed(2)} ms after`);
+  // W3-02c-3b: the same on the game's voice queue, as the page sends it with
+  // the queue's switch on. A channel starts at each open of the voice
+  // channel, not at each of the sender's spurts: at 300 frames a second the
+  // signal's 0.8 s pauses do not all free the channel.
+  const queued = await run({ codec: 'steam', queue: true, first: { room: null, underwater: false }, seconds: 7,
+    steps: [[1.0, { room: { preset: 6 } }], [3.0, { room: { auto: 'great_hall' } }], [5.0, { room: null }]] });
+  check(queued.m > 0.9 * queued.mixLength && queued.same === queued.m && queued.blocks > 100 && queued.readies.length === 1,
+    'steam live on the game\'s voice queue: the worker\'s output is the mix made again from its voice alone, one chain throughout',
+    `${queued.same} of ${queued.m} samples, ${queued.blocks} blocks through the room`);
+  check(queued.spurts === queued.opens && queued.opens >= 1 && queued.opens < queued.senderSpurts,
+    'on the game\'s voice queue a voice channel starts at each open of the channel and nowhere else, not at each of the sender\'s spurts',
+    `${queued.spurts} spurt starts for ${queued.opens} opens and ${queued.senderSpurts} spurts`);
   // celt_22 (the frame path, a 22050 Hz voice): started under water with a
   // number the table does not hold; preset 17; then that number again,
   // which leaves preset 17, with the water off.
@@ -2143,6 +2331,27 @@ async function verifyJourney(browser, base) {
       await page.reload({ waitUntil: 'domcontentloaded' });
       const junk = await page.evaluate(() => Object.keys(DEFAULT_CONFIG).filter((k) => collectConfig()[k] !== DEFAULT_CONFIG[k]));
       check(junk.length === 0, 'with tf2ve_settings holding "x" the page boots on its defaults', junk.join(', '));
+      // W3-02c-3b: the live monitor's switch for the game's voice queue is
+      // off on load and after a reload made with it on; it is in no
+      // remembered setting and no share link (both are collectConfig()'s),
+      // and has no console name.
+      await page.goto(base, { waitUntil: 'domcontentloaded' });
+      const queueBox = async () => {
+        await page.evaluate(() => { if (!document.body.classList.contains('advanced')) showAdvanced(true); });
+        const box = page.locator('#live-queue');
+        const was = await box.isChecked();
+        const config = await page.evaluate(() => ({ config: JSON.stringify(collectConfig()), saved: localStorage.getItem('tf2ve_settings') }));
+        await box.check();
+        const after = await page.evaluate(() => ({ config: JSON.stringify(collectConfig()), saved: localStorage.getItem('tf2ve_settings'), hash: location.hash,
+          named: Object.keys(idToCvarMap).includes('live-queue') }));
+        return { was, same: config.config === after.config, savedSame: after.saved === null || after.saved === after.config, hash: after.hash, named: after.named };
+      };
+      const first = await queueBox();
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const second = await queueBox();
+      check(!first.was && !second.was && first.same && second.same && first.savedSame && second.savedSame && !first.named && !/queue/i.test(first.hash),
+        'the live monitor\'s switch for the game\'s voice queue is off on load and after a reload made with it on; checking it changes no remembered setting and no share link, and it has no console name',
+        JSON.stringify({ first, second }));
     } finally { await context.close(); }
     const blocked = await browser.newContext({ serviceWorkers: 'block' });
     try {
@@ -3556,7 +3765,7 @@ async function verifyAccess(browser, base) {
         });
         const box = document.querySelector('#meter .meter-scroll');
         box.focus();
-        const live = ['live-ptt', 'live-lowlat'].map((id) => { const el = document.getElementById(id), r = el.getBoundingClientRect(), l = el.closest('label').getBoundingClientRect();
+        const live = ['live-ptt', 'live-lowlat', 'live-queue'].map((id) => { const el = document.getElementById(id), r = el.getBoundingClientRect(), l = el.closest('label').getBoundingClientRect();
           return { id, w: r.width, h: r.height, row: l.height }; });
         const tall = [...document.querySelectorAll('#controls-wrapper input[type=number], #controls-wrapper select, input[type=file]')].filter(shown)
           .map((el) => ({ id: el.id, h: el.getBoundingClientRect().height }));
@@ -3572,7 +3781,7 @@ async function verifyAccess(browser, base) {
         `${phone.selects.length} selects, ${phone.selects.filter((s) => s.wide).length} too long for theirs${cut.length ? `; cut: ${cut.map((s) => s.id).join(', ')}` : ''}`);
       check(phone.region.role === 'region' && phone.region.label && phone.region.focused && phone.region.scrolls && phone.region.sticky === 'sticky',
         `${width} px: the loudness table's box is a named region that takes the focus, scrolls, and its first column stays`, JSON.stringify(phone.region));
-      check(phone.live.every((c) => c.w >= 20 && c.h >= 20 && c.row >= 44), `${width} px: both live checkboxes are at least 20 px, in label rows at least 44 px high`, JSON.stringify(phone.live));
+      check(phone.live.every((c) => c.w >= 20 && c.h >= 20 && c.row >= 44), `${width} px: the live checkboxes are at least 20 px, in label rows at least 44 px high`, JSON.stringify(phone.live));
       check(phone.short.length === 0 && phone.tall > 20, `${width} px: every number box, select and file control of the settings is at least 44 px high`,
         phone.short.map((t) => `${t.id} ${t.h}`).join(', ') || `${phone.tall} controls`);
     }
@@ -4649,7 +4858,7 @@ async function main() {
     const controlIds = ['codec', 'listener_position', 'gain', 'voice_scale', 'hp', 'lp', 'env',
       'c_dur', 'c_dec', 'c_mix', 'agc', 'maxgain', 'avggain', 'volume', 'device_rate', 'bits', 'frameMs', 'loss', 'warble_on',
       'capture_channel', 'vad', 'vad_threshold', 'steam_uptime', 'jitter',
-      'underwater', 'a_sky', 'a_w', 'a_l', 'a_h', 'a_open', 'a_refl', 'live-lowlat', 'fps', 'buffer_ms', 'timeline'];
+      'underwater', 'a_sky', 'a_w', 'a_l', 'a_h', 'a_open', 'a_refl', 'live-lowlat', 'live-queue', 'fps', 'buffer_ms', 'timeline'];
     const unlabeled = await page.evaluate((ids) => ids.filter((id) => {
       const element = document.getElementById(id);
       return !element || !element.labels || element.labels.length === 0;
