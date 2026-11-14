@@ -536,3 +536,15 @@ the builder and holds over the text above.
     the report measures the margin where the chain gives out).
 
 Size stands: 10 hours for part a, 6 for part b. Part a starts after W3-02f is merged (W3-02ef's ruling 9).
+
+## Ruling 2026-11-14 (the orchestrator): [Browser 3f2] in part a
+
+Part a's builder stopped on one check. [Browser 3f2] (`verifyLiveRoom`, `tests/browser.verify.js` near `:1553`)
+starts the live worker with `{ ...renderOptions(), codec, … }`, and since W3-02d-1 `renderOptions()` asks for the
+game's timeline on Steam voice. The chain used to ignore `timeline`; after part a it runs the queue there, and the
+check's count of spurt starts (one a sender's spurt) no longer holds (2 opens for 4 spurts at 300 frames a second,
+the 0.8 s pauses not freeing the channel). The page itself is unchanged: `liveOptions()` still sends `'source'`.
+**Ruled:** part a may change that one line of `tests/browser.verify.js`, so the check's options carry
+`timeline: 'source', fps: undefined, bufferMs: undefined`, as `liveOptions()` sends them, with a comment saying so.
+Part b adds the queue's case to the check when the page can send it. Nothing else of `tests/browser.verify.js` is
+part a's.
