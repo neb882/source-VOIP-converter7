@@ -212,6 +212,54 @@ check('Level tracking rejects unequal lengths', true);
   const toneTrack = TF2Reference.track(toneTake, sr, tone, sr, { gate });
   check(`Real take, spurt by spurt: a pure tone is placed by its onset (${toneTrack.segments[0].delayMs.toFixed(1)} ms)`,
     toneTrack.segments.length === 1 && near(toneTrack.segments[0].delayMs, 800, 3));
+  // AC-03: tone bursts that repeat. The test signal starts with three 1 kHz
+  // beeps 0.5 s apart; at 2 kHz only the clicks of each beep's start and end
+  // are left, and on the game's voice queue the render's beeps are not alike,
+  // so the waveform's two windows (both holding the second beep) agreed on a
+  // neighbouring beep of the take, half a second early, and overruled the
+  // envelope. The source is the first 12 s of
+  // tests/testsignal/make_testsignal.py's signal, made here with its
+  // arithmetic: the WAV is not in the repository, and only its dither (one
+  // step of 16 bits) is left out. The take is the render at another seed
+  // and frame rate, 2.07 s late on a clock 400 ppm off, 3 s longer, with
+  // noise at -47 dBFS. Its two pieces, the beeps and the 1 kHz staircase
+  // from 10.4 s, must sit together: before AC-03 the first read 1576 ms
+  // and the second 2032 ms (measured).
+  {
+    const sine = (n, level) => Float64Array.from({ length: n }, (_, i) => 10 ** (level / 20) * Math.sin(2 * Math.PI * 1000 * (i / sr)));
+    const parts = [];
+    for (let k = 0; k < 3; k++) {
+      const beep = sine(2880, -12);
+      for (let i = 0; i < 144; i++) { const w = .5 - .5 * Math.cos(Math.PI * i / 144); beep[i] *= w; beep[beep.length - 1 - i] *= w; }
+      parts.push(beep, new Float64Array(21120));
+    }
+    parts.push(new Float64Array(sr));
+    for (const level of [-60, -54, -48, -42, -36]) parts.push(sine(2 * sr, level));
+    const signal = new Float32Array(12 * sr);
+    let at = 0;
+    for (const part of parts) for (const v of part) { if (at < signal.length) signal[at] = Math.max(-32768, Math.min(32767, Math.round(v * 32767))) / 32768; at++; }
+    const buffer = { sampleRate: sr, length: signal.length, numberOfChannels: 1, getChannelData: () => signal };
+    const options = { codec: 'steam', captureChannel: 'left', micGain: 1, voiceScale: 1, hp: 0, lp: 20000, bits: 16, agc: true, maxGain: 10, avgGain: .25,
+      gate: null, steamUptime: 777600, volume: .15, deviceRate: 48000, lossPct: 0, jitterMs: 0, frameMs: 20, enableWarble: true, room: null,
+      timeline: 'game', fps: 300, bufferMs: 100 };
+    const guide = await audio.process(buffer, options);
+    const other = (await audio.process(buffer, { ...options, seed: 3, fps: 200 })).samples;
+    const late = 2.07, clock = 1.0004, length = Math.round((other.length / sr + late + 3) * sr);
+    const beepTake = TF2Reference.warpSegments(other, sr, [{ a: -late / clock, b: 1 / clock, start: 0, end: length / sr }], sr, length);
+    // Room-like noise of its own seed (the suite's `random` stays as it was
+    // for the checks after this one): low-passed, with a little white noise.
+    let noiseSeed = 12348, lowpassed = 0, energy = 0;
+    const white = () => ((noiseSeed = (noiseSeed * 1103515245 + 12345) >>> 0) / 4294967296) * 2 - 1;
+    const noise = Float32Array.from({ length }, () => { const w = white(); lowpassed += .02 * (w - lowpassed); return 6 * lowpassed + .15 * w; });
+    for (const v of noise) energy += v * v;
+    const noiseGain = 10 ** (-47 / 20) / Math.sqrt(energy / length);
+    for (let i = 0; i < length; i++) beepTake[i] += noiseGain * noise[i];
+    const beepTrack = TF2Reference.track(beepTake, sr, signal, sr, { gate, micGain: 1,
+      reference: { samples: guide.samples, rate: sr, frames: guide.codecInfo.frameLog, frameSeconds: .02 } });
+    const beepDelays = beepTrack.segments.map(g => g.delayMs);
+    check(`Real take, spurt by spurt: three beeps 0.5 s apart are placed by their envelope, not on a neighbouring beep (${beepDelays.map(d => d.toFixed(1)).join(' / ')} ms)`,
+      beepDelays.length === 2 && Math.abs(beepDelays[0] - beepDelays[1]) < 80);
+  }
   // The render's frame log is read on its codec's frame grid, the profile's
   // own frame: 1024 samples of 22050 Hz sound (46.4 ms) for vaudio_celt_high.
   // Here the first 30% of them are marked unsent, so the windows start

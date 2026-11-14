@@ -61,7 +61,7 @@ seconds).
 | `speex102.verify.mjs` | `speex102`, units | The Speex 1.0.2 module equals a native build of the same sources, bit for bit; its settings as read from the game's module; the `speex` profile and its live chain. | 4 s |
 | `vr12.verify.mjs` | `vr12`, units | The VR12 codec of `vaudio_miles` (not in TF2) against vectors made by running the game's own plug-in in a CPU emulator on signals of our own, and against a native build. | under 1 s |
 | `miles.verify.mjs` | `miles`, units | The `miles` profile (not in TF2) against the vendored module driven by the test as the engines of 2006 and 2007 drive it; its live chain. Also reads the documents (below). | 12 s |
-| `reference.verify.mjs` | `reference`, units | `reference.js`: finding a source in a take, clock drift, polarity, fractional delay, the comparison measures, and the page's real-take check on a take made from a render. | 19 s |
+| `reference.verify.mjs` | `reference`, units | `reference.js`: finding a source in a take, clock drift, polarity, fractional delay, the comparison measures, and the page's real-take check on a take made from a render, its repeated tone bursts (the test signal's sync beeps) included. | 19 s |
 | `formats.verify.mjs` | `formats`, units | FLAC decodes to the WAV's samples; the MP3 module matches its documented build and a native LAME byte for byte; ZIP archives. | under 1 s |
 | `filerate.verify.mjs` | `filerate`, units | A file's own sample rate read from its header, for every format the page reads. | under 1 s |
 | `meter.verify.mjs` | `meter`, units | The meter against ITU-R BS.1770-4 and EBU Tech 3342, and the meter taken a piece at a time against the whole. | 18 s |
