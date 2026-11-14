@@ -161,7 +161,7 @@ script on them in CI. Each tool prints numbers only.
 
 | Tool | What it does |
 | --- | --- |
-| `pnpm accuracy --takes <folder>` (`tests/accuracy.mjs`) | renders the source of each take in `tests/accuracy.takes.json` with the settings it was recorded with, in headless Chromium, lines the take up as the page does and compares them; `--json <file>` writes each talk spurt's timing. `--score-predictions` scores new takes against `tests/predictions/predictions.json`. |
+| `pnpm accuracy --takes <folder>` (`tests/accuracy.mjs`) | renders the source of each take in `tests/accuracy.takes.json` with the settings it was recorded with, in headless Chromium, as the page renders by default: Steam voice on the game's voice queue, unless a row asks for the file's own timing with `"timeline": "source"` (AC-01). It lines the take up as the page does and compares them; `--json <file>` writes each talk spurt's timing and the options each take was rendered with, its timing among them; `--manifest <file>` reads the rows from another file of the same form. `--score-predictions` scores new takes against `tests/predictions/predictions.json`; the predictions keep the file's own timing. |
 | `node tests/retiming.mjs --accuracy <json>` | tests what decides which talk spurts start early, from the accuracy suite's JSON, optionally with a demo (`--demo`). |
 | `node tests/gain-exact.mjs --takes <folder>` | the receiver's gain against the game's decoded voice of Set H. |
 | `pnpm compare:reference <recording> <source> [...]` (`tests/reference.compare.mjs`) | finds each source in a recording, corrects its clock and delay, renders it, and compares spectra, the clipping signature and level tracking. |

@@ -169,8 +169,8 @@ How to read each column:
 - **Pieces** is the number of pieces the alignment cut the take into; each has one delay.
 - **Delay** is the take's delay against its source, least and greatest over the pieces. The value depends on when the recording was started; the changes within a take are counted in the next two columns.
 - **5.8 ms steps** counts changes of delay of 5.8 ms, a class the suite has kept from the first recordings; the engine as read has no such operation (finding 10).
-- **Other steps** counts every other change of delay, within a phrase or between two.
-- **Clock** is how much faster the take plays than its source, in parts in a million. About 400 is the one sample the game drops from every packet (finding 24), which a render does not drop.
+- **Other steps** counts every other change of delay, within a phrase or between two. Since AC-01 (2026-11-14) the pieces and both kinds of step are counted against a render that has the game's voice queue's steps.
+- **Clock** is how much faster the take plays than its source, in parts in a million. About 400 is the one sample the game drops from every packet (finding 24), which a render on the file's own timing does not drop. Since AC-01 (2026-11-14) the suite renders Steam voice on the game's voice queue, where the take's dropped sample per packet and the queue's skips are in the render too, so the clock reads near 0.
 - **Alignment r** is the correlation at which the alignment was found.
 - **Level, rms / worst** is the difference in level between take and render in blocks of half a second, after the median offset is removed: its RMS and its largest value, in dB.
 - **Level r** is the correlation of the two series of block levels. 1 means the level rises and falls alike.
@@ -234,7 +234,7 @@ The short-term level's rms is worse on the queue on several takes, most on `musi
 they differ from the take's a block of the level compares unlike sound (inferred). Moving the suite's committed rows
 onto the game's queue is for a later order.
 
-How the takes were rendered: every take at `volume 0.15` except `listener_B`, at `volume 0.11` and `voice_scale 0.77`; the Set C takes with the automatic room that set carries, and `sender_A` with its street room; the takes marked "random" with the loss the rule gives for their `net_fakeloss` (21.7%, 49.8% and 37.0% of messages) and, when these figures were measured, the jitter fit at 50 ms (see the note of 2026-11-13 under the table).
+How the takes were rendered: every take at `volume 0.15` except `listener_B`, at `volume 0.11` and `voice_scale 0.77`; the Set C takes with the automatic room that set carries, and `sender_A` with its street room; the takes marked "random" with the loss the rule gives for their `net_fakeloss` (21.7%, 49.8% and 37.0% of messages) and, when these figures were measured, the jitter fit at 50 ms (see the note of 2026-11-13 under the table). Since AC-01 (2026-11-14) the suite renders every Steam take on the game's voice queue, as the page does by default: at 300 frames a second and `voice_buffer_ms` 100 (the game's defaults, read), and Set C's `net_baseline` at 295 frames a second and `net_jitter` and `net_combined` at 336, the rates read off that set's `net_graph` photographs.
 
 What the figures say, the weak ones included:
 

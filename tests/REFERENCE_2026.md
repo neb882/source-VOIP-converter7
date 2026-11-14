@@ -1077,6 +1077,8 @@ The render keeps the source's timeline by default, so the dry/wet A/B and the re
 
 *Corrected by W3-02f (2026-11-13): the flat rule is no longer in the engine; `tests/retiming.mjs` keeps a copy for scoring.*
 
+*Added 2026-11-14 (AC-01): the counts above were taken when the accuracy suite rendered every take on the file's own timing. Since AC-01 it renders Steam voice on the game's voice queue, and it lines the take up against that render, so a spurt that the render's queue starts early as the take's does keeps its delay in the suite's reading (inferred). A row with `"timeline": "source"` renders on the file's own timing, as these counts were taken.*
+
 This flat rule is what the app runs today when the option is on. It cannot chain early starts, and the speech take has two chains (W3-01). The engine's queue (findings 22 to 25) is to take its place. It is built as a module, `voice-channel.js` (W3-02a), which no render uses yet. W3-02b added Steam's sender and the queue's timeline as modules. Since W3-11a the `steam` render makes its packets with that sender, but it still lays them on the source's timeline. Orders W3-02c and W3-02d put the queue into the render and the page, and W3-02f retires the flat rule. *Corrected by the plan review of W3-02c (2026-11-11): W3-02c is three orders, W3-02c-1 (the module as read; built and merged 2026-11-12, `a2b7dc9`, no render runs it yet), W3-02c-2 (the render) and W3-02c-3 (the live chain). The wording here waits for W3-02c-1's merge.* *Corrected by W3-02f (2026-11-13): the flat rule is no longer in the engine; `tests/retiming.mjs` keeps a copy for scoring.*
 
 ### 20. The Steam render's low frequencies lead the source by Opus's own phase
@@ -1168,6 +1170,8 @@ The engine copies a decoded packet into the ring through an interpolator that wr
 Steam hands voice out in about 17.8 packets a second (finding 25), so playback gains about 0.04% on the sender: 17.8 / 44100 is 403 ppm. This is the "clock" of the accuracy suite, 404 to 406 ppm on most takes. It is not a recorder's clock, and it follows the packet rate: the one take at 505 ppm had 22.3 packets a second. The playback does not get shorter: the mixer plays in real time and the queue gets shallower.
 
 *Corrected by RP-01a (2026-11-13): that take's clock is +510 parts in a million in the accuracy suite's reading (measured; `take3_voice_maxgain_1` in the table of `docs/ACCURACY.md`). 22.3 packets a second over 44,100 samples a second is 506 (computed). The 505 above is that figure or an earlier reading of the take (inferred; the record does not say which).*
+
+*Added 2026-11-14 (AC-01): the 403 ppm above is the suite's reading when it rendered every take on the file's own timing. Since AC-01 it renders Steam voice on the game's voice queue, as the page does by default, where the dropped sample of every packet and the queue's skips are in the render too, so its clock reads near 0 (the orchestrator's private run of 2026-11-14, measured: `docs/ACCURACY.md`, "Every take on the game's voice queue").*
 
 ### 25. Steam's packets as the receiver gets them
 
