@@ -2778,7 +2778,7 @@ async function verifyLaneAndTake(browser, base) {
   const panel = () => page.evaluate(() => {
     const info = state.lastCodecInfo, take = state.realTake;
     return { status: els.referenceStatus.textContent, lines: [...els.referenceReport.querySelectorAll('p')].map((p) => p.textContent),
-      guided: take.timeline.guided, guide: take.guideSpurts, render: info.channel && info.channel.spurts ? info.channel.spurts : null,
+      guided: take.timeline.guided, guide: take.guideSpurts, pieces: take.timeline.segments.map((g) => g.spurt), render: info.channel && info.channel.spurts ? info.channel.spurts : null,
       changes: phraseChanges(take.timeline, take.guideSpurts, info.channel && info.channel.spurts ? info.channel.spurts : null) };
   });
   try {
@@ -2851,35 +2851,64 @@ async function verifyLaneAndTake(browser, base) {
     // 3. The hover: the first slot of a phrase that joined the queue, a mark, an empty slot.
     const hover = await page.evaluate(() => {
       const info = state.lastCodecInfo, ch = info.channel, rate = 44100;
+      const text = (f) => laneHoverText(info, 0.02 * f + 0.01, 1e-4);
+      const number = (at) => Math.floor((at * info.sampleRate / rate + info.lookahead) / info.frameSamples);
       const joined = ch.spurts.find((s) => !s.opened);
       let f = 0;
       while (f < ch.source.length && !(ch.source[f] >= 0 && ch.source[f] / rate >= joined.start - 1e-9 && ch.source[f] / rate <= joined.end)) f++;
       const at = ch.source[f];
-      const join = { f, at, text: laneHoverText(info, 0.02 * f + 0.01, 1e-4), ms: (882 * f + 441 - at) / 44.1,
-        k: Math.floor((at * info.sampleRate / rate + info.lookahead) / info.frameSamples) };
-      // The skips at one pixel of the whole view, the most of them.
-      const canvas = document.getElementById('visualizer'), w = canvas.getBoundingClientRect().width, halfPixel = state.processedBuffer.length / state.processedRate / w / 2;
-      const heard = laneSkips(info);
-      const groups = heard.map((d) => heard.filter((e) => Math.abs(e.time - d.time) <= halfPixel));
-      const most = groups.reduce((a, b) => (b.length > a.length ? b : a), []);
-      const mark = { n: most.length, ms: most.reduce((s, d) => s + d.ms, 0), text: laneHoverText(info, most[0].time, halfPixel) };
-      const lone = groups.find((g) => g.length === 1);
-      const single = lone ? { ms: lone[0].ms, text: laneHoverText(info, lone[0].time, halfPixel) } : null;
+      const join = { f, at, code: info.frameLog[f], text: text(f), ms: (882 * f + 441 - at) / 44.1, k: number(at) };
+      // Every slot that plays the source: a number where its played code is
+      // not 0 (one at least whose place at 24 kHz is 324 or more into its
+      // 480-sample frame, so the look-ahead moves it to the next), none where it is.
+      const played = [], quiet = [];
+      for (let g = 0; g < Math.min(ch.source.length, info.frames); g++) {
+        if (ch.source[g] < 0) continue;
+        const t = text(g), k = number(ch.source[g]);
+        if (info.frameLog[g]) played.push({ g, k, ok: t.includes(`· sent frame ${k} ·`), late: (ch.source[g] * info.sampleRate / rate) % info.frameSamples >= info.frameSamples - info.lookahead, t });
+        else quiet.push({ g, ok: !t.includes('sent frame') && t.includes('the source\'s'), t });
+      }
       let e = 0;
       while (e < ch.source.length && !(ch.source[e] === -1 && info.frameLog[e] === 0)) e++;
-      return { join, mark, single, empty: { f: e, text: laneHoverText(info, 0.02 * e + 0.01, 1e-4) } };
+      return { join, played: { n: played.length, wrong: played.filter((p) => !p.ok).slice(0, 3), late: played.filter((p) => p.late).length },
+        quiet: { n: quiet.length, wrong: quiet.filter((p) => !p.ok).slice(0, 3) }, empty: { f: e, text: text(e) } };
     });
     const earlyMs = /the source's ([\d.]+) s, ([\d.]+) ms (early|late)/.exec(hover.join.text);
     const shown = earlyMs ? Number(earlyMs[2]) * (earlyMs[3] === 'early' ? -1 : 1) : NaN;
     check(earlyMs && earlyMs[1] === (hover.join.at / 44100).toFixed(3) && Math.abs(shown - hover.join.ms) <= 1 && hover.join.ms < -80
-      && hover.join.text.includes(`sent frame ${hover.join.k}`) && hover.join.text.includes('joined the queue') && hover.join.text.startsWith(`frame ${hover.join.f} · `),
-      'the lane\'s hover on the first slot of a phrase that joined the queue names the source\'s second, how early it plays (from the slot\'s centre), the sent frame\'s number and "joined the queue"',
+      && (hover.join.code ? hover.join.text.includes(`sent frame ${hover.join.k} ·`) : !hover.join.text.includes('sent frame'))
+      && hover.join.text.includes('joined the queue') && hover.join.text.startsWith(`frame ${hover.join.f} · `),
+      'the lane\'s hover on the first slot of a phrase that joined the queue names the source\'s second, how early it plays (from the slot\'s centre) and "joined the queue", and the sent frame\'s number only where the played code is not 0',
       hover.join.text);
-    check(hover.mark.n >= 2 && hover.mark.text.includes(`queue overflow: ${hover.mark.ms.toFixed(1)} ms skipped (${hover.mark.n} skips)`)
-      && hover.single && hover.single.text.includes(`queue overflow: ${hover.single.ms.toFixed(1)} ms skipped`) && !hover.single.text.includes('skips)'),
-      'the hover at a mark sums the skips within half a pixel, with their count when there is more than one', `${hover.mark.text} | ${hover.single && hover.single.text}`);
+    check(hover.played.n > 100 && hover.played.wrong.length === 0 && hover.played.late >= 1,
+      'on every played slot the hover gives the sent frame\'s number by the rule, the look-ahead included (some slots sit 324 samples or more into their frame at 24 kHz)',
+      `${hover.played.n} slots, ${hover.played.late} of them 324 or more into the frame${hover.played.wrong.length ? `; wrong: ${hover.played.wrong.map((p) => p.t).join(' | ')}` : ''}`);
+    check(hover.quiet.n >= 1 && hover.quiet.wrong.length === 0,
+      'a slot that plays the source but whose played code is 0 gives no sent frame\'s number and keeps the source\'s second',
+      `${hover.quiet.n} slots${hover.quiet.wrong.length ? `; wrong: ${hover.quiet.wrong.map((p) => p.t).join(' | ')}` : ''}`);
     check(/· silence$/.test(hover.empty.text) && !hover.empty.text.includes('sent frame') && !hover.empty.text.includes('source\'s'),
       'the hover on an empty slot of the queue says "silence" and gives no frame number', hover.empty.text);
+    // The hover under the crosshair at each whole pixel of the whole view
+    // (laneHoverAt, as drawHover calls it): a pixel drawn in the mark's colour
+    // names the skips drawn there, summed, with their count when more than
+    // one; any other pixel names none.
+    const wholeLane = await laneRow(page, [0, 31]);
+    const atPixels = await page.evaluate(() => {
+      const w = document.getElementById('visualizer').getBoundingClientRect().width, range = visibleRange(audibleBuffer());
+      return Array.from({ length: Math.floor(w) }, (_, x) => laneHoverAt(w, range, x));
+    });
+    const marked = [], wrongPixels = [];
+    atPixels.forEach((t, x) => {
+      const there = queue.heard.filter((d) => pixelOf(wholeLane, d.time) === x), lit = wholeLane.row[Math.floor(x * wholeLane.scale)] === white;
+      const sum = there.reduce((a, d) => a + d.ms, 0);
+      const ok = lit ? there.length > 0 && t.includes(`queue overflow: ${sum.toFixed(1)} ms skipped`) && (there.length > 1 ? t.includes(`(${there.length} skips)`) : !t.includes('skips)'))
+        : !t.includes('queue overflow');
+      if (lit) marked.push(there.length);
+      if (!ok) wrongPixels.push(`${x}: ${t}`);
+    });
+    check(wrongPixels.length === 0 && marked.some((n) => n >= 2) && marked.some((n) => n === 1),
+      'hovered at each whole pixel, the lane names the skips drawn on the crosshair\'s pixel, summed, with their count when more than one, and none elsewhere',
+      `${marked.length} marked pixels, ${marked.filter((n) => n > 1).length} with more than one skip${wrongPixels.length ? `; wrong at ${wrongPixels.slice(0, 2).join(' | ')}` : ''}`);
 
     // 4. The legend on the queue.
     const legendOf = () => page.evaluate(() => ({ items: [...document.querySelectorAll('#viz-legend .lg-item')].map((e) => ({ text: e.textContent, title: e.title,
@@ -2939,14 +2968,26 @@ async function verifyLaneAndTake(browser, base) {
     }, { p, X: made.X, Y });
     const describe = (rows) => rows.map((r) => `${r.at.toFixed(2)} s ${r.takeKind}/${r.want} ${r.take === null ? '—' : Math.round(r.take)}/${r.truth === null ? '—' : Math.round(r.truth)} ${r.renderKind}`).join('; ');
     const onQueue = await panel();
-    check(onQueue.guided && /\(take minus render; \d+ changes? between phrases, \d+ within a phrase\)/.test(onQueue.status) && / phrases in \d+ pieces/.test(onQueue.status)
+    // The status line's counts, from the take's pieces.
+    const statusCounts = (p) => {
+      const between = p.pieces.filter((g, i) => i > 0 && g !== p.pieces[i - 1]).length;
+      const m = /(\d+) changes? between phrases, (\d+) within a phrase/.exec(p.status);
+      return { ok: !!m && Number(m[1]) === between && Number(m[2]) === p.pieces.length - 1 - between, between, within: p.pieces.length - 1 - between };
+    };
+    const sq = statusCounts(onQueue);
+    check(onQueue.guided && sq.ok && /\(take minus render; \d+ changes? between phrases, \d+ within a phrase\)/.test(onQueue.status)
+      && onQueue.status.includes(`${onQueue.pieces.length} pieces`) && / phrases in \d+ pieces/.test(onQueue.status)
       && !/5\.8|trim|re-timing/.test(onQueue.status),
-      'lined up against the render, the status line says take minus render and counts the changes between phrases and within one, with no 5.8 ms trims', onQueue.status);
+      'lined up against the render, the status line says take minus render and counts the changes between phrases and within one as the take\'s pieces have them, with no 5.8 ms trims',
+      `${sq.between} between, ${sq.within} within; ${onQueue.status}`);
     const rows = await judge(onQueue, onQueue.render);
     check(rows.length >= 8 && rows.every((r) => r.ok),
       'each change from one phrase to the next has the take\'s kind of change by its own phrases and the render\'s by the render\'s, and the take\'s change within 60 ms', describe(rows));
     check(rows.some((r) => (r.takeKind === 'early' && r.renderKind === 'kept') || (r.takeKind === 'kept' && r.renderKind === 'early')),
       'at some change the take starts early and the render keeps the pause, or the other way round', describe(rows.filter((r) => r.takeKind !== r.renderKind)));
+    // Each entry of the list of changes: its time, the take's change | the render's, in ms.
+    const msText = (v) => (v === null ? '—' : `${Math.round(v) < 0 ? '−' : '+'}${Math.abs(Math.round(v))}`);
+    const listHolds = (p, list) => p.changes.slice(0, 30).every((c, i, all) => list.includes(`${i ? '; ' : 'ms: '}${c.at.toFixed(2)} s ${msText(c.takeMs)} | ${msText(c.renderMs)}${i + 1 < all.length || p.changes.length > 30 ? ';' : '.'}`));
     const counted = (p) => {
       const n = p.changes.length, T = p.changes.filter((c) => c.takeKind === 'early').length, R = p.changes.filter((c) => c.renderKind === 'early').length;
       const G = p.changes.filter((c) => c.takeKind !== null && c.takeKind === c.renderKind).length;
@@ -2954,8 +2995,8 @@ async function verifyLaneAndTake(browser, base) {
     };
     const c1 = counted(onQueue), sentence1 = onQueue.lines.find((l) => l.startsWith('Phrase starts:')) || '', list1 = onQueue.lines.find((l) => l.startsWith('Take | render, ms:')) || '';
     check(sentence1 === `Phrase starts: at ${c1.n} changes from one phrase to the next the take starts early (by 80 ms or more) at ${c1.T} and the render at ${c1.R}; they are of one kind (early, kept or late) at ${c1.G} of ${c1.n}.`
-      && onQueue.changes.every((c) => list1.includes(`${c.at.toFixed(2)} s `)),
-      'the panel says at how many changes the take and the render start early and how many are of one kind, and lists each change', `${sentence1} ${list1}`);
+      && listHolds(onQueue, list1),
+      'the panel says at how many changes the take and the render start early and how many are of one kind, and lists each change as the take\'s change | the render\'s', `${sentence1} ${list1}`);
 
     // changeAt with phrases made by hand.
     const hand = await page.evaluate(() => {
@@ -2999,7 +3040,7 @@ async function verifyLaneAndTake(browser, base) {
     const c3 = counted(own);
     check(own.guided && own.guide === null && rowsOwn.length >= 8 && rowsOwn.every((r) => r.ok)
       && own.lines.includes(`Phrase starts: at ${c3.n} changes from one phrase to the next the take starts early (by 80 ms or more) at ${c3.T}. This render keeps the file's own timing and starts none early.`)
-      && /—$|— \||\| —/.test(own.lines.find((l) => l.startsWith('Take | render')) || ''),
+      && listHolds(own, own.lines.find((l) => l.startsWith('Take | render')) || ''),
       'against a render on the file\'s own timing the take is lined up again with no phrases kept, its kinds of change still hold, and the panel says the render starts none early',
       describe(rowsOwn));
 
@@ -3012,7 +3053,7 @@ async function verifyLaneAndTake(browser, base) {
     await page.locator('#reference-file').setInputFiles({ name: 'take-phrases-again.wav', mimeType: 'audio/wav', buffer: Buffer.from(made.wav) });
     await reportReady();
     const unguided = await panel();
-    check(!unguided.guided && /\(take minus source; \d+ changes? between phrases, \d+ within a phrase\)/.test(unguided.status),
+    check(!unguided.guided && statusCounts(unguided).ok && /\(take minus source; \d+ changes? between phrases, \d+ within a phrase\)/.test(unguided.status),
       'a take lined up after a render with loss is lined up against the source, and the status line says take minus source', unguided.status);
 
     // 2, 4 and 3 off the queue: the file's own timing (the render on screen

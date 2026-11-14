@@ -379,9 +379,10 @@ are counted as changes between phrases and within a phrase. Within a phrase the 
 packet, and on the game's voice queue skips what overflows its ring (read; finding 10).
 
 Lined up against a render on the game's voice queue, an early start that the take and the render share shows no
-change of delay. The take's clock then reads near 0 parts in a million in place of about +400, because that render
-drops the one sample from every packet too (inferred from the rule; the orchestrator's private run on two takes gave
-+5 and +0 against +408 and +413 on the file's own timing, measured).
+change of delay. On a take of some length the take's clock then reads near 0 parts in a million in place of about
++400, because that render drops the one sample from every packet too (inferred from the rule; the orchestrator's
+private run on two takes gave +5 and +0 against +408 and +413 on the file's own timing, measured). On 30 s of short
+phrases the fit varies by several hundred parts in a million (measured on the model).
 
 **Phrase starts.** After its other lines the report says at how many changes from one phrase to the next the take
 starts early, by 80 ms or more (chosen), and, with a render on the game's voice queue on screen, at how many the
@@ -391,8 +392,9 @@ the render it was lined up with made there (from that render's phrases on the qu
 against the source. With a render on the file's own timing on screen the report says that render starts no phrase
 early. A source of one phrase has no change and no such line.
 - The take's phrases still come from the 20 ms frame gate, a fit, not from Steam's sender.
-- The count was checked on takes made from the model's own renders, and not on a recording (measured on the
-  model).
+- The count was checked on takes made from the model's own renders (measured on the model) and on the owner's
+  speech take, where the take's early starts are as many as `tests/retiming.mjs` counts on both timings (measured,
+  private).
 
 The lined-up take then plays as a third version under **Hear** (B cycles the render, the original and the take),
 shows in WAVE, SPEC, the loudness lane and AVG, and joins the meter.

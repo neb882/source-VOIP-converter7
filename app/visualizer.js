@@ -940,13 +940,16 @@ function drawCodecLane(L, range) {
   drawLaneSkips(L, range, info);
 }
 
+// The whole pixel a skip's mark is drawn on, in a view `range` w pixels wide.
+const skipPixel = (time, range, w) => Math.floor((time - range.t0) / (range.t1 - range.t0) * w);
+
 // One mark per heard skip, 1 px wide across the lane, on the whole pixel of
 // its time; skips on one pixel draw once.
 function drawLaneSkips(L, range, info) {
-  const skips = laneSkips(info), span = range.t1 - range.t0, drawn = new Set();
+  const skips = laneSkips(info), drawn = new Set();
   ctx.fillStyle = LANE_SKIP_COLOR;
   for (const d of skips) {
-    const x = Math.floor((d.time - range.t0) / span * L.w);
+    const x = skipPixel(d.time, range, L.w);
     if (x < 0 || x >= L.w || drawn.has(x)) continue;
     drawn.add(x);
     ctx.fillRect(x, L.laneY, 1, L.laneH);
@@ -1095,7 +1098,7 @@ function drawHover(L, buffer, range) {
     }
     text += ' LUFS';
   } else if (region === 'lane') {
-    text = laneHoverText(codecFrames(), t, span / w / 2);
+    text = laneHoverAt(w, range, x);
   }
   ctx.stroke();
   const tagY = region === 'main' ? Math.max(4, Math.min(L.mainH - 18, y - 20)) : Math.max(4, L.lufsY - 18);
@@ -1104,13 +1107,16 @@ function drawHover(L, buffer, range) {
 
 // The codec lane's readout at time t (halfPixel: half a pixel, in seconds):
 // the frame, its time, its kind, and its packet's size and rate. On the
-// game's voice queue (W3-02e) also the sent frame's own number (as
-// TF2Audio's steamPlayedInfo finds it, so the same sound has the same
-// number on either timing) and the source's second heard at the slot's
-// centre with how early or late it plays, where the slot plays the source;
+// game's voice queue (W3-02e), where the slot plays the source, the sent
+// frame's own number (as TF2Audio's steamPlayedInfo finds it, so the same
+// sound has the same number on either timing; none where the played code is
+// 0) and the source's second heard at the slot's centre with how early or
+// late it plays;
 // whether its phrase opened the queue or joined a running one; and the
-// skips marked within half a pixel.
-function laneHoverText(info, t, halfPixel) {
+// skips marked there. `view`, { range, w, pixel }: the skips whose mark is
+// drawn on that pixel (skipPixel, the drawing's own rule); without it, the
+// skips within halfPixel of t.
+function laneHoverText(info, t, halfPixel, view = null) {
   const f = info ? frameAt(info, t) : -1;
   if (f < 0) return formatTime(t, 3);
   const code = info.frameLog[f], bytes = info.frameBytes ? info.frameBytes[f] : 0;
@@ -1121,18 +1127,26 @@ function laneHoverText(info, t, halfPixel) {
   const ch = info.channel, rate = TF2VoiceChannel.VOICE_CHANNEL.rate, slot = rate * info.frameSamples / info.sampleRate;
   const at = f < ch.source.length ? ch.source[f] : -1;
   if (at >= 0) {
-    text += ` · sent frame ${Math.floor((at * info.sampleRate / rate + info.lookahead) / info.frameSamples)}`;
+    // A slot whose played code is 0 has no sent frame's number.
+    if (code !== 0) text += ` · sent frame ${Math.floor((at * info.sampleRate / rate + info.lookahead) / info.frameSamples)}`;
     // Later than the source when positive: the slot's centre less the source's place.
     const ms = (slot * f + slot / 2 - at) / rate * 1000;
     text += ` · the source's ${(at / rate).toFixed(3)} s, ${Math.abs(ms) < 0.5 ? 'on time' : `${Math.abs(ms).toFixed(1)} ms ${ms < 0 ? 'early' : 'late'}`}`;
     const s = at / rate, phrase = (ch.spurts || []).find((p) => s >= p.start && s <= p.end);
     if (phrase) text += ` · ${phrase.opened ? 'opened' : 'joined'} the queue`;
   }
-  const near = laneSkips(info).filter((d) => Math.abs(d.time - t) <= halfPixel);
+  const near = laneSkips(info).filter(view ? (d) => skipPixel(d.time, view.range, view.w) === view.pixel : (d) => Math.abs(d.time - t) <= halfPixel);
   if (near.length) {
     text += ` · queue overflow: ${near.reduce((sum, d) => sum + d.ms, 0).toFixed(1)} ms skipped${near.length > 1 ? ` (${near.length} skips)` : ''}`;
   }
   return text;
+}
+
+// The lane's readout under the crosshair, which drawHover draws on pixel
+// round(x) of a view `range` w pixels wide.
+function laneHoverAt(w, range, x) {
+  const span = range.t1 - range.t0;
+  return laneHoverText(codecFrames(), range.t0 + x / w * span, span / w / 2, { range, w, pixel: Math.round(x) });
 }
 
 /* ---------------- BARS ---------------- */
