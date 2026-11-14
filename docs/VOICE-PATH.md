@@ -142,4 +142,4 @@ A manual panel sets a room by its number or the automatic room by its measures. 
 
 **What is random.** Some rooms move their echoes at random in the game (read). The app draws them from the render's seed, so two renders with the same settings are equal and two runs of the game are not.
 
-**What is not checked.** No room equals a recording sample for sample: every recording has the map's own sound under it. The room's tail was not measured. One echo of the recorded street room is 36% stronger in the app than in the recording, and why is not explained (finding 32).
+**What is not checked.** No room equals a recording sample for sample: every recording has the map's own sound under it. The room's tail was not measured. One echo of the recorded street room, at 68 ms, is 9 to 17% stronger in the app than in the recording over nine seeds, 0.9 to 1.8 times the recording's scatter (measured 2026-11-14 on the stretches both pick; finding 32). *Corrected 2026-11-14: this line said 36% and not explained, from a run that took each file's own stretches.*

@@ -1514,6 +1514,8 @@ Until W3-17c the app had its own room code, which was not the engine's (W3-15): 
 
 **The app's room against the takes (2026-11-11, at W3-17c's merge; private, numbers only).** With `set_c_room` the render of Set C's baseline stands +0.0 dB against the take (it stood +1.2 dB dry), its share of samples at the clamp is the take's (1.1%), and its echoes are the take's: 0.2363 against 0.2335 at 57.96 ms, and 0.0268, 0.0361, 0.0328, 0.0337 against 0.0259, 0.0345, 0.0315, 0.0328 at 105.17, 119.17, 134.17 and 148.17 ms; the pattern from 31 to 540 ms correlates 0.886. With `set_d_street` Set D's PC A keeps its level (+0.1 dB); of its three echoes two are within 10% (120.04 and 308.02 ms) and the one at 68.02 ms is 36% high in the render (0.0304 against 0.0224, at 3.6 times the take's scatter), which is not explained. Every take without a room is unchanged in every figure.
 
+*Added 2026-11-14 (the orchestrator's private run, numbers only): measured on the stretches of sound both pick, with the take lined up on the render's timeline, over nine seeds of the room, Set D's PC A reads at 68.02 ms 0.0279 to 0.0300 in the render against 0.0257 in the take (scatter 0.0024): 9 to 17% high, 0.9 to 1.8 scatters. At 120.04 ms 0.0115 to 0.0138 against 0.0141; at 308.02 ms 0.0071 to 0.0098 against 0.0056. The render without the room reads 0.0081 at 68.02 ms, the test signal's own. The run above took each file's own stretches and the take as recorded.*
+
 Its default is no room, which is Set B's state and what the game gives at Sound quality: Low; a render with no room runs nothing of the room. Order W3-17 replaced the room code in four parts: part a the module, part b the automatic room's build, part c the render, part d the page and the live chain.
 
 ## Model

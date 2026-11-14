@@ -148,7 +148,7 @@ What these profiles still carry of the app's earlier model:
 The room arithmetic is the game's as read, in whole numbers. What recordings show (finding 32):
 
 - **The automatic room of one set.** Its main echo is at 57.96 ms in the recording and in the app, with a strength of 0.2335 in the recording and 0.2363 in the app. With that room on, the level of the app against the take is +0.0 dB, where it was +1.2 dB with no room.
-- **The street of the two-PC set.** Echoes at 68, 120 and 308 ms are where the rule puts them. Two are within 10% in strength; the one at 68 ms is 36% stronger in the app, which is not explained.
+- **The street of the two-PC set.** Echoes at 68, 120 and 308 ms are where the rule puts them. Measured on the stretches of sound both pick, with the take lined up on the render's timeline (2026-11-14, private), over nine seeds of the room: at 68 ms the render reads 0.0279 to 0.0300 against the take's 0.0257, 9 to 17% high (0.9 to 1.8 times the take's scatter of 0.0024); at 120 ms 0.0115 to 0.0138 against 0.0141; at 308 ms 0.0071 to 0.0098 against 0.0056. *Corrected 2026-11-14: the "36% stronger at 68 ms, not explained" this line gave came from a run that took each file's own stretches (36.0 and 33.0 s) and the take as recorded.*
 - **Room 6**, with all of the voice through it: every echo of the rule out to 102 ms is in the recording at its delay, and the level by band is within 0.16 dB (Set K).
 - **Under water.** The voice is at 0.77 of its level in the recording and 0.76 in the app, with no tremolo in either (Set K).
 
@@ -160,7 +160,7 @@ The live monitor runs the same stages on a microphone, piece by piece, and it is
 
 ## The figures: the app against the owner's takes
 
-These figures are from the orchestrator's private run of 2026-11-12: `node tests/accuracy.mjs --takes <folder>` over all 18 takes of [tests/accuracy.takes.json](../tests/accuracy.takes.json), with the model as it stood at commit `8035cfa`. The row of `listener_B` is from a private run of the same day with main at `9e0abd0`, at other settings (see below); `sender_A` read the same in that run. The suite renders each take's source with the take's settings, lines the take up with the render phrase by phrase, and compares the two where they overlap. Tables of earlier dates are in the record and are not repeated here.
+These figures are from the orchestrator's private run of 2026-11-14: `node tests/accuracy.mjs --takes <folder>` over all 18 takes of [tests/accuracy.takes.json](../tests/accuracy.takes.json), with the suite as order AC-01 built it (branch head `da50d7d`; the five rows with loss or jitter at `7248b57`, after its review). Since AC-01 the suite renders each take as the page does by default, Steam voice on the game's voice queue. It renders each take's source with the take's settings, lines the take up with the render phrase by phrase, and compares the two where they overlap. Tables of earlier dates are in the record and are not repeated here; the one before this (2026-11-12, every take on the file's own timing) is compared with this one below.
 
 How to read each column:
 
@@ -180,35 +180,30 @@ How to read each column:
 
 | Take | Set | Phrases | Pieces | Delay, s | 5.8 ms steps | Other steps | Clock, ppm | Alignment r | Level, rms / worst, dB | Level r | Worst band | Clipped %, take / render | Offset, dB |
 | --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | --- | ---: | --- | --- | ---: |
-| `take1_default` | B | 17 | 22 | 4.510 to 4.859 | 2 | 20 | +403 | 0.77 | 1.37 / 12.5 | 0.951 | +2.7 dB at 10 to 11 kHz | 9.4 / 9.8 | +0.0 |
-| `take2_voice_scale_0.5` | B | 17 | 24 | 1.670 to 2.022 | 1 | 22 | +404 | 0.76 | 0.27 / 1.6 | 0.995 | +1.0 dB at 11 to 12 kHz | 0.6 / 0.6 | +0.0 |
-| `take3_voice_maxgain_1` | B | 17 | 22 | 1.428 to 1.779 | 1 | 21 | +510 | 0.76 | 0.14 / 0.4 | 1.000 | −1.9 dB at 80 to 120 Hz | 0.6 / 0.6 | +0.1 |
-| `take3_voice_avggain_0.25` | B | 17 | 26 | 1.777 to 2.118 | 3 | 23 | +403 | 0.77 | 0.86 / 8.7 | 0.980 | +0.9 dB at 11 to 12 kHz | 11.1 / 11.9 | +0.0 |
-| `take4_my_own_speech` | B | 10 | 21 | 1.942 to 2.285 | 2 | 18 | +409 | 0.88 | 1.01 / 8.7 | 0.986 | −0.1 dB at 10 to 11 kHz | 7.0 / 7.4 | +0.1 |
-| `net_baseline` | C | 13 | 19 | 1.739 to 2.071 | 1 | 17 | +416 | 0.79 | 0.39 / 2.1 | 0.996 | −0.2 dB at 80 to 120 Hz | 1.1 / 1.1 | +0.0 |
-| `net_loss5` (random) | C | 13 | 18 | 1.475 to 1.812 | 0 | 17 | +441 | 0.69 | 3.16 / 17.0 | 0.782 | +1.7 dB at 2 to 3 kHz | 0.9 / 1.0 | +0.4 |
-| `net_loss15` (random) | C | 13 | 11 | 1.599 to 1.952 | 0 | 10 | +927 | 0.62 | 4.59 / 17.0 | 0.508 | +0.9 dB at 300 to 500 Hz | 0.6 / 0.6 | +0.0 |
-| `net_jitter` (random) | C | 13 | 16 | 1.830 to 2.177 | 0 | 15 | +726 | 0.81 | 0.62 / 3.8 | 0.990 | +0.3 dB at 300 to 500 Hz | 1.1 / 1.1 | +0.1 |
-| `net_combined` (random) | C | 13 | 15 | 1.866 to 2.630 | 0 | 14 | +2490 | 0.65 | 5.06 / 20.8 | 0.505 | +1.2 dB at 200 to 300 Hz | 0.8 / 0.8 | +0.2 |
-| `speech_loss10` (random) | C | 10 | 27 | 1.674 to 2.033 | 1 | 25 | +280 | 0.70 | 5.89 / 25.2 | 0.579 | −0.8 dB at 11 to 12 kHz | 0.9 / 0.9 | +0.4 |
-| `sender_A` | D | 17 | 23 | 1.560 to 1.894 | 1 | 22 | +405 | 0.76 | 0.12 / 0.5 | 0.997 | +2.1 dB at 11 to 12 kHz | 7.6 / 9.3 | +0.1 |
-| `listener_B` | D | 17 | 20 | 4.792 to 4.946 | 0 | 19 | +403 | 0.78 | 0.41 / 2.0 | 0.959 | +2.4 dB at 11 to 12 kHz | 1.2 / 1.9 | +0.5 |
-| `river_artifact` | E | 1 | 1 | −0.596 | 0 | 0 | +403 | 0.85 | 0.20 / 0.7 | 0.989 | +0.5 dB at 80 to 120 Hz | 12.9 / 14.9 | −0.0 |
-| `lowtone_default` | F | 19 | 22 | 1.940 to 2.362 | 0 | 21 | +397 | 0.82 | 3.58 / 30.0 | 0.797 | −2.2 dB at 120 to 200 Hz | 14.1 / 16.4 | −0.7 |
-| `lowtone_maxgain_1` | F | 19 | 17 | 3.586 to 3.682 | 0 | 16 | +405 | 0.80 | 4.48 / 16.3 | 0.584 | −15.5 dB at 11 to 12 kHz | 0.7 / 0.7 | −2.2 |
-| `music_river` | A | 1 | 4 | −51.985 to −51.960 | 0 | 3 | +408 | 0.85 | 0.12 / 0.8 | 0.991 | +0.2 dB at 8 to 10 kHz | 13.7 / 16.2 | +0.0 |
-| `music_take_it_off` | A | 1 | 2 | −1.436 to −1.417 | 0 | 1 | +408 | 0.78 | 0.08 / 0.3 | 0.997 | +0.2 dB at 11 to 12 kHz | 12.6 / 18.5 | +0.2 |
+| `take1_default` | B | 17 | 24 | 4.502 to 5.154 | 1 | 22 | −3 | 0.88 | 1.47 / 12.7 | 0.938 | +3.2 dB at 10 to 11 kHz | 9.4 / 9.8 | +0.0 |
+| `take2_voice_scale_0.5` | B | 17 | 25 | 1.476 to 2.343 | 0 | 24 | +5 | 0.86 | 0.49 / 3.0 | 0.982 | +0.6 dB at 11 to 12 kHz | 0.6 / 0.6 | −0.0 |
+| `take3_voice_maxgain_1` | B | 17 | 24 | 1.722 to 2.089 | 2 | 23 | −4 | 0.84 | 0.16 / 0.8 | 0.999 | −1.9 dB at 80 to 120 Hz | 0.6 / 0.6 | −0.0 |
+| `take3_voice_avggain_0.25` | B | 17 | 26 | 1.574 to 2.433 | 1 | 25 | +1 | 0.86 | 2.03 / 14.7 | 0.916 | +0.6 dB at 11 to 12 kHz | 11.1 / 11.8 | +0.0 |
+| `take4_my_own_speech` | B | 10 | 24 | 2.205 to 2.306 | 5 | 21 | +5 | 0.95 | 1.74 / 16.0 | 0.975 | +0.3 dB at 11 to 12 kHz | 7.0 / 7.3 | +0.1 |
+| `net_baseline` | C | 13 | 22 | 1.941 to 2.050 | 1 | 20 | +0 | 0.86 | 0.24 / 1.2 | 0.998 | −0.2 dB at 80 to 120 Hz | 1.1 / 1.1 | +0.0 |
+| `net_loss5` (random) | C | 13 | 19 | 1.472 to 2.291 | 0 | 18 | +157 | 0.72 | 2.27 / 11.8 | 0.855 | +1.5 dB at 2 to 3 kHz | 0.9 / 0.9 | +0.1 |
+| `net_loss15` (random) | C | 13 | 10 | 1.596 to 2.045 | 0 | 9 | −138 | 0.57 | 6.30 / 27.5 | 0.487 | −2.9 dB at 3 to 5 kHz | 0.7 / 0.7 | +0.8 |
+| `net_jitter` (random) | C | 13 | 19 | 2.009 to 2.190 | 2 | 17 | +18 | 0.87 | 0.54 / 2.9 | 0.991 | −0.2 dB at 80 to 120 Hz | 1.1 / 1.1 | +0.0 |
+| `net_combined` (random) | C | 13 | 19 | 1.929 to 2.615 | 0 | 18 | −1348 | 0.65 | 5.30 / 21.0 | 0.535 | +1.5 dB at 200 to 300 Hz | 0.8 / 0.8 | −0.5 |
+| `speech_loss10` (random) | C | 10 | 23 | 1.666 to 2.358 | 0 | 22 | −89 | 0.71 | 7.96 / 27.2 | 0.217 | −0.9 dB at 3 to 5 kHz | 0.9 / 0.8 | +0.1 |
+| `sender_A` | D | 17 | 26 | 1.560 to 2.216 | 0 | 25 | +4 | 0.86 | 0.10 / 0.4 | 0.998 | +1.9 dB at 11 to 12 kHz | 7.6 / 9.0 | +0.1 |
+| `listener_B` | D | 17 | 23 | 4.347 to 5.197 | 0 | 22 | +7 | 0.88 | 0.42 / 2.2 | 0.956 | +2.1 dB at 11 to 12 kHz | 1.2 / 1.8 | +0.4 |
+| `river_artifact` | E | 1 | 1 | −0.596 | 0 | 0 | +0 | 0.86 | 0.15 / 0.3 | 0.993 | +0.9 dB at 80 to 120 Hz | 12.2 / 14.3 | −0.0 |
+| `lowtone_default` | F | 19 | 22 | 1.932 to 2.406 | 1 | 21 | −4 | 0.83 | 4.08 / 29.0 | 0.808 | −1.5 dB at 120 to 200 Hz | 14.3 / 16.4 | −0.8 |
+| `lowtone_maxgain_1` | F | 19 | 17 | 3.632 to 4.159 | 1 | 15 | +35 | 0.78 | 5.20 / 19.1 | 0.461 | −11.2 dB at 11 to 12 kHz | 0.7 / 0.6 | −2.4 |
+| `music_river` | A | 1 | 3 | −51.942 to −51.932 | 0 | 2 | +2 | 0.95 | 0.14 / 0.9 | 0.989 | +0.1 dB at 8 to 10 kHz | 13.7 / 16.3 | +0.1 |
+| `music_take_it_off` | A | 1 | 4 | −1.421 to −1.411 | 1 | 2 | +2 | 0.92 | 0.07 / 0.2 | 0.998 | +0.3 dB at 11 to 12 kHz | 12.6 / 18.1 | +0.1 |
 
-*Note 2026-11-13 (BC-4a): the renders of the `net_jitter` and `net_combined` rows held late frames when they were measured. The accuracy suite renders on the file's own timing, where since BC-4a jitter does nothing on Steam voice, so those two rows' renders now have no jitter at all, and the rows above are as measured then. The orchestrator measures them again on the game's voice queue and replaces them.*
+### Against the file's own timing (2026-11-14)
 
-*Measured again 2026-11-13 after BC-4a's merge (measured, private; the takes stay private). The two rows above are now the suite as it stands: it renders on the file's own timing, where jitter does nothing on Steam voice, so they compare each take with a render without jitter. The rows as measured before, with late frames: `net_jitter` level 0.78 / 3.8 dB, r 0.982, worst band −0.6 dB at 3 to 5 kHz, level −0.1; `net_combined` clock +2792, level 5.28 / 21.7, r 0.441, worst band −1.0 dB at 8 to 10 kHz, level +0.3. The same takes rendered on the game's voice queue (a scratch copy of the manifest, not committed: timeline 'game', voice_buffer_ms 100, 336 frames a second for jitter and combined and 295 for the baseline, the photographs' rates): `net_baseline` clock +0 ppm against +413, timeline r 0.86 against 0.79, level 0.24 / 1.2 dB against 0.39 / 2.1; `net_jitter` clock +18 against +726, r 0.87, level 1.62 / 7.7 dB (the render's skips fall at other places than the take's), level +0.0 dB; `net_combined` clock −1348 against +2490, r 0.65, level 5.60 / 20.2 dB, level −0.3 dB. On the queue the clock the suite reads on these takes is gone: it was the queue's skips. Moving the suite's rows onto the game's queue is for a later order.*
-
-### Every take on the game's voice queue (2026-11-14)
-
-Measured privately (the takes stay private): every take through the suite twice at `main` `2548bbe`, once as committed
-(the file's own timing) and once with a scratch copy of the manifest, not committed, giving every Steam row the
-game's voice queue (`voice_buffer_ms` 100, 300 frames a second; Set C's baseline at 295 and its jitter and combined
-takes at 336, the photographs' rates). The rows with random loss are statistics only and are left out here.
+Measured privately (the takes stay private): every take through the suite at `main` `2548bbe` as it stood (the file's
+own timing) and on AC-01's suite (the game's voice queue; `music_take_it_off` with the cut of both columns at
+[70, 163.6] s). The rows with random loss are statistics only and are left out, but for the jitter take.
 
 | Take | Clock, ppm: file's own / queue | Timeline r: file's own / queue | Level rms / worst, dB: file's own / queue |
 | --- | --- | --- | --- |
@@ -218,32 +213,55 @@ takes at 336, the photographs' rates). The rows with random loss are statistics 
 | `take3_voice_avggain_0.25` | +404 / +1 | 0.77 / 0.86 | 1.36 / 13.3 · 2.03 / 14.7 |
 | `take4_my_own_speech` | +408 / +5 | 0.88 / 0.95 | 0.99 / 8.7 · 1.74 / 16.0 |
 | `net_baseline` | +413 / +0 | 0.79 / 0.86 | 0.39 / 2.1 · 0.24 / 1.2 |
+| `net_jitter` (random) | +726 / +18 | 0.81 / 0.87 | 0.62 / 3.8 · 0.54 / 2.9 |
 | `sender_A` | +407 / +4 | 0.76 / 0.86 | 0.12 / 0.5 · 0.10 / 0.4 |
 | `listener_B` | +403 / +7 | 0.78 / 0.88 | 0.41 / 2.2 · 0.42 / 2.2 |
 | `river_artifact` | +404 / +0 | 0.85 / 0.86 | 0.14 / 0.4 · 0.15 / 0.3 |
 | `lowtone_default` | +402 / −4 | 0.82 / 0.83 | 4.08 / 29.4 · 4.08 / 29.0 |
 | `lowtone_maxgain_1` | +401 / +35 | 0.80 / 0.78 | 4.94 / 14.7 · 5.20 / 19.1 |
 | `music_river` | +408 / +2 | 0.85 / 0.95 | 0.16 / 1.1 · 0.14 / 0.9 |
-| `music_take_it_off` | +408 / +2 | 0.78 / 0.92 | 0.08 / 0.4 · 2.14 / 24.0 |
+| `music_take_it_off` | +408 / +2 | 0.78 / 0.92 | 0.07 / 0.2 · 0.07 / 0.2 |
 
-**What it shows** (measured). On the game's queue the clock reads within 7 ppm of 0 on every take without loss but
-`lowtone_maxgain_1` (+35), against +401 to +499 on the file's own timing: the clock the suite has been reading on the
-takes is the queue's dropped samples and skips, not a clock. The timeline's correlation rises on 12 of these 13 takes and falls on `lowtone_maxgain_1` (0.80 against 0.78).
-The short-term level's rms is worse on the queue on several takes, most on `music_take_it_off` (0.08 / 0.4 dB against
-2.14 / 24.0, r 0.997 against 0.370): not looked into yet; the render's skips and early starts are one draw, and where
-they differ from the take's a block of the level compares unlike sound (inferred). Moving the suite's committed rows
-onto the game's queue is for a later order.
+**What it shows** (measured). On the game's queue the clock reads within 7 ppm of 0 on every take without random loss
+but `lowtone_maxgain_1` (+35), against +401 to +499 on the file's own timing: the clock the suite read on the takes was
+the queue's dropped samples and skips, not a clock. The timeline's correlation rises on 13 of these 14 takes and falls
+on `lowtone_maxgain_1` (0.80 against 0.78). The jitter take, rendered with its jitter as arrival times through the
+queue (BC-4), reads closer to its take than the render without jitter did.
 
-How the takes were rendered: every take at `volume 0.15` except `listener_B`, at `volume 0.11` and `voice_scale 0.77`; the Set C takes with the automatic room that set carries, and `sender_A` with its street room; the takes marked "random" with the loss the rule gives for their `net_fakeloss` (21.7%, 49.8% and 37.0% of messages) and, when these figures were measured, the jitter fit at 50 ms (see the note of 2026-11-13 under the table). Since AC-01 (2026-11-14) the suite renders every Steam take on the game's voice queue, as the page does by default: at 300 frames a second and `voice_buffer_ms` 100 (the game's defaults, read), and Set C's `net_baseline` at 295 frames a second and `net_jitter` and `net_combined` at 336, the rates read off that set's `net_graph` photographs.
+The short-term level's rms is worse on the queue by more than 0.1 dB on four takes (`take2_voice_scale_0.5`,
+`take3_voice_avggain_0.25`, `take4_my_own_speech`, `lowtone_maxgain_1`). The orchestrator looked at two of them, and
+at `take1_default`, `sender_A` and `music_take_it_off`, privately on 2026-11-14 (measured):
+
+- **`music_take_it_off`**: its cut ran to 170.76 s, past the recording's voice key released at 163.75 s and a short
+  second piece to 166.9 s, while the source plays on. On the queue the line-up ran 2 s into that piece. With the cut
+  at 163.6 s (AC-01) it reads as above on both timings, where it read 2.14 / 24.0 dB on the queue.
+- **`take3_voice_avggain_0.25`**: on the queue the line-up places the first 30 s half a second off (+1599 and
+  +1574 ms against +2069 to +2116 for the rest), on the test signal's repeated bursts; on the file's own timing two
+  pieces of 2 s are off the same way. `take1_default` has two such pieces on each timing. The largest blocks of the
+  level are there. That is the line-up, not the render.
+- **`take4_my_own_speech`**: the queue's worst blocks are three phrase ends where the take sits at −46 to −57 dBFS,
+  the game's ambience (the take reads the same before the first phrase and after the last, where the render is
+  digital silence), against the render's codec noise and then silence. Which of those blocks pass the level's rule
+  (both above −70 dBFS, the render 10 dB over the take's floor) moves with where the half-second grid falls.
+- **`sender_A` and the seed**: the level reads 0.12 / 0.5 dB at the default seed and 0.74 to 0.88 / 8.7 to 10.4 at
+  seeds 1 to 8. One block at 108.5 s makes it, where the seed's draw in the sender moves a sound between two
+  half-second blocks; the room has no part in it (without the room, seeds 1 and 2 read the same). The rows here are
+  each one draw, at the default seed. *This was found on the file's own timing; on the queue the draws also place
+  the skips and early starts (inferred).*
+
+So the level figures of the plain takes measure the line-up, the ambience and one draw of the sender as well as the
+model; the clock and the timeline say the queue is the better account of when sound is played.
+
+How the takes were rendered: every take at `volume 0.15` except `listener_B`, at `volume 0.11` and `voice_scale 0.77`; the Set C takes with the automatic room that set carries, and `sender_A` with its street room; the takes marked "random" with the loss the rule gives for their `net_fakeloss` (21.7%, 49.8% and 37.0% of messages) and the jitter take and the combined take with their 50 ms as arrival times through the queue (BC-4). With loss or jitter on the queue the render is lined up on the source as the take is, and the two are compared where both cover (AC-01's review: the render keeps a timeline of its own there). Since AC-01 (2026-11-14) the suite renders every Steam take on the game's voice queue, as the page does by default: at 300 frames a second and `voice_buffer_ms` 100 (the game's defaults, read), and Set C's `net_baseline` at 295 frames a second and `net_jitter` and `net_combined` at 336, the rates read off that set's `net_graph` photographs.
 
 What the figures say, the weak ones included:
 
-- **The plain takes agree closely in overall level.** For the test signal at changed settings, the speech, the music and the sender's own side, the offset is within about 0.1 to 0.2 dB and the level correlation is 0.98 to 1.00. Block by block they differ by more: 0.08 to 1.01 dB RMS.
-- **`take1_default` is weaker**: a level correlation of 0.951, a worst block of 12.5 dB, and +2.7 dB at 10 to 11 kHz. The record puts its largest block differences in the −36 dBFS sine near the game's ambience, in the tails of the hold, and in the 10 to 12 kHz tones that Steam puts into DTX more often than the app (findings 13 and 14).
-- **`listener_B`, the second PC's take, is off in overall level: +0.5 dB.** Apart from the two low-tone takes it is the one plain take outside 0.2 dB. Its level correlation is 0.959. Its row is rendered at `volume 0.11` and `voice_scale 0.77`. Both are inferred from the recording (finding 15); neither was read off that PC. At the settings first fitted to its levels, `volume 0.077` and `voice_scale 1`, the row read 0.89 / 2.7, 0.838, +3.2 dB at 11 to 12 kHz, 1.2 / 9.8 and +0.2 dB. What remains is the +0.5 dB overall and +2.4 dB at 11 to 12 kHz. That PC had a room on the voice which the record has not identified, and it is not in the render.
-- **The two low-tone takes are the worst plain takes.** `lowtone_default`: −0.7 dB and 0.797, with a worst block of 30.0 dB. `lowtone_maxgain_1`: −2.2 dB, 0.584, and −15.5 dB at 11 to 12 kHz. The record says of them that their comfort-noise plateaus are random in the game and in the app, so they differ block by block, and that the 11 to 12 kHz band of the `voice_maxgain 1` take is the game's ambience against near silence (finding 18). It says no more, and neither does this document.
-- **The loss and jitter takes are statistics only.** Their lost messages are other messages than the game's, so the block figures (level correlations of 0.44 to 0.78 with loss) are expected to be poor and measure nothing about the model. The offset column is the usable one: −0.1 to +0.4 dB.
-- **The clock column** reads about +400 on the plain takes: the game's one sample a packet, which a render on the file's own timing does not drop (the accuracy suite renders on it, whatever the page's default). Lined up against a render that runs the queue (`opts.timeline` `'game'`), three plain takes read between -39 and +9 over 24 rows (measured, private run of 2026-11-13; [the report](reports/W3-02c2-render-channel.md)). `take3_voice_maxgain_1` reads +510; the record says that one take, at 505 then, had 22.3 packets a second (finding 24), and that this is the take is inferred. The takes with loss or jitter read from +280 to +2792. For the jitter take the record measured its events as skips, where a bunch of messages overflows the queue (finding 9). The loss takes close up after a refused message (finding 8). Neither is checked against these figures.
-- **The clipped column** is higher in the render on the two music takes (16.2% against 13.7%, 18.5% against 12.6%). Those takes are MP3 files, and the record shows that MP3 coding lowers this figure (finding 7). On three lossless takes, `sender_A`, `river_artifact` and `lowtone_default`, the render also has 1.7 to 2.3 points more, and that is not explained.
+- **The plain takes agree closely in overall level.** For the test signal at changed settings, the speech, the music and the sender's own side, the offset is within 0.1 dB and the level correlation is 0.92 to 1.00. Block by block they differ by more: 0.07 to 2.03 dB RMS. What the larger of those blocks measure is in the section above.
+- **`take1_default` is weaker**: a level correlation of 0.938, a worst block of 12.7 dB, and +3.2 dB at 10 to 11 kHz. The record puts its largest block differences in the −36 dBFS sine near the game's ambience, in the tails of the hold, and in the 10 to 12 kHz tones that Steam puts into DTX more often than the app (findings 13 and 14).
+- **`listener_B`, the second PC's take, is off in overall level: +0.4 dB.** Apart from the two low-tone takes it is the one plain take outside 0.1 dB. Its level correlation is 0.956. Its row is rendered at `volume 0.11` and `voice_scale 0.77`. Both are inferred from the recording (finding 15); neither was read off that PC. At the settings first fitted to its levels, `volume 0.077` and `voice_scale 1`, the row read 0.89 / 2.7, 0.838, +3.2 dB at 11 to 12 kHz, 1.2 / 9.8 and +0.2 dB. What remains is the +0.4 dB overall and +2.1 dB at 11 to 12 kHz (+0.5 and +2.4 on the file's own timing). That PC had a room on the voice which the record has not identified, and it is not in the render.
+- **The two low-tone takes are the worst plain takes.** `lowtone_default`: −0.8 dB and 0.808, with a worst block of 29.0 dB. `lowtone_maxgain_1`: −2.4 dB, 0.461, and −11.2 dB at 11 to 12 kHz. The record says of them that their comfort-noise plateaus are random in the game and in the app, so they differ block by block, and that the 11 to 12 kHz band of the `voice_maxgain 1` take is the game's ambience against near silence (finding 18). It says no more, and neither does this document.
+- **The loss and jitter takes are statistics only.** Their lost messages are other messages than the game's, so the block figures (level correlations of 0.22 to 0.86 with loss) are expected to be poor and measure nothing about the model. The offset column is the usable one: −0.5 to +0.8 dB. The jitter take without loss reads 0.54 / 2.9 dB and 0.991.
+- **The clock column** reads within 7 ppm of 0 on the takes without random loss but `lowtone_maxgain_1` (+35): on the queue the game's one sample a packet and the queue's skips are in the render too (finding 24). On the file's own timing it read about +400 on the same takes, and +499 on `take3_voice_maxgain_1`, the take of 22.3 packets a second (finding 24); the section above has both. The takes with loss read from −1348 to +157. For the jitter take the record measured its events as skips, where a bunch of messages overflows the queue (finding 9), and on the queue it reads +18. The loss takes close up after a refused message (finding 8). Neither is checked against these figures.
+- **The clipped column** is higher in the render on the two music takes (16.3% against 13.7%, 18.1% against 12.6%). Those takes are MP3 files, and the record shows that MP3 coding lowers this figure (finding 7). On three lossless takes, `sender_A`, `river_artifact` and `lowtone_default`, the render also has 1.4 to 2.1 points more, and that is not explained.
 
-What this table cannot show: whether a phrase starts at the right time (the first item of "What is not exact"), and anything about a profile other than `steam`, since every take here is Steam voice. Every row is against a render on the file's own timing, which `tests/accuracy.mjs` asks for; the page's default render on Steam voice runs the game's queue since W3-02d-1.
+What this table cannot show: whether a phrase starts at the right time (the first item of "What is not exact"), and anything about a profile other than `steam`, since every take here is Steam voice. Every row is against a render on the game's voice queue, the page's default on Steam voice since W3-02d-1 and the suite's since AC-01; where a render's skips and early starts fall is one draw of the sender's clock, which no recording shows, and the rows are each one draw.

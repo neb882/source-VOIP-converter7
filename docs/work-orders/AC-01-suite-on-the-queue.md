@@ -1,6 +1,6 @@
 # AC-01: the accuracy suite on the game's voice queue
 
-Status: written 2026-11-14 by the orchestrator. Not built yet.
+Status: written 2026-11-14 by the orchestrator; built, reviewed (merge as is, three fixes made, below) and merged 2026-11-14 with no cache change. The private run on it is `docs/ACCURACY.md`'s table.
 
 ## Why
 

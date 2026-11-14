@@ -669,3 +669,9 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 
 - in_flight, W3-02g removed: "{'order': 'W3-02g', 'state': 'part a built 2026-11-14, reviewed and second-read (merge after a fix round), and checked privately on Set D's demo (look ii): no listener frame rate gives the sender take's four early starts, so part b is not built as written (ruling 2 in the order) and the page keeps a demo's voice on the file's own timing; part a's fix round runs', 'note': 'A demo's own packets through the render's decoder and the game's voice queue, with the demo's own ticks; the old section of W3-02-receiver-queue.md written again as an order of its own.'}"
 - next, W3-02g replaced: "{'order': 'W3-02g', 'file': 'docs/work-orders/W3-02-receiver-queue.md', 'after': 'W3-02c-2 and W3-02f (both merged), and a planner's pass', 'line': 'a demo's own packets through the render's decoder and the channel; in flight since 2026-11-14 (in_flight).'}"
+
+## 2026-11-14: AC-01 merged (no cache change); entries replaced
+
+- live.last_merge, earlier merges cut: "W3-02c-3b (cache v49, 2026-11-14): the live panel has a box, off on every load and never remembered, that runs the monitor through the game's voice queue on Steam voice with BC-4's arrivals, at the pa"
+- deferred, music_take_it_off removed (explained: the cut, AC-01): "{'finding': 'On the game's voice queue the accuracy suite's level on music_take_it_off is 2.14 / 24.0 dB (r 0.370) against 0.08 / 0.4 dB (r 0.997) on the file's own timing (measured privately 2026-11-14, docs/ACCURACY.md"
+- open_questions, Set D's 68 ms echo replaced: "Set D, PC A with set_d_street: the render's echo at 68.02 ms is 36% above the take's (0.0304 against 0.0224, 3.6 scatters), the other two within 10%. Random taps, the ambience, or the room's measures: not looked into."
