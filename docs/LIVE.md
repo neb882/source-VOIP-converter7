@@ -55,16 +55,20 @@ The panel shows the total while it runs.
 With the queue's switch on, the chain holds back the queue's zero in place of Steam's longest chunk, the pre-roll
 and the codec's lookahead. That is a fixed figure for a frame rate and a `voice_buffer_ms`:
 
-| Frame rate (`fps_max`) | More than with the switch off | The chain's hold at a 48 kHz device | The panel at 48 kHz | Standing |
+| Frame rate (`fps_max`) | More than with the switch off (and low latency off) | The chain's hold at a 48 kHz device | The panel at 48 kHz | Standing |
 | ---: | ---: | ---: | ---: | --- |
 | 66.67 | 101.6 ms | 308.5 ms | about 405 ms | read; the panel measured at `fps_max` 67, which waits the same 7 ticks |
 | 100 | 148.0 ms | 354.9 ms | not measured | read |
 | 300 (the default) | 357.0 ms | 563.9 ms | about 660 ms | read; the panel measured |
 
 The figures at `voice_buffer_ms` 100 are read from the voice queue's zero (`voice-channel.js`, `zero()`) and the
-sender's read reach and lookahead; the switch's help gives the figure at the page's own frame rate and buffer. With
-the switch off the panel showed about 293 ms at 48 kHz (measured: the median of 40 readings over 20 s in the
-headless browser, the test's noise as the microphone, no dropout in either setting). With jitter each phrase comes
+sender's read reach and lookahead; the switch's help gives the figure at the page's own frame rate and buffer. The
+second column is the step from the monitor with both live switches off. With **Live monitor: low latency** ticked,
+"the switch off" is the low-latency chain, which holds back 80.0 ms less (read), and the queue sends low latency as
+off: the step is then 181.7, 228.1 and 437.1 ms, and the switch's help adds that saving while the box is ticked.
+The panel's figures were measured with the browser's audio forced to 48 kHz in a headless browser, not on a sound
+device: the median of 40 readings over 20 s, the browser suite's noise as the microphone, no dropout in either
+setting. With the switch off the panel showed about 293 ms there. With jitter each phrase comes
 later again by the time its first packet took, which the figure does not count: in the mean 96 ms at 66.67 frames
 a second and jitter 50, 209 ms at jitter 100, 59 and 128 ms at 300 (measured on a prototype of the chain and on the
 engine's model, [W3-02c3-replan.md](reports/W3-02c3-replan.md)).

@@ -75,6 +75,9 @@
   // monitor runs and while the switch is off. null where the module refuses
   // the numbers.
   const STEAM_LOOKAHEAD = 156;
+  // What low latency saves on `steam`: the pre-roll less a frame and a
+  // sample, at 24 kHz (the chain's lowLatencySavingMs, 80.04 ms; read).
+  const lowLatencySaving = () => { const S = TF2SteamSender.STEAM_SENDER; return 1000 * (S.preroll - S.frame + 1) / S.rate; };
   function queueCost(fps, bufferMs) {
     const S = TF2SteamSender.STEAM_SENDER, VC = TF2VoiceChannel;
     try {
@@ -89,12 +92,17 @@
     if (!(typeof els !== 'undefined' && els.codec.value === 'steam' && els.warble.value === '1')) {
       return 'Plays the live monitor through the game\'s voice queue, on Steam voice with the codec on. Here the monitor keeps the file\'s own timing.';
     }
-    const fps = pageFps(), buffer = pageBufferMs(), ms = queueCost(fps, buffer);
+    // With low latency ticked "this off" is the low-latency chain, which
+    // holds back less by low latency's saving: the step to the queue is that
+    // much larger (the queue sends low latency as off).
+    const fps = pageFps(), buffer = pageBufferMs(), low = !!(ui.lowLatency && ui.lowLatency.checked), cost = queueCost(fps, buffer);
+    const ms = cost != null && low ? cost + lowLatencySaving() : cost;
     // (One sentence at most about 110 characters, as every control's help.)
     return [
       `Plays the live monitor through the game's voice queue at fps_max ${+fps.toFixed(2)} and voice_buffer_ms ${buffer}.`,
       'Phrase timing does not change it.',
       `Each phrase waits as in the game, and the monitor plays ${ms != null ? `${ms.toFixed(0)} ms` : 'the queue\'s wait'} later than with this off (read).`,
+      ...(low ? [`That counts low latency's saving of ${lowLatencySaving().toFixed(0)} ms, which the queue does not use.`] : []),
       'With jitter each phrase comes later again by the time its first packet took.',
       'What you hear with it on is measured on the model, in no recording.',
       'At 300 frames a second and above each opening of the channel drops 114 to 181 ms, most of it the 100 ms pre-roll.',
@@ -433,6 +441,8 @@
   // The queue's switch changes the monitor's texts at once (its change also
   // reaches the settings' own listener, which changes no setting).
   if (ui.queue) ui.queue.addEventListener('change', () => { updateTexts(); showNote(); });
+  // Low latency changes the switch's figure (queueHelp).
+  if (ui.lowLatency) ui.lowLatency.addEventListener('change', updateTexts);
   if (ui.record) ui.record.addEventListener('click', toggleRecording);
 
   ui.toggle.addEventListener('click', () => (live ? stopLive() : startLive()));

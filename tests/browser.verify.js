@@ -1116,7 +1116,11 @@ async function verifyLiveMonitor(page) {
     check(Math.abs(on.ms - fullMs - on.queue.queueCostMs) < 1e-6 && on.queue.queueCostMs > 300 && panelMs >= on.ms && panelMs < on.ms + 400,
       'the chain\'s delay rises by the cost the chain reports, and the panel shows between that delay and 400 ms more',
       `${fullMs.toFixed(1)} ms off, ${on.ms.toFixed(1)} ms on, the chain's cost ${on.queue.queueCostMs.toFixed(2)} ms; the panel ${on.panel}`);
-    check(on.help.includes(`plays ${on.queue.queueCostMs.toFixed(0)} ms later`) && /fps_max 300 and voice_buffer_ms 100/.test(on.help)
+    // Low latency is ticked: "this off" is the low-latency chain, so the
+    // help's step is the queue's cost and low latency's saving (the fix round).
+    const saving = fullMs - low.ms;
+    const step = (cost, ticked) => `plays ${(cost + (ticked ? saving : 0)).toFixed(0)} ms later`;
+    check(on.help.includes(step(on.queue.queueCostMs, true)) && on.help.includes(`saving of ${saving.toFixed(0)} ms`) && /fps_max 300 and voice_buffer_ms 100/.test(on.help)
       && /114 to 181 ms/.test(on.help) && /each phrase comes later again by the time its first packet took/.test(on.help)
       && /waits 30 ticks, 435 ms, at fps_max 300/.test(on.panelTitle) && on.channel.opens > 0,
       'the switch\'s help holds the chain\'s cost and what a listener hears; the panel\'s title names the queue\'s wait; TF2Live.stats.channel.opens is above 0',
@@ -1134,7 +1138,7 @@ async function verifyLiveMonitor(page) {
     const at67 = await queueState();
     await page.evaluate(() => execCommand('fps_max 300'));
     await page.waitForFunction(() => TF2Live.stats.channel && TF2Live.stats.channel.fps === 300 && TF2Live.queue.queueCostMs > 300, null, { timeout: 20000 });
-    check(at67.configs > on.configs && at67.opts.fps === 67 && at67.help.includes(`plays ${at67.queue.queueCostMs.toFixed(0)} ms later`)
+    check(at67.configs > on.configs && at67.opts.fps === 67 && at67.help.includes(step(at67.queue.queueCostMs, true))
       && at67.queue.queueCostMs.toFixed(0) !== on.queue.queueCostMs.toFixed(0) && /fps_max 67 and/.test(at67.help),
       'with the switch on, a changed fps_max builds a new chain, and the help holds that chain\'s cost at the new frame rate',
       `${at67.queue.queueCostMs.toFixed(2)} ms at fps_max 67`);
@@ -1145,10 +1149,15 @@ async function verifyLiveMonitor(page) {
     await page.evaluate(() => execCommand('fps_max 67'));
     await page.waitForTimeout(400);
     const off67 = await queueState();
+    // Low latency unticked: the step is the queue's cost alone.
+    await page.locator('#live-lowlat').uncheck();
+    const off67full = await queueState();
+    await page.locator('#live-lowlat').check();
     await page.evaluate(() => execCommand('fps_max 300'));
-    check(off67.help.includes(`plays ${at67.queue.queueCostMs.toFixed(0)} ms later`) && Math.abs(off67.queue.queueCostMs - on.queue.queueCostMs) < 1e-6 && !off67.low.disabled,
-      'with the switch off at fps_max 67, the help gives the cost at 67 frames a second, not the chain\'s at its defaults; low latency is live again',
-      `${off67.help.slice(0, 140)}...; the chain's ${off67.queue.queueCostMs.toFixed(2)} ms`);
+    check(off67.help.includes(step(at67.queue.queueCostMs, true)) && off67full.help.includes(step(at67.queue.queueCostMs, false)) && !/saving of/.test(off67full.help)
+      && Math.abs(off67.queue.queueCostMs - on.queue.queueCostMs) < 1e-6 && !off67.low.disabled,
+      'with the switch off at fps_max 67, the help gives the cost at 67 frames a second, not the chain\'s at its defaults, with low latency\'s saving added while that box is ticked; low latency is live again',
+      `${off67.help.slice(0, 140)}...; unticked: ${off67full.help.slice(95, 200)}...; the chain's ${off67.queue.queueCostMs.toFixed(2)} ms`);
     // On the other codecs, and with the codec skipped, the checked switch
     // does nothing: the chain keeps the file's own timing, no error shows,
     // and low latency still works.
@@ -1349,14 +1358,15 @@ async function verifyLiveMonitor(page) {
       // 1.5 s after the take is loaded (the panel's stats come ten times a
       // second, so the take's own count lies between 0 and their difference;
       // the chain's count since it was built, 4 s more, does not).
-      const packetsBefore = await page.evaluate(() => { window.__takeBefore = state.decodedSource; return TF2Live.stats.channel.packets; });
+      const counts = () => { const c = TF2Live.stats.channel; return { packets: c.packets, opens: c.opens, droppedSamples: c.droppedSamples }; };
+      const packetsBefore = await page.evaluate((f) => { window.__takeBefore = state.decodedSource; return (0, eval)(f)(); }, `(${counts})`);
       await page.locator('#live-record').click();
       await page.waitForTimeout(3000);
       await page.locator('#live-record').click();
       await page.waitForFunction(() => state.sourceName && state.sourceName.startsWith('live-') && state.processedBuffer
         && state.decodedSource && state.decodedSource !== window.__takeBefore, null, { timeout: 20000 });
       await page.waitForTimeout(1500);
-      const packetsAfter = await page.evaluate(() => TF2Live.stats.channel.packets);
+      const packetsAfter = await page.evaluate((f) => (0, eval)(f)(), `(${counts})`);
       return page.evaluate(({ packetsBefore, packetsAfter }) => {
         const lines = [...document.getElementById('console-out').children].map((e) => e.textContent);
         const from = lines.map((t) => t.startsWith('voice_record: live take of')).lastIndexOf(true);
@@ -1370,12 +1380,14 @@ async function verifyLiveMonitor(page) {
       }, { packetsBefore, packetsAfter });
     };
     const onQueue = await queueTake();
+    // Each of the take's counters lies between 0 and what the chain's rose by over the recording (the fix round).
+    const within = (t) => ['packets', 'opens', 'droppedSamples'].every((k) => t.channel[k] >= 0 && t.channel[k] <= t.packetsAfter[k] - t.packetsBefore[k]);
     check(onQueue.loud > onQueue.rate * 0.1 && onQueue.key.timeline === 'game' && onQueue.key.fps === 300 && onQueue.key.bufferMs === 100 && onQueue.channel
-      && onQueue.channel.fps === 300 && onQueue.channel.packets > 0 && onQueue.channel.packets <= onQueue.packetsAfter - onQueue.packetsBefore && !onQueue.stale && onQueue.idle && onQueue.started === 0 && onQueue.line
+      && onQueue.channel.fps === 300 && onQueue.channel.packets > 0 && within(onQueue) && !onQueue.stale && onQueue.idle && onQueue.started === 0 && onQueue.line
       && /^S_Voice: the game's voice queue at fps_max 300, voice_buffer_ms 100: a new phrase waits 30 ticks \(435 ms\)/.test(onQueue.queueLine)
       && /^Recorded live · /.test(onQueue.status),
       'a session recorded with the switch on is not silent; its key holds timeline game, fps 300 and voice_buffer_ms 100; its channel counts are the recording\'s, not the chain\'s since it was built; with Phrase timing on the queue it is not marked, no render starts by itself, the line beside Hear shows and the console prints the queue\'s line',
-      `${onQueue.loud} samples above 0.01 of ${onQueue.length}; ${onQueue.channel && onQueue.channel.packets} packets, the chain's count from ${onQueue.packetsBefore} to ${onQueue.packetsAfter}; ${onQueue.started} started; ${onQueue.queueLine}; ${onQueue.status}`);
+      `${onQueue.loud} samples above 0.01 of ${onQueue.length}; the take's ${JSON.stringify(onQueue.channel && { packets: onQueue.channel.packets, opens: onQueue.channel.opens, dropped: onQueue.channel.droppedSamples })}, the chain's from ${JSON.stringify(onQueue.packetsBefore)} to ${JSON.stringify(onQueue.packetsAfter)}; ${onQueue.started} started; ${onQueue.queueLine}; ${onQueue.status}`);
     // Phrase timing on the file's own timing renders that take again (it is
     // short); the next take is held.
     await page.evaluate(() => execCommand('voice_timeline source'));
@@ -1390,6 +1402,49 @@ async function verifyLiveMonitor(page) {
     await page.waitForTimeout(900);
     const back = await page.evaluate(() => ({ stale: state.stale, idle: renderIdle(), live: !!state.lastCodecInfo.live, status: els.renderStatus.textContent }));
     check(!back.stale && back.idle && back.live && !/Render gives it/.test(back.status), 'with Phrase timing back on the queue, the held take is the controls\' render: not marked, no render started', JSON.stringify(back));
+    // The fix round: a recording during which voice_buffer_ms changes, so a
+    // second chain takes over midway. The take's packets are the sum of what
+    // the two chains counted over it, each read from the stats the page was
+    // sent (every 100 ms, so each reading may lag by a few packets).
+    {
+      await page.waitForFunction(() => renderIdle(), null, { timeout: 30000 });
+      await page.evaluate(() => {
+        window.__takeBefore = state.decodedSource;
+        window.__chainCounts = [];
+        window.__sampler = setInterval(() => {
+          const s = TF2Live.stats;
+          if (s && s.channel && s !== window.__lastStats) {
+            window.__lastStats = s;
+            window.__chainCounts.push({ t: performance.now(), buffer: s.channel.bufferMs, packets: s.channel.packets });
+          }
+        }, 10);
+      });
+      await page.waitForTimeout(300);
+      const tStart = await page.evaluate(() => performance.now());
+      await page.locator('#live-record').click();
+      await page.waitForTimeout(2500);
+      await page.evaluate(() => execCommand('voice_buffer_ms 150'));
+      await page.waitForFunction(() => TF2Live.stats.channel && TF2Live.stats.channel.bufferMs === 150, null, { timeout: 20000 });
+      await page.waitForTimeout(2000);
+      const tStop = await page.evaluate(() => performance.now());
+      await page.locator('#live-record').click();
+      await page.waitForFunction(() => state.sourceName && state.sourceName.startsWith('live-') && state.processedBuffer
+        && state.decodedSource && state.decodedSource !== window.__takeBefore, null, { timeout: 20000 });
+      const rebuilt = await page.evaluate(({ tStart, tStop }) => {
+        clearInterval(window.__sampler);
+        const seen = window.__chainCounts, a = seen.filter((x) => x.buffer === 100), b = seen.filter((x) => x.buffer === 150);
+        const aStart = a.filter((x) => x.t <= tStart).pop(), aLast = a[a.length - 1], bStop = b.filter((x) => x.t <= tStop).pop();
+        const ch = state.lastCodecInfo.channel || {};
+        return { take: ch.packets, bufferMs: ch.bufferMs, key: JSON.parse(state.renderedKey).bufferMs,
+          a: aStart && aLast ? aLast.packets - aStart.packets : null, b: bStop ? bStop.packets : null };
+      }, { tStart, tStop });
+      const sum = rebuilt.a + rebuilt.b, tolerance = Math.max(8, 0.15 * sum);
+      await page.evaluate(() => execCommand('voice_buffer_ms 100'));
+      await page.waitForFunction(() => renderIdle() && TF2Live.stats.channel && TF2Live.stats.channel.bufferMs === 100, null, { timeout: 30000 });
+      check(rebuilt.a > 10 && rebuilt.b > 10 && Math.abs(rebuilt.take - sum) <= tolerance && rebuilt.bufferMs === 150 && rebuilt.key === 150,
+        'a recording during which voice_buffer_ms changes: the take\'s packets are the sum of the two chains\' rises over it, and its voice_buffer_ms and key are the last chain\'s',
+        `${rebuilt.take} packets in the take; the chains rose by ${rebuilt.a} and ${rebuilt.b} (${sum}, within ${tolerance.toFixed(0)})`);
+    }
     await page.locator('#live-queue').uncheck();
     await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'source', null, { timeout: 20000 });
   }
@@ -1903,7 +1958,8 @@ async function verifySettingsWords(page) {
         .map((el) => `${idToCvarMap[el.id]}: "${firstSentence(helpOf(el)[0].textContent.trim())}"`),
       table: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'gain', 'bits', 'frameMs', 'loss', 'jitter', 'timeline', 'fps', 'buffer_ms', 'maxgain', 'voice_scale', 'volume', 'hp', 'lp']
         .map((id) => [id, [labelText(document.getElementById(id)), (helpOf(document.getElementById(id))[0] || { textContent: '' }).textContent.trim()]])),
-      options: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'timeline'].map((id) => [id, [...document.getElementById(id).options].map((o) => o.textContent)]))
+      options: Object.fromEntries(['codec', 'warble_on', 'capture_channel', 'timeline'].map((id) => [id, [...document.getElementById(id).options].map((o) => o.textContent)])),
+      consoleTimeline: cvars.voice_timeline.help
     };
   });
   check(words.count >= 30 && words.noHelp.length === 0,
@@ -1911,6 +1967,10 @@ async function verifySettingsWords(page) {
   check(words.shared.length === 0, 'each control\'s sentence is its own; only the six measures share one, and the custom room\'s three knobs another',
     words.shared.join(', '));
   check(words.long.length === 0, 'each sentence of help is at most about 110 characters (115)', words.long.join(', '));
+  // W3-02c-3b: the console's voice_timeline says of the live monitor what Phrase timing's help says.
+  const monitorTiming = 'The live monitor keeps the file\'s own timing unless its own switch for the queue is on.';
+  check(words.table.timeline[1].endsWith(monitorTiming) && words.consoleTimeline.includes(monitorTiming) && !/always keeps/.test(words.consoleTimeline),
+    'the console\'s voice_timeline help says of the live monitor what Phrase timing\'s help says', words.consoleTimeline.slice(-140));
   check(words.measured.length === 0, 'no option text says "(measured)"', words.measured.join(', '));
   const dup = words.labels.filter((l, i) => words.labels.indexOf(l) !== i);
   check(dup.length === 0 && words.labels.every(Boolean), 'no two controls in the panel have the same label text', dup.join(', '));
