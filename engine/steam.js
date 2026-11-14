@@ -177,15 +177,34 @@
   // meanMs, maxMs, sameTick }, the delays arrive(tick) - tick at 15 ms a
   // tick and how many came on the tick of the message before; null without
   // arrive.
-  function steamChannel({ length, lookahead, fps, bufferMs, autoGain, avgGain, maxGain, voiceScale, arrive = null }) {
-    const { createTimeline } = steamChannelModule();
+  //   With no end (W3-02c-3, the live monitor's chain): length Infinity is
+  // handed to createTimeline, which then keeps nothing that grows with time,
+  // and the caller asks ticks that never fall (push, advance and ask, all
+  // three), so the list of arrive's answers keeps only the highest tick's: a
+  // tick below it is a RangeError. arrive is still asked for every whole
+  // tick from 0, once each and in order.
+  //   zero is the timeline's zero, D (voice-channel.js zero()); counts() is
+  // the timeline's counts(); held() is how many entries the channel and its
+  // timeline hold in lists, for a test.
+  //   onOpen(index) (null: none): called once for each open, where the
+  // channel resets the gain, once the push that opened it has returned;
+  // index is the count of samples the timeline has returned by then. Every
+  // block that starts before the open's tick has run and none after it, so
+  // index is the first sample of the first block that starts at or after
+  // that tick (0 when that is before the output's first sample).
+  function steamChannel({ length, lookahead, fps, bufferMs, autoGain, avgGain, maxGain, voiceScale, arrive = null, onOpen = null }) {
+    const { createTimeline, zero } = steamChannelModule();
+    const endless = length === Infinity;
     let lastArrival = -Infinity, messages = 0, sumTicks = 0, maxTicks = -Infinity, sameTick = 0;
-    const answers = [];   // arrive's answer for each tick from 0, asked in order
+    // arrive's answer for each tick from base (0 for a whole length), asked in order.
+    const answers = [];
+    let base = 0;
     const at = (tick) => {
       if (!arrive) return tick;
       if (!Number.isInteger(tick) || tick < 0) throw new RangeError(`TF2Audio: the channel takes whole ticks from 0, not ${tick}.`);
-      while (answers.length <= tick) {
-        const t = answers.length, a = arrive(t);
+      if (tick < base) throw new RangeError(`TF2Audio: a channel with no end takes ticks that never fall, not ${tick} after ${base}.`);
+      while (base + answers.length <= tick) {
+        const t = base + answers.length, a = arrive(t);
         const said = `tick ${t} arrived on ${a}`, who = '(opts.arriveAt or the arrival model)';
         if (!Number.isInteger(a)) throw new RangeError(`TF2Audio: an arrival tick is a whole number; ${said} ${who}.`);
         if (a < 0) throw new RangeError(`TF2Audio: an arrival tick is 0 or more; ${said} ${who}.`);
@@ -193,7 +212,9 @@
         answers.push(a);
         lastArrival = a;
       }
-      return answers[tick];
+      const a = answers[tick - base];
+      if (endless && tick > base) { answers.splice(0, tick - base); base = tick; }
+      return a;
     };
     let blocks = [], g = null;
     const late = (j) => blocks[j].code === FRAME_CODES.late;
@@ -219,8 +240,10 @@
         roundEven(clamp(Math.fround(v * voiceScale), -INT16_FULL_SCALE, INT16_FULL_SCALE) * 32768) / 32768)
     };
     const timeline = createTimeline({ length, fps, bufferMs, codecDelay: lookahead / STEAM_RATE, gain });
-    let pieces = [], lastMessage = null;
+    let pieces = [], lastMessage = null, returned = 0;
+    const keep = (y) => { pieces.push(y); returned += y.length; };
     return {
+      zero: zero(bufferMs, fps, lookahead / STEAM_RATE),
       push(tick, y, packetBlocks, source) {
         blocks = packetBlocks;
         const a = at(tick);
@@ -231,15 +254,19 @@
           if (a === lastMessage) sameTick++;
           lastMessage = a;
         }
-        pieces.push(timeline.push({ tick: a, pcm: y, source }));
+        const opens = onOpen ? timeline.counts().opens : 0;
+        keep(timeline.push({ tick: a, pcm: y, source }));
+        if (onOpen && timeline.counts().opens > opens) onOpen(returned);
       },
-      advance(tick) { pieces.push(timeline.advance(at(tick))); },
+      advance(tick) { keep(timeline.advance(at(tick))); },
       ask(tick) { at(tick); },
       arrivals: () => (arrive ? { messages, meanMs: messages ? STEAM_TICK_MS * sumTicks / messages : 0,
         maxMs: messages ? STEAM_TICK_MS * maxTicks : 0, sameTick } : null),
+      counts: () => timeline.counts(),
+      held: () => answers.length + timeline.held(),
       finish() {
         const end = timeline.finish();
-        pieces.push(end.samples);
+        keep(end.samples);
         return end.info;
       },
       take() {

@@ -193,31 +193,53 @@
   // alone: a lost packet is kept in the lists as if it had come (the
   // model's simplification). With jitterMs 0 or less (or not a number)
   // at(p) is p and nothing is drawn. seed is the render's.
-  function steamArrivals({ jitterMs, fps, seed } = {}) {
+  //   endless (W3-02c-3, the live monitor's chain, which has no end): at()
+  // takes ticks that never fall, refuses one below the last asked with a
+  // RangeError (the same tick again is taken), and keeps no leaving tick
+  // that a later call cannot ask for, so what it holds does not grow with
+  // time. Its answers are the whole model's, tick for tick. held() is how
+  // many leaving ticks the model holds, for a test.
+  function steamArrivals({ jitterMs, fps, seed, endless = false } = {}) {
     const J = finiteOr(jitterMs, 0), F = steamArrivalFps(fps);
-    if (!(J > 0)) return { jitterMs: 0, fps: F, floorTicks: 0, at: (tick) => tick };
+    let last = -Infinity;   // the last tick asked, with endless
+    const rising = (tick) => {
+      if (tick < last) throw new RangeError(`steamArrivals: with endless, at() takes ticks that never fall, not ${tick} after ${last}.`);
+      last = tick;
+    };
+    if (!(J > 0)) {
+      if (!endless) return { jitterMs: 0, fps: F, floorTicks: 0, at: (tick) => tick };
+      return { jitterMs: 0, fps: F, floorTicks: 0, at: (tick) => { rising(tick); return tick; }, held: () => 0 };
+    }
     const s = finiteOr(seed, 0xC0FFEE) >>> 0, lagMs = FAKE_LAG_PER_JITTER * J, start = FAKE_LAG_START_TICK;
     const floorTicks = STEAM_CROSSINGS.length * (Math.floor(J / STEAM_TICK_MS) + 1);
-    // For each crossing, its list and, by tick from `start`, the tick its
-    // packet leaves for (ceil of its leaving time over 15).
+    // For each crossing, its list and, by tick from `start` (from `base`
+    // with endless), the tick its packet leaves for (ceil of its leaving
+    // time over 15).
     const legs = STEAM_CROSSINGS.map((c) => ({ list: fakeLagList({ lagMs, jitterMs: J, lookTime: c.looks(F),
-      rand: mulberry32((s ^ c.salt) >>> 0) }), out: [] }));
+      rand: mulberry32((s ^ c.salt) >>> 0) }), out: [], base: start }));
     const leave = (c, q) => {
       const leg = legs[c];
-      while (leg.out.length <= q - start) {
-        const tick = start + leg.out.length;
+      while (leg.out.length <= q - leg.base) {
+        const tick = leg.base + leg.out.length;
         leg.out.push(Math.ceil(leg.list.release(STEAM_TICK_MS * tick) / STEAM_TICK_MS));
       }
-      return leg.out[q - start];
+      const out = leg.out[q - leg.base];
+      // With endless, the ticks a later call can ask of this crossing are q
+      // and after: the first crossing is asked the tick given, which never
+      // falls, and the second what the first gives, which never falls either.
+      if (endless && q > leg.base) { leg.out.splice(0, q - leg.base); leg.base = q; }
+      return out;
     };
     return {
       jitterMs: J, fps: F, floorTicks,
       at(tick) {
         if (!Number.isInteger(tick) || tick < start) throw new RangeError(`steamArrivals: at() takes a whole tick from ${start} on, not ${tick}.`);
+        if (endless) rising(tick);
         let q = tick;
         for (let c = 0; c < legs.length; c++) q = leave(c, q);
         return q - floorTicks;
-      }
+      },
+      ...(endless ? { held: () => legs.reduce((n, leg) => n + leg.out.length, 0) } : {})
     };
   }
 
@@ -227,9 +249,10 @@
   // place of the model (floorTicks 0); else the model with jitter above 0.
   // jitterMs and fps are the render's; the model's draws use the render's
   // seed through streams of their own, so the loss draw is untouched.
-  function steamArrivalPlan({ jitterMs, fps, seed, arriveAt }) {
+  // endless is passed on to the model (the live monitor's chain, W3-02c-3).
+  function steamArrivalPlan({ jitterMs, fps, seed, arriveAt, endless = false }) {
     if (typeof arriveAt === 'function') return { jitterMs: Math.max(0, finiteOr(jitterMs, 0)), fps: steamArrivalFps(fps), floorTicks: 0, at: arriveAt };
-    return finiteOr(jitterMs, 0) > 0 ? steamArrivals({ jitterMs, fps, seed }) : null;
+    return finiteOr(jitterMs, 0) > 0 ? steamArrivals(endless ? { jitterMs, fps, seed, endless } : { jitterMs, fps, seed }) : null;
   }
 
   // buildLossMask, a frame at a time, with the same random sequence.

@@ -5,14 +5,14 @@
 (function (root) {
   'use strict';
   const E = root.TF2Engine;
-  const { INT16_FULL_SCALE, biquadCoefs, clamp, finiteOr, firStage, hardClip, mulberry32, sincWait, streamBiquad,
+  const { INT16_FULL_SCALE, biquadCoefs, clamp, finiteOr, firStage, hardClip, joinSamples, mulberry32, sincWait, streamBiquad,
     streamFir, streamResampleSinc } = E.dsp;
   const { GAIN_BLOCK, createGain, streamAutoGain } = E.gain;
   const { MIX_BLOCK, MIX_RATE, createOutputStage, mixToFloat } = E.mix;
-  const { steamLoser, streamLossMask } = E.network;
+  const { steamArrivalPlan, steamLoser, streamLossMask } = E.network;
   const { DEFAULT_SENDER_GATE, FRAME_CODES, celtModeRate, gateThresholdDb, loadOpusModule, profileEq } = E.codec;
-  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamCapture, steamGiveOut, steamModules, steamReach,
-    steamSenderOptions, steamTimeline } = E.steam;
+  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamBoundTick, steamCapture, steamChannel, steamGameTimeline, steamGiveOut,
+    steamModules, steamReach, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
   /* Live chain: process() one block at a time                          */
@@ -23,7 +23,8 @@
   /* linear-phase (half their length late), and the voice gate holds    */
   /* frames back for its pre-roll (120 ms), as the sender must. The     */
   /* `steam` profile with the codec on runs the render's own stages     */
-  /* (steamLiveChain, W3-11b) and holds back the sender's reach. A room */
+  /* (steamLiveChain, W3-11b) and holds back the sender's reach, or, on */
+  /* the game's timeline, the voice queue's zero (W3-02c-3). A room     */
   /* and under water run on a room path the worker keeps (W3-17d).      */
   /* ------------------------------------------------------------------ */
 
@@ -69,9 +70,40 @@
   //     starts with a silent sender, a new decoder, a resampler that has not
   //     flushed and a reset gain. That is the app's own; Steam has no such
   //     thing.
+  // On the game's timeline (game: opts.timeline 'game', W3-02c-3) the chain
+  // runs the stream render's voice channel (createRender's steam stage on
+  // 'game'), so what it hands its mix point is, sample for sample, what
+  // createRender hands its own on 'game' for the same sound, seed and
+  // settings, with BC-4's arrival ticks at any jitter:
+  //   - steamChannel with no end (length Infinity), the arrival model with no
+  //     end from the chain's seed, frame rate and jitter, and onOpen; handed to
+  //     steamTimeline as its channel, with no gain: nothing is laid, and each
+  //     message that arrived goes to the channel. add() takes no third
+  //     argument, as in a render. The receiver's gain is the channel's (with
+  //     the auto-gain off it scales, clips and rounds), so the chain's own
+  //     stage after the mix point is left out.
+  //   - After each pushed sample's messages the channel is advanced to
+  //     steamBoundTick(lastTick, pushed), the render's bound (only when it
+  //     rises: the same output). The output at the mix point is final up to
+  //     floor(pushed x 147 / 80) - D at least (the order's "The hold-back"),
+  //     with D the channel's zero, so that is what is given out; a channel
+  //     that has returned fewer is an Error, which the hold-back says cannot
+  //     happen. stats.margin is the least count of samples by which what the
+  //     channel returned was ahead of it.
+  //   - The room's limits are fixed at each open (spurtStarts), before the
+  //     mix stages are handed the open's first sample (onOpen's index), so a
+  //     spurt that joins a running channel fixes nothing, and the place does
+  //     not depend on the plan of blocks.
+  //   - The panel's counts (frames, sent, lost, late, the frame codes) stay
+  //     the sender's, on the file's own timing, final at the render's bound
+  //     (steamGiveOut with no limit on the wait). No log of what was played
+  //     is kept: the timeline with no end keeps no source map.
+  //   - stats gains pushed (the samples given to the sender), channel (the
+  //     timeline's counts()), arrivals (with jitter above 0: as a render's
+  //     codecInfo.arrivals) and margin.
   async function steamLiveChain(c) {
     const { opts, ioRate, codecKey, codec, micGain, hp, lp, bits, lossPct, jitterMs, autoGain, gateOn, avgGain, maxGain, voiceScale,
-      framesPerPacket, rand, mixStages, roomHoldSeconds = () => 0, spurtStarts = () => {} } = c;
+      framesPerPacket, rand, mixStages, roomHoldSeconds = () => 0, spurtStarts = () => {}, game = false } = c;
     const { sender: SteamSender, swr } = steamModules();
     if (codec.codecRate !== STEAM_RATE || codec.voiceRate !== STEAM_VOICE_RATE || codec.decoderEq) {
       throw new Error('The steam rule runs at 24000 Hz into a 44100 Hz voice rate, with no decoder EQ.');
@@ -106,8 +138,18 @@
       return nextMiss();
     };
     const resampler = opts.swrKernel !== undefined ? swr.createResampler({ kernel: opts.swrKernel }) : swr.createResampler();
-    const timeline = steamTimeline({ lookahead, resampler, gain: autoGain ? createGain({ avgGain, maxGain, scale: voiceScale }) : null,
-      onDecoded: opts.onDecoded, onResampled: opts.onResampled, onMove: opts.onMove });
+    // On the game's timeline: the channel, made as createRender makes its
+    // own, with no end; each open's first sample waits in `opens` until the
+    // chain gives out up to it.
+    const opens = [];
+    const arrivals = game ? steamArrivalPlan({ jitterMs, fps: opts.fps, seed: finiteOr(opts.seed, 0xC0FFEE) >>> 0, endless: true }) : null;
+    const channel = game ? steamChannel({ length: Infinity, lookahead, fps: opts.fps, bufferMs: opts.bufferMs, autoGain, avgGain, maxGain,
+      voiceScale, arrive: arrivals ? arrivals.at : null, onOpen: (index) => {
+        if (index < given) throw new Error(`TF2Audio live chain: a voice channel opened at sample ${index}, before ${given} given out.`);
+        opens.push(index);
+      } }) : null;
+    const timeline = steamTimeline({ lookahead, resampler, gain: autoGain && !channel ? createGain({ avgGain, maxGain, scale: voiceScale }) : null,
+      onDecoded: opts.onDecoded, onResampled: opts.onResampled, onMove: opts.onMove, channel });
     // Full: a spurt not yet opened starts at most the longest chunk and the
     // pre-roll before the last sample pushed. Low latency: a message's first
     // frame starts at most the longest chunk and a frame less a sample before
@@ -116,8 +158,10 @@
     const reach = opts.lowLatency ? lowReach : fullReach;
 
     /* ---- After the mix point: the live chain's own stages ---- */
+    // On the game's timeline the channel's gain object has scaled and
+    // clipped (createRender leaves out its own stage there too).
     const after = [];
-    if (!autoGain) after.push((x) => hardClip(x.map(v => v * voiceScale), INT16_FULL_SCALE));
+    if (!autoGain && !game) after.push((x) => hardClip(x.map(v => v * voiceScale), INT16_FULL_SCALE));
     after.push(...mixStages());
 
     // contentDelay: how many samples (at ioRate) the output's index sits
@@ -128,22 +172,77 @@
     // stage starts at phase 0 (below 44.1 kHz the sinc resampler is
     // time-aligned). latencyMs is every hold-back: the resamplers' waits (to
     // 24 kHz, Steam's resampler's 16 inputs, and the context's: outputWait),
-    // the capture FIR's dropped delay, the reach and the lookahead.
+    // the capture FIR's dropped delay, the reach and the lookahead. On the
+    // game's timeline the voice queue's zero D (at 44.1 kHz) is held back in
+    // place of the reach and the lookahead (the render's sample n is the
+    // chain's sample n); queueCostMs is what that adds to the hold with the
+    // full reach, at the chain's own fps and bufferMs (the voice channel's
+    // defaults when they are not given), as lowLatencySavingMs is what low
+    // latency saves. D is voice-channel.js's zero(); null where that module
+    // is not loaded (then the chain cannot run the queue).
     const firDelay = (taps) => (taps ? (taps.length - 1) / 2 : 0);
     const contentDelay = 0;
     const holdBack = (r) => sincWait(ioRate, STEAM_RATE) + (firDelay(captureEq) + r + lookahead + swr.TAPS / 2) / STEAM_RATE
       + outputWait(ioRate) + roomHoldSeconds();
     const latencyMs = (r) => 1000 * (contentDelay / ioRate + holdBack(r));
+    const VC = typeof TF2VoiceChannel !== 'undefined' ? TF2VoiceChannel : null;
+    const D = channel ? channel.zero : VC ? VC.zero(opts.bufferMs, opts.fps, lookahead / STEAM_RATE) : null;
+    const queueHoldBack = () => sincWait(ioRate, STEAM_RATE) + (firDelay(captureEq) + swr.TAPS / 2) / STEAM_RATE + D / STEAM_VOICE_RATE
+      + outputWait(ioRate) + roomHoldSeconds();
+    const queueLatencyMs = () => 1000 * (contentDelay / ioRate + queueHoldBack());
 
     let talking = true, pushed = 0, given = 0, slot = 0, roomSpurt = null;
+    // On the game's timeline: the sender's last message's tick and the last
+    // bound the channel was advanced to; the channel's returned samples not
+    // yet given out (from sample qBase, `returned` in all), the samples the
+    // chain may give out (give), and the slots' own bound (slotGiven).
+    let lastTick = -1, lastBound = -Infinity, give = 0, slotGiven = 0, returned = 0;
+    let queue = new Float32Array(game ? 1 << 16 : 0), qBase = 0;
     const one = new Int16Array(1), codes = [];
     const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0, vr12: 0 }, dtx: 0, lost: 0, late: 0,
       bytes: 0, gateOpen: false, lastMode: null, inputPeak: 0, outputPeak: 0, spurts: 0, talking,
       droppedLate: 0, movedLate: 0, lostMessages: 0, refusedMessages: 0, latencyMs: 0 };
+    if (game) Object.assign(stats, { pushed: 0, channel: channel.counts(), margin: null });
+    if (arrivals) stats.arrivals = { jitterMs: arrivals.jitterMs, fps: arrivals.fps, floorTicks: arrivals.floorTicks, ...channel.arrivals() };
     // What the chain holds back now (the room's block only while it holds one).
-    Object.defineProperty(stats, 'latencyMs', { enumerable: true, get: () => latencyMs(reach) });
+    Object.defineProperty(stats, 'latencyMs', { enumerable: true, get: () => (game ? queueLatencyMs() : latencyMs(reach)) });
     // The sender's own count, read when asked.
     Object.defineProperty(stats, 'spurts', { enumerable: true, get: () => sender.info().spurts.length });
+
+    // The channel's returned samples, kept until they are given out.
+    function store(y) {
+      if (!y.length) return;
+      const held = returned - qBase;
+      if (held + y.length > queue.length) {
+        const grown = new Float32Array(Math.max(held + y.length, 2 * queue.length));
+        grown.set(queue.subarray(0, held));
+        queue = grown;
+      }
+      queue.set(y, held);
+      returned += y.length;
+    }
+    // Gives out the voice at the mix point from `given` up to `to`, through
+    // the stages after it, with spurtStarts() called for each open just
+    // before its first sample is handed on.
+    function giveOutQueue(to) {
+      const parts = [];
+      const run = (end) => {
+        if (end <= given) return;
+        let y = queue.slice(given - qBase, end - qBase);
+        for (const f of after) y = f(y);
+        parts.push(y);
+        given = end;
+      };
+      while (opens.length && opens[0] < to) {
+        run(opens.shift());
+        spurtStarts();
+      }
+      run(to);
+      const keep = returned - given;
+      if (keep && given > qBase) queue.copyWithin(0, given - qBase, returned - qBase);
+      qBase = given;
+      return parts.length ? joinSamples(parts) : new Float32Array(0);
+    }
 
     async function process(block) {
       if (!stream) throw new Error('TF2Audio live chain: this chain has been freed.');
@@ -168,10 +267,11 @@
         pushed++;
         for (const msg of messages) {
           const made = await stream.message(msg, miss, loser.lose(index++, msg));
-          // The room's stand-in for a voice channel's start: the spurt's
-          // opening message, delivered or lost (BC-1), where the timeline
-          // opens the spurt.
-          if (!made.silence && msg.spurt !== roomSpurt) { roomSpurt = msg.spurt; spurtStarts(); }
+          // The room's stand-in for a voice channel's start on the file's own
+          // timing: the spurt's opening message, delivered or lost (BC-1),
+          // where the timeline opens the spurt. On the game's timeline the
+          // channel's opens are (onOpen).
+          if (!game && !made.silence && msg.spurt !== roomSpurt) { roomSpurt = msg.spurt; spurtStarts(); }
           for (const b of made.blocks) {
             const dtx = b.bytes <= 2;
             stats.bytes += b.bytes;
@@ -179,13 +279,32 @@
             if (dtx) stats.dtx++;
             stats.lastMode = dtx ? 'dtx' : b.mode;
           }
-          timeline.add(msg, made, given);
+          if (game) {
+            lastTick = msg.tick;
+            timeline.add(msg, made);
+          } else timeline.add(msg, made, given);
         }
-        const bound = steamGiveOut(pushed, timeline.cursor, reach, lookahead, true);
-        if (bound > given) given = bound;
+        if (game) {
+          // The render's bound, and what is final at the mix point after it.
+          const tick = steamBoundTick(S, lastTick, pushed), rises = tick > lastBound;
+          if (rises) { lastBound = tick; channel.advance(tick); }
+          if (messages.length || rises) store(channel.take());
+          const G = Math.floor(pushed * STEAM_VOICE_RATE / STEAM_RATE) - D;
+          if (G > 0) {
+            if (returned < G) throw new Error(`TF2Audio live chain: the voice channel returned ${returned} samples where ${G} must be final (the hold-back runs short).`);
+            if (stats.margin === null || returned - G < stats.margin) stats.margin = returned - G;
+            if (G > give) give = G;
+          }
+          const bound = steamGiveOut(pushed, timeline.cursor, reach, lookahead, false);
+          if (bound > slotGiven) slotGiven = bound;
+        } else {
+          const bound = steamGiveOut(pushed, timeline.cursor, reach, lookahead, true);
+          if (bound > given) given = bound;
+        }
       }
-      // The 20 ms slots that became final: nothing is laid before given.
-      const final = timeline.final(slot, given);
+      // The 20 ms slots that became final: nothing is laid before given (on
+      // the game's timeline, before the render's own bound).
+      const final = timeline.final(slot, game ? slotGiven : given);
       for (let k = 0; k < final.frameLog.length; k++) {
         const code = final.frameLog[k];
         stats.frames++;
@@ -201,8 +320,16 @@
       const network = timeline.network();
       stats.lostMessages = network.lostMessages;
       stats.refusedMessages = network.refusedMessages;
-      let out = timeline.take(given);
-      for (const f of after) out = f(out);
+      let out;
+      if (game) {
+        stats.pushed = pushed;
+        stats.channel = channel.counts();
+        if (arrivals) stats.arrivals = { jitterMs: arrivals.jitterMs, fps: arrivals.fps, floorTicks: arrivals.floorTicks, ...channel.arrivals() };
+        out = giveOutQueue(give);
+      } else {
+        out = timeline.take(given);
+        for (const f of after) out = f(out);
+      }
       let outPeak = 0;
       for (const v of out) if (Math.abs(v) > outPeak) outPeak = Math.abs(v);
       stats.outputPeak = Math.max(stats.outputPeak, outPeak);
@@ -214,6 +341,13 @@
       slotOffsetSeconds: -lookahead / STEAM_RATE,
       // How much low latency saves: the difference of the two reaches.
       lowLatencySavingMs: latencyMs(fullReach) - latencyMs(lowReach),
+      // What the voice queue's hold adds to the hold with the full reach (W3-02c-3).
+      queueCostMs: D === null ? null : queueLatencyMs() - latencyMs(fullReach),
+      // The timeline the chain plays the voice on, and its zero (null on the file's own timing).
+      timeline: game ? 'game' : 'source', zero: game ? D : null,
+      // On the game's timeline, how many entries its channel and arrival model hold in lists (null
+      // on the file's own timing), for a test: it does not grow with time.
+      held: () => (game ? channel.held() + (arrivals && arrivals.held ? arrivals.held() : 0) : null),
       version: stream.version, bitrate, vbr: !!codec.encoder?.vbr, dtx: !!codec.encoder?.dtx,
       gateDb: settings.gate ? settings.thresholdDb : null, autoGain, voiceRate: STEAM_VOICE_RATE, realOpus: true,
       setTalking(on) { talking = !!on; stats.talking = talking; },
@@ -247,6 +381,21 @@
     const volume = clamp(finiteOr(opts.volume, engine.volume), 0, 1);
     const framesPerPacket = clamp(Math.round(finiteOr(opts.frameMs, 20) / 20), 1, 10);
     const rand = mulberry32(finiteOr(opts.seed, 0xC0FFEE) >>> 0);
+    // The game's timeline (W3-02c-3): opts.timeline, fps and bufferMs read
+    // as a render reads them (steamGameTimeline: 'game' runs on the steam
+    // codec with the codec on, and is refused anywhere else, as is any value
+    // but 'source' and 'game'; undefined and null are 'source'). The chain
+    // never takes a demo's received voice. With 'game' it also refuses
+    // opts.lowLatency, which shortens a reach the queue's hold does not use,
+    // and opts.arriveAt, a test's own arrival ticks, which can fall below the
+    // sender's tick, where the hold would run short.
+    const game = steamGameTimeline(opts.timeline, { codecKey, codec, enableCodec, received: null });
+    if (game && opts.lowLatency) {
+      throw new RangeError('TF2Audio: the live chain refuses opts.lowLatency on the game\'s timeline (opts.timeline \'game\'), not ignores it: it shortens the sender\'s reach, and the voice queue holds back its own zero in its place.');
+    }
+    if (game && opts.arriveAt !== undefined && opts.arriveAt !== null) {
+      throw new RangeError('TF2Audio: the live chain refuses opts.arriveAt, not ignores it: arrival ticks of a test\'s own can fall below the sender\'s tick, and the chain\'s hold would then run short.');
+    }
 
     // The mix point, a stage boundary (opts.onGain, a test hook, sees the
     // voice-rate signal there as a render's does), and the stages after it,
@@ -274,9 +423,11 @@
     const roomHoldSeconds = () => (liveRoom && liveRoom.holding ? (MIX_BLOCK - 1) / MIX_RATE : 0);
     // A voice channel starts (path.spurtStart(): its two limits are fixed
     // from the room's four mix values as they stand), attached or not, as the
-    // engine fixes them whatever the room. There is no voice channel live yet
-    // (W3-02c); the stand-in is the first delivered message (frame) of each
-    // spurt the sender opens.
+    // engine fixes them whatever the room. On the game's timeline (W3-02c-3)
+    // it is called at each open of the chain's voice channel, before the mix
+    // stages are handed the open's first sample. On the file's own timing,
+    // and on the other codecs, there is no voice channel; the stand-in is the
+    // first delivered message (frame) of each spurt the sender opens.
     const spurtStarts = () => { if (liveRoom && liveRoom.path) liveRoom.path.spurtStart(); };
     const mixStages = () => {
       const stages = [];
@@ -292,7 +443,7 @@
     // The `steam` profile with the codec on runs the render's own stages.
     if (enableCodec && codec.senderGate?.rule === 'steam') {
       return steamLiveChain({ opts, ioRate, codecKey, codec, micGain, hp, lp, bits, lossPct, jitterMs, autoGain, gateOn,
-        avgGain, maxGain, voiceScale, framesPerPacket, rand, mixStages, roomHoldSeconds, spurtStarts });
+        avgGain, maxGain, voiceScale, framesPerPacket, rand, mixStages, roomHoldSeconds, spurtStarts, game });
     }
 
     const toCodec = streamResampleSinc(ioRate, codecRate);

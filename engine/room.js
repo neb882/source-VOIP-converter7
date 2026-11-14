@@ -100,9 +100,9 @@
   // now. A render on the game's timeline (W3-02c-2) opens a channel at each
   // spurt that is not appended and still calls it only here: in a render the
   // room never changes, and the call only fixes two limits from the room's
-  // values, so no sample depends on how often it comes. The live chain's
-  // channel (W3-02c-3, not built yet) calls it at each open, where the
-  // listener can change rooms. shares is the custom
+  // values, so no sample depends on how often it comes. The live chain on
+  // the game's timeline (W3-02c-3) calls it at each open of its channel,
+  // where the listener can change rooms. shares is the custom
   // room's own shares, or null for the path's; cap the tail's cap (in mixer
   // samples, the module's TAIL_CAP); info is codecInfo.room.
   function resolveRoom(opts, seed) {
