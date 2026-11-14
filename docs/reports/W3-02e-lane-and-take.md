@@ -37,7 +37,8 @@ render on the file's own timing character for character.
 - `laneHoverText(info, t, halfPixel)` makes the lane's readout. Off the queue it is main's text. On the queue it is
   main's text (with `silence` for code 0), then `sent frame k` by the rule of `steamPlayedInfo`, then `the source's S
   s, M ms early` (or `late`, or `on time` under 0.5 ms) from the slot's centre, then `opened the queue` or `joined the
-  queue`, then `queue overflow: N ms skipped` with `(n skips)` when more than one mark lies within half a pixel.
+  queue`, then `queue overflow: N ms skipped` with `(n skips)` when more than one skip is drawn on the crosshair's
+  pixel (since the fix round, by the drawing's own rule; `laneHoverAt`).
 - The legend: on the queue code 0 reads `silence` with the title the order gives, the heading's title says the lane
   shows what plays in each 20 ms of the render, and an item `skips N · M ms` follows the kinds of frame when a skip is
   heard. Its swatch is `.lg-mark` (a new rule in `style.css`), not `.lg-box`, so the checks that add up the boxes'
@@ -67,11 +68,11 @@ and private), and the comment of `tests/reference.verify.mjs` above the 5.8 ms c
 
 - The hover says `sent frame k`, not `frame k`, beside the slot's own `frame f`, so the two numbers cannot be taken
   for one.
-- The sent frame's number and the source's second are given wherever `channel.source[f]` is not -1. At the first
-  slot of a phrase the played log can hold 0 while the source plays: the slot's centre maps into the sent frame just
-  before the first coded one (the look-ahead). On the suite's render the joined phrase's first slot reads
-  `frame 448 · 0:08.960 · silence · sent frame 463 · the source's 9.273 s, 303.0 ms early · joined the queue`.
-  "An empty slot has no number" is held for slots where nothing of the source plays (`source` -1).
+- The source's second is given wherever `channel.source[f]` is not -1; the sent frame's number only where the played
+  code is not 0 as well (since the fix round; before it the number was given on such slots too). At the first slot of
+  a phrase the played log can hold 0 while the source plays: the slot's centre maps into the sent frame just before
+  the first coded one (the look-ahead). On the suite's render the joined phrase's first slot now reads
+  `frame 448 · 0:08.960 · silence · the source's 9.273 s, 303.0 ms early · joined the queue`.
 - In the line of changes a negative figure has the page's minus sign `−`, as the status line and the band table have.
 
 ## The checks ([Browser 8f], `verifyLaneAndTake`)
@@ -87,7 +88,7 @@ delayed 0.25 s, at half level, written at the render's rate.
 | --- | --- |
 | 1 | `frameStart(info, f)` is `0.02 f` and `frameAt(info, 0.02 f + 0.01)` is `f` for all 1501 slots; at 10.1 ms a pixel (aggregated) the first frame pixel of each of nine phrases is the first pixel at or after `frameStart` of its first played slot; on the file's own timing both functions keep the look-ahead |
 | 2 | over the whole render and zoomed into the first second, the mark's colour is at the pixel of every heard skip and at no pixel more than one away; none on the file's own timing; a 1 s tone with room 6 (render 2.50 s) has one skip past the end, at 1.0217 s, 19.9 ms, with no mark, and the legend counts the 4 heard |
-| 3 | the joined phrase's first slot: the source's second, 303.0 ms early (within 1 ms of the rule), `sent frame 463`, `joined the queue`; at the pixel with the most skips (2, 99.8 ms) their sum and count, and at a lone one its ms alone; an empty slot reads `silence` and has no number; on the file's own timing main's text for three slots |
+| 3 | the joined phrase's first slot: the source's second, 303.0 ms early (within 1 ms of the rule), `joined the queue` (and, since the fix round, no sent frame's number, its played code being 0); at the pixel with the most skips (2, 99.8 ms) their sum and count, and at a lone one its ms alone; an empty slot reads `silence` and has no number; on the file's own timing main's text for three slots |
 | 4 | `skips 50 · 1057 ms`, `silence 451`, no `not sent`, the heading's title on the queue; on the file's own timing no skips item, `not sent`, main's title; a `channel` without `source` keeps the look-ahead, `not sent` and no marks |
 | 5 | lined up against the render: `take minus render; 11 changes between phrases, 0 within a phrase`, `phrases`, no `5.8`, `trim` or `re-timing`; lined up after a render with loss: `take minus source` |
 | 6 | for each of 11 changes `takeKind` is the kind of `changeAt(X, at)`, `renderKind` that of `changeAt(Y, at)`, and `takeMs` within 60 ms of `changeAt(X, at)` (worst 33 ms); the take starts 17.44 s early and the render keeps it; `changeAt` on lists made by hand; the sentence's N, T, R, G and the line's times; after a render with 20% loss at 67 frames a second (the order's added case) the take is not lined up again and its kinds still hold from the render it was lined up with, while R comes from the render on screen; after `voice_timeline source` the take is lined up again with `guideSpurts` null, its kinds still hold and the sentence is the second form |
@@ -112,7 +113,10 @@ From the suite's own signal and take (a scratch script outside the repository dr
   legend with `silence 451` and `skips 50 · 1057 ms`. `W3-02e/desktop-lane.png` and `W3-02e/phone-lane.png` are the
   canvas alone.
 - `W3-02e/desktop-panel.png` and `W3-02e/phone-panel.png`: the panel with the status line, the report and the two
-  lines on phrase starts.
+  lines on phrase starts. The status line there reads `clock +579 ppm`: on the suite's 30 s of short phrases the
+  clock's fit varies by several hundred parts in a million (+579 and −83 at seeds 1 and 2, measured by the reviewer on
+  the model), and "near 0" holds on a take of some length. The pictures were taken before the fix round; its changes
+  do not show in them.
 
 ![The lane at desktop width](W3-02e/desktop-lane-legend.png)
 
@@ -155,13 +159,50 @@ Run on the merged head `7d8fb4a` (with W3-02f), each heavy run under `flock /tmp
 The existing checks the order names under "What must not move" ([Browser 3d], the demo's, Speex's, `miles`'s, the live
 take's, the take checks of [Browser 3e] and [Browser 7]) pass untouched; no recorded value of any suite changed.
 
+## The fix round (2026-11-14)
+
+The review (merge after fixes) and the orchestrator's private look 2 are in the order's last section. `origin/main`
+(that section) was merged first (`ffe4530`, documents only). The fixes are `6f4f4bb`.
+
+| Point | What changed | Check in [Browser 8f] |
+| --- | --- | --- |
+| 1 | nothing in the code; the checks were missing | the status line's `between` and `within` against the take's pieces (11 and 0 on the suite's take), on the guided and the unguided take; each entry of the list under "Phrase starts" as `at s ms(takeMs) \| ms(renderMs)`, on the queue and on the file's own timing |
+| 2 | `skipPixel` is the marks' one pixel rule; `laneHoverAt(w, range, x)`, which `drawHover` calls, hands `laneHoverText` the crosshair's pixel `round(x)`, and the hover names the skips drawn there. Without a view (a direct call) it keeps the half-pixel rule | the hover at every whole pixel of the whole view: each pixel drawn in the mark's colour names the skips drawn on it, summed and counted (44 marked pixels, 6 with more than one skip); every other pixel names none |
+| 3 | a slot whose played code is 0 shows no sent frame's number; it keeps the source's second, how early and joined | the joined phrase's first slot (code 0) has no number; every slot that plays the source with code 0 (3) has none and keeps the source's second |
+| 4 | none | the number on every played slot (1050), 245 of them 324 samples or more into their 480-sample frame at 24 kHz |
+| 5 | "near 0 on a take of some length" in `README.md`, `docs/ACCURACY.md` and `docs/PAGE.md`, with the review's +579 and −83; the picture's caption here | none (words) |
+
+Private look 2 also changed what the documents could say: "the count was checked … not on a recording" was no longer
+true. `README.md`, `docs/ACCURACY.md` and `docs/PAGE.md` now say it was checked on the owner's speech take, where T
+equals `tests/retiming.mjs`'s count on both timings (measured, private), with the look's 7 of 9 and its two changes
+either side of the limit in `docs/ACCURACY.md`.
+
+The breaks of the fix round, each alone, with the checks made non-fatal:
+
+| Break | Checks that failed |
+| --- | --- |
+| B1: the `between` test inverted | 1: the status line lined up against the render, and the one against the source |
+| B2: the list prints `stepMs` for `takeMs` | 1: the sentence and the list of changes |
+| the hover by half a pixel from the pointer's time (the review's 103 of 220) | 2: the hover at every whole pixel |
+| the sent frame's number on a played code 0 | 3: the joined phrase's first slot; the slots with code 0 |
+| B4: the look-ahead dropped from the number | 4: the number on every played slot |
+| the early figure from the slot's start (again) | 3: the joined phrase's first slot |
+| one skip where two share a pixel (again) | 2: the hover at every whole pixel |
+
+The done-means again, on `6f4f4bb`, each heavy run under `flock /tmp/tf2ve-heavy.lock`:
+- `pnpm test`: `27 of 27 suites passed. 1081.1 s summed`.
+- `CHROMIUM_EXECUTABLE=… pnpm test:browser`: `browser  browser  passed  426.6`, `1 of 1 suites passed`.
+- `git diff origin/main...HEAD --stat`: the same eight files as before, with this report and its pictures; nothing
+  under `engine/`, and `sw.js` untouched.
+- CI's `verify` on the pushed head: given in the hand-back.
+
 ## Seen and not changed
 
 - The suite's take, a render on the queue at another seed and no clock change, reads `clock +579 ppm` lined up against
   the render on the queue and `+572 ppm` lined up against the source (measured on the model, in the browser). The
-  planner's expectation for a real take against a render on the queue is near 0. Both renders drop the one sample from
-  every packet, so the figure against the render should be near 0 by that rule; it was not investigated (`reference.js`
-  is outside this order), and no check depends on it.
+  planner's expectation for a real take against a render on the queue is near 0. The review measured the fit varying by
+  several hundred parts in a million on this short a take (+579 and −83 at seeds 1 and 2); the documents now say "near
+  0" for a take of some length. No check depends on it.
 - The order's figure "176 of 176" is the planner's; this build's check holds the rule on one take (11 changes).
 
 ## Not done
