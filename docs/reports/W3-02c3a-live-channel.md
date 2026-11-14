@@ -255,4 +255,5 @@ The one line of [Browser 3f2] changed as ruled. The browser suite, `CHROMIUM_EXE
 `== browser: passed, 383.5 s`, the check reading "4 spurt starts for 4 spurts; 26/256 for 91 blocks after the hall,
 then 41/256 after a spurt start". `main` was merged first (the ruling, documents only).
 
-CI_RESULT
+CI (`tests`) on the head `005aacb`: run 43542875412, `verify` success, with `units`, `engine`, `render`, `stages`
+and `browser` each success. This line's commit changes only `docs/` and starts no run.
