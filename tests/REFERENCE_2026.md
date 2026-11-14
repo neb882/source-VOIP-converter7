@@ -1723,6 +1723,8 @@ For a new take of the test signal:
 
 For SourceTV packets, see [`tests/demovoice/`](demovoice/README.md). For talk-spurt timing (finding 21), run `node tests/retiming.mjs --accuracy results.json --demo voicetest.dem` on the accuracy suite's JSON.
 
+*Added 2026-11-14 (AC-01): `tests/retiming.mjs` reads each piece's delay as the take against the source, and the suite now renders Steam voice on the game's voice queue, where it is the take against that render. So it refuses JSON with any row rendered at `options.timeline` `'game'`: run the suite through `--manifest` on a scratch copy of `tests/accuracy.takes.json` with `"timeline": "source"` in every row's settings.*
+
 For the receiver's queue (findings 22 and 23), log the console with `voice_loopback 1`, `voice_showincoming 1` and `voice_showchannels 1` set, and note the frame rate. [`tests/voicequeue/`](voicequeue/README.md) turns the log into numbers and replays it through the queue's rule. The log itself stays private.
 
 For Steam's own path against a known input (Set J; findings 16, 28 and 29), the owner's steps are in `docs/work-orders/W3-14-steam-file-input.md` and the method in `docs/reports/W3-14-steam-file-input.md`. Note how long Steam has been running: the hold's length depends on it.

@@ -13,7 +13,12 @@
  *   node tests/retiming.mjs --accuracy results.json --generative [--takes <folder>] [--seeds 4000] [--shift ms]
  *   node tests/retiming.mjs --accuracy results.json --generative --engine [--fps 300] [--seeds 200] [--uptime s] ...
  *
- * results.json is `pnpm accuracy --takes <folder> --json results.json`.
+ * results.json is `pnpm accuracy --takes <folder> --manifest <scratch> --json results.json`,
+ * where <scratch> is a copy of tests/accuracy.takes.json, outside the repository, with
+ * "timeline": "source" in every row's settings. Each piece's delay is read as the take
+ * against the source, in source time; since AC-01 the suite renders Steam voice on the
+ * game's voice queue, where the delay is the take against that render. So JSON with any
+ * row rendered with options.timeline 'game' is refused.
  * With the Set D SourceTV demo, the Set D takes are checked transition by
  * transition against the packets' arrival at the server. Every take is then
  * predicted transition by transition from its own earlier transitions only
@@ -45,8 +50,23 @@ const require = createRequire(import.meta.url);
 const D = require('../demo.js');
 const arg = (name, fallback = null) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : fallback; };
 const accuracyFile = arg('--accuracy'), demoFile = arg('--demo'), J = Number(arg('--jitter', .03));
-if (!accuracyFile) { console.log('node tests/retiming.mjs --accuracy results.json [--demo voicetest.dem] [--jitter 0.03]'); process.exit(1); }
+if (!accuracyFile) {
+  console.log('node tests/retiming.mjs --accuracy results.json [--demo voicetest.dem] [--jitter 0.03]\n'
+    + '  results.json: pnpm accuracy --takes <folder> --manifest <scratch copy> --json results.json, the scratch copy of\n'
+    + '  tests/accuracy.takes.json outside the repository with "timeline": "source" in every row\'s settings (AC-01).');
+  process.exit(1);
+}
 const accuracy = JSON.parse(fs.readFileSync(accuracyFile, 'utf8'));
+// The delays must be the take against the source (AC-01): a row rendered on
+// the game's voice queue has them against that render instead.
+const onQueue = (accuracy.results || []).filter(r => r.options && r.options.timeline === 'game').map(r => r.name);
+if (onQueue.length) {
+  console.log(`Refused: ${onQueue.length} row(s) of the JSON were rendered on the game's voice queue (options.timeline 'game': ${onQueue.join(', ')}), `
+    + 'where a delay is the take against that render, not against the source. Run the suite through --manifest on a scratch copy of '
+    + 'tests/accuracy.takes.json, outside the repository, with "timeline": "source" in every row\'s settings: '
+    + 'pnpm accuracy --takes <folder> --manifest <scratch copy> --json results.json');
+  process.exit(1);
+}
 
 const SILENCE = .0625;   // the silence record after each end of transmission (1500 samples at 24 kHz)
 const EARLY = -80, LATE = 80;
