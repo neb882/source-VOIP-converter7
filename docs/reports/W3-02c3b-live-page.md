@@ -189,3 +189,38 @@ progress line, `docs/` only) and this report, which change only `docs/` and star
 - The frame rate of 100 was not run in the browser; its figures are read.
 - The diff and the commit messages were scanned for recordings, personal details, SteamIDs and model names: none,
   but the commits' attribution lines.
+
+## The fix round (2026-11-14)
+
+From the order's section "Part b after its review (2026-11-14, the orchestrator)". `main` was merged first
+(`5ff4d39`, the order's fix list; documents only).
+
+1. **The console's `voice_timeline` help** (`app/console.js`, the sentence and its comment only) now ends "The live
+   monitor keeps the file's own timing unless its own switch for the queue is on.", as Phrase timing's help does.
+   [Browser 3c5] holds the console help to the page's sentence.
+2. **A take's channel counts.** The take on the queue holds each of `packets`, `opens` and `droppedSamples` between
+   0 and what the chain's count rose by over the recording (on the run: the take's 39, 1 and 5,672 against the
+   chain's rises of 65, 1 and 5,672; measured). A new recording changes `voice_buffer_ms` from 100 to 150 midway, so a
+   second chain takes over: the take's packets are the sum of the two chains' rises, read from the stats the page was
+   sent, within 15% or 8 packets (on the run 69 against 38 and 31), and its `voice_buffer_ms` and key are 150.
+3. **The switch's help with low latency ticked.** "With this off" is then the low-latency chain, which holds back
+   80.0 ms less (read: the pre-roll less a frame and a sample at 24 kHz, the chain's `lowLatencySavingMs`). The help
+   adds that saving to its step (437 ms at 300 frames a second, 182 at 67) and says so in a sentence of its own; with
+   low latency unticked it gives the queue's cost alone. The checks: with low latency ticked the help holds the
+   chain's `queueCostMs` plus the saving the suite measured, at 300 and at 67; with the switch off at 67 it holds 182
+   ticked and 102 unticked. `docs/LIVE.md`'s column names the step from both live switches off and gives the steps
+   with low latency ticked (181.7, 228.1 and 437.1 ms, read).
+4. **`docs/LIVE.md`'s panel figures** say they were measured with the browser's audio forced to 48 kHz in a
+   headless browser, not on a sound device.
+
+| Break | The check that failed |
+| --- | --- |
+| `CHANNEL_COUNTERS` cut to `['packets']` (the reviewer's) | the session recorded on the queue: the take's `opens` 2 and `droppedSamples` 9,620, the chain's whole run, against rises of 1 and 5,135 |
+| only the last chain counted (the reviewer's) | the recording across a change of `voice_buffer_ms`: 33 packets against 38 and 33 |
+| the help's step leaves out low latency's saving (builder's) | the switch's help with low latency ticked |
+| the console help keeps "always keeps" (builder's) | [Browser 3c5]'s console sentence |
+
+Checks after the fix round: the browser suite, `CHROMIUM_EXECUTABLE=… flock /tmp/tf2ve-heavy.lock pnpm test:browser`
+on `2e57ca5`: `546 browser checks passed`, `== browser: passed, 436.0 s`. `pnpm test` was not run again: the round
+changed only page files (`app/console.js`, `live.js`), the browser suite and `docs/LIVE.md`, which no other suite
+reads. `git diff origin/main...HEAD --stat` gains `app/console.js`, allowed for that sentence by the fix list.
