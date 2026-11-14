@@ -8,7 +8,14 @@
     "cache": 53,
     "last_merge": "W3-23b (cache v53, 2026-11-14): the live monitor's chain runs the frame clock under 66.67 frames a second, as a render does, holding back D plus frameHold(fps) blocks (ceil(88200 / (1024 x fps)): 2 at 60, 3 at 30, 5 at 20, 9 at 10), one formula the page and the chain share; onOpen from the timeline; the three cases W3-23a moved are back. Nothing moves at 66.67 and above. Only the monitor's box for the queue, off on every load, at a frame rate under 67 is affected. Before it: AC-03 (cache v52, 2026-11-14): the line-up (TF2Reference.track) drops a waveform place that is tonal and more than 0.1 s from the envelope's, so the test signal's sync beeps, 0.5 s apart, no longer pull a phrase onto the wrong beep. On the owner's takes (private run, measured) four rows changed, each in its first pieces only and each now at its neighbours' delay: take3_voice_avggain_0.25 (level 2.03 / 14.7 to 0.94 / 8.6 dB), listener_B, lowtone_maxgain_1 and net_loss5; every other row equal. The page's real-take check is the same byte for byte on the committed recordings."
   },
-  "in_flight": [],
+  "in_flight": [
+    {
+      "order": "W3-24",
+      "file": "docs/work-orders/W3-24-render-end.md (being planned)",
+      "stage": "planner",
+      "line": "a render on the game's voice queue runs on past its source's end until the channel has given out its last voice, so the last words are heard (the orchestrator's ruling); where nothing is cut today, nothing changes."
+    }
+  ],
   "next": [
     {
       "order": "W3-02g-b",
