@@ -18,7 +18,7 @@
     {
       "order": "AC-03",
       "file": "docs/work-orders/AC-03-line-up-on-repeats.md",
-      "stage": "planned 2026-11-14; builder next",
+      "stage": "planned 2026-11-14; being built",
       "line": "the line-up's waveform step lands on the wrong one of the test signal's three sync beeps (0.5 s apart) and overrules the envelope: a tonal place far from the envelope's is dropped (track() only). The pieces of 2 s about 0.3 s off are early starts, not the line-up's (corrected in docs/ACCURACY.md)."
     }
   ],
