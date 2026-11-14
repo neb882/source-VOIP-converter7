@@ -99,3 +99,33 @@ May touch: `tests/accuracy.mjs`, `tests/accuracy.takes.json`, `tests/README.md`,
 May not touch: anything under `engine/` or `app/`, `index.html`, every codec module, `voice-channel.js`,
 `tests/predictions/plan.json` and `predictions.json`, `docs/PROGRESS.json`, `docs/PROGRESS-LOG.md`,
 `docs/README.md`, `sw.js`. No site file changes, so the cache number does not change.
+
+## After the review (2026-11-14)
+
+The review (merge as is, nothing blocking) found three things; all three are done on the branch before the merge.
+
+1. **The random rows on the queue.** With loss or jitter on the queue, the lossy render's timeline moves away
+   from the lossless guide's: 22 to 89 ms with jitter 50 at 336 frames a second, about −51 ms through the noise with
+   loss 21.7% (measured by the reviewer, a Node render of the network test signal). The take is lined up on the
+   guide's timeline and then compared with the render on its own. A take that is the suite's own render, sample for
+   sample, reads clock +182, level 3.19 / 20.4 dB, r 0.904 with jitter 50 on the queue, and −43, 0.30 / 2.4, 0.999
+   with loss 21.7% (on the file's own timing: +1, 0.01 / 0.1, 1.000; measured by the reviewer).
+
+   Fix, in `measureInPage`: when the render is on the queue and the row has loss or jitter, the render is lined up
+   too. Run `TF2Reference.track` on it against the source with the guide as the reference, as the take is, then
+   `warpSegments`. The comparison is the warped take against the warped render over the part both cover. Every
+   other row is compared as before, and its figures must not move. The check is the reviewer's: through
+   `--manifest`, a take that is the suite's own render with jitter 50 at 336 frames a second, and one with loss
+   21.7%, both on the queue. Each should read near the file's own timing's +1, 0.01 / 0.1, 1.000; the report gives
+   what they read. The JSON says, for such a row, that the render was lined up too.
+2. **`tests/retiming.mjs`** reads the suite's `--json` and takes each piece's delay as the take against the source,
+   in source time. Against a render on the queue it is the take against that render. It now refuses JSON in which
+   any row was rendered with `options.timeline` `'game'`. Its message says to run the suite through `--manifest` on
+   a scratch copy of the manifest with `"timeline": "source"` on every row. Its usage line says the same, and so
+   does its row in `tests/README.md`. `tests/REFERENCE_2026.md`'s pointer to it gains one added, dated line.
+   `tests/retiming.mjs` joins "May touch".
+3. **`docs/ACCURACY.md`, Clock.** "so the clock reads near 0" becomes: on the takes without random loss, all but
+   one within 7 ppm of 0 (measured, 2026-11-14).
+
+Not fixed, and recorded here: a row's `fps` of 0 or less renders at 10 in the suite where the page would use 300,
+and a string `fps` renders at 300 while the JSON records the string. No row has either.
