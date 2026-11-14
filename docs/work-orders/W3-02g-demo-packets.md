@@ -750,3 +750,13 @@ Each with the planner's recommendation and what it rests on.
 8. **The order of work:** part a after W3-02c-3a's merge and beside W3-02c-3b; part b after W3-02c-3b's merge
    and the private look (ii) (recommended).
 9. **A second reader on the stronger model for part a** (recommended; `docs/PIPELINE.md`), none for part b.
+
+## Rulings (2026-11-14, the orchestrator)
+
+All nine as the planner recommends: a demo on the file's own timing keeps today's decode; the zero is the module's
+latency less 0.16 s on whole blocks; on the page a demo's Steam voice follows Phrase timing once private look (ii) is
+read; `createRender()` runs it as `process()` does; nothing is kept beyond A; the three rules read from Steam and
+reached by nothing in Set D are built from the read alone and marked so; an unused decoder expects number 0 (inferred,
+marked so); the parts in the order of the table; a second reader for part a, none for part b. A plan reviewer reads
+the order before part a is built; part a starts after W3-02c-3a is merged. The orchestrator runs private look (i)
+meanwhile.
