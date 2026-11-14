@@ -1006,7 +1006,7 @@ if (runs(10)) {
       // that many more are fed, so that the sender has been given pick - 1 samples, then pick.
       const lag = R - (await liveGame(new Float32Array(R), R, { fps, seed: 1 }, R)).stats.pushed;
       const live = await liveGame(new Float32Array(n + lag), R, { fps, seed: 1 }, [pick - 1 + lag, 1, n - pick]);
-      const [before, at, end] = live.marks;
+      const [before, at, end] = live.marks.length === 3 ? live.marks : [{}, {}, {}];   // fewer: the chain threw
       const good = !live.error && live.hold === hold && live.stats.channel.packets === 0 && before.pushed === pick - 1 && at.pushed === pick
         && before.margin === least[pick - 1] && at.margin === least[pick] && end.margin === least[n] && at.margin >= 0
         && (fps >= 50 ? before.margin >= 512 && at.margin < 512 : at.margin === end.margin);
