@@ -572,20 +572,27 @@
       }
       return { lag: (best.lag + fraction) * step, value: best.value };
     };
+    // How periodic the source is over its n8 samples at 8 kHz from a8: the
+    // best of its autocorrelations at lags of 2 to 50 ms (every second
+    // sample, so twice the sum) over its energy. Above 0.9 for a tone.
+    const periodicAt8 = (a8, n8) => {
+      let energy = 0, periodic = 0;
+      for (let i = 0; i < n8; i++) energy += s8[a8 + i] ** 2;
+      if (!(energy > 0)) return { energy, periodic };
+      for (let lag = 16; lag <= 400; lag += 4) {
+        let sum = 0;
+        for (let i = 0; i + lag < n8; i += 2) sum += s8[a8 + i] * s8[a8 + i + lag];
+        periodic = Math.max(periodic, 2 * sum / energy);
+      }
+      return { energy, periodic };
+    };
     // Waveform lag at 8 kHz of the source over [t0, t1) against the take at
     // a + b0 * t, within +-L samples; null when periodic or weak.
     const waveMatch = (t0, t1, a, L = 120) => {
       const a8 = Math.round(t0 * hi), n8 = Math.round((t1 - t0) * hi), b8 = Math.round((a + b0 * t0) * hi);
       if (a8 < 0 || a8 + n8 > s8.length || b8 - L < 0 || b8 + n8 + L > t8.length || n8 < hi / 10 || coded(t0, t1) < .5) return null;
-      let es8 = 0, periodic = 0;
-      for (let i = 0; i < n8; i++) es8 += s8[a8 + i] ** 2;
-      if (!(es8 > 0)) return null;
-      for (let lag = 16; lag <= 400; lag += 4) {
-        let sum = 0;
-        for (let i = 0; i + lag < n8; i += 2) sum += s8[a8 + i] * s8[a8 + i + lag];
-        periodic = Math.max(periodic, 2 * sum / es8);
-      }
-      if (periodic > .9) return null;
+      const { energy: es8, periodic } = periodicAt8(a8, n8);
+      if (!(es8 > 0) || periodic > .9) return null;
       const values = new Float64Array(2 * L + 1);
       let best = L, et8 = 0;
       for (let i = 0; i < n8; i++) et8 += t8[b8 + i] ** 2;
@@ -635,17 +642,25 @@
     };
     // A spurt's delay from its waveform: 1 s windows (up to twelve) at
     // 2 kHz, searched +-0.6 s around `guess`; the median of two or more
-    // that agree within 2 ms, else null (tones, sweeps' onsets).
+    // that agree within 2 ms, else null (tones, sweeps' onsets). `tonal`
+    // when every window that agreed is a tone at 8 kHz: at 2 kHz a 1 kHz
+    // tone is at the edge of the band, so wideMatch() does not see it as
+    // periodic, and what it matches is the clicks of a burst's start and
+    // end, which fit a neighbouring burst of the take as well as their own.
     const coarseWave = (spurt, guess) => {
       const W = Math.round(Math.min(1, spurt.end - spurt.start) * lo), found = [];
       for (let t0 = spurt.start, k = 0; t0 + W / lo <= spurt.end + 1e-9 && k < 12; t0 += W / lo / 2, k++) {
         if (W < 100 || Math.round(t0 * lo) + W > s2.length) break;
         const d = wideMatch(t0, W, guess);
-        if (d !== null) found.push(d);
+        if (d !== null) found.push({ d, t0 });
       }
-      for (const d of found) {
-        const agree = found.filter(x => Math.abs(x - d) <= 2e-3);
-        if (agree.length >= 2) return percentile(agree, .5);
+      const tone = ({ t0 }) => {
+        const a8 = Math.round(t0 * hi);
+        return periodicAt8(a8, Math.min(s8.length - a8, Math.round(W / lo * hi))).periodic > .9;
+      };
+      for (const { d } of found) {
+        const agree = found.filter(x => Math.abs(x.d - d) <= 2e-3);
+        if (agree.length >= 2) return { delay: percentile(agree.map(x => x.d), .5), tonal: agree.every(tone) };
       }
       return null;
     };
@@ -689,13 +704,20 @@
         if (env.value < .5 || ref) { const broad = envMatch(from, to, base, true, prior); if (broad.value > env.value) env = broad; }
         return env;
       };
-      const wave = coarseWave(spurt, delay);
+      const waveform = coarseWave(spurt, delay);
+      let wave = waveform === null ? null : waveform.delay;
       // Without a waveform (tones) and without a frame log to leave out
       // comfort noise, the onset's first second decides: once DTX sets in,
       // comfort noise is random and matches nothing.
       const onsetTo = Math.min(to, from + Math.round(1.1 / step));
       let env = wave === null && !frameLog && onsetTo - from >= 40 ? placeBy(from, onsetTo) : { value: 0, lag: 0 };
       if (env.value < .6) { const whole = placeBy(from, to); if (whole.value > env.value) env = whole; }
+      // Bursts of a tone that repeat (the test signal's sync beeps, 0.5 s
+      // apart): a waveform place that rests on tone windows only, and lies
+      // more than 0.1 s from where the envelope puts the spurt, can be the
+      // clicks of a neighbouring burst. The envelope places the spurt then,
+      // with its guard against repeats, as it does any tone.
+      if (wave !== null && waveform.tonal && env.value >= .5 && Math.abs(wave - delay - env.lag) > .1) wave = null;
       if (wave === null && env.value < .5) return;
       // Weak evidence does not move a spurt far from where the others sit.
       if (wave === null && env.value < .75 && Math.abs(env.lag - prior) > .1) env = { lag: prior, value: env.value };
