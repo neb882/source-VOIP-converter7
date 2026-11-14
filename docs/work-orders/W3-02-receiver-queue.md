@@ -1497,6 +1497,8 @@ rule) is then void: say so in the report so the orchestrator notes it in PROGRES
 
 ## W3-02g: a demo's own packets
 
+> **Superseded 2026-11-14 by [W3-02g-demo-packets.md](W3-02g-demo-packets.md).** This section is kept as it was written and is no longer the order to build from.
+
 **Branch:** `claude/w3-02g-demo-packets`, from `main` **after W3-02c, W3-06 (both change `demo.js`) and
 W3-02f**. **Time budget:** half a day.
 
