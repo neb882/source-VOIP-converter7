@@ -17,9 +17,9 @@
     },
     {
       "order": "AC-03",
-      "file": "docs/work-orders/AC-03-line-up-on-repeats.md (being planned)",
-      "stage": "planner",
-      "line": "the line-up (TF2Reference.track) places some pieces of the test signal 0.3 to 0.5 s off on its repeated bursts (measured privately 2026-11-14); a fix serves the accuracy suite and the page's real-take check."
+      "file": "docs/work-orders/AC-03-line-up-on-repeats.md",
+      "stage": "planned 2026-11-14; builder next",
+      "line": "the line-up's waveform step lands on the wrong one of the test signal's three sync beeps (0.5 s apart) and overrules the envelope: a tonal place far from the envelope's is dropped (track() only). The pieces of 2 s about 0.3 s off are early starts, not the line-up's (corrected in docs/ACCURACY.md)."
     }
   ],
   "next": [
