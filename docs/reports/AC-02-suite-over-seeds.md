@@ -7,6 +7,9 @@
 no recording of the owner's, no demo and no file of the game or of Steam, and could not run the suite on the takes:
 they are private. That run, every take with `--seeds 9`, is the orchestrator's.
 
+This report describes the first build, then the fix round after the review (the last section). Statements the fix
+round changed are marked where they stand.
+
 ## What changed, file by file
 
 | File | Change |
@@ -90,7 +93,8 @@ What it shows (measured on the model; renders against renders, not takes):
   which messages are lost too (inferred from what the seed draws, `engine/render.js`).
 - A scratch script recomputed every median and range from the `seeds[]` of both JSON files (clock, alignment r,
   level rms, worst and r, offset, phrases, pieces, both step counts, worst band's value): each agrees with the
-  `summary`. The printed figures are those medians and ranges. The worst band of the lossless row is seed 3's
+  `summary`. The printed figures are those medians and ranges. *The worst band below was chosen by the rule the fix
+  round replaced.* The worst band of the lossless row is seed 3's
   (values −0.11, −0.08, −0.06 and +0.00 dB, so the lower middle one, −0.08; the median, −0.07, prints as −0.1), that of the loss row the default seed's.
 - The trims of the lossless row, 0, 1, 3 and 4, print a median of 2: with an even count the median is the mean of
   the two middle values.
@@ -127,9 +131,10 @@ The scratch takes, manifest, JSON files and scripts are deleted.
 - **A row whose own seed is one of 1 to `n − 1`.** The order says to measure such a row at its own seed, then at
   seeds 1 to `n − 1`, skipping the one equal to the first. Read as written, that row gets `n − 1` measurements, not
   `n`; the builder kept the rule as written (chosen). No row of `tests/accuracy.takes.json` gives a seed, so every
-  row there gets `n`.
+  row there gets `n`. *Changed in the fix round: such a row gets `n` different seeds.*
 - **The median of an even count** is the mean of the two middle values; the median seed of the worst band is the
   lower of the two middle ones by its value (chosen). The orchestrator's run, at 9 seeds, has an odd count.
+  *Changed in the fix round: the median seed is chosen by the band's size, and its own value is printed.*
 - **The delay and the clipped shares**, which the order does not name, print their medians only (chosen); the JSON's
   `summary` has their ranges.
 
@@ -139,6 +144,78 @@ The scratch takes, manifest, JSON files and scripts are deleted.
 - `tests/retiming.mjs` reads `results[].timeline` and `results[].options`. A JSON written with `--seeds` above 1
   keeps those under `seeds[]`, so `tests/retiming.mjs` skips every row of it and counts nothing, without a message
   (read from its code; not run). The order does not name `tests/retiming.mjs`, so it is not changed; it is meant to
-  read a run without `--seeds`.
+  read a run without `--seeds`. *Changed in the fix round: it refuses such JSON.*
 - Scanned the branch's diff and commit messages for recordings, personal details, real SteamIDs and model names:
   none, apart from the trailer lines.
+
+## The fix round (2026-11-14)
+
+The review (merge after fixes) left four items, the order's section "After the review (2026-11-14)". All four are
+on the branch, after a merge of `main` (`ee998d2`).
+
+| Item | Change |
+| --- | --- |
+| 1, the worst band's median seed | `seedSummary` sorts the seeds by the size of their worst band, takes the median one (the lower middle by size at an even count) and prints its band with its own signed value. The JSON's `summary.bandWorst` is `{ hz, seed, db, sizeDb: { median, least, most } }`: `db` is that seed's signed value and `sizeDb` the sizes' median and range. The line above the header says so. The band is summarised nowhere else. |
+| 2, `n` measurements always | `seedList` gives the row's own seed, then the first `n − 1` others from seed 1 up. The header comment and `tests/README.md` say so. |
+| 3, `tests/retiming.mjs` | Right after AC-01's refusal it refuses JSON whose top level has `seeds` above 1, or any row holding `seeds`, naming the rows, and says to run the suite without `--seeds`. Its header comment and its row in `tests/README.md` say so. |
+| 4, the row's seed | `firstSeed` is `Number.isFinite(Number(settings.seed)) ? Number(settings.seed) >>> 0 : DEFAULT_SEED`, as `finiteOr` (`engine/dsp.js`) reads it. |
+
+### What shows each fix
+
+The scratch takes were made again as above: the lossless and loss renders, and a third at `volume 0.15` on the file's
+own timing. The scratch manifest had five rows: `scratch_queue`, `scratch_loss_queue`, `scratch_seed_2` (the lossless
+take, `"seed": 2`), `scratch_seed_str_2` (the same, `"seed": "2"`) and `scratch_source` (the third take,
+`"timeline": "source"`).
+
+**Item 1.** `--only scratch_loss_queue --seeds 3`, as printed:
+
+    scratch_loss_queue         S        13   18    -0.051…0.084          1    16          -73 [-113…-43]  0.75 [0.74…0.82]         1.70 [0.00…1.73] / 6.0 [0.0…6.2]           0.921 [0.905…1.000]  -0.6 dB at 300-500       0.6 / 0.7        -0.0 [-0.2…+0.2] dB  (random loss: statistics only)
+
+The seeds' worst bands are +0.00 dB at 120-200 (0xC0FFEE), +1.05 dB at 3000-5000 (seed 1) and −0.55 dB at 300-500
+(seed 2). By size the median is seed 2's, so the row prints −0.6 dB at 300-500, where the first build printed
++0.0 dB at 120-200. The JSON: `{ hz: "300-500", seed: 2, db: −0.554, sizeDb: { median: 0.554, least: 0.00003,
+most: 1.051 } }`. Every other figure of the row is as the first build printed it.
+
+**Items 2 and 4.** `--only scratch_seed_2,scratch_seed_str_2,scratch_source --seeds 3`, as printed:
+
+    scratch_seed_2             S        13   19    -0.012…0.083          3    16             +3 [+3…+56]  0.85 [0.84…0.86]         0.62 [0.27…0.80] / 4.1 [1.7…7.5]           0.996 [0.992…0.999]  -0.1 dB at 11000-12000   2.0 / 2.0        +0.0 [+0.0…+0.0] dB
+    scratch_seed_str_2         S        13   19    -0.012…0.083          3    16             +3 [+3…+56]  0.85 [0.84…0.86]         0.62 [0.27…0.80] / 4.1 [1.7…7.5]           0.996 [0.992…0.999]  -0.1 dB at 11000-12000   2.0 / 2.0        +0.0 [+0.0…+0.0] dB
+    scratch_source             S        13   13    -0.000…0.001          0    12              +1 [+0…+3]  0.95 [0.95…1.00]         0.15 [0.00…0.33] / 0.7 [0.0…3.1]           1.000 [0.999…1.000]  -0.1 dB at 11000-12000   1.7 / 1.8        -0.0 [-0.0…+0.0] dB
+
+From the JSON: both seed rows were measured at seeds 2, 1 and 3, three different seeds (the first build would have
+measured 2 and 1). The string `"2"` is labelled 2 and measured once, and its figures equal the number's.
+`scratch_source` was measured at 0xC0FFEE, 1 and 2.
+
+**Item 3.** `node tests/retiming.mjs --accuracy <scratch>/seeded.json` (the JSON of the run just above):
+
+    Refused: the JSON comes from a run with --seeds 3 (3 row(s) hold seeds: scratch_seed_2, scratch_seed_str_2, scratch_source), whose rows keep their timelines under each seed. Run the suite without --seeds: pnpm accuracy --takes <folder> --manifest <scratch copy> --json results.json
+
+It exits 1. The same JSON with its top-level `seeds` removed is refused for its rows, and exits 1. With the check
+switched off (a scratch copy) it prints "all 0: queue NaN per transition, rule NaN" and exits 0, the silent skip the
+review named. A plain JSON, `--only scratch_source` without `--seeds`, still runs: it exits 0 and prints
+"scratch_source 12 transitions: queue -28.6, rule -4.3; L0 learnt 297 ms".
+
+**Without `--seeds`, still unchanged.** `main`'s `tests/accuracy.mjs` (the same file at `b1071fc` and `ee998d2`),
+copied for the run, and the branch's, each on all five rows without `--seeds`: the printed output is the same line for
+line, and `diff` of the two JSON files (2568 lines each) without their `"work"` and `"generated"` lines prints
+nothing. The rows:
+
+    scratch_queue              S        13   13    -0.000…0.001          0    12         +0  1.00      0.00 / 0.0     1.000  +0.0 dB at 500-1000      2.0 / 2.1        +0.0 dB
+    scratch_loss_queue         S        13   14    -0.051…0.003          0    13        -43  0.82      0.00 / 0.0     1.000  +0.0 dB at 120-200       0.6 / 0.6        -0.0 dB  (random loss: statistics only)
+    scratch_seed_2             S        13   20    -0.008…0.083          4    16         +3  0.86      0.62 / 4.1     0.996  -0.1 dB at 11000-12000   2.0 / 1.9        +0.0 dB
+    scratch_seed_str_2         S        13   20    -0.008…0.083          4    16         +3  0.86      0.62 / 4.1     0.996  -0.1 dB at 11000-12000   2.0 / 1.9        +0.0 dB
+    scratch_source             S        13   13    -0.000…0.001          0    12         +0  1.00      0.00 / 0.0     1.000  +0.0 dB at 500-1000      1.7 / 1.7        +0.0 dB
+
+### Checks of the fix round
+
+| Check | Command | Last lines |
+| --- | --- | --- |
+| syntax | `node --check tests/accuracy.mjs`, `node --check tests/retiming.mjs` | no output, exit 0 |
+| the harness (the one suite that reads `tests/accuracy.mjs`) | `flock /tmp/tf2ve-heavy.lock pnpm test harness` | `1 of 1 suites passed. 0.9 s summed, 0.9 s of wall time, 1 at a time.` |
+| the runs above | above | above |
+| the cache number | `node tests/cache-number.mjs origin/main --report` | `cache number against origin/main (ee998d2): no cached file changed; the number stays v50` |
+
+The whole `pnpm test` and the browser suite were not run again: the fix round changes only `tests/accuracy.mjs` and
+`tests/retiming.mjs`, which no suite runs, and documents. CI runs every suite on the push; its result is in the
+builder's hand-back. The scratch files are deleted. Scanned the fix round's diff and commit messages for
+recordings, personal details, real SteamIDs and model names: none, apart from the trailer lines.
