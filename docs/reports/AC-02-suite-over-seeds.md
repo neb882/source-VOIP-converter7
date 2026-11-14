@@ -112,12 +112,13 @@ No suite runs `tests/accuracy.mjs` (it needs the takes), so the scratch runs are
 | syntax | `node --check tests/accuracy.mjs` | no output, exit 0 |
 | the refusals | `node tests/accuracy.mjs --write-predictions --seeds 3`, the same with `--score-predictions` and `--simulate-takes`; `--seeds 0`, `--seeds 2.5`, `--seeds` with no number | each prints its message and exits 1; `tests/predictions/` is unchanged |
 | units (holds `harness`, the one suite that reads `tests/accuracy.mjs`) | `flock /tmp/tf2ve-heavy.lock pnpm test units` | `22 of 22 suites passed. 332.5 s summed, 332.5 s of wall time, 1 at a time.` |
-| every suite but the browser's | `flock /tmp/tf2ve-heavy.lock pnpm test` | PNPM_TEST_LAST_LINE |
-| the browser suite | `flock /tmp/tf2ve-heavy.lock pnpm test:browser` | BROWSER_LAST_LINE |
+| every suite but the browser's | `flock /tmp/tf2ve-heavy.lock pnpm test` | `27 of 27 suites passed. 1217.2 s summed, 1217.2 s of wall time, 1 at a time.` |
+| the browser suite | `flock /tmp/tf2ve-heavy.lock pnpm test:browser` | `1 of 1 suites passed. 480.3 s summed, 480.3 s of wall time, 1 at a time.` |
 | the cache number | `node tests/cache-number.mjs origin/main --report` | `cache number against origin/main (b1071fc): no cached file changed; the number stays v50` |
 
-CI: the run on the pushed head is read after the push; its result is in the builder's hand-back to the
-orchestrator, since this file is in the commit that run tests.
+CI: the `tests` run on `11d9f9d`, the branch's head with the code and this report as first pushed, concluded success
+(`verify` success; `units`, `engine`, `render`, `stages` and `browser` each success). The commit that fills in this
+table changes only `docs/`, so it starts no run.
 
 The scratch takes, manifest, JSON files and scripts are deleted.
 
