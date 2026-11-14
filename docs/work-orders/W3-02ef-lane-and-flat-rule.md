@@ -639,3 +639,37 @@ text above.
 10. **Size.** Part e's 8 hours are tight. If it runs over, points 6 and 7 of "What changes" (the phrase starts) go to
     a part of their own, which private look 2 gates anyway; the lane, the hover, the legend and the status line come
     first.
+
+## W3-02e: the orchestrator's private look 2 and the review (2026-11-13)
+
+**Private look 2** (measured, private; the take stays private), on the branch at `44014cd`, the page driven in
+Chromium with every setting at its default, on the owner's speech take (Set B, take 4, 9 changes from one phrase to
+the next):
+
+| Timing | T (take early) | R (render early) | G (of one kind) | Count of `E` in `tests/retiming.mjs`'s "Transitions" |
+| --- | ---: | ---: | --- | ---: |
+| The game's queue, 300 frames a second | 6 | 4 | 7 of 9 | 6 |
+| The file's own timing | 6 | none | | 6 |
+
+T equals the count on both timings, so part e's point 6 holds on a recording. On the queue the two changes of
+another kind are the take at −100 ms against the render at −69 and −71 ms, either side of the 80 ms limit. The status
+lines agree with private look 1 (clock +5 and +408 ppm, correlation 0.95 and 0.88).
+
+**The review** (merge after fixes; no wrong sample, no crash; four minor findings). The fix round, binding on the
+builder:
+
+1. **The status line's counts and the list of changes are checked against their values:** `between` and `within`
+   against `timeline.segments` (11 and 0 on the suite's take), and each entry of the list under "Phrase starts" as
+   `ms(takeMs) | ms(renderMs)` for its change. The reviewer's breaks (the `between` test inverted; `stepMs` printed for
+   `takeMs`) passed every check.
+2. **Hovering on a mark reports its skip.** A mark is drawn on `floor` of its pixel and the crosshair on `round`, so
+   103 of 220 hovers on marks' own pixels named no skip (measured). The hover reports the skips whose drawn pixel is
+   the crosshair's pixel, by the drawing's own rule; a check hovers at whole-pixel positions.
+3. **A slot whose played code is 0 shows no sent frame's number** ("an empty slot has no number"); it keeps the
+   source's second, how early and joined. The suite's hover named "sent frame 463", which the sender's log has as not
+   sent.
+4. **The sent frame's number is checked on several played slots,** one with `source[f]` mod 480 at 324 or more (at
+   24 kHz), so that dropping the look-ahead from the rule fails.
+5. **Words.** Where the documents say the clock reads near 0 on the queue, they say "on a take of some length": on the
+   suite's 30 s of short phrases the fit varies by several hundred ppm (+579 and −83 at seeds 1 and 2, 300 frames a
+   second; measured by the reviewer). The report's panel picture shows +579; its caption says so.
