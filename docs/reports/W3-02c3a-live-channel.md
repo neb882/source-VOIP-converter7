@@ -278,4 +278,6 @@ From the order's section "Part a after its review and second read", points 1 to 
    item 4, as above.
 3. Checks after the fix round, on the merged branch, inside `flock /tmp/tf2ve-heavy.lock`: `node tests/run.mjs
    render-channel voice-channel`: `2 of 2 suites passed. 250.3 s summed` (`voice-channel` 111.9 s,
-   `render-channel` 138.3 s); the browser suite: `== browser: passed, 429.5 s`. CI_FIX
+   `render-channel` 138.3 s); the browser suite: `== browser: passed, 429.5 s`. CI (`tests`) on the merged head `5d9dd18`: run
+   43547537736, `verify` success, with `units`, `engine`, `render`, `stages` and `browser` each success. This
+   line's commit changes only `docs/` and starts no run.
