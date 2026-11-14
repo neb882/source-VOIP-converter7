@@ -97,3 +97,78 @@ put scratch rows into a committed file, so the builder added `--manifest <file>`
   belongs in its usage line is a question for the orchestrator.
 - Scanned the branch's diff and commit messages for recordings, personal details, real SteamIDs and model names:
   none, apart from the trailer lines.
+
+## The fix round (2026-11-14)
+
+The review (merge as is) left three items, the order's section "After the review (2026-11-14)". All three are on
+the branch.
+
+1. **The random rows on the queue** (`tests/accuracy.mjs`, `measureInPage`). When the render is on the game's voice
+   queue and the row has loss or jitter, the render is lined up too: `TF2Reference.track` on it against the source
+   with the lossless guide as the reference, as the take is, then `warpSegments`. The warped take is compared with
+   the warped render over the part both cover. Every other row is compared as before. The JSON gains
+   `renderLinedUp` (true for such a row, false otherwise), `renderTimeline` (its spurts, correlation, overlap and
+   segments, or null) and `compared` (the span compared, in seconds).
+2. **`tests/retiming.mjs`** refuses JSON in which any row was rendered with `options.timeline` `'game'`, naming the
+   rows. Its message, its usage line and header, its row in `tests/README.md` and one added, dated line at
+   `tests/REFERENCE_2026.md`'s pointer to it say to run the suite through `--manifest` on a scratch copy of the
+   manifest with `"timeline": "source"` on every row.
+3. **`docs/ACCURACY.md`, Clock**: "so the clock reads near 0" became "so on the takes without random loss the clock
+   reads within 7 ppm of 0 on all but one (measured, 2026-11-14)".
+
+### The check, as the reviewer set it
+
+Each take is the suite's own render of `tests/testsignal/tf2_voice_nettest_v1.wav`, made by a scratch script with
+the options `measureInPage` gives the row (the same rule, the page's default seed), saved as a 16-bit WAV. One
+scratch manifest held five rows; it was run once on the branch before the fix (`git stash` of the fix) and once
+with it:
+
+    flock /tmp/tf2ve-heavy.lock node tests/accuracy.mjs --takes <scratch>/takes --manifest <scratch>/manifest-fix.json --json <scratch>/fix-before.json
+    flock /tmp/tf2ve-heavy.lock node tests/accuracy.mjs --takes <scratch>/takes --manifest <scratch>/manifest-fix.json --json <scratch>/fix-after.json
+
+Before the fix:
+
+    scratch_queue              S        13   13    -0.000…0.001          0    12         +0  1.00      0.00 / 0.0     1.000  +0.0 dB at 500-1000      2.0 / 2.1        +0.0 dB
+    scratch_jitter_queue       S        13   19     0.022…0.072          0    18       +182  0.91      3.19 / 20.4    0.904  +0.0 dB at 120-200       2.2 / 2.2        -0.0 dB  (random loss: statistics only)
+    scratch_loss_queue         S        13   14    -0.051…0.003          0    13        -43  0.82      0.30 / 2.4     0.999  +0.1 dB at 120-200       0.6 / 0.6        +0.0 dB  (random loss: statistics only)
+    scratch_jitter_source      S        13   13    -0.000…0.001          0    12         +0  1.00      0.00 / 0.0     1.000  +0.0 dB at 500-1000      1.7 / 1.7        +0.0 dB  (random loss: statistics only)
+    scratch_loss_source        S        13   13    -0.499…0.001          0    12         +1  0.83      0.01 / 0.1     1.000  -0.1 dB at 1000-2000     0.7 / 0.6        -0.0 dB  (random loss: statistics only)
+
+With the fix:
+
+    scratch_queue              S        13   13    -0.000…0.001          0    12         +0  1.00      0.00 / 0.0     1.000  +0.0 dB at 500-1000      2.0 / 2.1        +0.0 dB
+    scratch_jitter_queue       S        13   19     0.022…0.072          0    18       +182  0.91      0.00 / 0.0     1.000  +0.0 dB at 120-200       2.2 / 2.2        -0.0 dB  (random loss: statistics only)
+    scratch_loss_queue         S        13   14    -0.051…0.003          0    13        -43  0.82      0.00 / 0.0     1.000  +0.0 dB at 120-200       0.6 / 0.6        -0.0 dB  (random loss: statistics only)
+    scratch_jitter_source      S        13   13    -0.000…0.001          0    12         +0  1.00      0.00 / 0.0     1.000  +0.0 dB at 500-1000      1.7 / 1.7        +0.0 dB  (random loss: statistics only)
+    scratch_loss_source        S        13   13    -0.499…0.001          0    12         +1  0.83      0.01 / 0.1     1.000  -0.1 dB at 1000-2000     0.7 / 0.6        -0.0 dB  (random loss: statistics only)
+
+What the rows show (measured on the model; renders against renders, not takes):
+- Before the fix the two queue rows read the reviewer's figures, +182, 3.19 / 20.4, 0.904 and −43, 0.30 / 2.4,
+  0.999. With it their level reads 0.00 / 0.0 dB, r 1.000, as near as the file's own timing (+1, 0.01 / 0.1, 1.000).
+- The three other rows did not move: their `report` and `timeline` in the JSON are equal before and after,
+  `scratch_queue` (the earlier row, no loss) among them.
+- The JSON: `renderLinedUp` true for `scratch_jitter_queue` and `scratch_loss_queue` and false for the three
+  others; the render's own lined-up clock reads +182 and −43, the take's own.
+- The clock and the alignment r still read +182 and −43, and 0.91 and 0.82. Those columns are the take's timeline
+  against the lossless guide, as on every random row; the fix leaves them, and the order does not ask to change
+  them. The render's own timeline reads the same, so take and render agree. On a real take they read the take's
+  movement against the guide, which the render shares only where its draw does (inferred).
+
+`tests/retiming.mjs` on the "with the fix" JSON refuses, naming the three queue rows, and exits 1. On the same JSON
+with only its two rows at `'source'` it runs (and has no transitions to count: those rows are random). With no
+argument it prints the usage line with the scratch copy. The scratch files are deleted.
+
+### Checks of the fix round
+
+| Check | Command | Last lines |
+| --- | --- | --- |
+| syntax | `node --check tests/accuracy.mjs`, `node --check tests/retiming.mjs` | no output, exit 0 |
+| the suites that read the record and the harness | `flock /tmp/tf2ve-heavy.lock pnpm test harness reference recordings` | `3 of 3 suites passed. 19.7 s summed, 19.7 s of wall time, 1 at a time.` |
+| the check above | above | above |
+
+The whole `pnpm test` and the browser suite were not run again: the fix round changes no file the site or any suite
+loads, only `tests/accuracy.mjs` and `tests/retiming.mjs` (which no suite runs) and documents. CI runs every suite on
+the push; its result is in the builder's hand-back.
+
+Not fixed, as the order records: a row's `fps` of 0 or less renders at 10 in the suite where the page would use
+300, and a string `fps` renders at 300 while the JSON records the string. No row has either.
