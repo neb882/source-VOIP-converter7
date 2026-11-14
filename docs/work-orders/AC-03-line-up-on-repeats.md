@@ -213,3 +213,19 @@ It is the order's real check, and it is not the builder's. On the branch, with t
   the same lines into the suite's output is not built yet and would be an order of its own.
 - Whether a take's early starts fall where a render's do is a question about the queue and the sender's draw, not
   about the line-up.
+
+## After the build (2026-11-14)
+
+Built, reviewed (merge as is) and merged with cache v52. The orchestrator's private run on the owner's takes, every take
+on main and on the branch at the default seed (measured; the takes stay private): four rows changed, each in its
+first pieces only, each now at its neighbours' delay.
+- `take3_voice_avggain_0.25`: +1599 / +1574 ms to +2092 / +2110; level 2.03 / 14.7 to 0.94 / 8.6 dB, r 0.916 to
+  0.975.
+- `listener_B`: +4347 to +4845; level unchanged.
+- `lowtone_maxgain_1`: the first four pieces +4154 to +4159 to +3631 to +3665, and the piece at 82.66 s +3636 to
+  +3622; level 5.20 / 19.1 to 4.92 / 14.4. The piece at 82.66 s is the 80 Hz control tone. The rule cannot fire
+  there; it most likely moved through `prior`, the median of the placed spurts, which on main held the four wrong
+  first pieces (the review, inferred).
+- `net_loss5`: +2291 to +1789; level 2.27 / 11.8 to 2.65 / 13.7, a row with random loss.
+
+Every other row is equal. The review's three test gaps are in `docs/PROGRESS.json`'s `deferred`.

@@ -691,3 +691,8 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-14: AC-03 being planned; entries replaced
 
 - deferred, the line-up's pieces on repeated bursts, removed (now AC-03, in_flight)
+
+## 2026-11-14: AC-03 merged (cache v52); entries replaced
+
+- live.last_merge, earlier merges cut: "AC-02 (no cache change, 2026-11-14): the accuracy suite's --seeds n measures each row at n different seeds (its own or the default, then the first n - 1 others from seed 1) and prints each figure as a"
+- in_flight, AC-03 removed (merged)

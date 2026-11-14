@@ -5,8 +5,8 @@
     "url": "https://neb882.github.io/source-VOIP-converter7/",
     "serves": "main (GitHub Pages from the branch root)",
     "main": "the head of main (git log); the site's cache number is below",
-    "cache": 51,
-    "last_merge": "W3-23a (cache v51, 2026-11-14): on the game's voice queue at a listener frame rate under 1000/15, the voice channel runs a frame clock in the order W3-23r read from the owner's engine.dll (in each frame the messages due, then the ticks due, then the mixer's blocks), and at jitter 0 a message arrives on the listener's first look after the server's relay tick, as the jitter model gives in its limit. Nothing moves at 66.67 frames a second and above (the hash list equal byte for byte). Measured on the model: an opened phrase sits 18, 8, 18 and 19 ms early at 60, 30, 20 and 10 (ruling 3: D unchanged); at 60 and 50 the level moves under 0.01 dB. The live monitor's chain is W3-23b. Before it: AC-02 (no cache change, 2026-11-14): the accuracy suite's --seeds n measures each row at n different seeds (its own or the default, then the first n - 1 others from seed 1) and prints each figure as a median with its range, the worst band as the median seed's by size; without the option the suite is unchanged; tests/retiming.mjs refuses seeded JSON."
+    "cache": 52,
+    "last_merge": "AC-03 (cache v52, 2026-11-14): the line-up (TF2Reference.track) drops a waveform place that is tonal and more than 0.1 s from the envelope's, so the test signal's sync beeps, 0.5 s apart, no longer pull a phrase onto the wrong beep. On the owner's takes (private run, measured) four rows changed, each in its first pieces only and each now at its neighbours' delay: take3_voice_avggain_0.25 (level 2.03 / 14.7 to 0.94 / 8.6 dB), listener_B, lowtone_maxgain_1 and net_loss5; every other row equal. The page's real-take check is the same byte for byte on the committed recordings. Before it: W3-23a (cache v51, 2026-11-14): on the game's voice queue at a listener frame rate under 1000/15, the voice channel runs a frame clock in the order W3-23r read from the owner's engine.dll (in each frame the messages due, then the ticks due, then the mixer's blocks), and at jitter 0 a message arrives on the listener's first look after the server's relay tick, as the jitter model gives in its limit. Nothing moves at 66.67 frames a second and above (the hash list equal byte for byte). Measured on the model: an opened phrase sits 18, 8, 18 and 19 ms early at 60, 30, 20 and 10 (ruling 3: D unchanged); at 60 and 50 the level moves under 0.01 dB. The live monitor's chain is W3-23b."
   },
   "in_flight": [
     {
@@ -14,12 +14,6 @@
       "file": "docs/work-orders/W3-23-low-frame-rates.md",
       "stage": "built 2026-11-14 (nothing moves at 66.67 and above); in review",
       "line": "the live monitor's chain on the frame clock: a hold of ceil(88200 / (1024 x fps)) blocks over D, onOpen, and the three cases W3-23a moved put back. Nothing moves at 66.67 and above."
-    },
-    {
-      "order": "AC-03",
-      "file": "docs/work-orders/AC-03-line-up-on-repeats.md",
-      "stage": "planned 2026-11-14; being built",
-      "line": "the line-up's waveform step lands on the wrong one of the test signal's three sync beeps (0.5 s apart) and overrules the envelope: a tonal place far from the envelope's is dropped (track() only). The pieces of 2 s about 0.3 s off are early starts, not the line-up's (corrected in docs/ACCURACY.md)."
     }
   ],
   "next": [
@@ -178,6 +172,10 @@
     {
       "finding": "The live chain's steamTimeline keeps an open-ended frame log, so a monitor session grows about 2 MB an hour, with or without the queue (inferred from the code by W3-02c-3's planner, 2026-11-13).",
       "why": "Nothing breaks within a session's usual length; W3-02c-3 does not fix it, and an order of its own can cap the log."
+    },
+    {
+      "finding": "AC-03's review: the rule's 0.1 s limit has no lower guard in a committed test (at 0.01 s the committed recordings' line-up changes and every suite passes); removing the envelope's 0.5 floor, or 'every' to 'some' in the tonal test, passes everything; and the suite's check of the beeps rests on a fragile case (with a dither of another seed main passes it too).",
+      "why": "None changes a result on any input at hand. A committed check of the recordings' line-up would be an order of its own."
     }
   ],
   "ideas_not_started": [

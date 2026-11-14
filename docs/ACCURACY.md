@@ -210,6 +210,8 @@ So the default seed is not the best draw on every take, nor the worst. The model
 
 The clock column's median is within 5 ppm of 0 on every take without random loss but `lowtone_maxgain_1` (+25). Single draws read far off on some takes: −157 to −383 ppm on `take1_default`, `take2_voice_scale_0.5` and `river_artifact`, and +2331 on `lowtone_maxgain_1`. On those draws the line-up fits a clock to that draw's skips (inferred).
 
+*Note 2026-11-14 (AC-03, cache v52): the line-up no longer takes the test signal's sync beeps for one another. On four rows of the table above the first pieces now sit at their neighbours' delay: `take3_voice_avggain_0.25`, `listener_B`, `lowtone_maxgain_1` and `net_loss5` (the order's "After the build" has the one-draw figures). Those four rows are measured again over nine seeds and replaced.*
+
 ### Against the file's own timing (2026-11-14)
 
 Measured privately (the takes stay private): every take through the suite at `main` `2548bbe` as it stood (the file's
