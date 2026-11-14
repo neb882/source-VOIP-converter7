@@ -1,5 +1,5 @@
 {
-  "about": "Real TF2 takes (tests/REFERENCE_2026.md) and the settings each was recorded with. The recordings are not committed; tests/accuracy.mjs looks for them by file name in a local folder. Settings are the app's render options; anything not given keeps the app's default (the modern preset). Sources under tests/testsignal/ come from its scripts.",
+  "about": "Real TF2 takes (tests/REFERENCE_2026.md) and the settings each was recorded with. The recordings are not committed; tests/accuracy.mjs looks for them by file name in a local folder. Settings are the app's render options; anything not given keeps the app's default (the modern preset), which includes the game's voice queue at 300 frames a second and voice_buffer_ms 100. Sources under tests/testsignal/ come from its scripts.",
   "takes": [
     { "name": "take1_default", "set": "B", "take": ["take1_default.flac", "take1_default_-_voice_maxgain_10.flac"],
       "source": "tests/testsignal/tf2_voice_testsignal_v1.wav", "settings": { "volume": 0.15 } },
@@ -13,17 +13,17 @@
       "source": "my_own_speech_raw_from_audacity.wav", "settings": { "volume": 0.15 } },
 
     { "name": "net_baseline", "set": "C", "take": ["baseline.flac"],
-      "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "room": { "auto": "set_c_room" } } },
+      "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "fps": 295, "room": { "auto": "set_c_room" } } },
     { "name": "net_loss5", "set": "C", "take": ["loss5.flac"], "random": true,
       "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "lossPct": 21.7, "room": { "auto": "set_c_room" } } },
     { "name": "net_loss15", "set": "C", "take": ["loss15.flac"], "random": true,
       "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "lossPct": 49.8, "room": { "auto": "set_c_room" } } },
     { "name": "net_jitter", "set": "C", "take": ["jitter.flac"], "random": true,
-      "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "jitterMs": 50, "room": { "auto": "set_c_room" } },
-      "note": "Since BC-4a (2026-11-13) jitter on Steam voice is when messages reach the game's voice queue, and on the file's own timing, where this suite renders, it does nothing: this row compares the take with a render without jitter. The render through the queue is measured in the orchestrator's private run (REFERENCE finding 9)." },
+      "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "jitterMs": 50, "fps": 336, "room": { "auto": "set_c_room" } },
+      "note": "The suite renders on the game's voice queue (AC-01), where the jitter is when messages reach the queue (BC-4), and the render's skips are one draw." },
     { "name": "net_combined", "set": "C", "take": ["combined.flac"], "random": true,
-      "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "lossPct": 37.0, "jitterMs": 50, "room": { "auto": "set_c_room" } },
-      "note": "Since BC-4a (2026-11-13) jitter on Steam voice is when messages reach the game's voice queue, and on the file's own timing, where this suite renders, it does nothing: this row compares the take with a render with the loss and without jitter. The render through the queue is measured in the orchestrator's private run (REFERENCE findings 8 and 9)." },
+      "source": "tests/testsignal/tf2_voice_nettest_v1.wav", "settings": { "volume": 0.15, "lossPct": 37.0, "jitterMs": 50, "fps": 336, "room": { "auto": "set_c_room" } },
+      "note": "The suite renders on the game's voice queue (AC-01), where the jitter is when messages reach the queue (BC-4), and the render's skips are one draw." },
     { "name": "speech_loss10", "set": "C", "take": ["speech_loss10.flac"], "random": true,
       "source": "my_own_speech_raw_from_audacity.wav", "settings": { "volume": 0.15, "lossPct": 37.0, "room": { "auto": "set_c_room" } } },
 
@@ -43,7 +43,8 @@
 
     { "name": "music_river", "set": "A", "take": ["tf2 VOIP test 2026 pure.mp3"], "takeSeconds": [0, 70],
       "source": "Joni Mitchell - River.mp3", "settings": { "volume": 0.15 } },
-    { "name": "music_take_it_off", "set": "A", "take": ["tf2 VOIP test 2026 pure.mp3"], "takeSeconds": [70, 170.76],
-      "source": "Ke$ha - Take It Off.mp3", "settings": { "volume": 0.15 } }
+    { "name": "music_take_it_off", "set": "A", "take": ["tf2 VOIP test 2026 pure.mp3"], "takeSeconds": [70, 163.6],
+      "source": "Ke$ha - Take It Off.mp3", "settings": { "volume": 0.15 },
+      "note": "The recording's voice key is released at 163.75 s and a short second piece follows to 166.9 s, while the source plays on; measured 2026-11-14 (AC-01)." }
   ]
 }
