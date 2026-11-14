@@ -228,7 +228,7 @@ takes at 336, the photographs' rates). The rows with random loss are statistics 
 
 **What it shows** (measured). On the game's queue the clock reads within 7 ppm of 0 on every take without loss but
 `lowtone_maxgain_1` (+35), against +401 to +499 on the file's own timing: the clock the suite has been reading on the
-takes is the queue's dropped samples and skips, not a clock. The timeline's correlation rises on 11 of these 13 takes.
+takes is the queue's dropped samples and skips, not a clock. The timeline's correlation rises on 12 of these 13 takes and falls on `lowtone_maxgain_1` (0.80 against 0.78).
 The short-term level's rms is worse on the queue on several takes, most on `music_take_it_off` (0.08 / 0.4 dB against
 2.14 / 24.0, r 0.997 against 0.370): not looked into yet; the render's skips and early starts are one draw, and where
 they differ from the take's a block of the level compares unlike sound (inferred). Moving the suite's committed rows
