@@ -68,9 +68,9 @@ option, or with `'source'`, the chain gives `main`'s samples. No render moves.
 | Figure | 66.67 fps | 100 fps | 300 fps | Standing |
 | --- | ---: | ---: | ---: | --- |
 | D, with the codec's 156 samples | 13,312 samples (301.9 ms) | 15,360 (348.3 ms) | 24,576 (557.3 ms) | read (`voice-channel.js` `zero()`) |
-| What the chain holds back on the queue, more than on the file's own timing (`queueCostMs`) | 101.6 ms | 148.0 ms | 357.0 ms | the chain's own figure, `1000 × (D / 44,100 − 4,806 / 24,000)` |
-| `stats.latencyMs` at a 48 kHz device, on the file's own timing | 206.9 ms | 206.9 ms | 206.9 ms | the chain's own figure |
-| `stats.latencyMs` at a 48 kHz device, on the queue | 308.5 ms | 354.9 ms | 563.9 ms | the chain's own figure |
+| What the chain holds back on the queue, more than on the file's own timing (`queueCostMs`) | 101.6 ms | 148.0 ms | 357.0 ms | read: `1000 × (D / 44,100 − 4,806 / 24,000)`, from `zero()` and the read reach and look-ahead |
+| `stats.latencyMs` at a 48 kHz device, on the file's own timing | 206.9 ms | 206.9 ms | 206.9 ms | read: the read reach and look-ahead and the stages' waits |
+| `stats.latencyMs` at a 48 kHz device, on the queue | 308.5 ms | 354.9 ms | 563.9 ms | read: `zero()` and the stages' waits |
 
 The hold is D at the mix point and nothing more, as the order's "The hold-back" infers. On the build the chain
 never ran short in any run (the check of every run would have thrown), and the least margin by which what the
@@ -99,7 +99,7 @@ runs short at once (the breaks below).
 | --- | --- |
 | The chain is the render | at 66.67, 100 and 300 fps each at jitter 0 (30 s), 50 and 100 (12 s); seeds 1, 2 and 3 at 300 fps and jitter 50; loss 15% at jitter 50 at each frame rate; a 48 kHz microphone at 66.67 fps (jitter 0) and at 300 (jitter 50): the chain gave exactly `G = floor(P × 147 / 80) − D` samples at `opts.onGain`, G is printed and is not zero, D is the figure above, and sample n is `createRender`'s for every n below G |
 | The plan of blocks | blocks of 1, 480 and 4,800 samples and a seeded uneven plan (1 to 5,000), 8 s at 300 fps and jitter 50: each gives `createRender`'s samples |
-| The gate off, push-to-talk, the gain off, a room | the gate off; the key released inside a phrase and pressed again, twice (48 kHz); the receiver's gain off at voice_scale 2 with the microphone's gain at 3, so the render clips; a room (preset 6) attached after the mix point at 48 and at 44.1 kHz, with `spurtStart` called once for each open: each gives `createRender`'s samples |
+| The gate off, push-to-talk, the gain off, a room | the gate off; the key released inside a phrase and pressed again, twice (48 kHz); the receiver's gain off at voice_scale 2 with the microphone's gain at 3, so the render clips; a room (preset 6) attached after the mix point at 48 and at 44.1 kHz, with `spurtStart` called once for each open; jitter 500 at 10 fps from a 48 kHz microphone in blocks of 48,000 samples, where the chain's buffer grows past its first 65,536 held samples, and the same in blocks of 96,000 after 3 s of 480, where it grows again past 131,072 while it holds sound (the fix round, point 1): each gives `createRender`'s samples |
 | The hold is D and no less | `stats.margin` is a whole number of 0 or more in every run, and under 512 in the three 30 s runs at jitter 0 |
 | The delay | `queueCostMs` is `1000 × (D / 44100 − 4806 / 24000)` at the three frame rates, and `stats.latencyMs` on the queue is the figure on the file's own timing plus `queueCostMs`, each within 1e-9 ms; `zero` is D on the queue and null off it |
 | A channel's start | the layouts P and Q at 300 fps, seeds 1 and 2: `spurtStart` is called once for each open of the render's channel (the reference's opens, those below G), where the sender made more spurts (on Q a spurt joins a running channel); each call comes before the same mix sample at blocks of 480, 4,800 and an uneven plan (and of 1 on Q, seed 1), a multiple of 512; the first at `512 × ceil(1323 a / 1024) − D` (here 22,528, a = 71) |
@@ -149,6 +149,7 @@ failing check). The order's table, then the builder's own.
 | the arrival model with no end keeps every leaving tick (builder's) | the arrival model's `held()`; what the chain keeps | both fail |
 | `queueCostMs` counts the reach, not D (builder's) | the delay | fails (0.00 where 101.61 is wanted) |
 | the frame codes reported before they are final (builder's) | `stats`: the codes are the render's log as sent | fails |
+| the held samples overwritten when the chain's buffer grows (the reviewer's; the fix round, point 1) | jitter 500 at 10 fps, blocks of 96,000 after 3 s of 480 | fails, the first difference at sample 122,309. The run in blocks of 48,000 alone passes under it: there the buffer grows once, early, while what it holds is still silence, and never again |
 
 The order's break "`add()` called with what was given out" was dropped by the plan review's point 1 and not made.
 
@@ -179,7 +180,8 @@ README and the report changed after it).
 4. `git diff origin/main --stat` (against the merge base): `engine/live-chain.js`, `engine/network.js`,
    `engine/room.js`, `engine/steam.js`, `voice-channel.js`, `tests/render-channel.verify.mjs`,
    `tests/voice-channel.verify.mjs`, `tests/README.md`, `tests/predictions/PREDICTIONS.md` and this report: every
-   one in "May touch". `tests/browser.verify.js` is not touched.
+   one in "May touch"; and `tests/browser.verify.js`, changed by the one line the orchestrator's ruling of
+   2026-11-14 allows (below).
 5. This report.
 
 CI (`tests`) on the branch: run 43533980213 on `c38895e`: `verify` failure; `units`, `engine`, `render` and
@@ -227,9 +229,11 @@ stopped there. Two ways out, for the orchestrator to choose:
   `spurtStart` called once for each of the render's opens (35, 2, 10 and 12) and the largest arrival delay 1,635
   ms at 10 frames a second. Thirty minutes of unbroken sound (the gate off) at 66.67 frames a second: equal to
   `createRender` over all 79,366,454 samples given out, `held()` 0 throughout, the least margin 89 (reached between
-  the 4th and 6th minute), the chain 98 s and the render 90 s of one core. On that signal the channel opened once
-  and dropped nothing, so the attack's thinning and restart did not occur there; whether the level dipped was not
-  measured. A room switched while a channel is open was not tried.
+  the 4th and 6th minute), the chain 98 s and the render 90 s of one core. On that signal the level thins from
+  about minute 4 with one open and nothing dropped: the second reader measured 16% of 20 ms windows more than 3 dB
+  down in minute 4, 48% in minute 5 and 66 to 75% from minute 6 (measured on the model). The chain does there what
+  the render does, sample for sample. A room switched while a channel is open was not tried by the builder (the
+  reviewer did, and found it equal).
 - **What still grows**: `steamTimeline`'s open-ended frame log, on either timeline (PROGRESS's deferred list). The
   chain's own `held()` does not count it.
 - **`queueCostMs`** is reported on every Steam chain, at the chain's own `fps` and `bufferMs`; the page sends
@@ -257,3 +261,21 @@ then 41/256 after a spurt start". `main` was merged first (the ruling, documents
 
 CI (`tests`) on the head `005aacb`: run 43542875412, `verify` success, with `units`, `engine`, `render`, `stages`
 and `browser` each success. This line's commit changes only `docs/` and starts no run.
+
+## The fix round (2026-11-14)
+
+From the order's section "Part a after its review and second read", points 1 to 3. `main` was merged first
+(W3-02e merged, cache v47; documents and page files, no conflict).
+
+1. Section 10 gains the two runs at jitter 500, 10 frames a second and a 48 kHz microphone (the checks' table
+   above) and the reviewer's break (the breaks' table). The first, in blocks of 48,000 samples as the order names
+   it, is equal to `createRender` (G 519,209, margin 49,620, at least 93,720 samples held), but the break passes it:
+   the buffer grows once, at a sample where all it still has to give out is silence (probed on the build: at
+   60,416 samples returned, nothing but zeros between what was given out and what was returned). The second, in
+   blocks of 96,000 after 3 s of 480, holds at least 137,820 samples, makes the buffer grow again while it holds
+   sound, is equal to `createRender`, and fails under the break.
+2. The words: the thirty-minute run's thinning, the standing of `queueCostMs` and `stats.latencyMs`, and done-means
+   item 4, as above.
+3. Checks after the fix round, on the merged branch, inside `flock /tmp/tf2ve-heavy.lock`: `node tests/run.mjs
+   render-channel voice-channel`: `2 of 2 suites passed. 250.3 s summed` (`voice-channel` 111.9 s,
+   `render-channel` 138.3 s); the browser suite: `== browser: passed, 429.5 s`. CI_FIX

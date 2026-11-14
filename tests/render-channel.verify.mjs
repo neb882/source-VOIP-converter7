@@ -839,19 +839,31 @@ if (runs(10)) {
         { keyUp: [[480 * 120, 480 * 300], [480 * 700, 480 * 760]] }],
       ['the receiver\'s gain off, voice_scale 2', 24000, { fps: 100, jitterMs: 50, seed: 8, agc: false, voiceScale: 2, micGain: 3 }, {}],
       ['a room attached after the mix point (48 kHz)', 48000, { fps: 300, seed: 9 }, { room: true }],
-      ['a room attached after the mix point (44.1 kHz)', 44100, { fps: 66.67, jitterMs: 50, seed: 10 }, { room: true }]
+      ['a room attached after the mix point (44.1 kHz)', 44100, { fps: 66.67, jitterMs: 50, seed: 10 }, { room: true }],
+      // The fix round of W3-02c-3a, point 1: a margin of tens of thousands of samples and blocks of a second, so
+      // the chain holds more than its first buffer of 65,536 samples and grows it (engine/live-chain.js, store()).
+      // There it grows once, early, while what it holds is still silence (the first arrivals come up to 1.6 s
+      // late), and never again; so a second run takes blocks of 96,000 after 3 s of 480, which makes it grow
+      // past 131,072 while it holds sound.
+      ['jitter 500 at 10 fps, a 48 kHz microphone, blocks of 48,000 samples (the chain\'s buffer grows past 65,536 held samples)', 48000,
+        { fps: 10, jitterMs: 500, seed: 11 }, { plan: 48000, grows: 65536 }],
+      ['the same with blocks of 96,000 after 3 s of 480 (it grows again, past 131,072, while it holds sound)', 48000,
+        { fps: 10, jitterMs: 500, seed: 11 }, { plan: [...Array(300).fill(480), ...Array(5).fill(96000)], grows: 131072 }]
     ];
     for (const [name, rate, o, extra] of cases) {
       const x = talk(12, rate, 3), keyUp = extra.keyUp || [];
       const xr = Float32Array.from(x);
       for (const [a, b] of keyUp) xr.fill(0, a, b);
       const room = extra.room ? { path: R.createRoomPath({ seed: 9, room: 6, table }), attached: true } : null;
-      const ren = await renderGame(xr, rate, o), live = await liveGame(x, rate, o, 480, { keyUp, room });
+      const ren = await renderGame(xr, rate, o), live = await liveGame(x, rate, o, extra.plan || 480, { keyUp, room });
+      // Held before a block's samples are given out: at least the margin and the voice of the largest block (its
+      // samples given to the sender at 24 kHz, x 147 / 80 at the mix point).
+      const block = Math.max(...[].concat(extra.plan || 480)), heldAtLeast = live.stats.margin + Math.floor(block * 24000 / rate * 147 / 80);
       let clipped = 0;
       if (o.agc === false) for (const v of ren.voice) if (Math.abs(v) >= 32767 / 32768) clipped++;
       check(`${name}: createRender's samples${room ? `, and spurtStart called at each open (${live.starts.length})` : ''}${o.agc === false ? ', where it clips' : ''}`,
-        sameAsRender(live, ren) && (!room || live.starts.length === opensOf(live)) && (o.agc !== false || clipped > 0),
-        `${liveText(live, ren)}${o.agc === false ? `; ${clipped} samples at the clip` : ''}`);
+        sameAsRender(live, ren) && (!room || live.starts.length === opensOf(live)) && (o.agc !== false || clipped > 0) && (!extra.grows || heldAtLeast > extra.grows),
+        `${liveText(live, ren)}${o.agc === false ? `; ${clipped} samples at the clip` : ''}${extra.grows ? `; at least ${heldAtLeast} samples held` : ''}`);
       margins.push({ jitterMs: o.jitterMs || 0, seconds: 12, fps: o.fps, margin: live.stats.margin });
     }
   }
