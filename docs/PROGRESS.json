@@ -11,9 +11,9 @@
   "in_flight": [
     {
       "order": "W3-23",
-      "file": "docs/work-orders/W3-23-low-frame-rates.md (being planned)",
-      "stage": "planner",
-      "line": "frame rates under 67 on the game's voice queue: the render at jitter 0 has no look once a frame where the model with jitter has one (BC-4's item 10); ticks, looks and pulls worked out together. Expected to move nothing at the page's 300 frames a second."
+      "file": "docs/work-orders/W3-23-low-frame-rates.md",
+      "stage": "planned 2026-11-14; W3-23r (the read of the game's frame, private) running",
+      "line": "frame rates under 67 on the game's voice queue: ticks, looks and pulls in frames together (a look alone makes the delay worse: the planner's prototype). Nothing moves at 66.67 and above. W3-23a and W3-23b wait for the read, a plan review and the weekly usage reset."
     }
   ],
   "next": [
