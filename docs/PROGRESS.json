@@ -12,7 +12,7 @@
     {
       "order": "W3-23",
       "file": "docs/work-orders/W3-23-low-frame-rates.md",
-      "stage": "W3-23r read 2026-11-14 (packets, ticks, mixer, as chosen); the plan reviewer's pass running; then W3-23a, then W3-23b",
+      "stage": "W3-23r read 2026-11-14 (packets, ticks, mixer, as chosen); plan-reviewed (build after edits, written into the order); W3-23a being built; then W3-23b",
       "line": "frame rates under 67 on the game's voice queue: the voice channel's frame clock and the arrival at jitter 0 (a), the live monitor's chain (b). Nothing moves at 66.67 and above."
     }
   ],
