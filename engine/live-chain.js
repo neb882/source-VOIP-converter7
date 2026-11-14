@@ -85,13 +85,16 @@
   //   - After each pushed sample's messages the channel is advanced to
   //     steamBoundTick(lastTick, pushed), the render's bound (only when it
   //     rises: the same output). The output at the mix point is final up to
-  //     floor(pushed x 147 / 80) - D at least (the order's "The hold-back"),
-  //     with D the channel's zero, so that is what is given out; a channel
-  //     that has returned fewer is an Error, which the hold-back says cannot
-  //     happen. stats.margin is the least count of samples by which what the
-  //     channel returned was ahead of it.
+  //     floor(pushed x 147 / 80) - hold at least (the order's "The
+  //     hold-back"), with hold the channel's zero D and, under 1000/15 frames
+  //     a second, the frame's blocks of liveQueueHold (W3-23b), so that is what
+  //     is given out; a channel that has returned fewer is an Error, which the
+  //     hold-back says cannot happen. stats.margin is the least count of
+  //     samples by which what the channel returned was ahead of it.
   //   - The room's limits are fixed at each open (spurtStarts), before the
-  //     mix stages are handed the open's first sample (onOpen's index), so a
+  //     mix stages are handed the open's first sample (onOpen's index, which
+  //     the timeline gives where the channel opens: under the frame clock in
+  //     the frame that adds the message, W3-23b), so a
   //     spurt that joins a running channel fixes nothing, and the place does
   //     not depend on the plan of blocks.
   //   - The panel's counts (frames, sent, lost, late, the frame codes) stay
@@ -100,7 +103,21 @@
   //     is kept: the timeline with no end keeps no source map.
   //   - stats gains pushed (the samples given to the sender), channel (the
   //     timeline's counts()), arrivals (with jitter above 0: as a render's
-  //     codecInfo.arrivals) and margin.
+  //     codecInfo.arrivals; the rule at jitter 0 under 1000/15 is not
+  //     reported, as a render does not report it) and margin.
+  // The hold over the queue's zero D, in samples at the voice rate (W3-23b,
+  // docs/work-orders/W3-23-low-frame-rates.md, "W3-23b" and the plan
+  // review's edit 11): voice-channel.js's frameHold(fps) blocks of 512
+  // samples, ceil(88200 / (1024 x fps)) under 1000/15 frames a second (9 at
+  // 10, 5 at 20, 3 at 30, 2 at 60; arithmetic, its comment has it) and 0 at
+  // 1000/15 and above, fps read as the channel reads it. null where
+  // voice-channel.js is not loaded.
+  function liveQueueHold(fps) {
+    const VC = typeof TF2VoiceChannel !== 'undefined' ? TF2VoiceChannel : null;
+    if (!VC) return null;
+    return VC.VOICE_CHANNEL.mixBlock * VC.frameHold(fps);
+  }
+
   async function steamLiveChain(c) {
     const { opts, ioRate, codecKey, codec, micGain, hp, lp, bits, lossPct, jitterMs, autoGain, gateOn, avgGain, maxGain, voiceScale,
       framesPerPacket, rand, mixStages, roomHoldSeconds = () => 0, spurtStarts = () => {}, game = false } = c;
@@ -173,9 +190,10 @@
     // time-aligned). latencyMs is every hold-back: the resamplers' waits (to
     // 24 kHz, Steam's resampler's 16 inputs, and the context's: outputWait),
     // the capture FIR's dropped delay, the reach and the lookahead. On the
-    // game's timeline the voice queue's zero D (at 44.1 kHz) is held back in
-    // place of the reach and the lookahead (the render's sample n is the
-    // chain's sample n); queueCostMs is what that adds to the hold with the
+    // game's timeline the voice queue's zero D (at 44.1 kHz) and, under
+    // 1000/15 frames a second, the frame's blocks (liveQueueHold) are held
+    // back in place of the reach and the lookahead (the render's sample n is
+    // the chain's sample n); queueCostMs is what that adds to the hold with the
     // full reach, at the chain's own fps and bufferMs (the voice channel's
     // defaults when they are not given), as lowLatencySavingMs is what low
     // latency saves. D is voice-channel.js's zero(); null where that module
@@ -187,7 +205,8 @@
     const latencyMs = (r) => 1000 * (contentDelay / ioRate + holdBack(r));
     const VC = typeof TF2VoiceChannel !== 'undefined' ? TF2VoiceChannel : null;
     const D = channel ? channel.zero : VC ? VC.zero(opts.bufferMs, opts.fps, lookahead / STEAM_RATE) : null;
-    const queueHoldBack = () => sincWait(ioRate, STEAM_RATE) + (firDelay(captureEq) + swr.TAPS / 2) / STEAM_RATE + D / STEAM_VOICE_RATE
+    const hold = D === null ? null : D + liveQueueHold(opts.fps);
+    const queueHoldBack = () => sincWait(ioRate, STEAM_RATE) + (firDelay(captureEq) + swr.TAPS / 2) / STEAM_RATE + hold / STEAM_VOICE_RATE
       + outputWait(ioRate) + roomHoldSeconds();
     const queueLatencyMs = () => 1000 * (contentDelay / ioRate + queueHoldBack());
 
@@ -203,7 +222,9 @@
       bytes: 0, gateOpen: false, lastMode: null, inputPeak: 0, outputPeak: 0, spurts: 0, talking,
       droppedLate: 0, movedLate: 0, lostMessages: 0, refusedMessages: 0, latencyMs: 0 };
     if (game) Object.assign(stats, { pushed: 0, channel: channel.counts(), margin: null });
-    if (arrivals) stats.arrivals = { jitterMs: arrivals.jitterMs, fps: arrivals.fps, floorTicks: arrivals.floorTicks, ...channel.arrivals() };
+    // The rule at jitter 0 under 1000/15 (frames) is not reported, as a render does not report it.
+    const reported = !!arrivals && !arrivals.frames;
+    if (reported) stats.arrivals = { jitterMs: arrivals.jitterMs, fps: arrivals.fps, floorTicks: arrivals.floorTicks, ...channel.arrivals() };
     // What the chain holds back now (the room's block only while it holds one).
     Object.defineProperty(stats, 'latencyMs', { enumerable: true, get: () => (game ? queueLatencyMs() : latencyMs(reach)) });
     // The sender's own count, read when asked.
@@ -289,7 +310,7 @@
           const tick = steamBoundTick(S, lastTick, pushed), rises = tick > lastBound;
           if (rises) { lastBound = tick; channel.advance(tick); }
           if (messages.length || rises) store(channel.take());
-          const G = Math.floor(pushed * STEAM_VOICE_RATE / STEAM_RATE) - D;
+          const G = Math.floor(pushed * STEAM_VOICE_RATE / STEAM_RATE) - hold;
           if (G > 0) {
             if (returned < G) throw new Error(`TF2Audio live chain: the voice channel returned ${returned} samples where ${G} must be final (the hold-back runs short).`);
             if (stats.margin === null || returned - G < stats.margin) stats.margin = returned - G;
@@ -324,7 +345,7 @@
       if (game) {
         stats.pushed = pushed;
         stats.channel = channel.counts();
-        if (arrivals) stats.arrivals = { jitterMs: arrivals.jitterMs, fps: arrivals.fps, floorTicks: arrivals.floorTicks, ...channel.arrivals() };
+        if (reported) stats.arrivals = { jitterMs: arrivals.jitterMs, fps: arrivals.fps, floorTicks: arrivals.floorTicks, ...channel.arrivals() };
         out = giveOutQueue(give);
       } else {
         out = timeline.take(given);
@@ -343,8 +364,9 @@
       lowLatencySavingMs: latencyMs(fullReach) - latencyMs(lowReach),
       // What the voice queue's hold adds to the hold with the full reach (W3-02c-3).
       queueCostMs: D === null ? null : queueLatencyMs() - latencyMs(fullReach),
-      // The timeline the chain plays the voice on, and its zero (null on the file's own timing).
-      timeline: game ? 'game' : 'source', zero: game ? D : null,
+      // The timeline the chain plays the voice on, its zero, and what it holds back at its mix point: D and,
+      // under 1000/15 frames a second, the frame's blocks (null on the file's own timing).
+      timeline: game ? 'game' : 'source', zero: game ? D : null, hold: game ? hold : null,
       // On the game's timeline, how many entries its channel and arrival model hold in lists (null
       // on the file's own timing), for a test: it does not grow with time.
       held: () => (game ? channel.held() + (arrivals && arrivals.held ? arrivals.held() : 0) : null),
@@ -632,6 +654,6 @@
   }
 
   E.liveChain = Object.freeze({
-    createLiveChain
+    createLiveChain, liveQueueHold
   });
 })((typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : globalThis));

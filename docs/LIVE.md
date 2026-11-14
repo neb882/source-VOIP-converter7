@@ -11,7 +11,7 @@ That depends on the codec. The tests settle it, and [tests/README.md](../tests/R
 
 | Codec | What the tests show |
 | --- | --- |
-| Steam voice (`steam`) | Yes. The live chain runs a render's own stages, fed as the microphone's blocks arrive. Given the same sound it gives the render's samples, one for one, where the voice enters the mix, at 24 and 48 kHz, also with packet loss, late frames given by the suite's own mask, the gate off and push-to-talk (`tests/steam.verify.js`, section 10b); and at the output at 48 and 44.1 kHz with the default settings (`tests/output-stage.verify.mjs`, section 14). With the switch **Live monitor: the game's voice queue** on, the monitor plays its packets through the game's voice queue with BC-4's arrival times, and gives the samples of a render on the queue with the same settings, jitter included, where the voice enters the mix, at 66.67, 100 and 300 frames a second (`tests/render-channel.verify.mjs`, section 10). With the switch off jitter does nothing in the monitor on Steam voice: the monitor keeps the file's own timing, and on Steam voice jitter moves when packets reach the queue (BC-4a). |
+| Steam voice (`steam`) | Yes. The live chain runs a render's own stages, fed as the microphone's blocks arrive. Given the same sound it gives the render's samples, one for one, where the voice enters the mix, at 24 and 48 kHz, also with packet loss, late frames given by the suite's own mask, the gate off and push-to-talk (`tests/steam.verify.js`, section 10b); and at the output at 48 and 44.1 kHz with the default settings (`tests/output-stage.verify.mjs`, section 14). With the switch **Live monitor: the game's voice queue** on, the monitor plays its packets through the game's voice queue with BC-4's arrival times, and gives the samples of a render on the queue with the same settings, jitter included, where the voice enters the mix, at 66.67, 100 and 300 frames a second, and at 60, 30 and 10, where the queue takes packets, counts down and mixes once a frame (W3-23b) (`tests/render-channel.verify.mjs`, section 10). With the switch off jitter does nothing in the monitor on Steam voice: the monitor keeps the file's own timing, and on Steam voice jitter moves when packets reach the queue (BC-4a). |
 | `vaudio_speex` | Close, not proven equal. The live output follows a render's in waveform and in level: a correlation above 0.9 and levels within 0.5 dB. With loss it loses the frames the render loses (`tests/speex102.verify.mjs`). |
 | `vaudio_celt`, `vaudio_celt_high` | Not compared as a whole. The gate, the gain (with the codec bypassed) and the codec's restart at each talk spurt are each checked in the live chain. No test sets a whole live session beside a render. |
 | Fullband Opus (`steam_48`, not in TF2) | Close, not proven equal: a correlation above 0.9 and levels within 0.5 dB (`tests/verify.js`). |
@@ -60,6 +60,18 @@ and the codec's lookahead. That is a fixed figure for a frame rate and a `voice_
 | 66.67 | 101.6 ms | 308.5 ms | about 405 ms | read; the panel measured at `fps_max` 67, which waits the same 7 ticks |
 | 100 | 148.0 ms | 354.9 ms | not measured | read |
 | 300 (the default) | 357.0 ms | 563.9 ms | about 660 ms | read; the panel measured |
+| 60 | 113.2 ms | 320.1 ms | not measured | read and arithmetic |
+| 30 | 78.4 ms | 285.3 ms | not measured | read and arithmetic |
+| 20 | 90.0 ms | 296.9 ms | not measured | read and arithmetic |
+| 10 | 124.8 ms | 331.7 ms | not measured | read and arithmetic |
+
+Under 67 frames a second the queue takes packets, counts down and mixes once a frame (read, W3-23r), and the monitor
+does the same since W3-23b. Moved on to a tick, the queue has then mixed only the blocks of the frames before it, so
+a frame's blocks at most are not yet final. The chain holds back that many blocks of 512 samples at 44.1 kHz more
+than the queue's zero: 2 at 60 frames a second, 3 at 30, 5 at 20 and 9 at 10, which is 23, 35, 58 and 104 ms
+(arithmetic; finding 22's added lines of [tests/REFERENCE_2026.md](../tests/REFERENCE_2026.md)). The four rows above
+count it, and the switch's help says it under 67. At 67 and above the queue mixes evenly and the chain holds back
+the zero alone.
 
 The figures at `voice_buffer_ms` 100 are read from the voice queue's zero (`voice-channel.js`, `zero()`) and the
 sender's read reach and lookahead; the switch's help gives the figure at the page's own frame rate and buffer. The
@@ -100,6 +112,9 @@ the engine's model and in no recording (W3-02c-3a's second read):
 - At 300 frames a second and above each opening of the channel drops 114 to 181 ms, most of it Steam's 100 ms
   pre-roll, and the pauses between phrases are shortened by up to 328 ms.
 - At 66.67 frames a second nothing is dropped, and each phrase waits as the game's does.
+- Under 67 frames a second the monitor's queue runs a frame's steps as a render's does (W3-23a and W3-23b): a phrase
+  that opens it plays early against its source by 8 to 19 ms in the mean at 60 to 10 frames a second, and at 30 and
+  under more sound is faded (measured on the model; finding 22's added lines). It sits a frame's mixing later than at 67, as above.
 - Long unbroken sound dips about 4.5 dB from minute 5 or 6 at 66.67 frames a second and from minute 15 or 16 at
   300, until a pause closes the channel. The monitor has no ten-minute limit, so a session can reach it.
 
@@ -142,8 +157,8 @@ held throughout.
 the page when you stop: the microphone as the source, the voice as its render. **Hear**, the views, the meter and
 every download then work on it, and a changed setting (or **Render**) renders the microphone again with the new
 settings. A recording stops by itself just short of 10 minutes. The voice ends short of the microphone by what the
-chain held back when it stopped (about 0.2 s on `steam`, 0.31 to 0.56 s on its queue from 66.67 to 300 frames a
-second, read); that part was never played. A recording under 0.2 s is not kept. How a take on the queue is keyed
+chain held back when it stopped (about 0.2 s on `steam`, 0.29 to 0.56 s on its queue at the page's rates from 10
+to 300 frames a second, read and arithmetic); that part was never played. A recording under 0.2 s is not kept. How a take on the queue is keyed
 and marked is under "Is the live monitor the same as a render?".
 
 ## When there is no microphone

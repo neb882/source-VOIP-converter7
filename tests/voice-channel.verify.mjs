@@ -5,7 +5,8 @@
 //   node tests/voice-channel.verify.mjs                     the public checks
 //   node tests/voice-channel.verify.mjs --fixture <file>    and a replay of a fixture
 //   node tests/voice-channel.verify.mjs --frames            the frame clock's checks alone (W3-23a),
-//                                                           each run even after one fails
+//                                                           and onOpen's (W3-23b), each run even
+//                                                           after one fails
 //
 // The public checks write a console log in the game's format from a seeded run of the
 // channel itself under a mixer of their own, turn it into a fixture with
@@ -34,7 +35,7 @@ import { mulberry32, UNRELATED, synthesize } from './voicequeue/synthetic-log.mj
 const require = createRequire(import.meta.url);
 const V = require('../voice-channel.js');
 const { createSender } = require('../steam-sender.js');
-const { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, createChannel, createTimeline } = V;
+const { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, frameHold, createChannel, createTimeline } = V;
 const TOOL = fileURLToPath(new URL('./voicequeue/log-to-fixture.mjs', import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
 // Set for the copies of this script that the public checks start: they only replay.
@@ -246,10 +247,11 @@ function publicChecks() {
     const src = fs.readFileSync(fileURLToPath(new URL('../voice-channel.js', import.meta.url)), 'utf8');
     const page = vm.createContext({}), worker = vm.createContext({ self: {} });
     vm.runInContext(src, page); vm.runInContext(src, worker);
-    // W3-02a exported four names; W3-02b adds createTimeline; W3-02c-3a adds zero; W3-02g adds arrivalZero.
+    // W3-02a exported four names; W3-02b adds createTimeline; W3-02c-3a adds zero; W3-02g adds arrivalZero; W3-23b's
+    // fix round adds frameHold.
     check('it loads as a page script and in a worker as TF2VoiceChannel, with no imports',
-      ['VOICE_CHANNEL', 'waitTicks', 'latency', 'zero', 'arrivalZero', 'createChannel', 'createTimeline'].every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
-      && Object.keys(V).join() === 'VOICE_CHANNEL,waitTicks,latency,zero,arrivalZero,createChannel,createTimeline' && !/\bimport\b|\brequire\(/.test(src));
+      ['VOICE_CHANNEL', 'waitTicks', 'latency', 'zero', 'arrivalZero', 'frameHold', 'createChannel', 'createTimeline'].every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
+      && Object.keys(V).join() === 'VOICE_CHANNEL,waitTicks,latency,zero,arrivalZero,frameHold,createChannel,createTimeline' && !/\bimport\b|\brequire\(/.test(src));
     check('its constants are frozen: 22050, 0.015 s, 100 ms, 300 fps, 0.1 s, 512 and 513; the fraction 0.999 and the unit 32768', Object.isFrozen(VOICE_CHANNEL) && Object.isFrozen(VOICE_CHANNEL.fpsRange)
       && VOICE_CHANNEL.fraction === 0.999 && VOICE_CHANNEL.unit === 32768 && VOICE_CHANNEL.ring === 22050 && VOICE_CHANNEL.tick === 0.015 && VOICE_CHANNEL.bufferMs === 100 && VOICE_CHANNEL.fps === 300
       && VOICE_CHANNEL.fadeTime === 0.1 && VOICE_CHANNEL.mixBlock === 512 && VOICE_CHANNEL.firstBlock === 513 && VOICE_CHANNEL.rate === 44100);
@@ -850,6 +852,7 @@ function publicChecks() {
   timelineChecks();
   frameClockChecks();
   endlessChecks();
+  onOpenChecks();
   arrivalZeroChecks();
   console.log(`\n${passed} voice channel checks passed`);
 }
@@ -877,7 +880,7 @@ const OPUS_DELAY = 156 / 24000;
 // Under 1000/15 frames a second (W3-23a) the clock is the frame clock: the second model of
 // tests/voicequeue/reference-frames.mjs, written again from the order's text.
 // evenTimeline is the clock of even ticks and blocks at any frame rate (a timeline with no end
-// keeps it under 1000/15 until W3-23b, not built yet).
+// kept it under 1000/15 until W3-23b; since then it has the frame clock there too).
 function referenceTimeline(messages, { fps, bufferMs, fadeTime, length }) {
   if (frameClockRuns(fps)) {
     const r = referenceFrames(messages, { fps, bufferMs, fadeTime, length, createChannel });
@@ -1607,20 +1610,22 @@ function frameClockChecks() {
       `66.67: ${hashes.map((h) => h.slice(0, 12)).join(' ')}; 66.6 differs from sample ${c.samples.findIndex((v, i) => !Object.is(v, a.samples[i]))}, the double below from ${d.samples.findIndex((v, i) => !Object.is(v, a.samples[i]))}`);
   }
   {
-    // A timeline with no end keeps the clock of even ticks and blocks at every frame rate (W3-23b, not
-    // built yet): at 30 and 10 fps what its calls return is the even clock's reading, from sample 0.
+    // A timeline with no end takes the frame clock under 1000/15 (W3-23b; until then it kept even ticks and
+    // blocks): at 60, 30, 20 and 10 fps what its calls return is the second model's, from sample 0, and not
+    // the even clock's.
     let ok = true;
     const rows = [];
-    for (const fps of [30, 10]) {
+    for (const fps of [60, 30, 20, 10]) {
       const messages = madeUpMessages(6, 700), length = 44100 * 9;
       const tl = createTimeline({ fps, length: Infinity }), parts = [];
       for (const m of messages) parts.push(tl.push(m));
-      const got = joinAll(parts), want = evenTimeline(messages, { fps, bufferMs: 100, length: got.length });
-      const same = got.length > length / 2 && got.every((v, i) => Object.is(v, want[i]));
-      if (!same) ok = false;
-      rows.push(`${fps} fps: ${got.length} samples ${same ? 'the even clock\'s' : 'NOT the even clock\'s'}`);
+      const got = joinAll(parts), want = referenceFrames(messages, { fps, length: got.length, createChannel }).samples;
+      const even = evenTimeline(messages, { fps, bufferMs: 100, length: got.length });
+      const same = got.length > length / 2 && got.every((v, i) => Object.is(v, want[i])), notEven = got.some((v, i) => !Object.is(v, even[i]));
+      if (!same || !notEven) ok = false;
+      rows.push(`${fps} fps: ${got.length} samples ${same ? 'the second model\'s' : 'NOT the second model\'s'}${notEven ? '' : ', the even clock\'s'}`);
     }
-    check('a timeline with no end keeps even ticks and blocks under 1000/15 (W3-23b, not built yet)', ok, rows.join('; '));
+    check('a timeline with no end has the frame clock under 1000/15 (W3-23b): what its calls return is the second model\'s, not the even clock\'s', ok, rows.join('; '));
   }
 }
 
@@ -1630,7 +1635,8 @@ function frameClockChecks() {
 // keeps nothing that grows with time.
 
 // Each call's return, kept apart: push's and advance's, in order.
-function callsRun(messages, opts, advanceEvery = 0) {
+// tail: with a number, one advance() that many ticks past the last message, as a last call.
+function callsRun(messages, opts, advanceEvery = 0, tail = 0) {
   const tl = createTimeline(opts);
   const calls = [];
   let lastTick = 0;
@@ -1639,6 +1645,7 @@ function callsRun(messages, opts, advanceEvery = 0) {
     calls.push(tl.push(m));
     lastTick = m.tick;
   }
+  if (tail) calls.push(tl.advance(lastTick + tail));
   return { tl, calls };
 }
 const INFO_FIELDS = ['timeline', 'fps', 'bufferMs', 'codecDelay', 'waitTicks', 'latency', 'packets', 'opens', 'appended', 'gainResets', 'droppedSamples'];
@@ -1647,17 +1654,22 @@ function endlessChecks() {
   console.log('The timeline with no end (W3-02c-3a)');
   {
     // The clock's streams of the first check, with the codec's delay as a render gives it on one setting.
-    // W3-23a (the plan review's edit 1): the case at 30 fps is at 100 here, since under 1000/15 only a whole
-    // length has the frame clock (a timeline with no end keeps even ticks and blocks: W3-23b, not built yet).
-    const cases = [[300, 100, 0.1, 0], [100, 100, 0.1, 0], [66.67, 100, 0.1, OPUS_DELAY], [150, 50, 0.05, 0], [100, 200, 0.1, 0], [300, 30, 0.02, OPUS_DELAY]];
+    // W3-23a (the plan review's edit 1) had the case at 30 fps at 100 here, since under 1000/15 only a whole
+    // length had the frame clock; W3-23b gives the timeline with no end the frame clock too, and puts it back
+    // at 30. Under the frame clock a message pushed is added in a later frame, so after the last push the
+    // last messages are still waiting and counts() does not yet have them, where finish() of a whole length
+    // adds them (the plan review's edit 3). So there both timelines are advanced 7 ticks past the last message
+    // (a frame at 30 fps is 2.2 ticks), a call compared like the others, before counts() is read.
+    const cases = [[300, 100, 0.1, 0], [100, 100, 0.1, 0], [66.67, 100, 0.1, OPUS_DELAY], [150, 50, 0.05, 0], [30, 200, 0.1, 0], [300, 30, 0.02, OPUS_DELAY]];
     let calls = 0, same = 0, all = 0, first = '', countsSame = 0, finished = 0, dropped = 0, appended = 0;
     for (const [fps, bufferMs, fadeTime, codecDelay] of cases) {
       for (let seed = 1; seed <= 8; seed++) {
         const messages = madeUpMessages(seed, 900), length = 44100 * 14 + seed * 37;
         for (const advanceEvery of [0, 3]) {
           all++;
-          const whole = callsRun(messages, { fps, bufferMs, fadeTime, codecDelay, length }, advanceEvery);
-          const endless = callsRun(messages, { fps, bufferMs, fadeTime, codecDelay, length: Infinity }, advanceEvery);
+          const tail = frameClockRuns(fps) ? 7 : 0;
+          const whole = callsRun(messages, { fps, bufferMs, fadeTime, codecDelay, length }, advanceEvery, tail);
+          const endless = callsRun(messages, { fps, bufferMs, fadeTime, codecDelay, length: Infinity }, advanceEvery, tail);
           let ok = whole.calls.length === endless.calls.length;
           for (let k = 0; ok && k < whole.calls.length; k++) {
             calls++;
@@ -1692,8 +1704,8 @@ function endlessChecks() {
     // An hour of packets at 300 fps, a little more sound than the hour (2,700 samples every 4 ticks), so the ring
     // overflows again and again. held(): the entries the timeline keeps in its lists (records of messages and
     // spurts, overflows, the source map and the channel's drops).
-    const run = (length, ticks) => {
-      const tl = createTimeline({ fps: 300, length });
+    const run = (length, ticks, fps = 300) => {
+      const tl = createTimeline({ fps, length });
       const pcm = new Float32Array(2700).fill(0.25), at = {};
       for (let t = 0, k = 0; t < ticks; t += 4, k++) {
         tl.push({ tick: t, pcm, source: 2700 * k });
@@ -1706,6 +1718,12 @@ function endlessChecks() {
     check('an hour of packets at 300 fps with the ring overflowing: the timeline with no end holds no more entries than after a minute (held(), 0 and 0), where a whole length\'s grows',
       hour.end.held <= hour.minute.held && hour.minute.dropped > 0 && hour.end.dropped > 30 * hour.minute.dropped && whole.end.held > whole.minute.held,
       `with no end ${hour.minute.held} after a minute and ${hour.end.held} after an hour, ${hour.end.dropped} samples dropped; a whole length ${whole.minute.held} then ${whole.end.held}`);
+    // W3-23b: the same at 10 fps, where the timeline with no end has the frame clock and holds the messages that wait
+    // for their frame (a frame is 6.67 ticks, so one or two of these packets 4 ticks apart).
+    const slow = run(Infinity, 240000, 10), slowWhole = run(44100 * 70, 4400, 10);
+    check('an hour of packets at 10 fps (the frame clock) with the ring overflowing: the timeline with no end holds no more entries after an hour than after a minute (held(): the messages waiting for their frame), where a whole length\'s grows',
+      slow.end.held <= slow.minute.held && slow.minute.held <= 2 && slow.minute.dropped > 0 && slow.end.dropped > 30 * slow.minute.dropped && slowWhole.end.held > slowWhole.minute.held,
+      `with no end ${slow.minute.held} after a minute and ${slow.end.held} after an hour, ${slow.end.dropped} samples dropped; a whole length ${slowWhole.minute.held} then ${slowWhole.end.held}`);
   }
   {
     // createChannel's listDrops: false lists nothing and changes nothing else.
@@ -1733,6 +1751,113 @@ function endlessChecks() {
     check('the exported zero: 13,312, 15,360 and 24,576 samples at 66.67, 100 and 300 fps with the codec\'s 156 samples, 24,064 at 300 with none; the suite\'s own reading; a codecDelay that is not a finite number of 0 or more refused',
       z.join() === '13312,15360,24576' && zero(100, 300) === 24064 && zero(100, 300, 0) === 24064 && [66.67, 100, 300].every((fps) => zero(100, fps, OPUS_DELAY) === zeroOf(100, fps, OPUS_DELAY))
       && zero(undefined, undefined) === zeroOf(100, 300) && refused === 5, `${z.join(', ')}; ${zero(100, 300)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// onOpen (W3-23b, docs/work-orders/W3-23-low-frame-rates.md, "An open happens in a frame, not in a push", and the
+// order's check 8): createTimeline calls onOpen(index) where the channel opens, index the output samples made by then.
+//   - On the clock of even ticks (66.67 and 300 fps) the index is what steamChannel counted before W3-23b, read
+//     again here from its contract: the samples returned once the push that opened a channel has returned (the
+//     opens counted across each push).
+//   - Under the frame clock (60, 30 and 10 fps) it is the second model's: 512 b - D, kept within 0 and the length,
+//     b the blocks run by the frames before the frame that adds the message (referenceFrames' frames, the message
+//     that opened told by a channel of the suite's own that wraps createChannel's).
+// Both with a whole length and with none, pushed whole and with advance() every 3 ticks.
+
+const isSame = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+// createChannel's channel, the same in all but add(), which also tells `opened` the tag of a message that opened it.
+function openingChannel(opened) {
+  return (opts) => {
+    const ch = createChannel(opts);
+    return {
+      add(pcm, tag) { const o = ch.opens; ch.add(pcm, tag); if (ch.opens > o) opened.push(tag); },
+      tick: () => ch.tick(), pull: (n) => ch.pull(n),
+      get playing() { return ch.playing; }, get opens() { return ch.opens; }, get dropped() { return ch.dropped; },
+      get drops() { return ch.drops; }, get waitTicks() { return ch.waitTicks; }
+    };
+  };
+}
+// What a timeline's onOpen gives, and the reading of it above, for one stream.
+function onOpenRun(messages, fps, length, advanceEvery) {
+  const given = [], parts = [];
+  const tl = createTimeline({ fps, length, onOpen: (i) => given.push(i) });
+  const plain = createTimeline({ fps, length });
+  const counted = [];
+  let total = 0, last = 0;
+  for (const m of messages) {
+    if (advanceEvery) for (let t = last + 1; t < m.tick; t += advanceEvery) { parts.push(tl.advance(t)); total += plain.advance(t).length; }
+    parts.push(tl.push(m));
+    const before = plain.counts().opens;
+    total += plain.push(m).length;
+    if (plain.counts().opens > before) counted.push(total);
+    last = m.tick;
+  }
+  const end = tl.finish();
+  plain.finish();
+  return { given, counted, samples: joinAll([...parts, end.samples]), opens: end.info.opens };
+}
+
+function onOpenChecks() {
+  console.log('onOpen: the timeline tells where the channel opens (W3-23b, the order\'s check 8)');
+  {
+    let ok = true, opens = 0;
+    const rows = [];
+    for (const fps of [66.67, 300]) for (const length of [44100 * 14, Infinity]) for (const advanceEvery of [0, 3]) for (const seed of [1, 2, 3]) {
+      const r = onOpenRun(madeUpMessages(seed, 900), fps, length, advanceEvery);
+      opens += r.given.length;
+      if (!(r.given.length > 0 && isSame(r.given, r.counted) && (length === Infinity || r.given.length === r.opens))) {
+        ok = false;
+        rows.push(`${fps} fps, ${length === Infinity ? 'no end' : 'a whole length'}, seed ${seed}${advanceEvery ? ', advance()' : ''}: ${r.given.join(',')} against ${r.counted.join(',')}`);
+      }
+    }
+    check('on the clock of even ticks (66.67 and 300 fps), whole and with no end: onOpen gives each open the samples returned once the push that opened it has returned, steamChannel\'s count before W3-23b',
+      ok && opens > 0, rows.join('; ') || `${opens} opens`);
+  }
+  {
+    let ok = true, opens = 0, later = 0;
+    const rows = [];
+    for (const fps of [60, 30, 10]) for (const seed of [1, 2, 3]) {
+      const messages = madeUpMessages(seed, 900), length = 44100 * 14, opened = [];
+      const ref = referenceFrames(messages, { fps, length, createChannel: openingChannel(opened) });
+      const D = zeroOf(100, fps), before = [];
+      let blocks = 0;
+      const frameOf = new Map();
+      for (const f of ref.frames) { for (const i of f.added) frameOf.set(i, blocks); blocks += f.blocks; }
+      for (const tag of opened) before.push(Math.max(0, Math.min(length, 512 * frameOf.get(tag) - D)));
+      for (const len of [length, Infinity]) for (const advanceEvery of [0, 3]) {
+        const r = onOpenRun(messages, fps, len, advanceEvery);
+        // With no end the stream's last messages wait for frames no call runs: those opens are not yet told.
+        const want = len === Infinity ? before.slice(0, r.given.length) : before;
+        opens += r.given.length;
+        if (!isSame(r.given, r.counted)) later++;
+        if (!(r.given.length > 0 && isSame(r.given, want) && r.given.length >= before.length - 1 && (len === Infinity || r.given.length === r.opens))) {
+          ok = false;
+          rows.push(`${fps} fps, seed ${seed}, ${len === Infinity ? 'no end' : 'a whole length'}${advanceEvery ? ', advance()' : ''}: ${r.given.join(',')} against ${want.join(',')}`);
+        }
+      }
+    }
+    check('under the frame clock (60, 30 and 10 fps), whole and with no end: onOpen gives each open 512 b - D (within 0 and the length), b the blocks of the frames before the one that adds its message (the second model\'s), which in some runs is not the count once the opening push has returned',
+      ok && opens > 0 && later > 0, rows.join('; ') || `${opens} opens; in ${later} of 36 runs not the count once the opening push has returned`);
+  }
+  {
+    // frameHold (W3-23b's fix round, item 1): the hold's one formula, which the live chain and the page take, read
+    // again here: ceil(88200 / (1024 fps)) blocks where the frame clock runs, fps a number limited to 10..1000
+    // (else 300), and 0 at 1000/15 and above.
+    const below = new Float64Array([1000 / 15]);
+    new BigInt64Array(below.buffer)[0] -= 1n;
+    const rows = [[5, 9], [10, 9], [20, 5], [30, 3], [40, 3], [50, 2], [60, 2], [below[0], 2], [1000 / 15, 0], [66.67, 0], [300, 0], [1000, 0], [5000, 0], ['30', 0], [NaN, 0], [undefined, 0]];
+    const got = rows.map(([fps]) => frameHold(fps));
+    check('frameHold: 9 blocks at 5 and 10 fps, 5 at 20, 3 at 30 and 40, 2 at 50, 60 and the double below 1000/15, 0 at 1000/15, 66.67, 300 and 1000 and above, and 0 for "30", NaN and none (read as 300)',
+      rows.every(([fps, want], k) => got[k] === want && (typeof fps !== 'number' || !Number.isFinite(fps) || got[k] === (frameClockRuns(fps) ? Math.ceil(88200 / (1024 * Math.min(1000, Math.max(10, fps)))) : 0))),
+      got.join(', '));
+  }
+  {
+    let refused = 0;
+    for (const onOpen of [1, 'f', {}, true]) { try { createTimeline({ length: 100, onOpen }); } catch (e) { if (e instanceof RangeError) refused++; } }
+    let taken = 0;
+    for (const onOpen of [undefined, null]) { try { createTimeline({ length: 100, onOpen }); taken++; } catch (e) { /* refused */ } }
+    check('onOpen that is not a function is refused with a RangeError; none and null are taken', refused === 4 && taken === 2);
   }
 }
 
@@ -1838,6 +1963,7 @@ for (let i = 0; i < argv.length; i++) {
 if (framesOnly) {
   keepGoing = true;
   frameClockChecks();
+  onOpenChecks();
   console.log(`\n${passed} voice channel checks passed, ${failed} failed (the frame clock's alone)`);
   if (failed) process.exitCode = 1;
 }

@@ -70,19 +70,25 @@
   // place of Steam's reach (its longest chunk and its pre-roll, 4650
   // samples at 24 kHz, read from the sender's constants) and the codec's
   // lookahead (156 samples at 24 kHz, read: the chain takes it from the
-  // encoder). The chain reports the same figure as queueCostMs at its own
-  // frame rate; the help gives it at the page's, so it holds before the
-  // monitor runs and while the switch is off. null where the module refuses
-  // the numbers.
+  // encoder). Under 1000/15 frames a second the queue mixes once a frame,
+  // and the chain holds back a frame's mixer blocks more (W3-23b: the
+  // engine's liveQueueHold, ceil(88200 / (1024 x fps)) blocks of 512 samples
+  // at 44.1 kHz, arithmetic). The chain reports the same figure as
+  // queueCostMs at its own frame rate; the help gives it at the page's, so it
+  // holds before the monitor runs and while the switch is off. null where
+  // the module refuses the numbers.
   const STEAM_LOOKAHEAD = 156;
   // What low latency saves on `steam`: the pre-roll less a frame and a
   // sample, at 24 kHz (the chain's lowLatencySavingMs, 80.04 ms; read).
   const lowLatencySaving = () => { const S = TF2SteamSender.STEAM_SENDER; return 1000 * (S.preroll - S.frame + 1) / S.rate; };
+  // The frame's mixer blocks the chain holds back over the queue's zero, in samples at 44.1 kHz (0 at 1000/15 frames
+  // a second and above): voice-channel.js's frameHold, the one formula the chain's liveQueueHold takes too.
+  const frameHold = (fps) => TF2VoiceChannel.VOICE_CHANNEL.mixBlock * TF2VoiceChannel.frameHold(fps);
   function queueCost(fps, bufferMs) {
     const S = TF2SteamSender.STEAM_SENDER, VC = TF2VoiceChannel;
     try {
       const D = VC.zero(bufferMs, fps, STEAM_LOOKAHEAD / S.rate);
-      return 1000 * (D / VC.VOICE_CHANNEL.rate - (3 * S.grid + S.preroll + STEAM_LOOKAHEAD) / S.rate);
+      return 1000 * ((D + frameHold(fps)) / VC.VOICE_CHANNEL.rate - (3 * S.grid + S.preroll + STEAM_LOOKAHEAD) / S.rate);
     } catch (e) { return null; }
   }
   // The switch's help: what it does, the figure at the page's own frame rate
@@ -103,6 +109,7 @@
       'Phrase timing does not change it.',
       `Each phrase waits as in the game, and the monitor plays ${ms != null ? `${ms.toFixed(0)} ms` : 'the queue\'s wait'} later than with this off (read).`,
       ...(low ? [`That counts low latency's saving of ${lowLatencySaving().toFixed(0)} ms, which the queue does not use.`] : []),
+      ...(frameHold(fps) > 0 ? [`That counts ${(1000 * frameHold(fps) / TF2VoiceChannel.VOICE_CHANNEL.rate).toFixed(0)} ms of a frame's mixing, since under 67 frames a second the queue mixes once a frame.`] : []),
       'With jitter each phrase comes later again by the time its first packet took.',
       'What you hear with it on is measured on the model, in no recording.',
       'At 300 frames a second and above each opening of the channel drops 114 to 181 ms, most of it the 100 ms pre-roll.',
@@ -121,9 +128,11 @@
       // While the chain runs the game's voice queue (W3-02c-3b): the queue's
       // wait in the place of the chunk and the pre-roll.
       queueLatency: (fps, buffer) => {
-        const ticks = TF2VoiceChannel.waitTicks(buffer, fps), tick = TF2VoiceChannel.VOICE_CHANNEL.tick;
+        const ticks = TF2VoiceChannel.waitTicks(buffer, fps), tick = TF2VoiceChannel.VOICE_CHANNEL.tick, more = frameHold(fps);
         return `Microphone to speaker: what the voice chain holds back (the game's voice queue: a new phrase waits ${ticks} ticks, ${Math.round((ticks - 1) * tick * 1000)} ms, at fps_max ${+Number(fps).toFixed(2)} and voice_buffer_ms ${buffer}, `
-          + 'with its opening burst, the packet\'s way and the codec\'s lookahead, in the place of Steam\'s longest capture chunk and its pre-roll; the filters\' waits), the playback queue and the audio device\'s buffers';
+          + 'with its opening burst, the packet\'s way and the codec\'s lookahead, '
+          + (more > 0 ? `and ${(1000 * more / TF2VoiceChannel.VOICE_CHANNEL.rate).toFixed(0)} ms of a frame's mixing, since under 67 frames a second the queue mixes once a frame, ` : '')
+          + 'in the place of Steam\'s longest capture chunk and its pre-roll; the filters\' waits), the playback queue and the audio device\'s buffers';
       },
       queueLow: 'Off while the live monitor runs the game\'s voice queue: low latency shortens Steam\'s reach, which the queue does not use.',
       lowLatency: (ms) => `Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. ${ms != null ? `Saves ${ms.toFixed(0)} ms.` : 'Saves the figure shown once the monitor runs.'} Not how TF2 sounds.`,

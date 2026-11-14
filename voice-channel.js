@@ -130,6 +130,20 @@
     return VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (latency(bufferMs, fps) + ARRIVAL_SECONDS + delay) / VOICE_CHANNEL.mixBlock);
   }
 
+  // frameHold(fps) (W3-23b, docs/work-orders/W3-23-low-frame-rates.md, the plan review's edit 11 and "W3-23b: after
+  // the review"): how many mixer blocks of 512 samples a caller that gives out what the timeline has made final by a
+  // tick must hold back more than D under the frame clock, fps read as createTimeline reads it (a number, else 300;
+  // limited to 10..1000). Advanced to a tick t, the timeline has run the blocks of every frame before 1323 t half
+  // samples; the frames not run start at or after it, so the blocks not yet run start in an open stretch no longer
+  // than a frame, 88200 / fps half samples, which holds at most ceil(88200 / (1024 fps)) starts of a block
+  // (arithmetic): 9 at 10, 5 at 20, 3 at 30, 2 at 60. 0 where the frame clock does not run (1000/15 and above).
+  // The live chain (engine/live-chain.js) and the live monitor's page (live.js) both take it from here.
+  function frameHold(fps) {
+    const rate = clamp(finiteOr(fps, VOICE_CHANNEL.fps), VOICE_CHANNEL.fpsRange[0], VOICE_CHANNEL.fpsRange[1]);
+    const HALF = 2 * VOICE_CHANNEL.rate, TICK = Math.round(HALF * VOICE_CHANNEL.tick), BLOCK = 2 * VOICE_CHANNEL.mixBlock;
+    return HALF / rate > TICK ? Math.ceil(HALF / (BLOCK * rate)) : 0;
+  }
+
   // The zero for packets that come with their own arrival ticks (W3-02g: a demo's, each on the
   // tick SourceTV wrote it on), which createTimeline takes as zeroSamples: latency(bufferMs, fps)
   // less the opening burst (OPENING_SECONDS), on whole mixer blocks. Such a spurt's place in the
@@ -304,7 +318,7 @@
   // on tick k, before the tick's pass. Block b is output samples 512 b - D to 512 b - D + 511.
   //
   // The frame clock (W3-23a, docs/work-orders/W3-23-low-frame-rates.md, "The frame clock"): with a
-  // whole length and a frame longer than a tick (88200 / fps > 1323, fps limited to 10..1000 as
+  // frame longer than a tick (88200 / fps > 1323, fps limited to 10..1000 as
   // waitTicks limits it: under 1000/15 frames a second), the game takes packets, counts its ticks
   // and mixes once a frame (read: W3-03, W3-07 and W3-23r), and so does the timeline. Frame k is at
   // F(k) = (88200 k) / fps half samples, in double precision; in each frame, in this order (read,
@@ -312,8 +326,8 @@
   // the order given; every tick i not yet run with 1323 i <= F(k) runs its pass; every block b not
   // yet run with 1024 b <= F(k) runs. A message waits in the timeline from its push until its frame.
   // At 1000/15 and above (66.67, the default 300) the clock is the one above, to the last sample. A
-  // timeline with no end keeps the clock above at every frame rate (the live monitor's chain:
-  // W3-23b, not built yet).
+  // timeline with no end (the live monitor's chain) takes the same clock as a whole length at every
+  // frame rate (W3-23b, 2026-11-14; until then it kept the clock above at every rate).
   // D, the zero, is taken out so that a restarted spurt sits where the source has it, in the
   // mean: the delay at which a restarted spurt plays (latency) plus the mean time its opening
   // packet takes to arrive after its last sample (ARRIVAL_SECONDS) plus what the caller took
@@ -337,7 +351,8 @@
   // packets that come with their own arrival ticks, a demo's, whose zero is arrivalZero(); a
   // whole number of samples, 0 or more, and a whole number of mixer blocks; with it no
   // codecDelay may be given, and info's codecDelay is 0; it works the same with length
-  // Infinity, though no caller passes both). Anything else is a RangeError.
+  // Infinity, though no caller passes both), onOpen (W3-23b; a function or none: below).
+  // Anything else is a RangeError.
   //
   // Scale: push's pcm, the gain and the output are at 1/32768 of the channel's 16-bit units
   // (1.0 is 32768 units). The boundary is here: the gain's output is multiplied by 32768 as it
@@ -379,6 +394,13 @@
   // opens, appended, gainResets, droppedSamples }, as info will have them for the calls so far
   // (under the frame clock, opens, appended, gainResets and droppedSamples count the messages
   // added so far, not those still waiting for their frame).
+  // onOpen(index): called where the channel opens (where it resets the gain), once for each
+  // open; index is the count of output samples the timeline has made by then (returned, or to
+  // be returned by the call that is running). On the clock of even ticks an open happens in the
+  // push of its message, after every block that starts before its tick, so index is what that
+  // push returns and everything before it. Under the frame clock it happens in the frame that adds
+  // the message, after the blocks of the frames before and before the frame's own blocks, so in
+  // a later push, an advance() or finish().
   // held(): how many entries the timeline holds in its lists (its records of messages and
   // spurts, its overflows, the source map's slots, the channel's drops and the messages waiting
   // for their frame), for a test to see that a timeline with no end does not grow.
@@ -387,7 +409,10 @@
   // advance return the samples a whole length returns for the same calls (output before
   // sample 0 dropped as there); nothing is cut at an end. It keeps no source map, no record
   // of a message, a spurt or an overflow, and no list that grows with time (the channel is
-  // made with listDrops false): what counts() reports is counted as it goes. finish() ends it,
+  // made with listDrops false): what counts() reports is counted as it goes. Under the frame
+  // clock (W3-23b) the messages waiting for their frame are held too, never more than those
+  // pushed since the last frame ran: every push or advance that runs a frame adds all of them
+  // in its first frame. finish() ends it,
   // runs no block, and returns what was final and not yet returned (nothing, since every call
   // returns what became final) with counts() as its info.
   function createTimeline(opts) {
@@ -404,6 +429,8 @@
       if (o.codecDelay !== undefined) throw new RangeError('createTimeline takes zeroSamples or codecDelay, not both');
       if (!Number.isInteger(z) || z < 0 || z % VOICE_CHANNEL.mixBlock !== 0) throw new RangeError('createTimeline\'s zeroSamples is a whole number of samples, 0 or more, and a whole number of mixer blocks (512)');
     }
+    const onOpen = o.onOpen === undefined || o.onOpen === null ? null : o.onOpen;
+    if (onOpen !== null && typeof onOpen !== 'function') throw new RangeError('createTimeline\'s onOpen is a function (index) or none');
     const user = o.gain || null;
     let gainResets = 0;
     const UNIT = VOICE_CHANNEL.unit;
@@ -420,10 +447,11 @@
     const SLOT = Math.round(VOICE_CHANNEL.rate * 0.02), MID = SLOT >> 1;      // 882; its centre 441
     const INTO = Math.round(VOICE_CHANNEL.rate * 0.2);                        // 0.2 s into a spurt
     // The frame clock (W3-23a): the frame rate as waitTicks limits it; frame k at
-    // (88200 k) / rate half samples; on with a whole length when a frame is longer than a tick.
+    // (88200 k) / rate half samples; on when a frame is longer than a tick, with a whole length
+    // or none (W3-23b).
     const HALF = 2 * VOICE_CHANNEL.rate;                                      // 88200 half samples a second
     const rate = clamp(fps, VOICE_CHANNEL.fpsRange[0], VOICE_CHANNEL.fpsRange[1]);
-    const frames = !endless && HALF / rate > TICK;
+    const frames = HALF / rate > TICK;
     const frameAt = (k) => (HALF * k) / rate;
 
     const slots = endless ? null : new Int32Array(Math.ceil(length / SLOT)).fill(-1);
@@ -438,6 +466,7 @@
     let packets = 0, appended = 0;                // counted as they come (counts())
     let kept = null;                              // the sample the mixer loaded last and has not played
     let pieces = [];                              // the output of the blocks run since the last return
+    let made = 0;                                 // the output samples made so far (onOpen's index)
     // The frame clock: the next frame, and the messages pushed and not yet added, in the order
     // given (from waitHead on).
     let nextFrame = 0, waitHead = 0;
@@ -501,7 +530,7 @@
       // fade and the padding leave that pull's last sample 0, so the kept sample is silence.
       // What the engine does with it was not read.)
       const a = Math.max(0, at), b = Math.min(length, at + N);   // what falls inside 0 .. length - 1
-      if (b > a) pieces.push(samples ? samples.slice(a - at, b - at) : new Float32Array(b - a));
+      if (b > a) { pieces.push(samples ? samples.slice(a - at, b - at) : new Float32Array(b - a)); made += b - a; }
     }
 
     // Every event that starts before time t (half samples), in time order; a tick before a
@@ -589,6 +618,7 @@
       const opened = ch.opens > opensBefore;
       if (first && !opened) appended++;
       if (opened) { fresh = true; if (first && !endless) spurts[s].opened = true; }
+      if (opened && onOpen) onOpen(made);
       if (!endless && ch.dropped > droppedBefore) {   // an overflow: the oldest samples in the ring went
         const total = ch.dropped - droppedBefore;
         for (let k = total; k > 0;) {
@@ -648,7 +678,7 @@
     return Object.freeze({ push, advance, finish, counts, held });
   }
 
-  const TF2VoiceChannel = { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, createChannel, createTimeline };
+  const TF2VoiceChannel = { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, frameHold, createChannel, createTimeline };
   if (typeof module !== 'undefined' && module.exports) module.exports = TF2VoiceChannel;
   else root.TF2VoiceChannel = TF2VoiceChannel;
 })(typeof self !== 'undefined' ? self : this);
