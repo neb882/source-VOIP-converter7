@@ -13,6 +13,11 @@
       "order": "W3-02c-3",
       "state": "planned again 2026-11-13 after BC-4 and plan-reviewed (docs/work-orders/W3-02c3-live-channel.md, two parts, a then b; the rulings and the plan review's edits at its end); part a's builder started 2026-11-13 after W3-02f's merge (branch claude/w3-02c3a-live-channel)",
       "note": "The live monitor can run the game's voice queue, and with it BC-4's arrival times on Steam voice."
+    },
+    {
+      "order": "W3-02g",
+      "state": "a planner started 2026-11-14 (branch claude/w3-02g-plan)",
+      "note": "A demo's own packets through the render's decoder and the game's voice queue, with the demo's own ticks; the old section of W3-02-receiver-queue.md written again as an order of its own."
     }
   ],
   "next": [
@@ -26,7 +31,7 @@
       "order": "W3-02g",
       "file": "docs/work-orders/W3-02-receiver-queue.md",
       "after": "W3-02c-2 and W3-02f (both merged), and a planner's pass",
-      "line": "a demo's own packets through the render's decoder and the channel."
+      "line": "a demo's own packets through the render's decoder and the channel; in flight since 2026-11-14 (in_flight)."
     },
     {
       "order": "BC-3 remainder, BC-5, BC-6",
