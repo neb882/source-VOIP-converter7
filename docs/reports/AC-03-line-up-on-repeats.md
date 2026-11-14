@@ -151,8 +151,8 @@ the result to read is `5b8386d`'s.
 
 `node tests/cache-number.mjs origin/main --report` printed:
 
-    cached files changed since origin/main (cdefc3f): reference.js
-    cache number against origin/main (cdefc3f): the number is v51, not above v51: it must rise (node tests/cache-number.mjs origin/main --set)
+    cached files changed since origin/main (c464d53): reference.js
+    cache number against origin/main (c464d53): the number is v51, not above v51: it must rise (node tests/cache-number.mjs origin/main --set)
 
 The number is the orchestrator's to raise at the merge; `sw.js` is untouched.
 
