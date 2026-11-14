@@ -233,7 +233,8 @@ The breaks, each in a copy of the branch:
 | `fps` coerced with `Number()` in `frameHold` | the same | the `frameHold` check; the delay check (the string `'30'`) |
 
 **Checks.** `node tests/render-channel.verify.mjs 10`: `57 render-channel checks passed, 0 failed`. `node
-tests/voice-channel.verify.mjs --frames`: `11 voice channel checks passed, 0 failed`. `node tests/harness.verify.mjs`:
+tests/voice-channel.verify.mjs`: `167 voice channel checks passed` (its export list names `frameHold`, which the
+first push of the fix round missed: CI run 43649507139 failed there). `node tests/harness.verify.mjs`:
 `34 passed, 0 failed`; `node tests/site.verify.mjs`: `12 passed, 0 failed`. `flock /tmp/tf2ve-heavy.lock node
 tests/render-stream.verify.mjs --hashes` after the fix: equal byte for byte to the output at `2f0212e` (SHA-256
 `f73fee8b…`). The whole `pnpm test` and the browser suite were not run again locally (the heavy lock is the
