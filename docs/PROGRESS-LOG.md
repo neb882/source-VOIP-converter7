@@ -658,3 +658,9 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-14: W3-02c-3a merged (cache v48); entries replaced
 
 - in_flight, W3-02c-3, state replaced: "planned again 2026-11-13 after BC-4 and plan-reviewed (docs/work-orders/W3-02c3-live-channel.md, two parts, a then b; the rulings and the plan review's edits at its end); part a's builder started 2026-11-13 after W3-02f's merge (branch claude/w3-02c3a-live-channel)"
+
+## 2026-11-14: W3-02c-3b merged (cache v49); W3-02c-3 done; entries replaced
+
+- in_flight, W3-02c-3 removed: "{'order': 'W3-02c-3', 'state': 'part a merged 2026-11-14 (cache v48): the module, the arrival model and the live chain; part b (the worker, the page, the recorded take) is being built', 'note': 'The live monitor can run the game's voice queue, and with it BC-4's arrival times on Steam voice.'}"
+- next, W3-02c-3 removed: "{'order': 'W3-02c-3', 'file': 'docs/work-orders/W3-02c3-live-channel.md', 'after': 'BC-4 (BC-4a and BC-4b merged 2026-11-13)', 'line': 'the live monitor can run the game's voice queue behind a checkbox that is off on every load; planned 2026-11-13; built after BC-4, which changes when packets arrive; in flight since 2026-11-13 (in_flight).'}"
+- waiting_on_the_owner, the monitor's default, replaced: "Not urgent: W3-02c-3 (being planned again and then built) lets the live monitor run the game's own voice queue behind a box that is off on every load. With the box on, the monitor is about 102 ms later at 66.67 frames a second and 357 ms later at 300 than today (inferred, the order's "The hold-back"), and each phrase waits as the game's does. Say if it should be on by default instead; the orchestrator's default, built unless you say otherwise: off on every load."
