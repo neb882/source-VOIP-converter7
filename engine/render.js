@@ -12,8 +12,8 @@
   const { buildLossMask, steamArrivalPlan, steamLoser } = E.network;
   const { DEFAULT_SENDER_GATE, celtModeRate, gateThresholdDb, loadOpusModule, profileEq, receivedCodecInfo } = E.codec;
   const { resolveRoom, roomPreset, tailAtDevice } = E.room;
-  const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel,
-    steamCodecInfo, steamGameTimeline, steamModules, steamPlayedInfo, steamSenderOptions, steamTimeline } = E.steam;
+  const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
+    steamCodecInfo, steamDemoVoice, steamGameTimeline, steamModules, steamPlayedInfo, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
   /* The stages a render keeps (W4-01b)                                 */
@@ -120,10 +120,12 @@
     const receivedInfo = received ? receivedCodecInfo(received, codecRate) : null;
     // The game's timeline (W3-02c-2), or a RangeError where it was asked for
     // and cannot run (steamGameTimeline). fps and bufferMs are handed to the
-    // channel as they were given.
+    // channel as they were given. With a demo's voice it plays the demo's
+    // own packets (W3-02g, steamDemoVoice).
     const game = steamGameTimeline(o.timeline, { codecKey, codec, enableCodec, received });
-    // opts.arriveAt (BC-4), or a RangeError where it cannot run.
-    const arriveAt = steamArriveAt(o.arriveAt, game);
+    // opts.arriveAt (BC-4), or a RangeError where it cannot run (with a
+    // demo's packets too, which carry their own ticks).
+    const arriveAt = steamArriveAt(o.arriveAt, game, game && !!received);
     // Steam's sender and decoder run (the steam path): jitter draws no late
     // frame there (BC-4), so the codec stage does not use it.
     const steamPath = enableCodec && !received && codec.senderGate?.rule === 'steam';
@@ -367,7 +369,8 @@
    *                 falls (else a RangeError, one message for each). An
    *                 answer far past the render's end costs time in
    *                 proportion: the channel steps to it tick by tick (3.3 s
-   *                 for 1e8, measured). Given anywhere else, or not a
+   *                 for 1e8, measured). Given anywhere else, with a demo's
+   *                 packets (which carry their own ticks), or not a
    *                 function, a RangeError. The render keeps nothing in
    *                 stages                                           [none]
    *   frameMs:      net_split packet duration (whole 20 ms frames); on
@@ -379,8 +382,9 @@
    *                 (steamArrivals: the lists' rule read, two of their
    *                 choices made); nothing lost, the order kept, the least
    *                 delay taken out and the rest heard. On `steam` with the
-   *                 source's timeline: nothing. On the other profiles: late
-   *                 frames, a fit (finding 9)                          [0]
+   *                 source's timeline, and for a demo's voice on either:
+   *                 nothing. On the other profiles: late frames, a fit
+   *                 (finding 9)                                        [0]
    *   enableWarble: false bypasses the codec (filters/engine remain)    [true]
    *   gate:         Steam sender voice gate; null = profile default     [null]
    *   gateThresholdDb: gate opening level, frame RMS in dBFS [profile/-39.5];
@@ -415,10 +419,12 @@
    *                 the receiver's voice channel (voice-channel.js: the wait,
    *                 the queue, the one sample dropped from every packet, the
    *                 fade, a gain reset at each channel opened). `steam` only,
-   *                 with the codec on and no `received`; anywhere else, and
-   *                 for any other value, a RangeError. The page renders
-   *                 Steam voice on it by default since W3-02d-1; this
-   *                 engine's own default is the source's        ['source']
+   *                 with the codec on, with no `received` or with a demo's
+   *                 packets in it (W3-02g, below); anywhere else, and for
+   *                 any other value, a RangeError. The page renders Steam
+   *                 voice on it by default since W3-02d-1 (a demo's voice
+   *                 not yet); this engine's own default is the
+   *                 source's                                    ['source']
    *   fps, bufferMs: with timeline 'game', the listener's frames a second
    *                 and voice_buffer_ms, handed to the channel as given (it
    *                 takes its own defaults and limits)           [300, 100]
@@ -426,8 +432,22 @@
    *   received:     the source is voice as the game received it, already
    *                 through a sender and the codec (a demo's packets,
    *                 demo.js): { frameLog, frameBytes, frameMs, spurts,
-   *                 concealed, version }. Only the receiver runs; sender,
-   *                 gate, codec and network settings are ignored.      [null]
+   *                 concealed, version }, the source being demo.js's
+   *                 decode. Only the receiver runs; sender, gate, codec and
+   *                 network settings are ignored. On the source's timeline
+   *                 the receiver's gain runs over the source (stage 4), and
+   *                 a demo's packets, if given, are not read. W3-02g: with
+   *                 timeline 'game' it must also hold the demo's own
+   *                 packets, { firstTick, tickSeconds, packets } as
+   *                 demo.js's decode() gives them (anything malformed a
+   *                 RangeError that names it); each message then goes
+   *                 through Steam's decoder as read (16 bits, at most 10
+   *                 frames concealed, a record cut at 17 frames), Steam's
+   *                 resampler once per record, the refusal of a message
+   *                 over 12 frames, and the voice channel on the demo's own
+   *                 ticks with the zero of voice-channel.js arrivalZero(),
+   *                 in place of stage 4 (steamDemoVoice); the source's
+   *                 samples set only the render's length            [null]
    *   stages:       W4-01b: an object the caller keeps between renders of
    *                 one source. The render keeps A (the capture at the
    *                 codec's rate) and B (the codec stage's result) in it,
@@ -466,6 +486,13 @@
    * under arriveAt), and over the messages pushed into the channel the mean
    * and the most of the delay above it in ms and how many came on the tick
    * of the message before; absent otherwise.
+   * With timeline 'game' and a demo's packets (W3-02g) codecInfo is the
+   * demo's (backend 'demo', the counters of the file's own timing,
+   * lookahead 0) with frameLog and frameBytes as played, sent and channel
+   * as above, and codecInfo.demo = { messages, pushed, sameTick,
+   * refusedMessages, cutRecords, unreadFrames, concealed, resets,
+   * droppedSilence, pastEnd, tickMs } (steamDemoVoice); no arrivals, sender
+   * or network. Such a render keeps A in stages and nothing else.
    */
   async function process(audioBuffer, opts = {}) {
     if (!audioBuffer || typeof audioBuffer.getChannelData !== 'function' ||
@@ -496,6 +523,10 @@
     // B is kept where a codec runs: not for a demo's voice, not with the
     // codec skipped.
     const coded = enableCodec && !received;
+    // A demo's own packets on the game's timeline (W3-02g): after A they go
+    // through Steam's decoder, its resampler and the voice channel in place
+    // of stage 4's resampler and gain.
+    const demoQueue = r.game && !!received;
 
     // B, when the stages hold it for these settings: stages 1 to 3 are done.
     let b = kept && coded ? kept.take('b') : null;
@@ -615,7 +646,7 @@
       // `steam`'s messages are kept without their `pcm`, the encoder's
       // input, which nothing after B reads.
       if (kept && coded) kept.keep('b', b.kind === 'steam' ? { ...b, messages: b.messages.map(({ pcm, ...rest }) => rest) } : b);
-      if (!steamPath) report(0.72);
+      if (!steamPath && !demoQueue) report(0.72);
     }
 
     /* ---- after B: used from here on, the receiver's settings ---- */
@@ -665,6 +696,39 @@
       if (played) codecInfo = steamPlayedInfo(codecInfo, played, trip.lookahead);
       if (arrivals) codecInfo.arrivals = { jitterMs: arrivals.jitterMs, fps: arrivals.fps, floorTicks: arrivals.floorTicks, ...channel.arrivals() };
       report(0.72);
+    } else if (demoQueue) {
+      // A demo's own packets on the game's timeline (W3-02g): one Steam
+      // decoder (record() alone) and one resampler for the whole render, the
+      // voice channel made with the render's voice length, the listener's fps
+      // and voice_buffer_ms as given, the receiver's settings and the demo's
+      // zero (arrivalZero), and every message run on its arrival tick
+      // (steamDemoVoice); then the channel's output, voiceLength samples. A
+      // stays the demo's samples, and only their length is used here.
+      if (codecRate !== STEAM_RATE || codec.voiceRate !== STEAM_VOICE_RATE || codec.decoderEq) {
+        throw new Error('The steam rule runs at 24000 Hz into a 44100 Hz voice rate, with no decoder EQ.');
+      }
+      const opus = await loadOpusModule();
+      const { swr } = steamModules();
+      const resampler = o.swrKernel !== undefined ? swr.createResampler({ kernel: o.swrKernel }) : swr.createResampler();
+      const voiceLength = sincLength(b.samples.length, codecRate, codec.voiceRate);
+      const zero = steamChannelModule().arrivalZero(o.bufferMs, o.fps);
+      const channel = steamChannel({ length: voiceLength, fps: o.fps, bufferMs: o.bufferMs, autoGain, avgGain, maxGain, voiceScale,
+        zeroSamples: zero });
+      const decoder = await opus.createSteamDecoder();
+      let voice;
+      try {
+        // Progress once per 64 messages, from 20% to 72%.
+        voice = steamDemoVoice({ received, length: voiceLength, zero, decoder, resampler, channel, onDecoded: o.onDecoded,
+          onResampled: o.onResampled, onStep: async (k, n) => { report(0.2 + 0.52 * k / n); await pause(); } });
+        await voice.feed(Infinity);
+      } finally { decoder.free(); }
+      const played = channel.finish();
+      steamVoice = channel.take();
+      if (steamVoice.length !== voiceLength) {
+        throw new Error(`TF2Audio: the voice channel gave ${steamVoice.length} samples for a voice of ${voiceLength}.`);
+      }
+      codecInfo = { ...steamPlayedInfo(b.info, played, 0), demo: voice.info() };
+      report(0.72);
     } else if (b.kind === 'frames') {
       // B's samples are read only after it; its codecInfo is copied, since a
       // caller may write into a render's.
@@ -681,10 +745,10 @@
     await pause();
 
     /* ---- 4) Receiver voice channel: auto-gain + int16 clamp ---- */
-    if (steamPath) {
+    if (steamPath || demoQueue) {
       // The gain ran on the decoded packets (steamTimeline); on the game's
-      // timeline the channel's gain object also scaled, clipped and rounded
-      // them with the auto-gain off.
+      // timeline (a demo's packets among them) the channel's gain object
+      // also scaled, clipped and rounded them with the auto-gain off.
       samples = steamVoice;
       if (!autoGain && !r.game) {
         for (let i = 0; i < samples.length; i++) samples[i] *= voiceScale;

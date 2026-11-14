@@ -145,6 +145,60 @@ function receivedVoice(seconds, seed) {
   return { samples, received: { frameLog, frameBytes, frameMs: 20, spurts } };
 }
 
+// A demo's own packets (W3-02g), made here as the received voice above is: a
+// demo's messages in Set D's shape, phrases that open with 8 frames from
+// number 0 (13 in the third phrase, which the game refuses) and go on with 3
+// frames every fourth tick, an end marker with the last and a silence record
+// of 1,500 samples four ticks later, pauses of 10 to 80 ticks, 2 frames that
+// never came in front of a message of the second phrase, two messages on one
+// tick in the fourth, and an end marker alone past the end. The frames are
+// seeded bytes behind the TOC of a 20 ms Opus frame (hybrid, SILK or CELT),
+// which Steam's decoder takes as it takes any packet. `at`, the frame log and
+// the sizes are where demo.js's decode would lay each frame (from the
+// phrase's tick, frames back to back, the 2 that never came concealed); the
+// source is speech-like talk of the same length, of which a render on the
+// game's timeline uses the length alone.
+function demoQueueVoice(seconds, seed) {
+  let s = seed >>> 0;
+  const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const total = Math.round(seconds * 50) * 480, slots = total / 480;
+  const frameLog = new Array(slots).fill(0), frameBytes = new Array(slots).fill(0), packets = [];
+  const frame = () => {
+    const data = new Uint8Array(20 + Math.floor(rnd() * 90));
+    data[0] = [13, 13, 13, 9, 31][Math.floor(rnd() * 5)] << 3;
+    for (let i = 1; i < data.length; i++) data[i] = Math.floor(rnd() * 256);
+    return data;
+  };
+  const lay = (pos, code, bytes) => { const f = Math.round(pos / 480); if (f < slots) { frameLog[f] = code; frameBytes[f] = bytes; } };
+  let tick = 20, pos = 0, phrase = 0;
+  for (;;) {
+    const length = 20 + Math.floor(rnd() * 50);
+    pos = Math.max(pos, (tick - 20) * 360);
+    if (pos + (length + 6) * 480 > total) break;
+    phrase++;
+    let seq = 0, message = 0;
+    while (seq < length) {
+      const n = message === 0 ? (phrase === 3 ? 13 : 8) : 3, frames = [];
+      if (phrase === 2 && message === 3) { lay(pos, 5, 0); lay(pos + 480, 5, 0); pos += 960; seq += 2; }
+      const at = pos;
+      for (let k = 0; k < n && seq < length; k++, seq++, pos += 480) {
+        const data = frame();
+        frames.push({ seq, data });
+        lay(pos, (data[0] >> 3) < 12 ? 1 : (data[0] >> 3) < 16 ? 2 : 3, data.length);
+      }
+      if (seq >= length) frames.push({ end: true });
+      packets.push({ tick, rate: 24000, at, records: [{ frames }] });
+      if (!(phrase === 4 && message === 2)) tick += 4;
+      message++;
+    }
+    packets.push({ tick, rate: 24000, at: pos, records: [{ silence: 1500 }] });
+    tick += 10 + Math.floor(rnd() * 70);
+  }
+  packets.push({ tick: tick + 400, rate: 24000, at: pos, records: [{ frames: [{ end: true }] }] });
+  return { samples: voice(seconds, 24000, seed, total),
+    received: { frameLog, frameBytes, frameMs: 20, spurts: phrase, packets, firstTick: 20, tickSeconds: 0.015 } };
+}
+
 /* ---------------- the cases ---------------- */
 
 // The options the page sends (app/render.js), at its settings before W3-10,
@@ -375,6 +429,13 @@ for (const [name, opts] of [
   ['steam, timeline game, device at 44100 Hz', { deviceRate: 44100 }]
 ]) add(name, 48000, at48(15, 2), { timeline: 'game', ...opts }, []);
 addRoom('steam, timeline game, room: preset 6, seed 7', { timeline: 'game', room: { preset: 6 }, seed: 7 }, presetRoom(6), STEAM_PLANS);
+// W3-02g: a demo's own packets on the game's timeline (Steam's decoder as read, its resampler
+// once per record, the voice channel on the demo's own ticks), at the received voice's chunk
+// plans and a sample at a time but for 7.
+const demoQueue = demoQueueVoice(8, 13);
+add('demo voice on the game\'s timeline', 24000, () => demoQueue.samples, { received: demoQueue.received, timeline: 'game' }, ['uneven', 'whole', '7']);
+add('demo voice on the game\'s timeline at 66.67 fps, auto-gain off', 24000, () => demoQueue.samples,
+  { received: demoQueue.received, timeline: 'game', fps: 66.67, agc: false }, ['uneven', 'whole']);
 
 // SHA-256 of process()'s WAV, then of its codecInfo (canonical JSON, below).
 // The first 40 were recorded in commit 7e1862c, before createRender existed.
@@ -497,7 +558,16 @@ addRoom('steam, timeline game, room: preset 6, seed 7', { timeline: 'game', room
 // the same source and settings without jitter. No other hash moved: no render
 // at jitter 0, no render of another profile (the celt_22, speex, steam_48 and
 // miles cases with jitter among them), and not 'odd options'.
+// W3-02g (a demo's own packets through Steam's decoder and the voice channel
+// on the game's timeline) added two cases of a demo on the game's timeline
+// and recorded them in a commit of their own. No other hash moved.
 const GOLDEN = {
+  // W3-02g: a demo's own packets on the game's timeline, recorded once from the run in which every
+  // other check of this suite passed (every recorded hash above and below unmoved, and these two
+  // cases streamed at their plans equal to process()), and every check of
+  // tests/render-channel.verify.mjs, in a commit of their own.
+  "demo voice on the game's timeline": ["0e339664734108571cf3bdd723070f02b391becf8bd8dcc7d0c1e64474541ceb", "88939d83252ac45b55fdd69d2412c55d425b8d48d54e180c9bbb8de1ec4b93bd"],
+  "demo voice on the game's timeline at 66.67 fps, auto-gain off": ["fa987b36a70fc7cfe5362097940b1149b27c97c2799dce61dd5556a5a269ecb0", "70ba435eb738bd7fcf92c068739c8cc4359e8e2cf6ada53bbb676383aa6ec453"],
   // W3-02c-2: the renders on the game's timeline (opts.timeline 'game'), recorded once from
   // the run in which every check of tests/render-channel.verify.mjs passed, in a commit of
   // their own. No hash above or below moved.
@@ -596,6 +666,9 @@ const GOLDEN = {
 // output stage; a change before the mix point re-records them in a commit
 // of its own that says why.
 const GAIN_GOLDEN = {
+  // W3-02g: a demo's own packets on the game's timeline.
+  "demo voice on the game's timeline": "a144401c71c91c480a8d9bd0d5472d6293a2f766c1ff84be7a5fc33fcc48f5e5",
+  "demo voice on the game's timeline at 66.67 fps, auto-gain off": "42ebf4e2789b759267f67c353f33e6d9aae1c18a21e5ac3815c87ee4913b0f7b",
   // W3-02c-2: the renders on the game's timeline.
   "steam, timeline game": "4c9e3a714e5a012aa94bf8e553007356391c4a533797bc9950b8921bd9ce0fe0",
   "steam, timeline game at 66.67 fps": "d41873a687070d12d2bc3e522a2038aee66af37e91a3271719b1add7271ccb04",

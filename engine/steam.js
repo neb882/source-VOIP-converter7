@@ -1,6 +1,6 @@
 /* TF2 Voice Emulator, engine/steam.js: the steam profile: its constants, its capture, its sender's options, its
  * timeline, the receiver's voice channel on the game's timeline (W3-02c-2) with each message on its arrival tick
- * (BC-4), its codec information.
+ * (BC-4), a demo's own packets through Steam's decoder into that channel (W3-02g), its codec information.
  *
  * One of the engine's files (the list and the load order are in audio.js's header). It takes what it needs from the
  * files before it as TF2Engine's parts and adds its own. */
@@ -91,12 +91,16 @@
   // timeline, as every render before. 'game': the receiver's voice channel
   // plays them on the game's clock (steamChannel). 'game' runs where the
   // render has the game's own packets: the steam codec, on, with the sender's
-  // messages (not a demo's received voice); the older codecs have no sender
+  // messages, or with a demo's own packets (W3-02g: a received source that
+  // has packets, played by steamDemoVoice); the older codecs have no sender
   // model and their ring is another size. Anywhere else it is refused, never
   // ignored: a render that asked for it and was given the source's timeline
-  // would let a caller compare two renders that are one. Any other value is
-  // refused too. process() and createRender() call this at their entry, with
-  // their own reading of the other options; true for 'game'.
+  // would let a caller compare two renders that are one. A received source
+  // without packets is refused first, then the codec bypassed, then another
+  // codec; then a demo's packets are checked (steamDemoPackets). Any other
+  // value is refused too. process() and createRender() call this at their
+  // entry, with their own reading of the other options; true for 'game'. On
+  // the source's timeline a demo's packets are not read.
   function steamGameTimeline(value, { codecKey, codec, enableCodec, received }) {
     if (value === undefined || value === null || value === 'source') return false;
     if (value !== 'game') {
@@ -105,10 +109,70 @@
       throw new RangeError(`TF2Audio: opts.timeline is 'source' or 'game' (undefined and null are 'source'), not ${text}.`);
     }
     const refuse = (why) => { throw new RangeError(`TF2Audio: opts.timeline 'game' is refused here, not ignored: ${why}.`); };
-    if (received) refuse('a demo\'s received voice (opts.received) has no packets of the sender\'s to give the channel');
+    if (received && received.packets === undefined) {
+      refuse('a demo\'s received voice (opts.received) has no packets (received.packets, demo.js decode()\'s) to give the channel');
+    }
     if (!enableCodec) refuse('with the codec bypassed (enableWarble false) no packet reaches the channel');
     if (codec.senderGate?.rule !== 'steam') refuse(`it runs on the steam codec only, and ${codecKey} has no sender model`);
+    if (received) steamDemoPackets(received);
     return true;
+  }
+
+  // A demo's packets on the game's timeline (W3-02g), checked where
+  // opts.timeline is read: received.packets an array of objects { tick,
+  // rate, at, records } (demo.js decode()'s packets); received.firstTick a
+  // whole tick; received.tickSeconds a finite number above 0; each tick a
+  // whole number, at or after firstTick, never below the one before; each at
+  // a finite number; each rate null or 24000; each records an array of
+  // { silence: n } (n a whole number from 0 to 65535) and { frames: [...] },
+  // each frame { seq, data } (seq a whole number from 0 to 65535, data a
+  // Uint8Array, short true, false or absent) or { end: true } alone.
+  // Anything else is a RangeError that names the member and the packet's
+  // index; nothing is ignored.
+  function steamDemoPackets(received) {
+    const bad = (member, why) => { throw new RangeError(`TF2Audio: opts.received.${member} ${why}.`); };
+    const text = (v) => { try { return typeof v === 'string' ? JSON.stringify(v) : String(v); } catch (e) { return `a ${typeof v}`; } };
+    const { packets, firstTick, tickSeconds } = received;
+    if (!Array.isArray(packets)) bad('packets', `is an array of the demo's messages (demo.js decode()'s packets), not ${text(packets)}`);
+    if (!Number.isInteger(firstTick)) bad('firstTick', `is a whole tick, the tick of the speaker's first packet, not ${text(firstTick)}`);
+    if (typeof tickSeconds !== 'number' || !Number.isFinite(tickSeconds) || tickSeconds <= 0) {
+      bad('tickSeconds', `is the demo's tick length in seconds, a finite number above 0, not ${text(tickSeconds)}`);
+    }
+    let last = firstTick;
+    for (let k = 0; k < packets.length; k++) {
+      const p = packets[k], at = `packets[${k}]`;
+      if (!p || typeof p !== 'object') bad(at, `is an object { tick, rate, at, records }, not ${text(p)}`);
+      if (!Number.isInteger(p.tick)) bad(`${at}.tick`, `is a whole tick, not ${text(p.tick)}`);
+      if (p.tick < firstTick) bad(`${at}.tick`, `is at or after firstTick (${firstTick}), not ${p.tick}`);
+      if (p.tick < last) bad(`${at}.tick`, `never falls below the tick before it (${last}), not ${p.tick}`);
+      last = p.tick;
+      if (typeof p.at !== 'number' || !Number.isFinite(p.at)) bad(`${at}.at`, `is a finite number, not ${text(p.at)}`);
+      if (p.rate !== null && p.rate !== STEAM_RATE) bad(`${at}.rate`, `is null or 24000 (the rate Steam's decoder runs at), not ${text(p.rate)}`);
+      if (!Array.isArray(p.records)) bad(`${at}.records`, `is an array of the message's records, not ${text(p.records)}`);
+      for (let j = 0; j < p.records.length; j++) {
+        const r = p.records[j], rat = `${at}.records[${j}]`;
+        const kinds = r && typeof r === 'object' ? (r.silence !== undefined) + (r.frames !== undefined) : 0;
+        if (kinds !== 1) bad(rat, `is { silence: n } or { frames: [...] }, one of the two, not ${text(r)}`);
+        if (r.silence !== undefined) {
+          if (!Number.isInteger(r.silence) || r.silence < 0 || r.silence > 65535) {
+            bad(`${rat}.silence`, `is a whole number of samples from 0 to 65535, not ${text(r.silence)}`);
+          }
+          continue;
+        }
+        if (!Array.isArray(r.frames)) bad(`${rat}.frames`, `is an array of frames and end markers, not ${text(r.frames)}`);
+        for (let i = 0; i < r.frames.length; i++) {
+          const e = r.frames[i], eat = `${rat}.frames[${i}]`;
+          if (!e || typeof e !== 'object') bad(eat, `is { seq, data } or { end: true }, not ${text(e)}`);
+          if (e.end !== undefined) {
+            if (e.end !== true || e.seq !== undefined || e.data !== undefined || e.short !== undefined) bad(eat, 'is an end marker, { end: true } alone');
+            continue;
+          }
+          if (!Number.isInteger(e.seq) || e.seq < 0 || e.seq > 65535) bad(`${eat}.seq`, `is a whole number from 0 to 65535, not ${text(e.seq)}`);
+          if (!(e.data instanceof Uint8Array)) bad(`${eat}.data`, `is the frame's bytes, a Uint8Array, not ${text(e.data)}`);
+          if (e.short !== undefined && typeof e.short !== 'boolean') bad(`${eat}.short`, `is true, false or absent, not ${text(e.short)}`);
+        }
+      }
+    }
   }
 
   // The game's timeline: once the sender has been given `given` samples and
@@ -129,10 +193,13 @@
   // are none. The channel asks it for every whole tick from 0 to the
   // render's last tick, once each and in order, in process() and
   // createRender alike; what it gives is checked there (steamChannel).
-  function steamArriveAt(value, game) {
+  // demo (W3-02g): the render plays a demo's own packets, which carry their
+  // own ticks; arriveAt is refused there too.
+  function steamArriveAt(value, game, demo = false) {
     if (value === undefined || value === null) return null;
     if (typeof value !== 'function') throw new RangeError(`TF2Audio: opts.arriveAt is a function (tick) => tick, not a ${typeof value}.`);
     if (!game) throw new RangeError('TF2Audio: opts.arriveAt runs on the game\'s timeline only (opts.timeline \'game\' on the steam codec), and is refused here, not ignored.');
+    if (demo) throw new RangeError('TF2Audio: opts.arriveAt is refused with a demo\'s packets (opts.received.packets), not ignored: the packets carry their own ticks.');
     return value;
   }
 
@@ -186,13 +253,18 @@
   //   zero is the timeline's zero, D (voice-channel.js zero()); counts() is
   // the timeline's counts(); held() is how many entries the channel and its
   // timeline hold in lists, for a test.
+  //   zeroSamples (W3-02g; undefined: none): D itself, for a demo's own
+  // packets (voice-channel.js arrivalZero()), handed to createTimeline in
+  // place of the codec's look-ahead, which is then not read; zero is then
+  // zeroSamples.
   //   onOpen(index) (null: none): called once for each open, where the
   // channel resets the gain, once the push that opened it has returned;
   // index is the count of samples the timeline has returned by then. Every
   // block that starts before the open's tick has run and none after it, so
   // index is the first sample of the first block that starts at or after
   // that tick (0 when that is before the output's first sample).
-  function steamChannel({ length, lookahead, fps, bufferMs, autoGain, avgGain, maxGain, voiceScale, arrive = null, onOpen = null }) {
+  function steamChannel({ length, lookahead, fps, bufferMs, autoGain, avgGain, maxGain, voiceScale, arrive = null, onOpen = null,
+    zeroSamples = undefined }) {
     const { createTimeline, zero } = steamChannelModule();
     const endless = length === Infinity;
     let lastArrival = -Infinity, messages = 0, sumTicks = 0, maxTicks = -Infinity, sameTick = 0;
@@ -239,11 +311,13 @@
       process: (y) => Float32Array.from(y, (v) =>
         roundEven(clamp(Math.fround(v * voiceScale), -INT16_FULL_SCALE, INT16_FULL_SCALE) * 32768) / 32768)
     };
-    const timeline = createTimeline({ length, fps, bufferMs, codecDelay: lookahead / STEAM_RATE, gain });
+    const demo = zeroSamples !== undefined;
+    const timeline = createTimeline(demo ? { length, fps, bufferMs, zeroSamples, gain }
+      : { length, fps, bufferMs, codecDelay: lookahead / STEAM_RATE, gain });
     let pieces = [], lastMessage = null, returned = 0;
     const keep = (y) => { pieces.push(y); returned += y.length; };
     return {
-      zero: zero(bufferMs, fps, lookahead / STEAM_RATE),
+      zero: demo ? zeroSamples : zero(bufferMs, fps, lookahead / STEAM_RATE),
       push(tick, y, packetBlocks, source) {
         blocks = packetBlocks;
         const a = at(tick);
@@ -295,6 +369,145 @@
       if (k >= 0 && k < n) { frameLog[i] = sent.frameLog[k]; frameBytes[i] = sent.frameBytes[k]; }
     }
     return { ...codecInfo, frameLog, frameBytes, sent, channel: info };
+  }
+
+  // A demo's own packets through Steam's decoder and the game's voice queue
+  // (W3-02g, docs/work-orders/W3-02g-demo-packets.md, "One message on the
+  // game's timeline"), for a render on the game's timeline whose received
+  // source has packets (checked by steamDemoPackets). received: the demo's
+  // { packets, firstTick, tickSeconds } (demo.js decode()'s); length: the
+  // render's length at the voice rate; zero: the channel's zero, D
+  // (voice-channel.js arrivalZero()); decoder: one createSteamDecoder,
+  // driven by record() alone; resampler: one swresample resampler; channel:
+  // a steamChannel made with zeroSamples: zero. The decoder and the
+  // resampler serve every message, made before the first and never reset
+  // but by the decoder's own rules (finding 29). Each message, in order:
+  //   - its records in order: a silence record of n samples is dropped when
+  //     the samples already made for this message are more than 8820 (0.2 s
+  //     at 44.1 kHz; read, W3-09 section 4; that the wait is counted in
+  //     output samples is inferred), else n zeros go to the resampler; a
+  //     type 6 record is walked by decoder.record(), and the blocks it made,
+  //     if any, go to the resampler in one call. A record that made no block
+  //     and a silence record of 0 samples make no call: both are choices
+  //     (whether Steam's client calls its resampler with no samples was not
+  //     read);
+  //   - its packet is what the resampler gave, joined. Over 11,264 samples
+  //     (steamFits) it is refused: nothing of it reaches the gain, and the
+  //     decoder and the resampler keep the state it left them in (read,
+  //     finding 29). The channel is given an empty packet on the message's
+  //     tick, so a refused message opens a channel when none is open: that is
+  //     chosen, not read (ruling 5 of 2026-11-11 in
+  //     docs/work-orders/W3-02-receiver-queue.md, resting on one line of Set
+  //     J's log; what the engine does with Steam's refusal was not read);
+  //   - otherwise the channel is given the packet over 32768 on the
+  //     message's tick (empty for a message that made no sample: an end
+  //     marker alone still opens a channel).
+  // The message's arrival tick is round((tick - firstTick) x tickSeconds /
+  // 0.015): the channel's tick is 15 ms (read, finding 22). Several on one
+  // tick are pushed one after the other on it. A message that arrives at or
+  // after the start of the first mixer block past the render's end changes
+  // no sample: it is not decoded, not pushed and counted only in messages
+  // and pastEnd; every later one is past the end too.
+  // The source each packet is given (the channel's source map and spurts):
+  // a message whose records are silence records only, -1, as a silence
+  // record has on the model's path; any other message, the place `at` of
+  // the file's own timing taken back by the blocks the decoder concealed in
+  // front of its first frame (round((at - 480 c) x 147 / 80)), less the
+  // samples its packet holds before the record of that frame (a silence
+  // record's zeros in front of it); a refused message, round(at x 147 / 80).
+  // onDecoded(pcm, packet) and onResampled(y16, packet) watch each call of
+  // the resampler, silence records' included, as on the model's path;
+  // onStep(done, count), awaited after every 64th message run, is where the
+  // render reports progress and yields. Returns { feed(untilTick), info() }:
+  // feed (async) runs, in order, every message not yet run whose arrival
+  // tick is below untilTick (Infinity: all); info() is codecInfo.demo:
+  // { messages, pushed, sameTick, refusedMessages, cutRecords, unreadFrames,
+  // concealed, resets, droppedSilence, pastEnd, tickMs }, the messages run,
+  // those handed to the channel, those pushed on the tick of the one pushed
+  // before, those refused, the records cut at 17 frames and the frames of
+  // those records not decoded, the blocks concealed, the decoder's resets,
+  // the silence records dropped, the messages past the end, and the demo's
+  // tick length in ms.
+  function steamDemoVoice({ received, length, zero, decoder, resampler, channel, onDecoded = null, onResampled = null, onStep = null }) {
+    const V = steamChannelModule().VOICE_CHANNEL;
+    const packets = received.packets, count = packets.length, first = received.firstTick, tickSeconds = received.tickSeconds;
+    const arrival = (p) => Math.round((p.tick - first) * tickSeconds / V.tick);
+    // In half samples at the voice rate, as the channel counts time: tick k
+    // starts at 1323 k and mixer block b at 1024 b. The first block past the
+    // end is the first whose output samples (512 b - zero on) start at or
+    // after length.
+    const TICK = Math.round(2 * V.rate * V.tick), BLOCK = 2 * V.mixBlock;
+    const endBlock = Math.ceil((length + zero) / V.mixBlock);
+    const silenceWait = Math.round(0.2 * STEAM_VOICE_RATE);
+    const toVoice = (x) => Math.round(x * STEAM_VOICE_RATE / STEAM_RATE);
+    const info = { messages: 0, pushed: 0, sameTick: 0, refusedMessages: 0, cutRecords: 0, unreadFrames: 0, concealed: 0, resets: 0,
+      droppedSilence: 0, pastEnd: 0, tickMs: tickSeconds * 1000 };
+    let next = 0, lastPushed = null;
+    const push = (tick, y, blocks, source) => {
+      if (tick === lastPushed) info.sameTick++;
+      lastPushed = tick;
+      info.pushed++;
+      channel.push(tick, y, blocks, source);
+    };
+    async function run(p) {
+      const tick = arrival(p);
+      info.messages++;
+      if (TICK * tick >= BLOCK * endBlock) { info.pastEnd++; return; }
+      const parts = [], blocks = [];
+      // before: the samples made before the record of the message's first
+      // frame; ahead: the blocks concealed in front of that frame.
+      let size = 0, before = -1, ahead = 0, frames = false, silence = false;
+      for (const record of p.records) {
+        if (record.silence !== undefined) {
+          silence = true;
+          if (size > silenceWait) { info.droppedSilence++; continue; }
+          if (!record.silence) continue;                     // a choice: no call with no samples
+          const pcm = new Int16Array(record.silence);
+          onDecoded?.(pcm, p);
+          const y16 = resampler.packet(pcm);
+          onResampled?.(y16, p);
+          parts.push(y16);
+          size += y16.length;
+          continue;
+        }
+        const made = await decoder.record(record.frames);
+        info.concealed += made.concealed;
+        info.resets += made.resets;
+        if (made.cut) { info.cutRecords++; info.unreadFrames += made.unread; }
+        if (!frames && record.frames.some((e) => !e.end)) {
+          frames = true;
+          before = size;
+          while (ahead < made.blocks.length && made.blocks[ahead].code === FRAME_CODES.lost) ahead++;
+        }
+        if (made.blocks.length) {                             // a choice: no call when no block was made
+          onDecoded?.(made.pcm, p);
+          const y16 = resampler.packet(made.pcm);
+          onResampled?.(y16, p);
+          parts.push(y16);
+          size += y16.length;
+          for (const b of made.blocks) blocks.push(b);
+        }
+      }
+      const records = silence && !frames;
+      if (!steamFits(size)) {
+        info.refusedMessages++;
+        push(tick, new Float32Array(0), [], records ? -1 : toVoice(p.at));
+        return;
+      }
+      const y = new Float32Array(size);
+      let k = 0;
+      for (const part of parts) { for (let i = 0; i < part.length; i++) y[k + i] = part[i] / 32768; k += part.length; }
+      push(tick, y, blocks, records ? -1 : toVoice(p.at - STEAM_FRAME * ahead) - Math.max(0, before));
+    }
+    return {
+      async feed(untilTick) {
+        while (next < count && arrival(packets[next]) < untilTick) {
+          await run(packets[next++]);
+          if (onStep && (next & 63) === 0) await onStep(next, count);
+        }
+      },
+      info: () => ({ ...info })
+    };
   }
 
   // The capture's 16 bits, after the capture roll-off at 24 kHz: Steam's
@@ -579,6 +792,7 @@
 
   E.steam = Object.freeze({
     STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
-    steamCodecInfo, steamFits, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions, steamTimeline
+    steamCodecInfo, steamDemoVoice, steamFits, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions,
+    steamTimeline
   });
 })((typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : globalThis));

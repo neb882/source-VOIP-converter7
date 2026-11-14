@@ -44,6 +44,12 @@
 // 19. opts.arriveAt's refusals.
 // 20. Determinism: the same seed gives the same render and loses the same messages at any
 //     jitter; another seed gives other arrival ticks.
+// A demo's own packets (W3-02g, docs/work-orders/W3-02g-demo-packets.md, part a):
+// 21. tests/demo/queue.dem on the game's timeline equals a reference the suite builds by itself
+//     (the library's decoder under a walk of each record, the resampler module, the engine's gain
+//     reset at each open, voice-channel.js with the zero); its phrases, counts and logs; refused
+//     and cut messages; the empty packet; two messages on one tick; the silence record's drop; the
+//     ticks; the refusals; jitter and loss; the file's own timing against main.
 // Renders use deviceRate 44100 and compare the voice at the mix point (opts.onGain).
 // TF2_DIR points the suite at a copy of the sources. Every signal is synthetic, made here.
 import crypto from 'node:crypto';
@@ -1399,6 +1405,415 @@ if (runs(20)) {
   const c = await A.process(buffer(x, rate), { ...o, seed: 6 });
   check('seeds 5 and 6 give other arrival ticks (the model and the render\'s codecInfo.arrivals)', differ > 1000 && !isDeepStrictEqual(a.codecInfo.arrivals, c.codecInfo.arrivals),
     `${differ} of 4,000 ticks differ; ${JSON.stringify(a.codecInfo.arrivals)} against ${JSON.stringify(c.codecInfo.arrivals)}`);
+}
+
+/* ---------------- 21. a demo's own packets on the game's timeline (W3-02g) ---------------- */
+
+// tests/demo/queue.dem (written by tests/demo.verify.mjs), its first speaker: phrases shaped as
+// Set D's demo, with each rule of docs/work-orders/W3-02g-demo-packets.md that a demo can reach.
+// The reference is the suite's own: the library's decoder driven by a walk of each record written
+// here from the read (W3-16 read, section 3), the resampler module loaded by itself, the engine's
+// createGain reset at each open (referenceGain), and voice-channel.js loaded by itself with the
+// zero read again here (the module's latency less 0.16 s, on whole blocks).
+if (runs(21)) {
+  console.log('\n[21] A demo\'s own packets on the game\'s timeline (W3-02g): Steam\'s decoder as read, its resampler once per record, the channel on the demo\'s ticks');
+  const t0 = performance.now();
+  const fs = await import('node:fs');
+  const Demo = require(path.join(root, 'demo.js'));
+  const lib = await import(pathToFileURL(path.join(root, 'vendor/libopus-1.1/index.mjs')).href);
+  const SWR = require(path.join(root, 'vendor/swresample/swresample.js'));
+  const parsed = Demo.parse(fs.readFileSync(path.join(root, 'tests/demo/queue.dem')));
+  const dec = await Demo.decode(parsed, parsed.speakers[0], { opus: (r) => lib.createDecoder({ sampleRate: r, channels: 1 }) });
+  const source = buffer(dec.samples, 24000);
+  const receivedOf = (d, change = {}) => ({ frameLog: Array.from(d.frameLog), frameBytes: Array.from(d.frameBytes), frameMs: 20, spurts: d.spurts,
+    packets: d.packets, firstTick: d.firstTick, tickSeconds: d.tickSeconds, ...change });
+  const thrown = async (run) => { try { await run(); return null; } catch (e) { return e; } };
+  // A render on the game's timeline: the render, its voice at the mix point, and what the resampler was given and gave.
+  const demoRender = async (received, opts = {}, src = source) => {
+    let voice = null;
+    const decoded = [], resampled = [];
+    const r = await A.process(src, { ...BASE, ...opts, received, timeline: 'game', onGain: (g) => { voice = Float32Array.from(g); },
+      onDecoded: (pcm, p) => decoded.push({ p, pcm: Int16Array.from(pcm) }), onResampled: (y, p) => resampled.push({ p, n: y.length }) });
+    return { r, voice, decoded, resampled };
+  };
+  // The suite's walk of one type 6 record, over the library's own decoder: a buffer of `room`
+  // frames. ahead: the blocks concealed in front of the record's first frame.
+  const walker = (room = 17) => {
+    let d = null, next = 0;
+    const reset = async () => { d?.free(); d = await lib.createDecoder({ sampleRate: 24000, channels: 1 }); next = 0; };
+    return {
+      async record(entries) {
+        if (!d) await reset();
+        const made = [];
+        let cut = false, unread = 0, concealed = 0, resets = 0, ahead = null;
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i];
+          if (e.end) { await reset(); resets++; continue; }
+          const seq = e.seq & 0xFFFF;
+          if (seq < next) { await reset(); resets++; }
+          else for (let k = 0; k < Math.min(seq - next, 10) && made.length < room; k++) { made.push(d.decodePacketLossInt16(480)); concealed++; }
+          if (ahead === null) ahead = made.length;
+          next = (seq + 1) & 0xFFFF;
+          if (e.short) break;
+          if (made.length >= room) { cut = true; unread = entries.slice(i).filter((x) => !x.end).length; break; }
+          made.push(e.data.length ? d.decodeInt16(e.data, { frameSize: 480 }) : new Int16Array(480));
+        }
+        const pcm = new Int16Array(480 * made.length);
+        made.forEach((b, k) => pcm.set(b, 480 * k));
+        return { pcm, cut, unread, concealed, resets, ahead: ahead ?? 0 };
+      },
+      free() { d?.free(); }
+    };
+  };
+  // The reference: each message, in order, on round((tick - firstTick) x tickSeconds / 0.015);
+  // a message at or after the first block past the end is counted and not pushed; a silence record
+  // dropped behind more than 8,820 samples of the message; one resampler call per record that made
+  // samples; over 11,264 samples, an empty packet at round(at x 147 / 80); otherwise the packet over
+  // 32768 at round((at - 480 c) x 147 / 80) less the samples before the first frame's record (-1 for
+  // silence records only). Also the decoded samples of each message, for the checks below.
+  async function demoReference(d, set, { packets = d.packets, firstTick = d.firstTick, tickSeconds = d.tickSeconds } = {}) {
+    const walk = walker(), rs = SWR.createResampler();
+    const length = Math.round(d.samples.length * 147 / 80);
+    const Z = 512 * Math.round(44100 * (VC.latency(set.bufferMs, set.fps) - 0.16) / 512);
+    const { gain } = referenceGain(set);
+    const tl = VC.createTimeline({ length, fps: set.fps, bufferMs: set.bufferMs, zeroSamples: Z, gain });
+    const out = [], decoded = [];
+    const counts = { messages: 0, pushed: 0, sameTick: 0, refusedMessages: 0, cutRecords: 0, unreadFrames: 0, concealed: 0, resets: 0, droppedSilence: 0, pastEnd: 0,
+      tickMs: tickSeconds * 1000 };
+    const endTime = 1024 * Math.ceil((length + Z) / 512);
+    let last = null;
+    for (const p of packets) {
+      counts.messages++;
+      const tick = Math.round((p.tick - firstTick) * tickSeconds / 0.015);
+      if (1323 * tick >= endTime) { counts.pastEnd++; continue; }
+      const parts = [];
+      let n = 0, before = 0, ahead = 0, frames = false, silence = false;
+      for (const r of p.records) {
+        if (r.silence !== undefined) {
+          silence = true;
+          if (n > 8820) { counts.droppedSilence++; continue; }
+          if (r.silence) { const y = rs.packet(new Int16Array(r.silence)); parts.push(y); n += y.length; }
+          continue;
+        }
+        const w = await walk.record(r.frames);
+        counts.concealed += w.concealed; counts.resets += w.resets;
+        if (w.cut) { counts.cutRecords++; counts.unreadFrames += w.unread; }
+        if (!frames && r.frames.some((e) => !e.end)) { frames = true; before = n; ahead = w.ahead; }
+        if (w.pcm.length) { decoded.push({ p, pcm: w.pcm }); const y = rs.packet(w.pcm); parts.push(y); n += y.length; }
+      }
+      const records = silence && !frames;
+      let pcm = new Float32Array(0), src = records ? -1 : Math.round(p.at * 147 / 80);
+      if (n > 11264) counts.refusedMessages++;
+      else {
+        pcm = new Float32Array(n);
+        let k = 0;
+        for (const y of parts) { for (let i = 0; i < y.length; i++) pcm[k + i] = y[i] / 32768; k += y.length; }
+        if (!records) src = Math.round((p.at - 480 * ahead) * 147 / 80) - before;
+      }
+      if (tick === last) counts.sameTick++;
+      last = tick;
+      counts.pushed++;
+      out.push(tl.push({ tick, pcm, source: src }));
+    }
+    const end = tl.finish();
+    out.push(end.samples);
+    walk.free();
+    return { samples: join(out), info: end.info, counts, decoded, Z };
+  }
+
+  // steamChannel's zero with zeroSamples is zeroSamples, and no codec delay is read; without it,
+  // the model's zero with the codec's delay, as before.
+  {
+    const { steamChannel } = engine.parts.steam, settings = { length: 1000, fps: 300, bufferMs: 100, autoGain: true, avgGain: 0.5, maxGain: 10, voiceScale: 1 };
+    const given = steamChannel({ ...settings, zeroSamples: 14848 }), model = steamChannel({ ...settings, lookahead: 156 });
+    check('steamChannel with zeroSamples 14,848: its zero is 14,848 and its timeline\'s codecDelay 0; without it, the model\'s 24,576 with the codec\'s 156 samples',
+      given.zero === 14848 && given.counts().codecDelay === 0 && model.zero === 24576 && model.zero === VC.zero(100, 300, 156 / 24000), `${given.zero}, ${model.zero}`);
+  }
+  // The render is the reference's, at three frame rates, the auto-gain on and off.
+  const renders = {};
+  for (const fps of [300, 100, 66.67]) {
+    for (const agc of [true, false]) {
+      const set = { fps, agc, bufferMs: 100 }, game = await demoRender(receivedOf(dec), { fps, agc }), ref = await demoReference(dec, set);
+      const at = firstDiff(game.voice, ref.samples), ci = game.r.codecInfo;
+      check(`queue.dem at ${fps} fps, the auto-gain ${agc ? 'on' : 'off'}: process()'s voice at the mix point is the reference's, sample for sample, codecInfo.channel its info and codecInfo.demo its counts`,
+        at === -1 && isDeepStrictEqual(ci.channel, ref.info) && isDeepStrictEqual(ci.demo, ref.counts) && ref.samples.some((v) => v !== 0),
+        at === -1 ? `${ref.samples.length} samples, D ${ref.Z}; ${ref.info.opens} opens, ${ref.info.appended} joined, ${ref.info.droppedSamples} dropped`
+          : `the first difference at ${at}: ${game.voice[at] * 32768} against ${ref.samples[at] * 32768}; channel ${isDeepStrictEqual(ci.channel, ref.info) ? 'equal' : 'differs'}, demo ${JSON.stringify(ci.demo)}`);
+      if (agc) renders[fps] = { game, ref };
+    }
+  }
+  // The phrases (measured on this build, 2026-11-14: at 300 fps phrase 2 opened 9.7 ms late, 3
+  // joined 74.0 ms early, 4 joined 301.9 ms early, 1 opened 9.2 ms late; at 66.67 phrase 4 opened
+  // 8.5 ms late and phrases 1 and 2 opened within 0.4 ms).
+  {
+    const sp = (fps) => renders[fps].game.r.codecInfo.channel.spurts, ch = (fps) => renders[fps].game.r.codecInfo.channel;
+    const s300 = sp(300), s67 = sp(66.67), s100 = sp(100), within = (v, a, b) => v !== null && v >= a && v <= b;
+    check('the phrases at 300 fps: the one after the long pause opened the queue (0 to 20 ms late), the one after the short pause joined it (60 to 90 ms early), the one after 26 ticks joined it (285 to 320 ms early); the first opened 0 to 20 ms late',
+      s300.length === 6 && s300[0].opened && within(s300[0].offsetStartMs, 0, 20) && s300[1].opened && within(s300[1].offsetStartMs, 0, 20)
+      && !s300[2].opened && within(s300[2].offsetStartMs, -90, -60) && !s300[3].opened && within(s300[3].offsetStartMs, -320, -285),
+      s300.map((s) => `${s.opened ? 'opened' : 'joined'} ${(s.offsetStartMs ?? NaN).toFixed(1)}`).join(', '));
+    check('at 66.67 and 100 fps the phrase after 26 ticks opens the queue (0 to 20 ms late), the one after 16 still joins; the first two open within 5 ms of their place',
+      [s67, s100].every((s) => s[3].opened && within(s[3].offsetStartMs, -5, 20) && !s[2].opened && within(s[0].offsetStartMs, -5, 5) && within(s[1].offsetStartMs, -5, 5)),
+      `66.67: ${s67.map((s) => `${s.opened ? 'opened' : 'joined'} ${(s.offsetStartMs ?? NaN).toFixed(1)}`).join(', ')}`);
+    check('the gain is reset once per open, at each frame rate', [300, 100, 66.67].every((f) => ch(f).gainResets === ch(f).opens && ch(f).opens >= 4),
+      [300, 100, 66.67].map((f) => `${f}: ${ch(f).opens} opens, ${ch(f).gainResets} resets`).join('; '));
+  }
+  // codecInfo.demo's counts, the channel's packets, the logs; no arrivals, sender or network.
+  const g300 = renders[300].game, ci = g300.r.codecInfo;
+  check('codecInfo.demo for queue.dem: 88 messages, 87 pushed (1 past the end), 1 on the tick of the one before, 3 refused, 1 record cut with 5 frames not decoded, 18 concealed, 7 resets, the tick 14.99999966 ms; the channel was given every message pushed',
+    isDeepStrictEqual(ci.demo, { messages: 88, pushed: 87, sameTick: 1, refusedMessages: 3, cutRecords: 1, unreadFrames: 5, concealed: 18, resets: 7, droppedSilence: 0,
+      pastEnd: 1, tickMs: Math.fround(0.015) * 1000 }) && ci.channel.packets === ci.demo.pushed && ci.backend === 'demo' && ci.lookahead === 0
+    && !('arrivals' in ci) && !('sender' in ci) && !('network' in ci), JSON.stringify(ci.demo));
+  {
+    // The played log: the slot rule (steamPlayedInfo's) over the reference's source map and the
+    // demo's own logs, which codecInfo.sent holds. And where the decoder concealed 3 frames in
+    // front of a message's first frame (phrase 1, at tick 120), the slots that play them show lost
+    // frames: its place is taken back by those 3 frames.
+    const src = renders[300].ref.info.source, sent = ci.sent, want = new Uint8Array(sent.frameLog.length), wantBytes = new Uint16Array(sent.frameBytes.length);
+    for (let i = 0; i < Math.min(src.length, want.length); i++) {
+      if (src[i] < 0) continue;
+      const k = Math.floor(src[i] * 80 / 147 / 480);
+      if (k < want.length) { want[i] = sent.frameLog[k]; wantBytes[i] = sent.frameBytes[k]; }
+    }
+    const gapAt = dec.packets.find((p) => p.tick === 120).at;
+    const lostSlots = [], aroundSlots = [];
+    for (let i = 0; i < src.length; i++) {
+      const q = src[i] * 80 / 147;
+      if (src[i] >= 0 && q >= gapAt - 1440 + 120 && q < gapAt - 120) lostSlots.push(ci.frameLog[i]);
+      if (src[i] >= 0 && q >= gapAt + 120 && q < gapAt + 1440 - 120) aroundSlots.push(ci.frameLog[i]);
+    }
+    check('the frame log as played: the slot rule over the reference\'s source map and the demo\'s own logs (codecInfo.sent, the file\'s own timing\'s); the 3 frames concealed in front of a message play where the sent log has them lost',
+      isDeepStrictEqual(ci.frameLog, want) && isDeepStrictEqual(ci.frameBytes, wantBytes) && isDeepStrictEqual(Array.from(sent.frameLog), dec.frameLog ? Array.from(dec.frameLog) : [])
+      && lostSlots.length >= 1 && lostSlots.every((c) => c === FRAME.lost) && aroundSlots.length >= 1 && aroundSlots.every((c) => c !== FRAME.lost && c !== 0),
+      `${lostSlots.length} slots of the concealed frames: ${lostSlots.join(' ')}; then ${aroundSlots.join(' ')}`);
+  }
+  {
+    // Refused messages are not heard: no slot plays the 13 frames of phrase 5's opening, the 7 + 7
+    // of its fourth message, or the first 8 frames of the 12 that were cut in phrase 6 (the next
+    // message's 4 concealed frames are placed over that message's last 4 by the file's own timing).
+    const byFrames = (n, k = 0) => dec.packets.filter((p) => p.records.reduce((s, r) => s + (r.frames ? r.frames.filter((e) => !e.end).length : 0), 0) === n)[k];
+    const spans = [[byFrames(13).at, 13], [byFrames(14).at, 14], [byFrames(12).at, 8]];
+    const src = ci.channel.source;
+    const heard = spans.map(([at, n]) => Array.from(src).filter((v) => v >= 0 && v * 80 / 147 >= at && v * 80 / 147 < at + 480 * n).length);
+    const nearby = spans.map(([at]) => Array.from(src).filter((v) => v >= 0 && Math.abs(v * 80 / 147 - at) < 480 * 30).length);
+    check('the refused messages (13 frames; 7 + 7 in two records; the cut record\'s 12) are not heard: no slot plays them, while slots around them play',
+      heard.every((n) => n === 0) && nearby.every((n) => n > 5), `heard ${heard.join(', ')}; around them ${nearby.join(', ')}`);
+    // The message after the cut decodes as after a cut: 4 concealed and 5 decoded, the samples of
+    // the suite's walk with the buffer of 17, not those of a walk with room for 32.
+    const after = dec.packets.find((p) => p.records[0].frames && p.records[0].frames[0]?.seq === 60);
+    const got = g300.decoded.filter((x) => x.p === after), mine = renders[300].ref.decoded.filter((x) => x.p === after);
+    const wide = walker(32);
+    let wideOut = null;
+    for (const p of dec.packets) {
+      if (p === after) { wideOut = (await wide.record(p.records[0].frames)).pcm; break; }
+      for (const r of p.records) if (r.frames) await wide.record(r.frames);
+    }
+    wide.free();
+    check('the message after the cut decodes as after a cut: 4 frames concealed and its 5 decoded, the samples of the suite\'s walk, not those of a walk with room for 32 frames',
+      got.length === 1 && got[0].pcm.length === 9 * 480 && mine.length === 1 && got[0].pcm.every((v, i) => v === mine[0].pcm[i])
+      && wideOut.length === 5 * 480 && !wideOut.every((v, i) => v === got[0].pcm[4 * 480 + i]));
+    // A message of two records: one resampler call for each (4 + 5 frames: 3,528 and 4,410 samples,
+    // taken; 7 + 7: 6,174 each, refused together).
+    const calls = (n) => g300.resampled.filter((x) => x.p === byFrames(n)).map((x) => x.n).join();
+    check('a message of two records: one resampler call for each record (4 + 5 frames: 3,528 and 4,410 samples, taken; 7 + 7: 6,174 and 6,174, refused together)',
+      calls(9) === '3528,4410' && calls(14) === '6174,6174' && ci.demo.refusedMessages === 3, `${calls(9)}; ${calls(14)}`);
+  }
+  {
+    // The empty packet (an end marker alone, 20 ticks before phrase 6) opens a channel: at 66.67 fps
+    // its channel closes before the phrase, so the render without it has one open fewer.
+    const without = dec.packets.filter((p) => !(p.records.length === 1 && p.records[0].frames && p.records[0].frames.length === 1 && p.records[0].frames[0].end && p.tick !== dec.packets[dec.packets.length - 1].tick));
+    const a = renders[66.67].game.r.codecInfo.channel, b = (await demoRender(receivedOf(dec, { packets: without }), { fps: 66.67 })).r.codecInfo.channel;
+    check('the empty packet opens a channel: at 66.67 fps the render without it has one open fewer', without.length === dec.packets.length - 1 && a.opens === b.opens + 1,
+      `${a.opens} opens with it, ${b.opens} without`);
+  }
+  {
+    // Two messages on one tick are two packets, one sample dropped from each: joined into one
+    // message of two records, the sound after them in that phrase plays one source sample earlier
+    // in every slot (100 fps, where nothing overflows).
+    const k = dec.packets.findIndex((p, j) => j && p.tick === dec.packets[j - 1].tick);
+    const merged = [...dec.packets.slice(0, k - 1), { ...dec.packets[k - 1], records: [...dec.packets[k - 1].records, ...dec.packets[k].records] }, ...dec.packets.slice(k + 1)];
+    const a = renders[100].game.r.codecInfo.channel.source, b = (await demoRender(receivedOf(dec, { packets: merged }), { fps: 100 })).r.codecInfo.channel.source;
+    const from = Math.round(dec.packets[k].at * 147 / 80) + 1, to = Math.round(dec.packets.find((p) => p.records[0].silence !== undefined).at * 147 / 80);
+    let shifted = 0, other = 0;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] > from + 882 && a[i] < to) { if (b[i] === a[i] - 1) shifted++; else other++; }
+    }
+    check('two messages on one tick are two packets, one sample dropped from each: joined into one, the rest of that phrase plays one source sample earlier in every slot',
+      renders[100].game.r.codecInfo.demo.sameTick === 1 && shifted >= 15 && other === 0, `${shifted} slots one sample earlier, ${other} otherwise`);
+  }
+  {
+    // The silence record behind the message's sound (read; the unit, output samples, inferred):
+    // 11 frames (9,702 samples) then 750 zeros, dropped; 10 frames (8,820, not more than 8,820) then
+    // 750, kept: 8,820 + 1,379 (measured). Then (W3-02g-a's fix round) a message of a silence record
+    // alone, which closes the spurt, and a message with a silence record in front of its frames: its
+    // packet starts with the zeros, and its source is its first frame's place less them (the choice
+    // of "After the plan review", point 6).
+    const f = dec.packets[0].records[0].frames.concat(dec.packets[1].records[0].frames, dec.packets[2].records[0].frames).filter((e) => !e.end);
+    const frames = (n) => f.slice(0, n).map((e, s) => ({ seq: s, data: e.data }));
+    const packets = [{ tick: 0, rate: 24000, at: 0, records: [{ frames: frames(11) }, { silence: 750 }] },
+      { tick: 200, rate: 24000, at: 72000, records: [{ frames: [{ end: true }, ...frames(10)] }, { silence: 750 }] },
+      { tick: 240, rate: 24000, at: 76800, records: [{ silence: 750 }] },
+      { tick: 250, rate: 24000, at: 90000, records: [{ silence: 750 }, { frames: [{ end: true }, ...frames(6)] }] }];
+    const n = 6 * 24000, x = new Float32Array(n), silent = { samples: x, packets, firstTick: 0, tickSeconds: 0.015 };
+    const g = await demoRender({ frameLog: Array(Math.ceil(n / 480)).fill(2), frameBytes: Array(Math.ceil(n / 480)).fill(60), frameMs: 20, spurts: 3, packets, firstTick: 0, tickSeconds: 0.015 },
+      {}, buffer(x, 24000));
+    const sizes = (k) => g.resampled.filter((y) => y.p === packets[k]).map((y) => y.n).join();
+    check('a silence record behind more than 8,820 samples of its message is dropped (11 frames, then 750: dropped); behind 8,820 it is kept (10 frames, then 750: 8,820 and 1,379)',
+      g.r.codecInfo.demo.droppedSilence === 1 && sizes(0) === '9702' && sizes(1) === '8820,1379' && g.decoded.length === 6, `${sizes(0)}; ${sizes(1)}`);
+    const ref = await demoReference(silent, { fps: 300, bufferMs: 100 }), ch = g.r.codecInfo.channel;
+    const zeros = Number(sizes(3).split(',')[0]), place = Math.round(90000 * 147 / 80) - zeros;
+    check('a message whose packet starts with a silence record\'s zeros: its source is its first frame\'s place less the zeros; codecInfo.channel (source map and spurts) and the voice are the reference\'s',
+      isDeepStrictEqual(ch, ref.info) && firstDiff(g.voice, ref.samples) === -1 && ch.spurts.length === 2 && Math.round(ch.spurts[1].start * 44100) === place
+      && zeros > 1300 && Array.from(ch.source).some((v) => v >= place && v < place + zeros), `its packet ${sizes(3)}, its source ${place}`);
+  }
+  {
+    // A source cut short (72,000 samples, 3 s): the messages after the render's end are counted and
+    // not pushed, and those that arrive between the end and the end plus the zero, which still sound
+    // in it, are pushed (W3-02g-a's fix round: the first block past the end is counted with the zero).
+    const cut = 72000, decCut = { ...dec, samples: dec.samples.subarray(0, cut), frameLog: dec.frameLog.slice(0, cut / 480), frameBytes: dec.frameBytes.slice(0, cut / 480) };
+    for (const fps of [300, 66.67]) {
+      const game = await demoRender(receivedOf(decCut), { fps }, buffer(decCut.samples, 24000)), ref = await demoReference(decCut, { fps, bufferMs: 100 });
+      const length = Math.round(cut * 147 / 80), Z = ref.Z;
+      const inside = dec.packets.filter((p) => { const t = 1323 * Math.round((p.tick - dec.firstTick) * dec.tickSeconds / 0.015) / 2; return t >= length && t < length + Z; }).length;
+      check(`queue.dem cut at 72,000 samples, at ${fps} fps: process() is the reference, sample for sample and member for member, with messages that arrive between the end and the end plus the zero pushed`,
+        firstDiff(game.voice, ref.samples) === -1 && isDeepStrictEqual(game.r.codecInfo.channel, ref.info) && isDeepStrictEqual(game.r.codecInfo.demo, ref.counts)
+        && inside >= 1 && ref.counts.pastEnd > 0 && game.voice.length === length,
+        `${inside} message${inside === 1 ? '' : 's'} in [${length}, ${length + Z}); ${ref.counts.pushed} pushed, ${ref.counts.pastEnd} past the end`);
+    }
+  }
+  {
+    // The ticks: halved, with tickSeconds 0.03, the same samples; firstTick and every tick moved by
+    // 1,000, the same samples.
+    const ref = renders[300].game.voice;
+    const half = dec.packets.map((p) => ({ ...p, tick: p.tick / 2 })), moved = dec.packets.map((p) => ({ ...p, tick: p.tick + 1000 }));
+    const h = await demoRender(receivedOf(dec, { packets: half, firstTick: dec.firstTick / 2, tickSeconds: 0.03 }));
+    const m = await demoRender(receivedOf(dec, { packets: moved, firstTick: dec.firstTick + 1000 }));
+    check('the same packets with every tick halved and tickSeconds 0.03, or with firstTick and every tick moved by 1,000: the same samples',
+      half.every((p) => Number.isInteger(p.tick)) && firstDiff(h.voice, ref) === -1 && firstDiff(m.voice, ref) === -1);
+    // The float 0.015 over 240,000 ticks (an hour): each arrival tick is the tick difference.
+    // steamDemoVoice driven with a channel of the test's own, which notes each push's tick.
+    const { steamDemoVoice } = engine.parts.steam;
+    const ticks = Array.from({ length: 2000 }, (_, k) => Math.round(k * 240000 / 1999)), seen = [];
+    const voice = steamDemoVoice({ received: { firstTick: 77, tickSeconds: Math.fround(0.015), packets: ticks.map((t) => ({ tick: 77 + t, rate: 24000, at: 0, records: [] })) },
+      length: 1e9, zero: 0, decoder: null, resampler: null, channel: { push: (tick) => seen.push(tick) } });
+    await voice.feed(Infinity);
+    check('tickSeconds the float 0.015 over 240,000 ticks: every arrival tick is the tick difference', seen.length === 2000 && seen.every((t, k) => t === ticks[k]),
+      `the last ${seen[seen.length - 1]}`);
+  }
+  {
+    // The refusals: each malformed member (a RangeError that names it and the packet's index);
+    // arriveAt with a demo's packets; a received source without packets; the codec bypassed; another codec.
+    const p0 = dec.packets[1];
+    const bad = [
+      ['packets not an array', { packets: {} }, /received\.packets is/],
+      ['a packet that is not an object', { packets: [p0, 7] }, /packets\[1\] is/],
+      ['firstTick 1.5', { firstTick: 1.5 }, /firstTick/],
+      ['tickSeconds 0', { tickSeconds: 0 }, /tickSeconds/],
+      ['tickSeconds NaN', { tickSeconds: NaN }, /tickSeconds/],
+      ['a tick that is not whole', { packets: [{ ...p0, tick: 100.5 }] }, /packets\[0\]\.tick/],
+      ['a tick before firstTick', { packets: [{ ...p0, tick: 99 }] }, /packets\[0\]\.tick/],
+      ['a tick that falls', { packets: [p0, { ...p0, tick: p0.tick - 1 }] }, /packets\[1\]\.tick/],
+      ['at not finite', { packets: [{ ...p0, at: Infinity }] }, /packets\[0\]\.at/],
+      ['rate 16000', { packets: [{ ...p0, rate: 16000 }] }, /packets\[0\]\.rate/],
+      ['records not an array', { packets: [{ ...p0, records: 'x' }] }, /packets\[0\]\.records/],
+      ['a record of neither kind', { packets: [{ ...p0, records: [{}] }] }, /packets\[0\]\.records\[0\]/],
+      ['a record of both kinds', { packets: [{ ...p0, records: [{ silence: 5, frames: [] }] }] }, /packets\[0\]\.records\[0\]/],
+      ['a silence of 1.5', { packets: [{ ...p0, records: [{ silence: 1.5 }] }] }, /records\[0\]\.silence/],
+      ['frames not an array', { packets: [{ ...p0, records: [{ frames: 3 }] }] }, /records\[0\]\.frames/],
+      ['a frame whose number is 65536', { packets: [{ ...p0, records: [{ frames: [{ seq: 65536, data: new Uint8Array(3) }] }] }] }, /frames\[0\]\.seq/],
+      ['a frame whose data is an array', { packets: [{ ...p0, records: [{ frames: [{ seq: 1, data: [1, 2, 3] }] }] }] }, /frames\[0\]\.data/],
+      ['a frame whose short is 1', { packets: [{ ...p0, records: [{ frames: [{ seq: 1, data: new Uint8Array(3), short: 1 }] }] }] }, /frames\[0\]\.short/],
+      ['an end marker with a number', { packets: [{ ...p0, records: [{ frames: [{ end: true, seq: 3 }] }] }] }, /frames\[0\] is an end marker/]
+    ];
+    let named = 0;
+    const failedRows = [];
+    for (const [name, change, re] of bad) {
+      const received = receivedOf(dec, change);
+      const a = await thrown(() => A.process(source, { ...BASE, received, timeline: 'game' }));
+      const b = await thrown(() => A.createRender({ sampleRate: 24000, length: dec.samples.length, numberOfChannels: 1 }, { ...BASE, received, timeline: 'game' }));
+      if (a instanceof RangeError && b instanceof RangeError && re.test(a.message) && re.test(b.message)) named++; else failedRows.push(`${name}: ${a?.message ?? 'rendered'}`);
+    }
+    check(`a demo's packets on the game's timeline: each of ${bad.length} malformed members is a RangeError naming it and its packet, from process() and createRender()`,
+      named === bad.length, failedRows.join(' | ') || `${named} of ${bad.length}`);
+    const others = [
+      ['opts.arriveAt', { received: receivedOf(dec), arriveAt: (t) => t }, /arriveAt.*own ticks/],
+      ['a received source without packets', { received: { frameLog: Array.from(dec.frameLog), frameBytes: Array.from(dec.frameBytes), frameMs: 20, spurts: 6 } }, /timeline.*received\.packets/],
+      ['the codec bypassed', { received: receivedOf(dec), enableWarble: false }, /timeline.*bypassed/],
+      ['another codec (celt_22)', { received: receivedOf(dec), codec: 'celt_22' }, /timeline.*steam codec only/]
+    ];
+    for (const [name, change, re] of others) {
+      const a = await thrown(() => A.process(source, { ...BASE, timeline: 'game', ...change }));
+      const b = await thrown(() => A.createRender({ sampleRate: 24000, length: dec.samples.length, numberOfChannels: 1 }, { ...BASE, timeline: 'game', ...change }));
+      check(`refused with a demo's voice on the game's timeline: ${name} (a RangeError from process() and createRender())`,
+        a instanceof RangeError && b instanceof RangeError && re.test(a.message) && re.test(b.message), a ? a.message : 'process() rendered');
+    }
+  }
+  {
+    // createRender gives process()'s render of queue.dem, samples and codecInfo, in pieces of 7, 960
+    // and the whole source, and gives out its voice as the source comes: after each piece, all but
+    // at most 2,048 samples of the voice the source given so far stands for (its bound T, the order's).
+    for (const [fps, size] of [[300, 7], [300, 960], [300, dec.samples.length], [66.67, 960]]) {
+      const whole = renders[fps] ? renders[fps].game.r : (await demoRender(receivedOf(dec), { fps })).r;
+      let behind = 0, error = null;
+      const voice = [], got = await (async () => {
+        const r = await A.createRender({ sampleRate: 24000, length: dec.samples.length, numberOfChannels: 1 },
+          { ...BASE, fps, received: receivedOf(dec), timeline: 'game', onGain: (g) => voice.push(g.length) });
+        const out = [];
+        for (let at = 0; at < dec.samples.length; at += size) {
+          out.push(await r.push(dec.samples.subarray(at, Math.min(dec.samples.length, at + size))));
+          const given = Math.min(dec.samples.length, at + size), gave = voice.reduce((n, v) => n + v, 0);
+          behind = Math.max(behind, Math.floor(given * 147 / 80) - gave);
+        }
+        const end = await r.finish();
+        out.push(end.samples);
+        return { samples: join(out), codecInfo: end.codecInfo };
+      })().catch((e) => { error = e; return null; });
+      check(`queue.dem at ${fps} fps, createRender in pieces of ${size === dec.samples.length ? 'the whole source' : size}: process()'s samples and codecInfo, and the voice given out never more than 2,048 samples behind the source given`,
+        got !== null && firstDiff(got.samples, whole.samples) === -1 && isDeepStrictEqual(got.codecInfo, whole.codecInfo) && behind <= 2048,
+        error ? `threw ${error.message}` : `at most ${behind} samples behind`);
+    }
+  }
+  {
+    // Jitter and loss change no sample of a demo's render on the queue.
+    const j = await demoRender(receivedOf(dec), { jitterMs: 200, lossPct: 30, seed: 9 });
+    check('jitter 200 ms and loss 30% change no sample of a demo\'s render on the game\'s timeline, and give it no arrivals', firstDiff(j.voice, g300.voice) === -1
+      && firstDiff(j.r.samples, g300.r.samples) === -1 && !('arrivals' in j.r.codecInfo));
+  }
+  {
+    // The file's own timing does not read the packets: with them and without, the render of main
+    // (61c8834), by hashes recorded with main's code before any change, of this fixture's first
+    // speaker (the WAV, codecInfo with sorted keys, and the voice at the mix point), from process()
+    // and createRender(), timeline 'source', undefined and null.
+    const canon = (v) => (ArrayBuffer.isView(v) ? { [v.constructor.name]: Array.from(v) } : Array.isArray(v) ? v.map(canon)
+      : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
+    const MAIN = {
+      on: '347d3414f2c015fe321228ee7937d7412df64df6099a24fe6cf6bcb8444ae422 d91fee18f460c542a036240acd3aaf54d4d680158faf508541f993a906de8baf 126c1ad9933c93e3ebeaededf1f56bf13a582413a862db3a4579eab527a1ff3a',
+      off: '23e367d822ebf750033b99354c5b4c779912166eb5c995862e1457cd839eaafa 24c19490c618f4cb15378c8fd2674d473af39a76860f451ce356c3eaa56fc3e6 0f9579223a04a1b0214a9a93cdca87764707ee5549ad637391fb8ab5e7923cf4'
+    };
+    const plain = { frameLog: Array.from(dec.frameLog), frameBytes: Array.from(dec.frameBytes), frameMs: 20, spurts: dec.spurts };
+    let same = 0, all = 0;
+    const misses = [];
+    for (const [agc, want] of [[true, MAIN.on], [false, MAIN.off]]) {
+      for (const received of [plain, receivedOf(dec)]) {
+        for (const timeline of ['source', undefined, null]) {
+          all++;
+          let gain = null;
+          const r = await A.process(source, { ...BASE, agc, received, timeline, onGain: (g) => { gain = Float32Array.from(g); } });
+          const h = `${sha256(new Uint8Array(await r.blob.arrayBuffer()))} ${sha256(JSON.stringify(canon(r.codecInfo)))} ${sha256(new Uint8Array(gain.buffer))}`;
+          if (h === want) same++; else misses.push(`agc ${agc}, ${received.packets ? 'with' : 'without'} packets, ${timeline}: ${h}`);
+        }
+        all++;
+        const s = await A.createRender({ sampleRate: 24000, length: dec.samples.length, numberOfChannels: 1 }, { ...BASE, agc, received, timeline: 'source' });
+        const first = await s.push(dec.samples), end = await s.finish();
+        const out = join([first, end.samples]);
+        const h = `${sha256(new Uint8Array(await A.encodeWav(out, 44100).arrayBuffer()))} ${sha256(JSON.stringify(canon(end.codecInfo)))}`;
+        if (h === want.split(' ').slice(0, 2).join(' ')) same++; else misses.push(`createRender, agc ${agc}, ${received.packets ? 'with' : 'without'} packets`);
+      }
+    }
+    check('the file\'s own timing: a demo\'s render with its packets and without is main\'s, by hashes recorded there before any change (process() at timeline \'source\', undefined and null, and createRender(); the auto-gain on and off)',
+      same === all, misses.join('; ') || `${all} renders`);
+  }
+  console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
 }
 
 console.log(`\n${passed} render-channel checks passed, ${failed} failed`);

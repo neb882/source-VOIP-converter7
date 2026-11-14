@@ -13,7 +13,9 @@
  * audio as the receiving game would: talk spurts at their tick, frames back
  * to back, lost frames concealed, DTX frames as comfort noise, the decoder
  * reset at each end of transmission, and a new spurt at its tick when the
- * sequence breaks late (an end marker lost with its packet).
+ * sequence breaks late (an end marker lost with its packet). For Steam voice
+ * it also gives each message as it came, with the place it has on that
+ * timing, for the game's decoder and voice queue (W3-02g, engine/steam.js).
  * tests/demovoice/extract.mjs prints and writes the same for a demo file.
  *
  * Message layouts follow tf-demo-parser 0.6 (MIT or Apache-2.0).
@@ -206,6 +208,12 @@
   // sections, u32 CRC32 of everything before it; section 6 holds Opus frames
   // as u16 length, u16 sequence number, frame (length 0xFFFF: end of
   // transmission), section 0 a run of silence, section 11 the sample rate.
+  // Each packet of a Steam speaker also says where it came from (W3-02g): m,
+  // the index of its voice message in out.voice; r, the index of its record
+  // (section) in that message, every record counted; rate, the value of the
+  // message's sample-rate record read before it (null when there was none).
+  // An Opus packet whose data runs past the end of its record is cut there,
+  // as before, and marked short.
   function speakers(out) {
     const byId = new Map();
     const get = (id, client) => {
@@ -214,25 +222,28 @@
     };
     const legacy = LEGACY[(out.codecs[out.codecs.length - 1] || {}).codec];
     let unreadable = 0;
-    for (const m of out.voice) {
-      const d = m.data;
+    for (let mi = 0; mi < out.voice.length; mi++) {
+      const m = out.voice[mi], d = m.data;
       if (d.length >= 12 && crc32(d, d.length - 4) === new DataView(d.buffer, d.byteOffset + d.length - 4, 4).getUint32(0, true)) {
         const view = new DataView(d.buffer, d.byteOffset, d.length);
         const id = view.getBigUint64(0, true).toString(), sp = get(id, m.client), end = d.length - 4;
+        let r = -1, rate = null;
         for (let i = 8; i + 3 <= end;) {
           const kind = d[i], value = view.getUint16(i + 1, true);
           i += 3;
-          if (kind === 11) { sp.rate = value; continue; }
-          if (kind === 0) { sp.packets.push({ tick: m.tick, kind: 'silence', samples: value }); continue; }
+          r++;
+          if (kind === 11) { sp.rate = value; rate = value; continue; }
+          if (kind === 0) { sp.packets.push({ tick: m.tick, kind: 'silence', samples: value, m: mi, r, rate }); continue; }
           if (kind !== 6) { unreadable++; break; }
           const stop = Math.min(i + value, end);
           for (let j = i; j + 2 <= stop;) {
             const len = view.getUint16(j, true);
             j += 2;
-            if (len === 0xFFFF) { sp.packets.push({ tick: m.tick, kind: 'end' }); sp.nextSeq = null; continue; }
+            if (len === 0xFFFF) { sp.packets.push({ tick: m.tick, kind: 'end', m: mi, r, rate }); sp.nextSeq = null; continue; }
             if (j + 2 > stop) break;
             const seq = view.getUint16(j, true);
             j += 2;
+            const short = j + len > stop;
             const frame = d.slice(j, Math.min(j + len, stop));
             j += len;
             if (sp.nextSeq === null) sp.spurts++;
@@ -247,7 +258,9 @@
             sp.bytes += frame.length;
             if (frame.length <= 2) sp.dtx++;
             if (frame.length) sp.tocs[frame[0] >> 3] = (sp.tocs[frame[0] >> 3] || 0) + 1;
-            sp.packets.push({ tick: m.tick, kind: 'opus', seq, data: frame });
+            const packet = { tick: m.tick, kind: 'opus', seq, data: frame, m: mi, r, rate };
+            if (short) packet.short = true;
+            sp.packets.push(packet);
           }
           i = stop;
         }
@@ -297,20 +310,55 @@
   // decoder refuses (not of the codec's mode) plays as one frame of silence,
   // is logged as the CELT frame it was sent as, and is counted in
   // `undecodable`.
+  // For a Steam speaker it also returns the speaker's messages as they came,
+  // for the game's decoder (W3-02g: engine/steam.js's steamDemoVoice runs
+  // them on the game's timeline): packets, one entry for each voice message
+  // that holds a silence record or an Opus record, in order, { tick, rate,
+  // at, records }; records the message's records in order, { silence: n }
+  // or { frames: [...] }, each frame { seq, data } (short: true where the
+  // packet has it; data the packet's own bytes, not a copy) or { end: true };
+  // rate the message's sample rate (its sample-rate record's value, one that
+  // is not 24000 kept wherever it comes; null when it has none).
+  // at is where this decode lays the message: the write position at which
+  // its first Opus packet is laid (after any frames concealed in front of
+  // it), or, for a message with no Opus packet, the write position when the
+  // message ends. firstTick is the tick of the speaker's first packet (this
+  // decode's zero) and tickSeconds the demo's tick length. A message that
+  // holds a sample-rate record and nothing else gives no entry.
   async function decode(parsed, speaker, codecs) {
     const tickSeconds = parsed.intervalPerTick, rate = speaker.rate, steam = speaker.codec === 'steam';
     const spec = steam ? { frame: rate / 50 } : LEGACY[speaker.codec];
     const t0 = speaker.packets.length ? speaker.packets[0].tick : 0;
-    const chunks = [], frames = [];
+    const chunks = [], frames = [], messages = [];
     let pos = 0, decoder = null, next = null, concealed = 0, undecodable = 0, lastTick = null, spurts = 0;
     const put = (samples, code, bytes) => { chunks.push([pos, samples]); frames.push([pos, code, bytes]); pos += samples.length; };
     const at = (tick) => Math.round((tick - t0) * tickSeconds * rate);
     // RFC 6716: the TOC's top 5 bits; configurations 0-11 are SILK, 12-15 hybrid, 16-31 CELT.
     const mode = (toc) => ((toc >> 3) < 12 ? 1 : (toc >> 3) < 16 ? 2 : 3);
     if (steam) {
+      // The message being read (its index m and its entry) and its record
+      // being read (its index r and its entry).
+      let msg = null, rec = null;
       for (const p of speaker.packets) {
-        if (p.kind === 'end') { if (decoder) decoder.free(); decoder = null; next = null; continue; }
+        if (!msg || p.m !== msg.m) {
+          if (msg && msg.entry.at === null) msg.entry.at = pos;
+          msg = { m: p.m, entry: { tick: p.tick, rate: null, at: null, records: [] } };
+          messages.push(msg.entry);
+          rec = null;
+        }
+        // The message's rate: its sample-rate record's value, a value other
+        // than 24000 kept wherever it comes in the message.
+        if (p.rate != null && (msg.entry.rate === null || msg.entry.rate === 24000)) msg.entry.rate = p.rate;
+        if (!rec || rec.r !== p.r) {
+          rec = { r: p.r, entry: p.kind === 'silence' ? { silence: p.samples } : { frames: [] } };
+          msg.entry.records.push(rec.entry);
+        }
+        if (p.kind === 'end') {
+          rec.entry.frames.push({ end: true });
+          if (decoder) decoder.free(); decoder = null; next = null; continue;
+        }
         if (p.kind !== 'opus') continue;
+        rec.entry.frames.push(p.short ? { seq: p.seq, data: p.data, short: true } : { seq: p.seq, data: p.data });
         if (decoder) {
           const jump = (p.seq - next) & 0xFFFF, elapsed = (p.tick - lastTick) * tickSeconds;
           if (jump < 0x8000 && jump * spec.frame <= (elapsed + SEQ_SLACK) * rate) {
@@ -318,10 +366,12 @@
           } else if (at(p.tick) > pos + spec.frame * LATE_FRAMES) { decoder.free(); decoder = null; }
         }
         if (!decoder) { decoder = await codecs.opus(rate); pos = Math.max(pos, at(p.tick)); spurts++; }
+        if (msg.entry.at === null) msg.entry.at = pos;
         put(decoder.decodeFloat(p.data, { frameSize: spec.frame }), p.data.length <= 2 ? 4 : mode(p.data[0]), p.data.length);
         next = (p.seq + 1) & 0xFFFF;
         lastTick = p.tick;
       }
+      if (msg && msg.entry.at === null) msg.entry.at = pos;
       if (decoder) decoder.free();
     } else {
       const codec = await codecs.celt(spec.modeRate ?? spec.rate, spec.frame, spec.bytes);
@@ -349,7 +399,9 @@
       frameLog[f] = code;
       frameBytes[f] = bytes;
     }
-    return { samples, rate, frameSeconds: spec.frame / rate, frameSamples: spec.frame, frameLog, frameBytes, concealed, undecodable, spurts };
+    const out = { samples, rate, frameSeconds: spec.frame / rate, frameSamples: spec.frame, frameLog, frameBytes, concealed, undecodable, spurts };
+    if (steam) Object.assign(out, { packets: messages, firstTick: t0, tickSeconds });
+    return out;
   }
 
   const TF2Demo = { parse, decode, crc32, Bits };

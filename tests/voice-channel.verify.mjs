@@ -30,7 +30,7 @@ import { mulberry32, UNRELATED, synthesize } from './voicequeue/synthetic-log.mj
 const require = createRequire(import.meta.url);
 const V = require('../voice-channel.js');
 const { createSender } = require('../steam-sender.js');
-const { VOICE_CHANNEL, waitTicks, latency, zero, createChannel, createTimeline } = V;
+const { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, createChannel, createTimeline } = V;
 const TOOL = fileURLToPath(new URL('./voicequeue/log-to-fixture.mjs', import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
 // Set for the copies of this script that the public checks start: they only replay.
@@ -236,10 +236,10 @@ function publicChecks() {
     const src = fs.readFileSync(fileURLToPath(new URL('../voice-channel.js', import.meta.url)), 'utf8');
     const page = vm.createContext({}), worker = vm.createContext({ self: {} });
     vm.runInContext(src, page); vm.runInContext(src, worker);
-    // W3-02a exported four names; W3-02b adds createTimeline; W3-02c-3a adds zero.
+    // W3-02a exported four names; W3-02b adds createTimeline; W3-02c-3a adds zero; W3-02g adds arrivalZero.
     check('it loads as a page script and in a worker as TF2VoiceChannel, with no imports',
-      ['VOICE_CHANNEL', 'waitTicks', 'latency', 'zero', 'createChannel', 'createTimeline'].every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
-      && Object.keys(V).join() === 'VOICE_CHANNEL,waitTicks,latency,zero,createChannel,createTimeline' && !/\bimport\b|\brequire\(/.test(src));
+      ['VOICE_CHANNEL', 'waitTicks', 'latency', 'zero', 'arrivalZero', 'createChannel', 'createTimeline'].every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
+      && Object.keys(V).join() === 'VOICE_CHANNEL,waitTicks,latency,zero,arrivalZero,createChannel,createTimeline' && !/\bimport\b|\brequire\(/.test(src));
     check('its constants are frozen: 22050, 0.015 s, 100 ms, 300 fps, 0.1 s, 512 and 513; the fraction 0.999 and the unit 32768', Object.isFrozen(VOICE_CHANNEL) && Object.isFrozen(VOICE_CHANNEL.fpsRange)
       && VOICE_CHANNEL.fraction === 0.999 && VOICE_CHANNEL.unit === 32768 && VOICE_CHANNEL.ring === 22050 && VOICE_CHANNEL.tick === 0.015 && VOICE_CHANNEL.bufferMs === 100 && VOICE_CHANNEL.fps === 300
       && VOICE_CHANNEL.fadeTime === 0.1 && VOICE_CHANNEL.mixBlock === 512 && VOICE_CHANNEL.firstBlock === 513 && VOICE_CHANNEL.rate === 44100);
@@ -839,6 +839,7 @@ function publicChecks() {
   }
   timelineChecks();
   endlessChecks();
+  arrivalZeroChecks();
   console.log(`\n${passed} voice channel checks passed`);
 }
 
@@ -1471,6 +1472,96 @@ function endlessChecks() {
     check('the exported zero: 13,312, 15,360 and 24,576 samples at 66.67, 100 and 300 fps with the codec\'s 156 samples, 24,064 at 300 with none; the suite\'s own reading; a codecDelay that is not a finite number of 0 or more refused',
       z.join() === '13312,15360,24576' && zero(100, 300) === 24064 && zero(100, 300, 0) === 24064 && [66.67, 100, 300].every((fps) => zero(100, fps, OPUS_DELAY) === zeroOf(100, fps, OPUS_DELAY))
       && zero(undefined, undefined) === zeroOf(100, 300) && refused === 5, `${z.join(', ')}; ${zero(100, 300)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// The zero for packets with their own arrival ticks (W3-02g, docs/work-orders/W3-02g-demo-packets.md,
+// "The zero"): arrivalZero, and createTimeline's zeroSamples. Read again here from the order:
+// the module's latency less the opening burst of eight 20 ms frames, on whole 512-sample blocks.
+const arrivalZeroOf = (bufferMs, fps) => 512 * Math.round(44100 * (latency(bufferMs, fps) - 0.16) / 512);
+
+function arrivalZeroChecks() {
+  console.log('The zero for packets with their own arrival ticks (W3-02g)');
+  {
+    const z = [66.67, 100, 300].map((fps) => arrivalZero(100, fps));
+    let bad = 0, cases = 0;
+    for (const fps of [10, 30, 66.67, 100, 150, 229, 230, 235, 300, 1000]) {
+      for (const bufferMs of [1, 30, 50, 100, 200, 5000]) {
+        cases++;
+        const a = arrivalZero(bufferMs, fps);
+        if (a !== arrivalZeroOf(bufferMs, fps) || a < 0 || a % 512 !== 0) bad++;
+      }
+    }
+    check('arrivalZero: 4,096, 6,144 and 14,848 samples at 66.67, 100 and 300 fps; the suite\'s own reading at 60 settings, never below 0, on whole blocks',
+      z.join() === '4096,6144,14848' && bad === 0 && arrivalZero(undefined, undefined) === 14848, `${z.join(', ')}; ${cases - bad} of ${cases}`);
+  }
+  {
+    // zeroSamples given as the D the timeline computes: the same samples and info, at six settings,
+    // eight streams each, with and without advance().
+    const cases = [[300, 100, 0.1], [100, 100, 0.1], [66.67, 100, 0.1], [150, 50, 0.05], [30, 200, 0.1], [300, 30, 0.02]];
+    let all = 0, same = 0, first = '';
+    for (const [fps, bufferMs, fadeTime] of cases) {
+      for (let seed = 1; seed <= 8; seed++) {
+        const messages = madeUpMessages(seed + 40, 700), length = 44100 * 11 + seed * 53;
+        for (const advanceEvery of [0, 3]) {
+          all++;
+          const plain = timelineRun(messages, { fps, bufferMs, fadeTime, length }, { advanceEvery });
+          const given = timelineRun(messages, { fps, bufferMs, fadeTime, length, zeroSamples: zeroOf(bufferMs, fps) }, { advanceEvery });
+          if (plain.samples.length === given.samples.length && plain.samples.every((v, i) => Object.is(v, given.samples[i]))
+              && JSON.stringify(plain.info, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)) === JSON.stringify(given.info, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)))
+            same++;
+          else if (!first) first = `${fps} fps, seed ${seed}`;
+        }
+      }
+    }
+    check('createTimeline with zeroSamples equal to the D it computes for the same settings: the same samples and info, member for member (48 streams at six settings, with and without advance())',
+      same === all, first || `${all} runs`);
+  }
+  {
+    // 512 less: the same samples 512 places later.
+    let all = 0, same = 0;
+    for (const fps of [300, 100, 66.67]) {
+      for (let seed = 1; seed <= 4; seed++) {
+        all++;
+        const messages = madeUpMessages(seed + 60, 600), length = 44100 * 9, D = arrivalZero(100, fps);
+        const a = timelineRun(messages, { fps, length, zeroSamples: D }).samples, b = timelineRun(messages, { fps, length, zeroSamples: D - 512 }).samples;
+        if (a.length === length && b.length === length && b.subarray(512).every((v, i) => Object.is(v, a[i])) && a.some((v) => v !== 0)) same++;
+      }
+    }
+    check('createTimeline with zeroSamples 512 less: the same samples, 512 places later (12 streams at three frame rates)', same === all, `${same} of ${all}`);
+  }
+  {
+    // Several messages on one tick, every one of them pushed: with zeroSamples the reference
+    // timeline's output (driven by blocks, D its own reading), and every message counted.
+    const rand = mulberry32(7), messages = [];
+    let tick = 3, pos = 0;
+    for (let k = 0; k < 300; k++) {
+      const n = 300 + Math.floor(rand() * 3000), pcm = Float32Array.from({ length: n }, () => rand() * 2 - 1);
+      messages.push({ tick, pcm, source: pos });
+      pos += n;
+      tick += k % 3 === 2 ? 4 + Math.floor(rand() * 6) : 0;      // three on each tick
+    }
+    const length = 44100 * 8, ref = referenceTimeline(messages, { fps: 300, bufferMs: 100, length });
+    const got = timelineRun(messages, { fps: 300, bufferMs: 100, length, zeroSamples: zeroOf(100, 300) });
+    check('createTimeline with zeroSamples: three messages on each tick are pushed one after the other on it (the reference timeline\'s output, every message counted)',
+      got.samples.every((v, i) => Object.is(v, ref[i])) && got.info.packets === 300 && ref.some((v) => v !== 0), `${got.info.packets} messages, ${got.info.opens} opens`);
+  }
+  {
+    // With no end it works the same way: every return of push() is the whole length's.
+    const messages = madeUpMessages(81, 600), z = arrivalZero(100, 66.67);
+    const whole = callsRun(messages, { fps: 66.67, length: 44100 * 9, zeroSamples: z }), endless = callsRun(messages, { fps: 66.67, length: Infinity, zeroSamples: z });
+    check('createTimeline with zeroSamples and length Infinity: every return of push() is the whole length\'s (no caller passes both)',
+      whole.calls.length === endless.calls.length && whole.calls.every((c, k) => c.length === endless.calls[k].length && c.every((v, i) => Object.is(v, endless.calls[k][i]))));
+  }
+  {
+    const refused = (o) => { try { createTimeline({ length: 1000, ...o }); return false; } catch (e) { return e instanceof RangeError; } };
+    const notWhole = [-512, 1.5, NaN, Infinity, '512', null].filter((z) => refused({ zeroSamples: z })).length;
+    const notBlocks = [100, 511, 513, 1000].filter((z) => refused({ zeroSamples: z })).length;
+    const both = [0, 0.0065].filter((c) => refused({ zeroSamples: 512, codecDelay: c })).length;
+    const fine = [0, 512, 14848].every((z) => !refused({ zeroSamples: z })) && !refused({ zeroSamples: undefined, codecDelay: 0.0065 });
+    check('createTimeline\'s zeroSamples: a RangeError when not a whole number of 0 or more (6 of 6), when not a whole number of blocks (4 of 4), and with codecDelay given too (2 of 2); 0, 512 and 14,848 taken',
+      notWhole === 6 && notBlocks === 4 && both === 2 && fine, `${notWhole}, ${notBlocks}, ${both}`);
   }
 }
 

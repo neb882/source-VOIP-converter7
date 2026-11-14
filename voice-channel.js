@@ -32,7 +32,9 @@
  * inUse, playing, starved, count, opens, waitTicks, dropped, drops, fraction }, in
  * 16-bit units; createTimeline(opts), the game's clock around one channel, at
  * 1/32768 of them, over a whole length or with no end (the live monitor's, W3-02c-3);
- * zero(bufferMs, fps, codecDelay), the samples the timeline takes out (D).
+ * zero(bufferMs, fps, codecDelay), the samples the timeline takes out (D);
+ * arrivalZero(bufferMs, fps), the zero for packets that come with their own arrival
+ * ticks, a demo's (W3-02g), which createTimeline takes as zeroSamples.
  * No imports; runs as a page script, in a worker and under Node.
  */
 (function (root) {
@@ -124,6 +126,21 @@
     const delay = codecDelay === undefined ? 0 : codecDelay;
     if (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0) throw new RangeError('createTimeline\'s codecDelay is a finite number of seconds, 0 or more');
     return VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (latency(bufferMs, fps) + ARRIVAL_SECONDS + delay) / VOICE_CHANNEL.mixBlock);
+  }
+
+  // The zero for packets that come with their own arrival ticks (W3-02g: a demo's, each on the
+  // tick SourceTV wrote it on), which createTimeline takes as zeroSamples: latency(bufferMs, fps)
+  // less the opening burst (OPENING_SECONDS), on whole mixer blocks. Such a spurt's place in the
+  // source is its opening packet's own arrival, with no sender's time in front of it. A spurt
+  // that opens a channel plays after the wait, and of the sound that has come by then the ring
+  // holds at most latency()'s worth, the opening burst's 0.16 s among it; so its first sample
+  // heard comes latency() - 0.16 s after its place. An opened spurt whose opening is eight frames
+  // then sits where its source has it, and one that joins the queue is early
+  // (docs/work-orders/W3-02g-demo-packets.md, "The zero"; eight frames opened 17 of 20 spurts of
+  // Set D's demo, measured, finding 25). 4096 samples at 66.67 fps, 6144 at 100, 14848 at 300.
+  // The game has no such figure: it is the model's, for lining a render up with its source.
+  function arrivalZero(bufferMs, fps) {
+    return VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (latency(bufferMs, fps) - OPENING_SECONDS) / VOICE_CHANNEL.mixBlock);
   }
 
   // Samples in and out are in 16-bit units (whole values, as the game's ring holds them; a
@@ -290,7 +307,9 @@
   // are the mixer's: D = 512 x round(44100 x (latency + arrival + codecDelay) / 512). With no
   // codecDelay, 13312 samples at 66.67 fps, 15360 at 100, 24064 at 300; with the Opus codec's
   // 156 samples at 24 kHz (6.5 ms), 13312, 15360 and 24576. The game has no such figure: it is
-  // the model's, for lining a render up with its source. Output before sample 0 or past length
+  // the model's, for lining a render up with its source. A caller whose packets come with their
+  // own arrival ticks (a demo's, W3-02g) gives D itself as zeroSamples (arrivalZero() has the
+  // reasoning). Output before sample 0 or past length
   // is dropped. The mixer runs one sample ahead of what it plays (W3-10's upsampler read, section
   // 3): the first block after each start asks the channel for 513 samples, plays the first 512
   // and keeps the last; every later block plays the kept sample and then the first 511 of the
@@ -300,7 +319,11 @@
   // channel opens, run on every message whole), length (output samples, required: a whole
   // number, or Infinity for a timeline with no end, below), codecDelay (seconds, default 0:
   // how much earlier than the sender's frame the caller's sources are, the codec's
-  // look-ahead, e.g. 156 / 24000; a finite number >= 0).
+  // look-ahead, e.g. 156 / 24000; a finite number >= 0), zeroSamples (W3-02g: D itself, for
+  // packets that come with their own arrival ticks, a demo's, whose zero is arrivalZero(); a
+  // whole number of samples, 0 or more, and a whole number of mixer blocks; with it no
+  // codecDelay may be given, and info's codecDelay is 0; it works the same with length
+  // Infinity, though no caller passes both). Anything else is a RangeError.
   //
   // Scale: push's pcm, the gain and the output are at 1/32768 of the channel's 16-bit units
   // (1.0 is 32768 units). The boundary is here: the gain's output is multiplied by 32768 as it
@@ -356,6 +379,12 @@
     const fps = finiteOr(o.fps, VOICE_CHANNEL.fps), bufferMs = finiteOr(o.bufferMs, VOICE_CHANNEL.bufferMs);
     const codecDelay = o.codecDelay === undefined ? 0 : o.codecDelay;
     if (typeof codecDelay !== 'number' || !Number.isFinite(codecDelay) || codecDelay < 0) throw new RangeError('createTimeline\'s codecDelay is a finite number of seconds, 0 or more');
+    const given = o.zeroSamples !== undefined;
+    if (given) {
+      const z = o.zeroSamples;
+      if (o.codecDelay !== undefined) throw new RangeError('createTimeline takes zeroSamples or codecDelay, not both');
+      if (!Number.isInteger(z) || z < 0 || z % VOICE_CHANNEL.mixBlock !== 0) throw new RangeError('createTimeline\'s zeroSamples is a whole number of samples, 0 or more, and a whole number of mixer blocks (512)');
+    }
     const user = o.gain || null;
     let gainResets = 0;
     const UNIT = VOICE_CHANNEL.unit;
@@ -365,7 +394,7 @@
     };
     const ch = createChannel(endless ? { fps, bufferMs, fadeTime: o.fadeTime, gain, listDrops: false } : { fps, bufferMs, fadeTime: o.fadeTime, gain });
     const lat = latency(bufferMs, fps);
-    const D = zero(bufferMs, fps, codecDelay);
+    const D = given ? o.zeroSamples : zero(bufferMs, fps, codecDelay);
     const TICK = Math.round(2 * VOICE_CHANNEL.rate * VOICE_CHANNEL.tick);      // 1323 half samples
     const N = VOICE_CHANNEL.mixBlock, BLOCK = 2 * N;                          // 512 samples; 1024
     const PER_MS = VOICE_CHANNEL.rate / 1000;
@@ -555,7 +584,7 @@
     return Object.freeze({ push, advance, finish, counts, held });
   }
 
-  const TF2VoiceChannel = { VOICE_CHANNEL, waitTicks, latency, zero, createChannel, createTimeline };
+  const TF2VoiceChannel = { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, createChannel, createTimeline };
   if (typeof module !== 'undefined' && module.exports) module.exports = TF2VoiceChannel;
   else root.TF2VoiceChannel = TF2VoiceChannel;
 })(typeof self !== 'undefined' ? self : this);
