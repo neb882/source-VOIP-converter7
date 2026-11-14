@@ -90,12 +90,19 @@
       return 'Plays the live monitor through the game\'s voice queue, on Steam voice with the codec on. Here the monitor keeps the file\'s own timing.';
     }
     const fps = pageFps(), buffer = pageBufferMs(), ms = queueCost(fps, buffer);
-    return `Plays the live monitor through the game's voice queue at this page's fps_max ${+fps.toFixed(2)} and voice_buffer_ms ${buffer}, whatever Phrase timing says. `
-      + `Each phrase waits as in the game, and the monitor plays ${ms != null ? `${ms.toFixed(0)} ms` : 'the queue\'s wait'} later than with this off (read). `
-      + 'With jitter each phrase comes later again by the time its first packet took, which that figure does not count. '
-      + 'What you hear, measured on the model and in no recording: at 300 frames a second and above each opening of the channel drops 114 to 181 ms, '
-      + 'most of it the 100 ms pre-roll, and pauses between phrases are shortened by up to 328 ms; at 66.67 nothing is dropped and each phrase waits as the game\'s does. '
-      + 'Long unbroken sound dips about 4.5 dB from minute 5 or 6 at 66.67 frames a second and from minute 15 or 16 at 300, until a pause closes the channel.';
+    // (One sentence at most about 110 characters, as every control's help.)
+    return [
+      `Plays the live monitor through the game's voice queue at fps_max ${+fps.toFixed(2)} and voice_buffer_ms ${buffer}.`,
+      'Phrase timing does not change it.',
+      `Each phrase waits as in the game, and the monitor plays ${ms != null ? `${ms.toFixed(0)} ms` : 'the queue\'s wait'} later than with this off (read).`,
+      'With jitter each phrase comes later again by the time its first packet took.',
+      'What you hear with it on is measured on the model, in no recording.',
+      'At 300 frames a second and above each opening of the channel drops 114 to 181 ms, most of it the 100 ms pre-roll.',
+      'There the pauses between phrases are shortened by up to 328 ms.',
+      'At 66.67 frames a second nothing is dropped, and each phrase waits as the game\'s does.',
+      'Long unbroken sound dips about 4.5 dB from minute 5 or 6 at 66.67 frames a second and minute 15 or 16 at 300.',
+      'A pause that closes the channel ends the dip.'
+    ].join(' ');
   }
 
   // The live panel's texts follow the profile (W3-11b): `steam` runs the
