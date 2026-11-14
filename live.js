@@ -16,8 +16,12 @@
  * saves comes from the chain. The key and the sound reach the worker by
  * separate channels, so a press or release can land about a block off. On the other profiles push-to-talk sends only while the key is held
  * (the gate still applies inside) and low latency drops the frame gate's
- * 120 ms pre-roll. Record this session keeps the microphone and the voice
- * and loads them into the app as the original and its render (mountLiveTake).
+ * 120 ms pre-roll. With its own switch (W3-02c-3b, off on every load) the
+ * chain on `steam` plays its packets through the game's voice queue at the
+ * page's fps_max and voice_buffer_ms, as a render on Phrase timing's queue
+ * does, and holds back the queue's zero in place of the reach. Record this
+ * session keeps the microphone and the voice and loads them into the app as
+ * the original and its render (mountLiveTake).
  * Needs the app/ page scripts (state, els, renderOptions, logLine, mountLiveTake).
  */
 (function () {
@@ -28,26 +32,85 @@
     toggle: $('live-toggle'), panel: $('live-panel'), input: $('live-input'), output: $('live-output'),
     tx: $('live-tx'), mode: $('live-mode'), rate: $('live-rate'), loss: $('live-loss'), latency: $('live-latency'),
     inMeter: $('live-in'), outMeter: $('live-out'), note: $('live-note'),
-    record: $('live-record'), ptt: $('live-ptt'), talk: $('live-talk'), lowLatency: $('live-lowlat')
+    record: $('live-record'), ptt: $('live-ptt'), talk: $('live-talk'), lowLatency: $('live-lowlat'),
+    queue: $('live-queue'), queueHelp: $('live-queue-help')
   };
   if (!ui.toggle) return;
+  // The queue's switch is off on every load: it is kept on the page only, in
+  // no remembered setting and no share link, and a browser that restores a
+  // form's state on reload does not turn it on.
+  if (ui.queue) ui.queue.checked = false;
 
   let live = null;   // { ctx, stream, source, node, worker, timer, lastOpts, stats, talking, recording }
   let keyHeld = false, buttonHeld = false;
 
-  // The render settings plus the live-only low-latency switch. The monitor
-  // keeps the file's own timing whatever Phrase timing says (W3-02d-1; its
-  // own switch for the queue is W3-02c-3, not built yet), with no frame rate
-  // or voice_buffer_ms, so a change of either does not restart its chain.
-  const liveOptions = () => ({ ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined,
-    lowLatency: !!(ui.lowLatency && ui.lowLatency.checked) });
+  // The game's voice queue runs in the monitor while its switch is on, on
+  // Steam voice with the codec on (W3-02c-3b), whatever Phrase timing says:
+  // Phrase timing decides the render, the switch the monitor.
+  const queueRuns = () => !!(ui.queue && ui.queue.checked) && typeof els !== 'undefined' && els.codec.value === 'steam' && els.warble.value === '1';
+  // The page's fps_max and voice_buffer_ms, read as renderOptions() reads
+  // them (the module's defaults where a control is blank).
+  const pageFps = () => controlNumber(els.fps, TF2VoiceChannel.VOICE_CHANNEL.fps);
+  const pageBufferMs = () => controlNumber(els.bufferMs, TF2VoiceChannel.VOICE_CHANNEL.bufferMs);
+  // The render settings plus the live-only switches. Off the queue the
+  // monitor keeps the file's own timing, with no frame rate or
+  // voice_buffer_ms, so a change of either does not restart its chain; on
+  // it the chain gets the page's two numbers, and a change of either builds
+  // a new chain. Low latency shortens the reach, which the queue does not
+  // use: it is sent as off while the queue runs.
+  const liveOptions = () => {
+    const queue = queueRuns();
+    return { ...renderOptions(), timeline: queue ? 'game' : 'source', fps: queue ? pageFps() : undefined, bufferMs: queue ? pageBufferMs() : undefined,
+      lowLatency: !queue && !!(ui.lowLatency && ui.lowLatency.checked) };
+  };
   const pttOn = () => !!(ui.ptt && ui.ptt.checked);
+
+  // What the voice queue's hold adds to the monitor's (W3-02c-3b), in ms,
+  // at a frame rate and voice_buffer_ms: the queue's zero D at 44.1 kHz in
+  // place of Steam's reach (its longest chunk and its pre-roll, 4650
+  // samples at 24 kHz, read from the sender's constants) and the codec's
+  // lookahead (156 samples at 24 kHz, read: the chain takes it from the
+  // encoder). The chain reports the same figure as queueCostMs at its own
+  // frame rate; the help gives it at the page's, so it holds before the
+  // monitor runs and while the switch is off. null where the module refuses
+  // the numbers.
+  const STEAM_LOOKAHEAD = 156;
+  function queueCost(fps, bufferMs) {
+    const S = TF2SteamSender.STEAM_SENDER, VC = TF2VoiceChannel;
+    try {
+      const D = VC.zero(bufferMs, fps, STEAM_LOOKAHEAD / S.rate);
+      return 1000 * (D / VC.VOICE_CHANNEL.rate - (3 * S.grid + S.preroll + STEAM_LOOKAHEAD) / S.rate);
+    } catch (e) { return null; }
+  }
+  // The switch's help: what it does, the figure at the page's own frame rate
+  // and buffer, and what a listener hears with it on (measured on the model,
+  // W3-02c-3a's second read; no recording).
+  function queueHelp() {
+    if (!(typeof els !== 'undefined' && els.codec.value === 'steam' && els.warble.value === '1')) {
+      return 'Plays the live monitor through the game\'s voice queue, on Steam voice with the codec on. Here the monitor keeps the file\'s own timing.';
+    }
+    const fps = pageFps(), buffer = pageBufferMs(), ms = queueCost(fps, buffer);
+    return `Plays the live monitor through the game's voice queue at this page's fps_max ${+fps.toFixed(2)} and voice_buffer_ms ${buffer}, whatever Phrase timing says. `
+      + `Each phrase waits as in the game, and the monitor plays ${ms != null ? `${ms.toFixed(0)} ms` : 'the queue\'s wait'} later than with this off (read). `
+      + 'With jitter each phrase comes later again by the time its first packet took, which that figure does not count. '
+      + 'What you hear, measured on the model and in no recording: at 300 frames a second and above each opening of the channel drops 114 to 181 ms, '
+      + 'most of it the 100 ms pre-roll, and pauses between phrases are shortened by up to 328 ms; at 66.67 nothing is dropped and each phrase waits as the game\'s does. '
+      + 'Long unbroken sound dips about 4.5 dB from minute 5 or 6 at 66.67 frames a second and from minute 15 or 16 at 300, until a pause closes the channel.';
+  }
 
   // The live panel's texts follow the profile (W3-11b): `steam` runs the
   // render's own chain; the others the 20 ms frame gate.
   const texts = {
     steam: {
       latency: 'Microphone to speaker: what the voice chain holds back (Steam\'s longest capture chunk and its 100 ms pre-roll, the codec\'s lookahead, the filters\' waits), the playback queue and the audio device\'s buffers',
+      // While the chain runs the game's voice queue (W3-02c-3b): the queue's
+      // wait in the place of the chunk and the pre-roll.
+      queueLatency: (fps, buffer) => {
+        const ticks = TF2VoiceChannel.waitTicks(buffer, fps), tick = TF2VoiceChannel.VOICE_CHANNEL.tick;
+        return `Microphone to speaker: what the voice chain holds back (the game's voice queue: a new phrase waits ${ticks} ticks, ${Math.round((ticks - 1) * tick * 1000)} ms, at fps_max ${+Number(fps).toFixed(2)} and voice_buffer_ms ${buffer}, `
+          + 'with its opening burst, the packet\'s way and the codec\'s lookahead, in the place of Steam\'s longest capture chunk and its pre-roll; the filters\' waits), the playback queue and the audio device\'s buffers';
+      },
+      queueLow: 'Off while the live monitor runs the game\'s voice queue: low latency shortens Steam\'s reach, which the queue does not use.',
       lowLatency: (ms) => `Hold back Steam's longest capture chunk and a frame instead of the chunk and the 100 ms pre-roll. The sender runs as before, but part of each phrase's first 100 ms is not played: 17 to 80 ms of it, about half as a rule. ${ms != null ? `Saves ${ms.toFixed(0)} ms.` : 'Saves the figure shown once the monitor runs.'} Not how TF2 sounds.`,
       lowLabel: (ms) => `Live monitor: low latency (shorter pre-roll${ms != null ? `, saves ${ms.toFixed(0)} ms` : ''})`,
       ptt: 'Send only while V (TF2\'s +voicerecord key) or the Talk button is held. This is the app\'s stand-in for the key: the microphone is silenced while the key is up, and the voice gate ends the phrase by its own hold. Steam\'s own key rules (it goes on sending for half a second after a release) are not built yet.'
@@ -64,17 +127,26 @@
   function updateTexts() {
     const t = steamCodec() ? texts.steam : texts.frame;
     const saving = live && live.codec === 'steam' ? live.lowLatencySavingMs : null;
+    const onQueue = !!live && live.codec === 'steam' && live.timeline === 'game';
     const latency = ui.latency && ui.latency.closest('.live-stat');
-    if (latency) latency.title = t.latency;
+    if (latency) latency.title = onQueue ? texts.steam.queueLatency(live.fps, live.bufferMs) : t.latency;
+    // The low-latency box is disabled, and sent as off, while the queue runs.
+    const queue = queueRuns();
+    if (ui.lowLatency) ui.lowLatency.disabled = queue;
     const low = ui.lowLatency && ui.lowLatency.closest('label');
     if (low) {
-      low.title = t.lowLatency(saving);
+      low.title = queue ? texts.steam.queueLow : t.lowLatency(saving);
       low.lastChild.textContent = ` ${t.lowLabel(saving)}`;
+    }
+    if (ui.queueHelp) {
+      const help = queueHelp();
+      if (ui.queueHelp.textContent !== help) ui.queueHelp.textContent = help;
     }
     const ptt = ui.ptt && ui.ptt.closest('label');
     if (ptt) ptt.title = t.ptt;
     // BC-4b fix round: on Steam voice the live chain makes no frame late
-    // (jitter does nothing there yet), so its count stays 0.
+    // (on the game's voice queue jitter delays whole messages, and makes no
+    // frame late), so its count stays 0.
     const net = ui.loss && ui.loss.closest('.live-stat');
     if (net) net.title = steamCodec() ? 'Frames concealed: lost frames (net_fakeloss) the decoder filled in when the next one arrived. On Steam voice no frame is late'
       : 'Frames lost (concealed) and late (silence) by the network settings';
@@ -123,13 +195,14 @@
     ui.note.classList.toggle('error', !!error);
     showNote();
   }
-  // BC-4b: while the monitor runs on Steam voice with jitter above 0, the
-  // note adds that jitter does nothing there: the monitor keeps the file's
-  // own timing, which has no voice queue (W3-02c-3, not built yet). The text
-  // is written only when it changes, so a screen reader hears it once.
-  const JITTER_NOTE = 'Jitter does nothing in the live monitor yet.';
+  // BC-4b: while the monitor runs on Steam voice with jitter above 0 and
+  // its queue's switch off, the note adds that jitter does nothing there:
+  // the file's own timing has no voice queue for it to act on. With the
+  // queue on it adds nothing (W3-02c-3b). The text is written only when it
+  // changes, so a screen reader hears it once.
+  const JITTER_NOTE = 'Jitter does nothing in the live monitor on the file\'s own timing.';
   function showNote() {
-    const jitter = !!live && steamCodec() && Number(els.jitter && els.jitter.value) > 0;
+    const jitter = !!live && steamCodec() && !queueRuns() && Number(els.jitter && els.jitter.value) > 0;
     const text = jitter ? (noteText ? `${noteText} ${JITTER_NOTE}` : JITTER_NOTE) : noteText;
     if (ui.note.textContent !== text) ui.note.textContent = text;
   }
@@ -283,6 +356,10 @@
       live.chainLatencyMs = message.latencyMs;
       live.codec = message.codec;
       live.lowLatencySavingMs = message.lowLatencySavingMs;
+      live.queueCostMs = message.queueCostMs;
+      live.timeline = message.timeline;
+      live.fps = message.fps;
+      live.bufferMs = message.bufferMs;
       updateTexts();
       return;
     }
@@ -303,9 +380,10 @@
     if (w) {
       // Mic to speaker: half a 20 ms capture block on average, the chain's own
       // delay (for `steam` what it holds back: the sender's longest chunk and
-      // its pre-roll, the lookahead, the filters' and resamplers' waits; for
-      // the others the gate's pre-roll, capture EQ and lookahead), the jitter
-      // buffer and the audio device's buffers.
+      // its pre-roll, or on the game's voice queue the queue's zero, the
+      // lookahead, the filters' and resamplers' waits; for the others the
+      // gate's pre-roll, capture EQ and lookahead), the jitter buffer and the
+      // audio device's buffers.
       const device = ((live.ctx.baseLatency || 0) + (live.ctx.outputLatency || 0)) * 1000;
       const ms = 10 + (s.latencyMs || live.chainLatencyMs || 0) + w.queued / live.ctx.sampleRate * 1000 + device;
       ui.latency.textContent = `${Math.max(0, ms).toFixed(0)} ms${w.underruns ? ` · ${w.underruns} dropout${w.underruns === 1 ? '' : 's'}` : ''}`;
@@ -345,6 +423,9 @@
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) ui.talk.addEventListener(type, release);
   }
   if (ui.ptt) ui.ptt.addEventListener('change', updateTalk);
+  // The queue's switch changes the monitor's texts at once (its change also
+  // reaches the settings' own listener, which changes no setting).
+  if (ui.queue) ui.queue.addEventListener('change', () => { updateTexts(); showNote(); });
   if (ui.record) ui.record.addEventListener('click', toggleRecording);
 
   ui.toggle.addEventListener('click', () => (live ? stopLive() : startLive()));
@@ -363,5 +444,7 @@
   updateTexts();
   window.TF2Live = { start: startLive, stop: stopLive, record: toggleRecording, get running() { return !!live; },
     get stats() { return live && live.stats; }, get recording() { return !!(live && live.recording); },
+    // The timeline the chain runs and what its voice queue adds to its hold (W3-02c-3b).
+    get queue() { return live ? { timeline: live.timeline, queueCostMs: live.queueCostMs } : null; },
     talk(on) { buttonHeld = !!on; updateTalk(); } };
 })();

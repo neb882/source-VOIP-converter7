@@ -560,10 +560,11 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats, 
   state.renderedSource = source;
   state.renderedKey = made.key !== undefined ? made.key : settingsKey(state.sourceDemo);
   // A recorded live take is held back from a render by itself, as a render
-  // the user cancelled is (W3-02d-1): it was made on the file's own timing,
-  // and with Phrase timing on the game's queue the controls' key is another;
-  // only a change of the settings, or Render, renders it. The take is what
-  // the person just made.
+  // the user cancelled is (W3-02d-1): it was made on the timing the monitor
+  // ran (the file's own, or the game's voice queue with the monitor's own
+  // switch, W3-02c-3b), and where Phrase timing says the other the controls'
+  // key is another; only a change of the settings, or Render, renders it.
+  // The take is what the person just made.
   state.cancelledKey = made.live ? currentRenderKey() : null;
   state.cancelledSource = made.live ? source : null;
   // W3-02d-2: what the rule for a longer source reads (reconcileRender). The
@@ -757,17 +758,26 @@ function mountLiveTake({ dry, wet, rate, frameLog, counts, info }) {
   const codecRate = (CODEC_PROFILES[info.codec] || CODEC_PROFILES.steam).codecRate, frameSamples = info.frameSamples || codecRate / 50;
   const engine = (CODEC_PROFILES[info.codec] || CODEC_PROFILES.steam).engine;
   const backend = !info.realOpus ? 'bypass' : engine === 'celt011' ? 'celt' : engine === 'speex' ? 'speex' : engine === 'vr12' ? 'vr12' : 'libopus';
+  // W3-02c-3b: a take the monitor made on the game's voice queue carries the
+  // channel's counts over the recording (live-worker.js), so the line beside
+  // Hear shows and the console prints the queue's line. It carries no jitter
+  // line: the chain counts its arrivals over its whole life, not the take's.
+  const queue = info.timeline === 'game' && info.channel ? info.channel : null;
   const codecInfo = { backend, version: info.version || 'bypass', bitrate: info.bitrate,
     vbr: info.vbr, dtx: info.dtx, modes: counts.modes, gate: info.gate, spurts: counts.spurts, gatedFrames: counts.gated,
     frames: counts.frames, dtxFrames: counts.dtx, lostFrames: counts.lost, underrunFrames: counts.late,
     autoGain: info.autoGain, voiceRate: info.voiceRate, codec: info.codec, live: true, ...(backend === 'speex' || backend === 'vr12' ? { plc: 'zeros' } : {}),
-    // One code per codec frame of the recording, from its start.
+    ...(queue ? { channel: queue } : {}),
+    // One code per codec frame of the recording, from its start: the
+    // sender's frames on the file's own timing, on the queue too.
     frameLog, frameSamples, sampleRate: codecRate, lookahead: 0, frameMs: 1000 * frameSamples / codecRate, framesPerPacket: 1 };
   logLine(`voice_record: live take of ${(dry.length / rate).toFixed(1)} s loaded (${counts.spurts} talk spurt${counts.spurts === 1 ? '' : 's'}).`, 'sys');
-  // The monitor keeps the file's own timing (live.js, liveOptions), and so
-  // the take's key is the page's on the file's own timing (W3-02d-1).
+  // The take's key is the page's on the timing the monitor ran (W3-02d-1,
+  // W3-02c-3b): the file's own, or the game's voice queue at the frame rate
+  // and voice_buffer_ms the chain had.
+  const timing = queue ? { timeline: 'game', fps: info.fps, bufferMs: info.bufferMs } : SOURCE_TIMING;
   presentRender({ samples: wet, sampleRate: rate, blob: TF2Audio.encodeWav(wet, rate), realOpus: !!info.realOpus, codecInfo }, 0, info.codec || 'steam',
-    { source: state.decodedSource, key: JSON.stringify({ ...renderOptions(), ...SOURCE_TIMING }), live: true,
+    { source: state.decodedSource, key: JSON.stringify({ ...renderOptions(), ...timing }), live: true,
       codecName: codecNameFor(info.codec || 'steam', { skipped: !info.realOpus }) });
 }
 
@@ -942,7 +952,17 @@ function liveTakeHeld() {
   return !!(state.lastCodecInfo && state.lastCodecInfo.live && state.decodedSource
     && state.cancelledSource === state.decodedSource && state.cancelledKey === currentRenderKey());
 }
-const LIVE_HELD_TEXT = 'on the file\'s own timing; Render gives it on the game\'s voice queue';
+// Its line says which way it was made, where Phrase timing says the other
+// (W3-02c-3b): a take on the file's own timing, or one the monitor made on
+// the game's voice queue (its codecInfo has the channel's counts).
+const LIVE_HELD_TEXT = {
+  source: 'on the file\'s own timing; Render gives it on the game\'s voice queue',
+  game: 'on the game\'s voice queue; Render gives it on the file\'s own timing'
+};
+function liveHeldText() {
+  const made = state.lastCodecInfo.channel ? 'game' : 'source';
+  return sourceRenderOptions().timeline !== made ? LIVE_HELD_TEXT[made] : null;
+}
 function updateStale() {
   const coming = autoRenderTimer || renderAfter || (state.processing && state.renderingKey === (state.decodedSource ? currentRenderKey() : null));
   const stale = !!(state.lastWav && state.decodedSource && state.renderedSource === state.decodedSource
@@ -954,8 +974,8 @@ function updateStale() {
   updateDownloadLabel();
   // A recorded live take held back (presentRender), with no setting changed
   // since: its own line says how it was made (W3-02d-1).
-  const heldTake = stale && liveTakeHeld();
-  if (stale) setRenderStatus(heldTake ? `${state.lastRenderStatus} · ${LIVE_HELD_TEXT}` : STALE_TEXT, 'stale');
+  const held = stale && liveTakeHeld() ? liveHeldText() : null;
+  if (stale) setRenderStatus(held ? `${state.lastRenderStatus} · ${held}` : STALE_TEXT, 'stale');
   else if (was && els.renderStatus && els.renderStatus.classList.contains('stale')) setRenderStatus(state.lastRenderStatus || '');
 }
 

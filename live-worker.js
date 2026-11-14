@@ -20,7 +20,9 @@
  * Recording keeps the microphone blocks (dry) and the chain's output (wet)
  * and lines them up: each chain's output is its own input contentDelay
  * samples later (a rebuilt chain starts its count afresh). On stop the pair
- * goes to the page with a frame log for the codec lane. */
+ * goes to the page with a frame log for the codec lane, the timeline the
+ * last chain ran and, on the game's voice queue (W3-02c-3b), its frame rate,
+ * voice_buffer_ms and the channel's counts over the recording. */
 'use strict';
 
 importScripts('constants.js', 'steam-sender.js', 'voice-channel.js', 'vendor/swresample/swresample.js', 'room-presets.js',
@@ -131,8 +133,12 @@ function configure(opts) {
     chain.startTotal = null;   // global input sample of its first block
     chain.outTotal = 0;
     chain.frameTotal = 0;
+    // W3-02c-3b: the timeline the chain plays the voice on, and what the
+    // voice queue's hold adds to the chain's hold (at the chain's own frame
+    // rate and voice_buffer_ms, which are posted too), as the low-latency
+    // saving is posted.
     self.postMessage({ type: 'ready', latencyMs: chain.stats.latencyMs, codec: chain.stats.codec, lowLatencySavingMs: chain.lowLatencySavingMs ?? null,
-      room: room.attached });
+      queueCostMs: chain.queueCostMs ?? null, timeline: chain.timeline || 'source', fps: opts.fps, bufferMs: opts.bufferMs, room: room.attached });
   });
 }
 
@@ -144,6 +150,9 @@ async function processBlock(block) {
   const out = await c.process(block);
   const codes = c.takeFrameCodes();
   if (recording) {
+    // A chain first seen in the recording was built after its start: its
+    // channel counted nothing before it.
+    if (!recording.seen.has(c)) recording.seen.set(c, null);
     recording.dry.push(block);
     // Output sample j of this chain is its input sample j - contentDelay.
     if (out.length) recording.wet.push({ at: c.startTotal + c.outTotal - c.contentDelay - recording.start, samples: out.slice() });
@@ -161,6 +170,26 @@ async function processBlock(block) {
   if (room && room.attached && roomIdle()) room.attached = false;
   c.frameTotal += codes.length;
   if (out.length) port.postMessage({ type: 'out', samples: out.buffer }, [out.buffer]);
+}
+
+// The voice channel's counts of a chain on the game's voice queue (the
+// timeline's counts() after the chain's last block), or null. A take's
+// counters are what the chains counted between the recording's start and
+// its stop, summed over every chain on the queue that ran in it (a settings
+// change rebuilds the chain); the frame rate, voice_buffer_ms, the wait, the
+// latency and the codec's delay are the last chain's (W3-02c-3b).
+const CHANNEL_COUNTERS = ['packets', 'opens', 'appended', 'gainResets', 'droppedSamples'];
+const channelCounts = (c) => (c && c.timeline === 'game' && c.stats.channel ? c.stats.channel : null);
+function takeChannel(rec, c) {
+  const last = channelCounts(c);
+  if (!last) return null;
+  const out = { ...last };
+  for (const k of CHANNEL_COUNTERS) out[k] = 0;
+  for (const [each, base] of rec.seen) {
+    const now = channelCounts(each);
+    if (now) for (const k of CHANNEL_COUNTERS) out[k] += now[k] - (base ? base[k] : 0);
+  }
+  return out;
 }
 
 function finishRecording() {
@@ -198,8 +227,10 @@ function finishRecording() {
     if (code === 7) counts.modes.speex++;
     if (code === 8) counts.modes.vr12++;
   });
+  const channel = takeChannel(rec, c);
   const info = c ? { frameSamples: c.frameSize, version: c.version, bitrate: c.bitrate, vbr: c.vbr, dtx: c.dtx, gate: c.gateDb, autoGain: c.autoGain,
-    voiceRate: c.voiceRate, codec: c.stats.codec, realOpus: c.realOpus } : {};
+    voiceRate: c.voiceRate, codec: c.stats.codec, realOpus: c.realOpus, timeline: c.timeline || 'source',
+    ...(channel ? { fps: channel.fps, bufferMs: channel.bufferMs, channel } : {}) } : {};
   self.postMessage({ type: 'recording', dry: dry.buffer, wet: wet.buffer, rate, frameLog: frameLog.buffer, counts: { ...counts, spurts }, info },
     [dry.buffer, wet.buffer, frameLog.buffer]);
 }
@@ -222,7 +253,11 @@ self.onmessage = (event) => {
     enqueue(() => { if (chain) chain.setTalking(talking); });
   } else if (message.type === 'record') {
     enqueue(() => {
-      if (message.on) recording = { start: inputTotal, dry: [], wet: [], frames: [], chain: null };
+      if (message.on) {
+        // The chain in hand at the start, with its channel's counts so far.
+        const base = channelCounts(chain);
+        recording = { start: inputTotal, dry: [], wet: [], frames: [], chain: null, seen: new Map(chain ? [[chain, base && { ...base }]] : []) };
+      }
       else finishRecording();
     });
   } else if (message.type === 'roomprobe') {
@@ -231,7 +266,7 @@ self.onmessage = (event) => {
       const p = probe || { log: [], gain: [], ms: 0, samples: 0 };
       self.postMessage({ type: 'roomprobe', log: p.log, gain: p.gain, ms: p.ms, samples: p.samples, state: room ? room.path.state() : null,
         attached: room ? room.attached : false, holding: room ? !!room.holding : false,
-        stats: chain ? { spurts: chain.stats.spurts, latencyMs: chain.stats.latencyMs } : null });
+        stats: chain ? { spurts: chain.stats.spurts, latencyMs: chain.stats.latencyMs, opens: chain.stats.channel ? chain.stats.channel.opens : null } : null });
       if (probe) { probe.log = []; probe.gain = []; }
     });
   } else if (message.type === 'stop') {
