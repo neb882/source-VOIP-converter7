@@ -856,6 +856,13 @@ function drawTimeView(buffer, w, h, dpr) {
 // in opus-codec.mjs FRAME. A pixel covering several frames shows the most
 // common of them, with a strip along the top whose strength is the share
 // of frames lost (red) or late (orange) there.
+//
+// A render on the game's voice queue (W3-02e; its codecInfo.channel holds
+// `source`) logs the frames as played: slot f is the render's 0.02 f to
+// 0.02 (f + 1) s, so the look-ahead, which belongs to the sender's log, is
+// not taken off. Its code 0 is silence (nothing of the source plays), and
+// each skip of the queue's overflow heard before the source's end gets a
+// mark across the lane.
 const FRAME_STYLE = [
   { name: 'not sent', color: '#1c232b', text: 'not sent: the voice gate was closed, the listener hears silence' },
   { name: 'SILK', color: '#3d7fc4', text: 'SILK: speech coding, up to 8 kHz' },
@@ -868,12 +875,28 @@ const FRAME_STYLE = [
   { name: 'VR12', color: '#86b83a', text: 'VR12: a vocoder at 2.9 kbit/s, here on 11.025 kHz sound; vaudio_miles, not a TF2 codec' }
 ];
 const FRAME_LOST = 5, FRAME_LATE = 6;
+const FRAME_SILENCE = { name: 'silence', text: 'silence: nothing of the source plays here: the gate was closed, the queue was waiting, or it had run out' };
+const LANE_SKIP_COLOR = '#ffffff';
+const LANE_SKIP_TEXT = 'The game\'s voice queue holds half a second of sound. When more arrives than fits, the oldest is dropped and the voice jumps ahead (read; findings 22 and 23). Each mark is one skip.';
+
+// A render on the game's voice queue: its frame log is the played one.
+const laneOnQueue = (info) => !!(info && info.channel && info.channel.source);
+const laneLookahead = (info) => (laneOnQueue(info) ? 0 : info.lookahead);
+const frameStyle = (info, code) => (code === 0 && laneOnQueue(info) ? { ...FRAME_STYLE[0], ...FRAME_SILENCE } : FRAME_STYLE[code]);
 
 function frameAt(info, t) {
-  const f = Math.floor((t * info.sampleRate + info.lookahead) / info.frameSamples);
+  const f = Math.floor((t * info.sampleRate + laneLookahead(info)) / info.frameSamples);
   return f >= 0 && f < info.frames ? f : -1;
 }
-const frameStart = (info, f) => (f * info.frameSamples - info.lookahead) / info.sampleRate;
+const frameStart = (info, f) => (f * info.frameSamples - laneLookahead(info)) / info.sampleRate;
+
+// The queue's skips that are heard: those before the source's end (the
+// render with a room runs longer by the room's tail). [] off the queue.
+function laneSkips(info) {
+  if (!laneOnQueue(info) || !info.channel.drops || !state.renderedSource) return [];
+  const end = state.renderedSource.duration;
+  return info.channel.drops.filter((d) => d.time < end);
+}
 
 function drawCodecLane(L, range) {
   const info = codecFrames();
@@ -890,13 +913,14 @@ function drawCodecLane(L, range) {
       ctx.fillStyle = FRAME_STYLE[log[f]].color;
       ctx.fillRect(x0, y, Math.max(1, x1 - x0 - (x1 - x0 > 4 ? 1 : 0)), hL);
     }
+    drawLaneSkips(L, range, info);
     return;
   }
-  const counts = new Uint16Array(FRAME_STYLE.length);
+  const counts = new Uint16Array(FRAME_STYLE.length), lookahead = laneLookahead(info);
   for (let x = 0; x < w; x++) {
     const a = range.t0 + x / w * span, b = range.t0 + (x + 1) / w * span;
-    let f0 = Math.floor((a * info.sampleRate + info.lookahead) / info.frameSamples);
-    let f1 = Math.floor((b * info.sampleRate + info.lookahead) / info.frameSamples);
+    let f0 = Math.floor((a * info.sampleRate + lookahead) / info.frameSamples);
+    let f1 = Math.floor((b * info.sampleRate + lookahead) / info.frameSamples);
     f0 = Math.max(0, f0); f1 = Math.min(info.frames - 1, Math.max(f0, f1));
     if (f0 >= info.frames) break;
     counts.fill(0);
@@ -912,6 +936,23 @@ function drawCodecLane(L, range) {
         : `rgba(255, 157, 46, ${0.35 + 0.65 * Math.min(1, share * 2.5)})`;
       ctx.fillRect(x, y, 1, 3);
     }
+  }
+  drawLaneSkips(L, range, info);
+}
+
+// The whole pixel a skip's mark is drawn on, in a view `range` w pixels wide.
+const skipPixel = (time, range, w) => Math.floor((time - range.t0) / (range.t1 - range.t0) * w);
+
+// One mark per heard skip, 1 px wide across the lane, on the whole pixel of
+// its time; skips on one pixel draw once.
+function drawLaneSkips(L, range, info) {
+  const skips = laneSkips(info), drawn = new Set();
+  ctx.fillStyle = LANE_SKIP_COLOR;
+  for (const d of skips) {
+    const x = skipPixel(d.time, range, L.w);
+    if (x < 0 || x >= L.w || drawn.has(x)) continue;
+    drawn.add(x);
+    ctx.fillRect(x, L.laneY, 1, L.laneH);
   }
 }
 
@@ -1057,17 +1098,55 @@ function drawHover(L, buffer, range) {
     }
     text += ' LUFS';
   } else if (region === 'lane') {
-    const info = codecFrames(), f = info ? frameAt(info, t) : -1;
-    if (f >= 0) {
-      const code = info.frameLog[f], bytes = info.frameBytes ? info.frameBytes[f] : 0;
-      const perPacket = info.framesPerPacket || 1;
-      text = `frame ${f}${perPacket > 1 ? ` (packet ${Math.floor(f / perPacket)})` : ''} · ${formatTime(Math.max(0, frameStart(info, f)), 3)} · ${FRAME_STYLE[code].name}`;
-      if (bytes && code !== 0) text += ` · ${bytes} B${code === FRAME_LOST || code === FRAME_LATE ? '' : ` (${(bytes * 8 / (info.frameMs || 20)).toFixed(1)} kbps)`}`;
-    }
+    text = laneHoverAt(w, range, x);
   }
   ctx.stroke();
   const tagY = region === 'main' ? Math.max(4, Math.min(L.mainH - 18, y - 20)) : Math.max(4, L.lufsY - 18);
   drawTag(text, x + 10, tagY, w);
+}
+
+// The codec lane's readout at time t (halfPixel: half a pixel, in seconds):
+// the frame, its time, its kind, and its packet's size and rate. On the
+// game's voice queue (W3-02e), where the slot plays the source, the sent
+// frame's own number (as TF2Audio's steamPlayedInfo finds it, so the same
+// sound has the same number on either timing; none where the played code is
+// 0) and the source's second heard at the slot's centre with how early or
+// late it plays;
+// whether its phrase opened the queue or joined a running one; and the
+// skips marked there. `view`, { range, w, pixel }: the skips whose mark is
+// drawn on that pixel (skipPixel, the drawing's own rule); without it, the
+// skips within halfPixel of t.
+function laneHoverText(info, t, halfPixel, view = null) {
+  const f = info ? frameAt(info, t) : -1;
+  if (f < 0) return formatTime(t, 3);
+  const code = info.frameLog[f], bytes = info.frameBytes ? info.frameBytes[f] : 0;
+  const perPacket = info.framesPerPacket || 1;
+  let text = `frame ${f}${perPacket > 1 ? ` (packet ${Math.floor(f / perPacket)})` : ''} · ${formatTime(Math.max(0, frameStart(info, f)), 3)} · ${frameStyle(info, code).name}`;
+  if (bytes && code !== 0) text += ` · ${bytes} B${code === FRAME_LOST || code === FRAME_LATE ? '' : ` (${(bytes * 8 / (info.frameMs || 20)).toFixed(1)} kbps)`}`;
+  if (!laneOnQueue(info)) return text;
+  const ch = info.channel, rate = TF2VoiceChannel.VOICE_CHANNEL.rate, slot = rate * info.frameSamples / info.sampleRate;
+  const at = f < ch.source.length ? ch.source[f] : -1;
+  if (at >= 0) {
+    // A slot whose played code is 0 has no sent frame's number.
+    if (code !== 0) text += ` · sent frame ${Math.floor((at * info.sampleRate / rate + info.lookahead) / info.frameSamples)}`;
+    // Later than the source when positive: the slot's centre less the source's place.
+    const ms = (slot * f + slot / 2 - at) / rate * 1000;
+    text += ` · the source's ${(at / rate).toFixed(3)} s, ${Math.abs(ms) < 0.5 ? 'on time' : `${Math.abs(ms).toFixed(1)} ms ${ms < 0 ? 'early' : 'late'}`}`;
+    const s = at / rate, phrase = (ch.spurts || []).find((p) => s >= p.start && s <= p.end);
+    if (phrase) text += ` · ${phrase.opened ? 'opened' : 'joined'} the queue`;
+  }
+  const near = laneSkips(info).filter(view ? (d) => skipPixel(d.time, view.range, view.w) === view.pixel : (d) => Math.abs(d.time - t) <= halfPixel);
+  if (near.length) {
+    text += ` · queue overflow: ${near.reduce((sum, d) => sum + d.ms, 0).toFixed(1)} ms skipped${near.length > 1 ? ` (${near.length} skips)` : ''}`;
+  }
+  return text;
+}
+
+// The lane's readout under the crosshair, which drawHover draws on pixel
+// round(x) of a view `range` w pixels wide.
+function laneHoverAt(w, range, x) {
+  const span = range.t1 - range.t0;
+  return laneHoverText(codecFrames(), range.t0 + x / w * span, span / w / 2, { range, w, pixel: Math.round(x) });
 }
 
 /* ---------------- BARS ---------------- */
@@ -1469,11 +1548,21 @@ function updateLegend() {
     const counts = frameCounts.get(info.frameLog);
     const head = document.createElement('b');
     head.textContent = 'Codec';
-    head.title = 'What the voice path did with each 20 ms frame; hover the lane for packet sizes';
+    head.title = laneOnQueue(info) ? 'What plays in each 20 ms of the render, on the game\'s voice queue; hover the lane for packet sizes and the source'
+      : 'What the voice path did with each 20 ms frame; hover the lane for packet sizes';
     items.push(head);
-    FRAME_STYLE.forEach((style, code) => {
+    FRAME_STYLE.forEach((_, code) => {
+      const style = frameStyle(info, code);
       if (counts[code]) items.push(item(box(style.color), `${style.name} ${counts[code]}`, style.text));
     });
+    // The queue's heard skips (W3-02e): a swatch of the mark's own, not a box.
+    const skips = laneSkips(info);
+    if (skips.length) {
+      const mark = document.createElement('i');
+      mark.className = 'lg-mark';
+      mark.style.background = LANE_SKIP_COLOR;
+      items.push(item(mark, `skips ${skips.length} · ${Math.round(skips.reduce((sum, d) => sum + d.ms, 0))} ms`, LANE_SKIP_TEXT));
+    }
   }
   if (lufs) {
     const head = document.createElement('b');

@@ -548,3 +548,38 @@ the 0.8 s pauses not freeing the channel). The page itself is unchanged: `liveOp
 `timeline: 'source', fps: undefined, bufferMs: undefined`, as `liveOptions()` sends them, with a comment saying so.
 Part b adds the queue's case to the check when the page can send it. Nothing else of `tests/browser.verify.js` is
 part a's.
+
+## Part a after its review and second read (2026-11-14, the orchestrator)
+
+The reviewer read `d073759` (merge; CI run 43542875412 green). It rendered 14 settings on `main` and on the branch
+through `process()` and `createRender` and found them identical; the chain equalled `createRender` from G on in
+every run it tried, a room switched mid-channel included; three 40-minute runs held nothing that grows beyond the
+deferred frame log (all measured). The Fable second reader (merge after one sentence) found the derivation of H
+sound for every input (least margin 89, arithmetic over 12 hours of samples; 15 of 15 unusual settings equal), the
+chain's whole output after the mix equal to the render's in 8 of 8 runs, and no code defect (measured).
+
+**The fix round (part a), binding on the builder:**
+
+1. **The chain's buffer growing** (`engine/live-chain.js`, `store()`, past 65,536 samples held) has no check: a break
+   that overwrites the held samples passed section 10. One section-10 run at jitter 500, 10 frames a second, a
+   48 kHz microphone and blocks of 48,000 samples, equal to `createRender`.
+2. **The report's words.** The 30-minute run: "the level thins from about minute 4 with one open and nothing
+   dropped" (second read, measured: 16% of 20 ms windows more than 3 dB down in minute 4, 48% in minute 5, 66 to 75%
+   from minute 6), not "the thinning did not occur". `queueCostMs` and `stats.latencyMs` carry a standing word
+   (read, from `zero()` and the read reach and look-ahead), not "the chain's own figure". Done-means item 4 says
+   `tests/browser.verify.js` changed by the one ruled line.
+3. **Merge `origin/main`** (W3-02e, cache v47) and read CI on the merged head; the cache number rises to v48 at the
+   merge.
+
+**For part b (from the second read, measured; binding on part b's brief):**
+
+- The box's help computes its delay from the page's own frame rate and buffer (`TF2VoiceChannel.zero`), not from
+  the chain's defaults: a chain made with no `fps` reports 357 ms. A check at 66.67 with the box unchecked.
+- The help names what a listener hears with the box on: at 300 frames a second and above each opening of a channel
+  drops 114 to 181 ms (most of it the 100 ms pre-roll) and pauses between phrases are shortened (up to 328 ms); at
+  66.67 nothing is dropped and each phrase waits as the game's does; long unbroken sound dips about 4.5 dB from
+  minute 5 or 6 at 66.67 and minute 15 or 16 at 300, until a pause closes the channel.
+- [Browser 3f2]'s queue case counts the channel's opens, not the sender's spurts.
+- Part b's words say that a queue take's lane and the panel's frame counts are the sender's, off the sound by each
+  phrase's offset (−0.33 to +0.08 s at jitter 0), and that under heavy loss on the queue the counts can stall (up to
+  2.4 s at 100% with the gate on).

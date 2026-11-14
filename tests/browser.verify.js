@@ -2689,6 +2689,425 @@ async function verifyJitterPage(browser, base) {
   check(errors.length === 0, 'jitter on the page: no page errors', errors.join('; '));
 }
 
+// W3-02e: talk in twelve phrases with pauses near one second, where the
+// game's voice queue at 300 frames a second runs out for some draws of the
+// sender's clock and not for others: low-passed noise with ten harmonics of a
+// gliding 120 Hz tone, 10 ms ramps, from 0.4 s, 30 s at 48 kHz (the planner's
+// signal, docs/reports/W3-02ef-plan.md, with the plan review's lengths).
+const PHRASE_PLAN = [[1.5, .95], [1.2, 1.0], [1.0, 1.05], [1.4, .9], [0.8, 1.1], [1.3, .6], [1.6, 1.0], [1.0, .97], [2.0, 1.02],
+  [1.2, .92], [1.5, 1.4], [1.1, 1.0]];
+function wavPhrases(seconds = 30, rate = 48000) {
+  const length = Math.round(seconds * rate), buffer = Buffer.alloc(44 + length * 2);
+  buffer.write('RIFF', 0); buffer.writeUInt32LE(36 + length * 2, 4);
+  buffer.write('WAVEfmt ', 8); buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20); buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(rate, 24); buffer.writeUInt32LE(rate * 2, 28);
+  buffer.writeUInt16LE(2, 32); buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36); buffer.writeUInt32LE(length * 2, 40);
+  let seed = 7;
+  const random = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296) * 2 - 1;
+  const x = new Float32Array(length);
+  let t = 0.4;
+  for (const [len, pause] of PHRASE_PLAN) {
+    const a = Math.round(t * rate), b = Math.min(length, Math.round((t + len) * rate));
+    let lp = 0;
+    for (let i = a; i < b; i++) {
+      const tt = i / rate;
+      lp += 0.3 * (random() - lp);
+      let v = 0.25 * lp;
+      const f0 = 120 + 30 * Math.sin(tt * 1.3);
+      for (let h = 1; h <= 10; h++) v += Math.sin(2 * Math.PI * f0 * h * tt + h) / (h + 1);
+      x[i] = 0.12 * Math.min(1, (i - a) / 480, (b - i) / 480) * (0.6 + 0.4 * Math.sin(tt * 9)) * v;
+    }
+    t += len + pause;
+  }
+  for (let i = 0; i < length; i++) buffer.writeInt16LE(Math.round(Math.max(-1, Math.min(1, x[i])) * 0x7fff), 44 + i * 2);
+  return buffer;
+}
+
+// The lane's colours as the canvas holds them, for the checks below: the
+// codec lane's middle row, one [r, g, b] per pixel of the canvas, and the
+// layout and view it was drawn with. `view`: [t0, span] to draw first, or
+// null for the view as it is.
+const laneRow = (page, view = null) => page.evaluate((v) => {
+  const buffer = audibleBuffer();
+  if (v) setVizView(v[0], v[1], buffer.samples.length / buffer.rate);
+  drawVisualizer();
+  const canvas = document.getElementById('visualizer'), rect = canvas.getBoundingClientRect(), scale = canvas.width / rect.width;
+  const L = vizLayout(rect.width, rect.height), range = visibleRange(buffer);
+  const data = canvas.getContext('2d').getImageData(0, Math.round((L.laneY + L.laneH / 2) * scale), canvas.width, 1).data;
+  const row = [];
+  for (let i = 0; i < data.length; i += 4) row.push((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
+  return { row, scale, w: L.w, laneH: L.laneH, t0: range.t0, span: range.t1 - range.t0 };
+}, view);
+const rgbOf = (hex) => parseInt(hex.slice(1), 16);
+
+// The page's render on the queue: its heard skips, and the canvas pixel of a
+// time in the view `lane` was read with.
+const pixelOf = (lane, time) => Math.floor(Math.floor((time - lane.t0) / lane.span * lane.w) * lane.scale);
+// Whether the lane's white pixels are exactly the marks of `skips`: each
+// skip in view has its pixel white, and every white pixel is within one of a
+// skip's.
+function marksMatch(lane, skips, white) {
+  const at = skips.map((d) => pixelOf(lane, d.time)).filter((x) => x >= 0 && x < lane.row.length);
+  const lit = lane.row.map((c, x) => (c === white ? x : -1)).filter((x) => x >= 0);
+  return { inView: at.length, lit: lit.length, missing: at.filter((x) => lane.row[x] !== white),
+    stray: lit.filter((x) => !at.some((y) => Math.abs(x - y) <= lane.scale)) };
+}
+
+async function verifyLaneAndTake(browser, base) {
+  console.log('\n[Browser 8f] The codec lane and the real-take panel on the game\'s voice queue (W3-02e)');
+  const errors = [];
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  const page = await context.newPage();
+  page.setDefaultTimeout(30000);
+  page.on('pageerror', (error) => errors.push(error.message));
+  // A command, then the render it starts (as in [Browser 8c]).
+  const settled = (timeout = 90000) => page.waitForFunction(() => renderIdle()
+    && (state.renderedKey === currentRenderKey() || state.cancelledKey === currentRenderKey()), null, { timeout });
+  const renderAfter = async (command) => {
+    const r = await page.evaluate(() => state.renderId);
+    await page.evaluate((c) => { for (const line of c.split(';')) execCommand(line.trim()); }, command);
+    await page.waitForFunction((n) => state.renderId > n || !renderIdle(), r, { timeout: 5000 }).catch(() => {});
+    await settled();
+  };
+  // Before a change that ends in a new report: a marker in the report box,
+  // which the page's next report (or its re-alignment) replaces.
+  const markReport = () => page.evaluate(() => { const i = document.createElement('i'); i.id = 'stale-report'; els.referenceReport.append(i); });
+  const reportReady = () => page.waitForFunction(() => state.realTake && !document.getElementById('stale-report')
+    && document.querySelector('#reference-report table') && !/^Comparing/.test(els.referenceReport.textContent), null, { timeout: 120000 });
+  const panel = () => page.evaluate(() => {
+    const info = state.lastCodecInfo, take = state.realTake;
+    return { status: els.referenceStatus.textContent, lines: [...els.referenceReport.querySelectorAll('p')].map((p) => p.textContent),
+      guided: take.timeline.guided, guide: take.guideSpurts, pieces: take.timeline.segments.map((g) => g.spurt), render: info.channel && info.channel.spurts ? info.channel.spurts : null,
+      changes: phraseChanges(take.timeline, take.guideSpurts, info.channel && info.channel.spurts ? info.channel.spurts : null) };
+  });
+  try {
+    await page.goto(base, { waitUntil: 'domcontentloaded' });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.mouse.move(0, 0);
+    await chooseFile(page, { name: 'phrases.wav', mimeType: 'audio/wav', buffer: wavPhrases() }, 120000);
+    await page.locator('#viz-wave').click();
+    const white = await page.evaluate(() => LANE_SKIP_COLOR).then(rgbOf);
+    const queue = await page.evaluate(() => {
+      const info = state.lastCodecInfo, ch = info.channel, end = state.renderedSource.duration;
+      return { opts: (({ timeline, fps, bufferMs }) => ({ timeline, fps, bufferMs }))(renderOptions()), onQueue: laneOnQueue(info),
+        frames: info.frames, sampleRate: info.sampleRate, frameSamples: info.frameSamples, lookahead: info.lookahead, colors: FRAME_STYLE.map((s) => s.color),
+        spurts: ch.spurts, heard: ch.drops.filter((d) => d.time < end), unheard: ch.drops.filter((d) => d.time >= end).length };
+    });
+    const earlyOf = (spurts) => spurts.map((s, i) => (s.offsetStartMs !== null && s.offsetStartMs <= -80 ? i + 1 : 0)).filter(Boolean);
+    check(queue.opts.timeline === 'game' && queue.opts.fps === 300 && queue.onQueue && queue.heard.length > 0,
+      'the page renders the phrases on the game\'s voice queue at 300 frames a second by default, and the queue skips sound in it',
+      `${queue.spurts.length} phrases of the sender, ${queue.spurts.filter((s) => !s.opened).length} joined the queue, phrases ${earlyOf(queue.spurts).join(' and ')} start early; ${queue.heard.length} skips heard`);
+
+    // 1. The lane's place for a played slot: 0.02 f, by frameStart and frameAt.
+    const place = await page.evaluate(() => {
+      const info = state.lastCodecInfo, bad = [];
+      for (let f = 0; f < info.frames; f++) {
+        if (Math.abs(frameStart(info, f) - 0.02 * f) > 1e-9 || frameAt(info, 0.02 * f + 0.01) !== f) bad.push(f);
+      }
+      return { bad: bad.length, first: bad.slice(0, 3), frames: info.frames };
+    });
+    check(place.bad === 0, 'on the game\'s voice queue the lane places played slot f at 0.02 f s: frameStart(info, f) is 0.02 f and frameAt(info, 0.02 f + 0.01) is f, for every slot',
+      `${place.frames} slots${place.bad ? `; wrong at ${place.first.join(', ')}` : ''}`);
+    // Zoomed out so that frames are aggregated (half a slot a pixel): the first
+    // frame pixel of each phrase is the first pixel that starts at or after
+    // its first played slot (a pixel over the slot before and that slot shows
+    // the slot before, the more common kind winning ties toward "silence").
+    const notSent = rgbOf(queue.colors[0]), frameColors = new Set(queue.colors.slice(1).map(rgbOf));
+    const edges = [];
+    const firstSlots = await page.evaluate(() => {
+      const log = state.lastCodecInfo.frameLog, out = [];
+      for (let f = 4; f + 2 < log.length; f++) if (log[f] && log[f + 1] && !log[f - 1] && !log[f - 2] && !log[f - 3] && !log[f - 4]) out.push(f);
+      return out;
+    });
+    const w = (await laneRow(page)).w, pixel = 0.0101;   // a pixel just over half a slot
+    for (const f of firstSlots) {
+      const lane = await laneRow(page, [0.02 * f - 40.5 * pixel, w * pixel]);
+      const perPixel = lane.span / lane.w / 0.02;
+      const want = Math.ceil((0.02 * f - lane.t0) / (lane.span / lane.w) - 1e-6);
+      let got = -1;
+      for (let x = Math.max(0, want - 8); x < Math.min(lane.w, want + 8); x++) {
+        const c = lane.row[Math.floor(x * lane.scale)];
+        if (frameColors.has(c)) { got = x; break; }
+        if (c !== notSent && c !== white) { got = -2; break; }
+      }
+      if (lane.row[Math.floor(want * lane.scale)] === white) continue;   // a mark on the pixel itself
+      edges.push({ f, want, got, perPixel });
+    }
+    check(edges.length >= 3 && edges.every((e) => e.got === e.want && e.perPixel >= 0.5),
+      'zoomed out to half a slot a pixel, the first frame pixel of each phrase is the first pixel at or after frameStart of its first played slot',
+      edges.map((e) => `slot ${e.f}: pixel ${e.got} (want ${e.want})`).join(', '));
+
+    // 2. A mark for each heard skip, in the whole view and in the first second.
+    const whole = marksMatch(await laneRow(page, [0, 31]), queue.heard, white);
+    check(whole.inView === queue.heard.length && whole.missing.length === 0 && whole.stray.length === 0,
+      'the lane draws the mark\'s colour at the pixel of every heard skip and at no pixel more than one away from one, over the whole render',
+      `${whole.inView} skips, ${whole.lit} pixels lit${whole.missing.length ? `; missing at ${whole.missing.join(', ')}` : ''}${whole.stray.length ? `; stray at ${whole.stray.join(', ')}` : ''}`);
+    const firstSecond = await laneRow(page, [0, 1]), first = marksMatch(firstSecond, queue.heard, white);
+    check(first.inView >= 1 && first.missing.length === 0 && first.stray.length === 0,
+      'zoomed into the first second the lane draws the marks there, each on the pixel of its skip, and nothing else in their colour',
+      `${first.inView} in view, ${first.lit} pixels lit`);
+
+    // 3. The hover: the first slot of a phrase that joined the queue, a mark, an empty slot.
+    const hover = await page.evaluate(() => {
+      const info = state.lastCodecInfo, ch = info.channel, rate = 44100;
+      const text = (f) => laneHoverText(info, 0.02 * f + 0.01, 1e-4);
+      const number = (at) => Math.floor((at * info.sampleRate / rate + info.lookahead) / info.frameSamples);
+      const joined = ch.spurts.find((s) => !s.opened);
+      let f = 0;
+      while (f < ch.source.length && !(ch.source[f] >= 0 && ch.source[f] / rate >= joined.start - 1e-9 && ch.source[f] / rate <= joined.end)) f++;
+      const at = ch.source[f];
+      const join = { f, at, code: info.frameLog[f], text: text(f), ms: (882 * f + 441 - at) / 44.1, k: number(at) };
+      // Every slot that plays the source: a number where its played code is
+      // not 0 (one at least whose place at 24 kHz is 324 or more into its
+      // 480-sample frame, so the look-ahead moves it to the next), none where it is.
+      const played = [], quiet = [];
+      for (let g = 0; g < Math.min(ch.source.length, info.frames); g++) {
+        if (ch.source[g] < 0) continue;
+        const t = text(g), k = number(ch.source[g]);
+        if (info.frameLog[g]) played.push({ g, k, ok: t.includes(`· sent frame ${k} ·`), late: (ch.source[g] * info.sampleRate / rate) % info.frameSamples >= info.frameSamples - info.lookahead, t });
+        else quiet.push({ g, ok: !t.includes('sent frame') && t.includes('the source\'s'), t });
+      }
+      let e = 0;
+      while (e < ch.source.length && !(ch.source[e] === -1 && info.frameLog[e] === 0)) e++;
+      return { join, played: { n: played.length, wrong: played.filter((p) => !p.ok).slice(0, 3), late: played.filter((p) => p.late).length },
+        quiet: { n: quiet.length, wrong: quiet.filter((p) => !p.ok).slice(0, 3) }, empty: { f: e, text: text(e) } };
+    });
+    const earlyMs = /the source's ([\d.]+) s, ([\d.]+) ms (early|late)/.exec(hover.join.text);
+    const shown = earlyMs ? Number(earlyMs[2]) * (earlyMs[3] === 'early' ? -1 : 1) : NaN;
+    check(earlyMs && earlyMs[1] === (hover.join.at / 44100).toFixed(3) && Math.abs(shown - hover.join.ms) <= 1 && hover.join.ms < -80
+      && (hover.join.code ? hover.join.text.includes(`sent frame ${hover.join.k} ·`) : !hover.join.text.includes('sent frame'))
+      && hover.join.text.includes('joined the queue') && hover.join.text.startsWith(`frame ${hover.join.f} · `),
+      'the lane\'s hover on the first slot of a phrase that joined the queue names the source\'s second, how early it plays (from the slot\'s centre) and "joined the queue", and the sent frame\'s number only where the played code is not 0',
+      hover.join.text);
+    check(hover.played.n > 100 && hover.played.wrong.length === 0 && hover.played.late >= 1,
+      'on every played slot the hover gives the sent frame\'s number by the rule, the look-ahead included (some slots sit 324 samples or more into their frame at 24 kHz)',
+      `${hover.played.n} slots, ${hover.played.late} of them 324 or more into the frame${hover.played.wrong.length ? `; wrong: ${hover.played.wrong.map((p) => p.t).join(' | ')}` : ''}`);
+    check(hover.quiet.n >= 1 && hover.quiet.wrong.length === 0,
+      'a slot that plays the source but whose played code is 0 gives no sent frame\'s number and keeps the source\'s second',
+      `${hover.quiet.n} slots${hover.quiet.wrong.length ? `; wrong: ${hover.quiet.wrong.map((p) => p.t).join(' | ')}` : ''}`);
+    check(/· silence$/.test(hover.empty.text) && !hover.empty.text.includes('sent frame') && !hover.empty.text.includes('source\'s'),
+      'the hover on an empty slot of the queue says "silence" and gives no frame number', hover.empty.text);
+    // The hover under the crosshair at each whole pixel of the whole view
+    // (laneHoverAt, as drawHover calls it): a pixel drawn in the mark's colour
+    // names the skips drawn there, summed, with their count when more than
+    // one; any other pixel names none.
+    const wholeLane = await laneRow(page, [0, 31]);
+    const atPixels = await page.evaluate(() => {
+      const w = document.getElementById('visualizer').getBoundingClientRect().width, range = visibleRange(audibleBuffer());
+      return Array.from({ length: Math.floor(w) }, (_, x) => laneHoverAt(w, range, x));
+    });
+    const marked = [], wrongPixels = [];
+    atPixels.forEach((t, x) => {
+      const there = queue.heard.filter((d) => pixelOf(wholeLane, d.time) === x), lit = wholeLane.row[Math.floor(x * wholeLane.scale)] === white;
+      const sum = there.reduce((a, d) => a + d.ms, 0);
+      const ok = lit ? there.length > 0 && t.includes(`queue overflow: ${sum.toFixed(1)} ms skipped`) && (there.length > 1 ? t.includes(`(${there.length} skips)`) : !t.includes('skips)'))
+        : !t.includes('queue overflow');
+      if (lit) marked.push(there.length);
+      if (!ok) wrongPixels.push(`${x}: ${t}`);
+    });
+    check(wrongPixels.length === 0 && marked.some((n) => n >= 2) && marked.some((n) => n === 1),
+      'hovered at each whole pixel, the lane names the skips drawn on the crosshair\'s pixel, summed, with their count when more than one, and none elsewhere',
+      `${marked.length} marked pixels, ${marked.filter((n) => n > 1).length} with more than one skip${wrongPixels.length ? `; wrong at ${wrongPixels.slice(0, 2).join(' | ')}` : ''}`);
+
+    // 4. The legend on the queue.
+    const legendOf = () => page.evaluate(() => ({ items: [...document.querySelectorAll('#viz-legend .lg-item')].map((e) => ({ text: e.textContent, title: e.title,
+      box: !!e.querySelector('.lg-box'), mark: !!e.querySelector('.lg-mark') })), head: (document.querySelector('#viz-legend b') || {}).title }));
+    const legend = await legendOf(), sumMs = Math.round(queue.heard.reduce((s, d) => s + d.ms, 0));
+    const skipItem = legend.items.filter((i) => i.mark);
+    check(skipItem.length === 1 && skipItem[0].text === `skips ${queue.heard.length} · ${sumMs} ms` && !skipItem[0].box && /Each mark is one skip\./.test(skipItem[0].title)
+      && legend.items.some((i) => i.box && /^silence \d+$/.test(i.text) && i.title.includes('nothing of the source plays here'))
+      && !legend.items.some((i) => /^not sent/.test(i.text)) && /what plays in each 20 ms of the render/i.test(legend.head),
+      'on the queue the legend counts the heard skips and their sound, names empty slots "silence", and its heading says the lane shows what plays',
+      legend.items.map((i) => i.text).join(', '));
+
+    // The test is channel.source: a channel of counts alone (a live take,
+    // W3-02c-3b) keeps the lane, its hover and legend words as they are.
+    const counts = await page.evaluate(() => {
+      const info = { ...state.lastCodecInfo, channel: { opens: 1, appended: 0, droppedSamples: 0 } };
+      return { onQueue: laneOnQueue(info), skips: laneSkips(info).length, text: laneHoverText(info, 0.5, 1e-4), name: frameStyle(info, 0).name,
+        start: frameStart(info, 10) };
+    });
+    check(!counts.onQueue && counts.skips === 0 && counts.name === 'not sent' && Math.abs(counts.start - (10 * 480 - 156) / 24000) < 1e-12 && !/source's|silence/.test(counts.text),
+      'a render whose channel has no source map is not on the queue for the lane: no marks, "not sent", the look-ahead kept', counts.text);
+
+    // 5 and 6. A take made from the page's own render options with another
+    // seed of the sender's clock, 0.25 s late and at half level. The seed is
+    // the first from 1 at which, at some pause, the take's kind of change
+    // (early, kept or late at 80 ms) differs from the page's render's.
+    const made = await page.evaluate(async () => {
+      const kind = (ms) => (ms === null ? null : ms <= -80 ? 'early' : ms >= 80 ? 'late' : 'kept');
+      const Y = state.lastCodecInfo.channel.spurts, source = captureSource(state.decodedSource, renderOptions().captureChannel);
+      for (let seed = 1; seed <= 12; seed++) {
+        const r = await TF2Audio.process(source, { ...renderOptions(), seed });
+        const X = r.codecInfo.channel.spurts;
+        const differ = Y.slice(1).map((s, j) => (Y[j].end + s.start) / 2).filter((at) => kind(changeAt(X, at)) !== kind(changeAt(Y, at)));
+        if (!differ.length) continue;
+        window.__takeSpurts = X;
+        const rate = state.processedRate, sim = r.samples;
+        const shifted = TF2Reference.warp(sim, rate, { offsetSeconds: .25, scale: 1 }, rate, sim.length + rate);
+        return { seed, X, differ, wav: [...new Uint8Array(await TF2Audio.encodeWav(shifted.map((v) => v * .5), rate).arrayBuffer())] };
+      }
+      return null;
+    });
+    check(!!made, 'a seed of the sender\'s clock from 1 to 12 gives the take another kind of change than the page\'s render at some pause',
+      made ? `seed ${made.seed}: the take's phrases ${earlyOf(made.X).join(' and ')} start early, the render's ${earlyOf(queue.spurts).join(' and ')}` : 'none');
+    await page.locator('#reference summary').click();
+    await markReport();
+    await page.locator('#reference-file').setInputFiles({ name: 'take-phrases.wav', mimeType: 'audio/wav', buffer: Buffer.from(made.wav) });
+    await reportReady();
+    // The kinds of each change by the rule, from the take's own phrases (X)
+    // and the render's (Y), against the panel's.
+    const judge = (p, Y) => page.evaluate(({ p, X, Y }) => {
+      const kind = (ms) => (ms === null ? null : ms <= -80 ? 'early' : ms >= 80 ? 'late' : 'kept');
+      return p.changes.map((c) => {
+        const tx = changeAt(X, c.at), ty = changeAt(Y, c.at);
+        return { at: c.at, take: c.takeMs, truth: tx, takeKind: c.takeKind, want: kind(tx), renderKind: c.renderKind, wantR: kind(ty),
+          ok: c.takeKind === kind(tx) && c.renderKind === kind(ty) && tx !== null && c.takeMs !== null && Math.abs(c.takeMs - tx) <= 60 };
+      });
+    }, { p, X: made.X, Y });
+    const describe = (rows) => rows.map((r) => `${r.at.toFixed(2)} s ${r.takeKind}/${r.want} ${r.take === null ? '—' : Math.round(r.take)}/${r.truth === null ? '—' : Math.round(r.truth)} ${r.renderKind}`).join('; ');
+    const onQueue = await panel();
+    // The status line's counts, from the take's pieces.
+    const statusCounts = (p) => {
+      const between = p.pieces.filter((g, i) => i > 0 && g !== p.pieces[i - 1]).length;
+      const m = /(\d+) changes? between phrases, (\d+) within a phrase/.exec(p.status);
+      return { ok: !!m && Number(m[1]) === between && Number(m[2]) === p.pieces.length - 1 - between, between, within: p.pieces.length - 1 - between };
+    };
+    const sq = statusCounts(onQueue);
+    check(onQueue.guided && sq.ok && /\(take minus render; \d+ changes? between phrases, \d+ within a phrase\)/.test(onQueue.status)
+      && onQueue.status.includes(`${onQueue.pieces.length} pieces`) && / phrases in \d+ pieces/.test(onQueue.status)
+      && !/5\.8|trim|re-timing/.test(onQueue.status),
+      'lined up against the render, the status line says take minus render and counts the changes between phrases and within one as the take\'s pieces have them, with no 5.8 ms trims',
+      `${sq.between} between, ${sq.within} within; ${onQueue.status}`);
+    const rows = await judge(onQueue, onQueue.render);
+    check(rows.length >= 8 && rows.every((r) => r.ok),
+      'each change from one phrase to the next has the take\'s kind of change by its own phrases and the render\'s by the render\'s, and the take\'s change within 60 ms', describe(rows));
+    check(rows.some((r) => (r.takeKind === 'early' && r.renderKind === 'kept') || (r.takeKind === 'kept' && r.renderKind === 'early')),
+      'at some change the take starts early and the render keeps the pause, or the other way round', describe(rows.filter((r) => r.takeKind !== r.renderKind)));
+    // Each entry of the list of changes: its time, the take's change | the render's, in ms.
+    const msText = (v) => (v === null ? '—' : `${Math.round(v) < 0 ? '−' : '+'}${Math.abs(Math.round(v))}`);
+    const listHolds = (p, list) => p.changes.slice(0, 30).every((c, i, all) => list.includes(`${i ? '; ' : 'ms: '}${c.at.toFixed(2)} s ${msText(c.takeMs)} | ${msText(c.renderMs)}${i + 1 < all.length || p.changes.length > 30 ? ';' : '.'}`));
+    const counted = (p) => {
+      const n = p.changes.length, T = p.changes.filter((c) => c.takeKind === 'early').length, R = p.changes.filter((c) => c.renderKind === 'early').length;
+      const G = p.changes.filter((c) => c.takeKind !== null && c.takeKind === c.renderKind).length;
+      return { n, T, R, G };
+    };
+    const c1 = counted(onQueue), sentence1 = onQueue.lines.find((l) => l.startsWith('Phrase starts:')) || '', list1 = onQueue.lines.find((l) => l.startsWith('Take | render, ms:')) || '';
+    check(sentence1 === `Phrase starts: at ${c1.n} changes from one phrase to the next the take starts early (by 80 ms or more) at ${c1.T} and the render at ${c1.R}; they are of one kind (early, kept or late) at ${c1.G} of ${c1.n}.`
+      && listHolds(onQueue, list1),
+      'the panel says at how many changes the take and the render start early and how many are of one kind, and lists each change as the take\'s change | the render\'s', `${sentence1} ${list1}`);
+
+    // changeAt with phrases made by hand.
+    const hand = await page.evaluate(() => {
+      const p = (start, end, offsetStartMs, offsetEndMs) => ({ start, end, offsetStartMs, offsetEndMs });
+      const three = [p(0, 1.45, 0, -10), p(1.55, 1.65, -300, -310), p(1.75, 3, 20, 0)];   // pauses with middles at 1.5 and 1.7 s
+      return { none: changeAt(null, 1.5), far: changeAt(three, 2.5), edge: changeAt(three, 1.91), inside: changeAt(three, 1.89),
+        first: changeAt(three, 1.58), second: changeAt(three, 1.62), nul: changeAt([p(0, 1, 0, null), p(2, 3, -300, -310)], 1.5) };
+    });
+    check(hand.none === null && hand.far === 0 && hand.edge === 0 && hand.inside === 330 && hand.first === -290 && hand.second === 330 && hand.nul === null,
+      'changeAt: no phrases give null; no pause within 0.2 s gives 0; of two pauses the nearer is taken; a null offset gives null', JSON.stringify(hand));
+
+    // A render with loss at another frame rate, made after the alignment: the
+    // take is not lined up again, and its changes still take the render it was
+    // lined up with, while the render's are the new render's.
+    const takeBefore = await page.evaluate(() => { window.__aligned = state.realTake; return state.realTake.timeline.segments.length; });
+    await markReport();
+    await renderAfter('fps_max 67; net_fakeloss 20');
+    await reportReady();
+    const lossy = await panel(), stillAligned = await page.evaluate(() => state.realTake === window.__aligned && state.lastCodecInfo.lostFrames > 0 && state.lastCodecInfo.channel.fps === 67);
+    const rowsLossy = await judge(lossy, lossy.render);
+    const c2 = counted(lossy);
+    check(stillAligned && takeBefore > 1 && lossy.guide !== null && rowsLossy.length >= 8 && rowsLossy.every((r) => r.ok)
+      && lossy.lines.some((l) => l.includes(`the take starts early (by 80 ms or more) at ${c2.T} and the render at ${c2.R}; they are of one kind (early, kept or late) at ${c2.G} of ${c2.n}.`)),
+      'after a render with loss at 67 frames a second the take keeps its alignment; its kinds of change still come from the render it was lined up with, and the render\'s from the render on screen',
+      describe(rowsLossy));
+
+    // The file's own timing rendered after: the take is lined up again
+    // against that render, which starts no phrase early.
+    await markReport();
+    await renderAfter('net_fakeloss 0; fps_max 300');
+    await reportReady();
+    await markReport();
+    await renderAfter('voice_timeline source');
+    await reportReady();
+    const own = await panel();
+    const rowsOwn = await page.evaluate(({ p, X }) => {
+      const kind = (ms) => (ms === null ? null : ms <= -80 ? 'early' : ms >= 80 ? 'late' : 'kept');
+      return p.changes.map((c) => ({ at: c.at, take: c.takeMs, truth: changeAt(X, c.at), takeKind: c.takeKind, want: kind(changeAt(X, c.at)), renderKind: c.renderKind,
+        ok: c.takeKind === kind(changeAt(X, c.at)) && c.renderMs === null }));
+    }, { p: own, X: made.X });
+    const c3 = counted(own);
+    check(own.guided && own.guide === null && rowsOwn.length >= 8 && rowsOwn.every((r) => r.ok)
+      && own.lines.includes(`Phrase starts: at ${c3.n} changes from one phrase to the next the take starts early (by 80 ms or more) at ${c3.T}. This render keeps the file's own timing and starts none early.`)
+      && listHolds(own, own.lines.find((l) => l.startsWith('Take | render')) || ''),
+      'against a render on the file\'s own timing the take is lined up again with no phrases kept, its kinds of change still hold, and the panel says the render starts none early',
+      describe(rowsOwn));
+
+    // 5, the other form: a take lined up after a render with loss has no
+    // render to guide it.
+    await markReport();
+    await renderAfter('net_fakeloss 20');
+    await reportReady();
+    await markReport();
+    await page.locator('#reference-file').setInputFiles({ name: 'take-phrases-again.wav', mimeType: 'audio/wav', buffer: Buffer.from(made.wav) });
+    await reportReady();
+    const unguided = await panel();
+    check(!unguided.guided && statusCounts(unguided).ok && /\(take minus source; \d+ changes? between phrases, \d+ within a phrase\)/.test(unguided.status),
+      'a take lined up after a render with loss is lined up against the source, and the status line says take minus source', unguided.status);
+
+    // 2, 4 and 3 off the queue: the file's own timing (the render on screen
+    // has loss; the lane is drawn the same way).
+    await page.locator('#reference-clear').click();
+    await renderAfter('net_fakeloss 0');
+    const ownLane = await laneRow(page, [0, 31]), ownFirst = await laneRow(page, [0, 1]);
+    const ownLegend = await legendOf();
+    const ownText = await page.evaluate(() => {
+      const info = state.lastCodecInfo, out = [];
+      // main's text, as main wrote it, for a coded slot and an empty one.
+      const mainStart = (f) => (f * info.frameSamples - info.lookahead) / info.sampleRate;
+      const mainAt = (t) => Math.floor((t * info.sampleRate + info.lookahead) / info.frameSamples);
+      const coded = info.frameLog.findIndex((c, f) => c === 1 || c === 2 || c === 3), empty = info.frameLog.findIndex((c) => c === 0);
+      for (const f of [coded, empty, info.frames - 1]) {
+        const t = mainStart(f) + 0.01, code = info.frameLog[f], bytes = info.frameBytes[f];
+        let want = `frame ${mainAt(t)} · ${formatTime(Math.max(0, mainStart(f)), 3)} · ${FRAME_STYLE[code].name}`;
+        if (bytes && code !== 0) want += ` · ${bytes} B (${(bytes * 8 / (info.frameMs || 20)).toFixed(1)} kbps)`;
+        out.push({ want, got: laneHoverText(info, t, 0.02) });
+      }
+      return { onQueue: laneOnQueue(info), out, start: frameStart(info, 10), at: frameAt(info, (10 * 480 - 156) / 24000 + 0.01) };
+    });
+    check(!ownText.onQueue && Math.abs(ownText.start - (10 * 480 - 156) / 24000) < 1e-12 && ownText.at === 10,
+      'on the file\'s own timing frameStart and frameAt keep the look-ahead, as on main', `${ownText.start}`);
+    check(ownLane.row.every((c) => c !== white) && ownFirst.row.every((c) => c !== white),
+      'on the file\'s own timing the lane draws no pixel in the mark\'s colour');
+    check(!ownLegend.items.some((i) => i.mark) && ownLegend.items.some((i) => /^not sent \d+$/.test(i.text)) && !ownLegend.items.some((i) => /^silence/.test(i.text))
+      && /What the voice path did with each 20 ms frame/.test(ownLegend.head),
+      'on the file\'s own timing the legend has no skips, says "not sent", and keeps its heading\'s title', ownLegend.items.map((i) => i.text).join(', '));
+    check(ownText.out.every((o) => o.got === o.want), 'on the file\'s own timing the lane\'s hover is main\'s text, character for character',
+      ownText.out.map((o) => o.got).join(' | '));
+
+    // 2: a skip past the source's end draws nothing. A 1 s tone ends in sound;
+    // with a room the render runs past the source.
+    await page.evaluate(() => { execCommand('voice_timeline game'); execCommand('dsp_room 6'); });
+    await chooseFile(page, { name: 'tone-1s.wav', mimeType: 'audio/wav', buffer: wavTone(1) }, 120000);
+    const tone = await page.evaluate(() => {
+      const info = state.lastCodecInfo, end = state.renderedSource.duration;
+      return { end, render: state.processedBuffer.length / state.processedRate, room: !!info.room, onQueue: laneOnQueue(info),
+        heard: info.channel.drops.filter((d) => d.time < end), past: info.channel.drops.filter((d) => d.time >= end) };
+    });
+    const toneLane = await laneRow(page, null), toneMarks = marksMatch(toneLane, tone.heard, white);
+    const pastPixels = tone.past.map((d) => pixelOf(toneLane, d.time));
+    const toneLegend = await legendOf(), toneSkip = toneLegend.items.find((i) => i.mark);
+    check(tone.room && tone.onQueue && tone.render > tone.end + 0.5 && tone.past.length >= 1
+      && pastPixels.every((x) => x < toneLane.row.length && toneLane.row[x] !== white) && toneMarks.stray.length === 0 && toneMarks.missing.length === 0
+      && (tone.heard.length ? toneSkip && toneSkip.text.startsWith(`skips ${tone.heard.length} · `) : !toneSkip),
+      'a skip past the source\'s end (a 1 s tone, with a room, so the render runs on) gets no mark and is left out of the legend\'s count',
+      `past the end: ${tone.past.map((d) => `${d.time.toFixed(4)} s, ${d.ms.toFixed(1)} ms`).join('; ')}; heard ${tone.heard.length}; render ${tone.render.toFixed(2)} s`);
+    check(errors.length === 0, 'the lane and the panel on the game\'s voice queue: no page errors', errors.join('; '));
+  } finally { await context.close(); }
+}
+
 // W3-02d-2: a source longer than 60 s renders again by itself after a change
 // that needs no new encode, when the page's worker still holds what the render
 // on screen left and that render took at most AUTO_RENDER_KEPT_MS on this
@@ -4738,6 +5157,7 @@ async function main() {
     await verifyJourney(browser, base);
     await verifyPageTimeline(browser, base);
     await verifyJitterPage(browser, base);
+    await verifyLaneAndTake(browser, base);
     await verifyAutoRerender(browser, base);
     await verifyVersionLine(browser);
     await verifyAccess(browser, base);

@@ -21,7 +21,7 @@ els.referenceClear = document.getElementById('reference-clear');
 els.referenceStatus = document.getElementById('reference-status');
 els.referenceReport = document.getElementById('reference-report');
 els.audioReal = document.getElementById('preview-real');
-state.realTake = null;   // { name, samples, rate, timeline, overlap: { t0, t1 }, blob }
+state.realTake = null;   // { name, samples, rate, timeline, overlap: { t0, t1 }, blob, guideSpurts }
 let referenceJob = 0, reportJob = 0, referenceDecoded = null;
 const REFERENCE_HELP = 'Load a voice_loopback recording of this source to check the simulation against it.';
 
@@ -49,29 +49,32 @@ function takeTrackOptions(o = renderOptions()) {
 
 // The render the take is lined up against (track()'s options.reference):
 // the current one, unless it has random loss or jitter, whose concealment
-// the take does not share.
+// the take does not share. `spurts`: that render's phrases on the game's
+// voice queue (codecInfo.channel.spurts), or null; kept with the take for
+// phraseChanges() and not handed to track().
 function renderGuide() {
   const info = state.lastCodecInfo;
   if (!state.processedBuffer || !info || info.lostFrames || info.underrunFrames) return null;
-  return { samples: state.processedBuffer, rate: state.processedRate, frames: info.frameLog || null, frameSeconds: (info.frameMs || 20) / 1000 };
+  return { samples: state.processedBuffer, rate: state.processedRate, frames: info.frameLog || null, frameSeconds: (info.frameMs || 20) / 1000,
+    spurts: info.channel && info.channel.spurts ? info.channel.spurts : null };
 }
 
 // The search and the warp, in a worker when there is one. The aligned take
 // keeps the take's sample rate and runs the length of the source.
 function locateTake(take, takeRate, source, sourceRate, onProgress) {
   const length = Math.round(source.length / sourceRate * takeRate), options = takeTrackOptions();
-  const guide = renderGuide();
-  if (guide) options.reference = guide;
+  const guide = renderGuide(), guideSpurts = guide ? guide.spurts : null;
+  if (guide) { options.reference = { ...guide }; delete options.reference.spurts; }
   if (canUseWorker()) {
     const t = take.slice(), s = source.slice();
-    if (guide) options.reference = { ...guide, samples: guide.samples.slice() };
+    if (guide) options.reference.samples = guide.samples.slice();
     return startWorker({ type: 'locate', take: t.buffer, takeRate, source: s.buffer, sourceRate, length, options }, [t.buffer, s.buffer], onProgress)
-      .promise.then(reply => ({ timeline: reply.timeline, aligned: new Float32Array(reply.aligned) }));
+      .promise.then(reply => ({ timeline: reply.timeline, aligned: new Float32Array(reply.aligned), guideSpurts }));
   }
   return new Promise((resolve, reject) => setTimeout(() => {
     try {
       const timeline = TF2Reference.track(take, takeRate, source, sourceRate, options);
-      resolve({ timeline, aligned: TF2Reference.warpSegments(take, takeRate, timeline.segments, takeRate, length) });
+      resolve({ timeline, aligned: TF2Reference.warpSegments(take, takeRate, timeline.segments, takeRate, length), guideSpurts });
     } catch (error) { reject(error); }
   }, 0));
 }
@@ -107,13 +110,13 @@ async function alignReferenceTake(job = ++referenceJob) {
   const source = captureSource(state.decodedSource, renderOptions().captureChannel).getChannelData(0), sourceRate = state.decodedSource.sampleRate;
   setReferenceStatus(`Finding the source in ${name}…`);
   try {
-    const { timeline, aligned } = await locateTake(take, rate, source, sourceRate,
+    const { timeline, aligned, guideSpurts } = await locateTake(take, rate, source, sourceRate,
       (value) => { if (job === referenceJob) setReferenceStatus(`Finding the source in ${name}… ${Math.round(value * 100)}%`); });
     if (job !== referenceJob) return;
     clearReferenceTake(false);
     const overlap = timeline.overlap;
     const blob = URL.createObjectURL(TF2Audio.encodeWav(aligned, rate));
-    state.realTake = { name, samples: aligned, rate, timeline, overlap, blob };
+    state.realTake = { name, samples: aligned, rate, timeline, overlap, blob, guideSpurts };
     if (els.audioReal) {
       els.audioReal.src = blob;
       els.audioReal.muted = state.abMode !== 'real';
@@ -135,24 +138,88 @@ async function alignReferenceTake(job = ++referenceJob) {
   }
 }
 
-// The take's timing against the source, in words: TF2's receiver re-times
-// talk spurts and trims latency in 256-sample (5.8 ms) skips.
+// The take's timing in words: its delay against the render it was lined
+// up with (or against the source when there was none), piece by piece. The
+// delay changes between phrases, where the game's voice queue starts some
+// phrases early, and within a phrase, where the engine drops one sample
+// from every packet and the queue skips what overflows its ring
+// (tests/REFERENCE_2026.md, finding 10).
 function describeTiming(timeline) {
   const segs = timeline.segments;
-  // Delay: take time minus source time (negative when the take starts
-  // after the source does).
+  // Delay: take time minus render (or source) time (negative when the take
+  // starts before it).
   const fmt = (ms) => `${ms < 0 ? '−' : '+'}${(Math.abs(ms) / 1000).toFixed(3)} s`;
+  const against = timeline.guided ? 'take minus render' : 'take minus source';
   const delays = segs.map(g => g.delayMs);
-  const steps = delays.slice(1).map((d, i) => d - delays[i]);
-  const trims = steps.filter(d => Math.abs(Math.abs(d) - 1000 * 256 / 44100) < 0.8).length;
+  const between = segs.filter((g, i) => i > 0 && g.spurt !== segs[i - 1].spurt).length, within = segs.length - 1 - between;
   const clock = segs[0].clockPpm;
-  const spurts = timeline.spurts || 1;
-  let text = segs.length === 1 ? `delay ${fmt(delays[0])} (take minus source)`
-    : `${spurts} talk spurt${spurts === 1 ? '' : 's'} in ${segs.length} segments, delay ${fmt(Math.min(...delays))} to ${fmt(Math.max(...delays))}`
-      + ` (take minus source; ${trims} 5.8 ms latency trim${trims === 1 ? '' : 's'}, ${steps.length - trims} other re-timing${steps.length - trims === 1 ? '' : 's'})`;
-  text += `, clock ${clock >= 0 ? '+' : '−'}${Math.abs(clock).toFixed(0)} ppm, correlation ${timeline.correlation.toFixed(2)}${timeline.polarity < 0 ? ', polarity inverted' : ''}`
-    + `${timeline.guided ? ', lined up against the render' : ''}.`;
+  const phrases = timeline.spurts || 1;
+  let text = segs.length === 1 ? `delay ${fmt(delays[0])} (${against})`
+    : `${phrases} phrase${phrases === 1 ? '' : 's'} in ${segs.length} pieces, delay ${fmt(Math.min(...delays))} to ${fmt(Math.max(...delays))}`
+      + ` (${against}; ${between} change${between === 1 ? '' : 's'} between phrases, ${within} within a phrase)`;
+  text += `, clock ${clock >= 0 ? '+' : '−'}${Math.abs(clock).toFixed(0)} ppm, correlation ${timeline.correlation.toFixed(2)}${timeline.polarity < 0 ? ', polarity inverted' : ''}.`;
   return text;
+}
+
+// Which phrases start early, the take's beside the render's (W3-02e). The
+// limits of a kind: early at -80 ms or less, late at +80 ms or more
+// (tests/retiming.mjs's; chosen).
+const PHRASE_EARLY_MS = -80, PHRASE_LATE_MS = 80;
+const phraseKind = (ms) => (ms === null ? null : ms <= PHRASE_EARLY_MS ? 'early' : ms >= PHRASE_LATE_MS ? 'late' : 'kept');
+
+// The change in a render's own delay at the pause nearest `at` (source
+// seconds), from its phrases on the game's voice queue (codecInfo.channel.
+// spurts): the later phrase's offsetStartMs less the earlier one's
+// offsetEndMs. null without phrases (a render not on the queue) or with a
+// null offset; 0 where no pause's middle lies within 0.2 s of `at` (the
+// sender did not end a phrase there).
+function changeAt(spurts, at) {
+  if (!spurts) return null;
+  let best = -1, dist = Infinity;
+  for (let j = 1; j < spurts.length; j++) {
+    const d = Math.abs((spurts[j - 1].end + spurts[j].start) / 2 - at);
+    if (d < dist) { dist = d; best = j; }
+  }
+  if (best < 0 || dist > 0.2) return 0;
+  const later = spurts[best].offsetStartMs, earlier = spurts[best - 1].offsetEndMs;
+  return later === null || earlier === null ? null : later - earlier;
+}
+
+// One entry for each change from one phrase to the next among the take's
+// pieces (timeline.segments of different `spurt`): at, the later piece's
+// start; stepMs, the change in the take's delay there; guideMs, the change
+// in the delay of the render the take was lined up with (guideSpurts, its
+// channel's phrases, or null: 0); takeMs = stepMs + guideMs, the take's own
+// change against the source (null with guideMs null); renderMs, the change
+// in the render on screen (renderSpurts, or null); and the kind of each.
+function phraseChanges(timeline, guideSpurts, renderSpurts) {
+  const segs = timeline.segments, out = [];
+  for (let i = 1; i < segs.length; i++) {
+    if (segs[i].spurt === segs[i - 1].spurt) continue;
+    const at = segs[i].start, stepMs = segs[i].delayMs - segs[i - 1].delayMs;
+    const guideMs = guideSpurts ? changeAt(guideSpurts, at) : 0;
+    const takeMs = guideMs === null ? null : stepMs + guideMs, renderMs = changeAt(renderSpurts, at);
+    out.push({ at, stepMs, guideMs, takeMs, renderMs, takeKind: phraseKind(takeMs), renderKind: phraseKind(renderMs) });
+  }
+  return out;
+}
+
+// The panel's lines on phrase starts: the counts, then the changes
+// themselves (the first 30). None for a take with no change.
+const PHRASE_LIST_MAX = 30;
+function phraseStartLines(changes, info) {
+  if (!changes.length) return [];
+  const n = changes.length, early = (kind) => changes.filter((c) => c[kind] === 'early').length;
+  const head = `Phrase starts: at ${n} change${n === 1 ? '' : 's'} from one phrase to the next the take starts early (by 80 ms or more) at ${early('takeKind')}`;
+  const channel = info && info.channel;
+  const lines = [channel && channel.spurts
+    ? `${head} and the render at ${early('renderKind')}; they are of one kind (early, kept or late) at ${changes.filter((c) => c.takeKind !== null && c.takeKind === c.renderKind).length} of ${n}.`
+    : channel ? `${head}. This render ran the game's voice queue and does not say which of its phrases start early.`
+      : `${head}. This render keeps the file's own timing and starts none early.`];
+  const ms = (v) => (v === null ? '—' : `${Math.round(v) < 0 ? '−' : '+'}${Math.abs(Math.round(v))}`);
+  const list = changes.slice(0, PHRASE_LIST_MAX).map((c) => `${c.at.toFixed(2)} s ${ms(c.takeMs)} | ${ms(c.renderMs)}`).join('; ');
+  lines.push(`Take | render, ms: ${list}${n > PHRASE_LIST_MAX ? `; and ${n - PHRASE_LIST_MAX} more` : ''}.`);
+  return lines;
 }
 
 // Remove the aligned take (and, unless keepFile, forget the decoded file).
@@ -228,6 +295,9 @@ async function updateReferenceReport() {
     const g = report.anchorGainDb;
     parts.push(`Level at 300 Hz–3 kHz: the simulation is ${Math.abs(g).toFixed(1)} dB ${g >= 0 ? 'louder' : 'quieter'} (volume and voice_scale set this).`);
   }
+  // Phrase starts, against the render on screen (W3-02e).
+  const info = state.lastCodecInfo, renderSpurts = info && info.channel && info.channel.spurts ? info.channel.spurts : null;
+  parts.push(...phraseStartLines(phraseChanges(take.timeline, take.guideSpurts || null, renderSpurts), info));
   box.replaceChildren(table, ...parts.map(note));
 }
 
