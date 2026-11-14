@@ -1238,8 +1238,9 @@ async function verifyLiveMonitor(page) {
       // render of its microphone is made at that rate too (W3-10).
       const dry = state.decodedSource.getChannelData(0), wet = state.processedBuffer, rate = state.processedRate;
       // On the file's own timing, as voice_timeline source renders: the live
-      // monitor keeps it (live.js, liveOptions; W3-02d-1), and a render on the
-      // game's voice queue moves phrases the monitor does not.
+      // monitor keeps it with its queue's switch off (live.js, liveOptions;
+      // W3-02d-1, W3-02c-3b), and a render on the game's voice queue moves
+      // phrases the monitor does not.
       const render = (await TF2Audio.process(state.decodedSource, { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, deviceRate: rate })).samples;
       const from = Math.round(rate * .4), to = Math.min(wet.length, render.length) - Math.round(rate * .2);
       let size = 1;
@@ -1308,9 +1309,9 @@ async function verifyLiveMonitor(page) {
     await renderNow(page);
     const rendered = await page.evaluate(() => ({ channel: !!(state.lastCodecInfo && state.lastCodecInfo.channel), stale: state.stale, line: !els.hearTimeline.hidden }));
     check(rendered.channel && !rendered.stale && rendered.line, 'one press of Render gives the take a render on the game\'s timeline, with the line beside Hear', JSON.stringify(rendered));
-    // The monitor keeps the file's own timing: a changed fps_max, voice_buffer_ms
-    // or Phrase timing sends its chain no new settings, so it does not restart;
-    // voice_scale does (the count's own check).
+    // With the queue's switch off the monitor keeps the file's own timing: a
+    // changed fps_max, voice_buffer_ms or Phrase timing sends its chain no new
+    // settings, so it does not restart; voice_scale does (the count's own check).
     const configs = await page.evaluate(async () => {
       let count = 0;
       const post = Worker.prototype.postMessage;
