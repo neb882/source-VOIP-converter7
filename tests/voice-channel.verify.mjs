@@ -4,6 +4,8 @@
 //
 //   node tests/voice-channel.verify.mjs                     the public checks
 //   node tests/voice-channel.verify.mjs --fixture <file>    and a replay of a fixture
+//   node tests/voice-channel.verify.mjs --frames            the frame clock's checks alone (W3-23a),
+//                                                           each run even after one fails
 //
 // The public checks write a console log in the game's format from a seeded run of the
 // channel itself under a mixer of their own, turn it into a fixture with
@@ -14,6 +16,7 @@
 // non-zero if the engine row mismatches anywhere, or if a fault mismatches nowhere in the
 // file. Fixtures made from real logs stay private: none is in this repository.
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,7 +28,7 @@ import { logToFixture } from './voicequeue/log-to-fixture.mjs';
 import { createReferenceChannel, referenceWaitTicks, referenceLatency } from './voicequeue/reference-channel.mjs';
 import { engineRun, syntheticResults } from './voicequeue/synthetic-results.mjs';
 import { FAULTS, validFixture, replayFixture } from './voicequeue/replay.mjs';
-import { frameClockRuns, frameTime, referenceFrames } from './voicequeue/reference-frames.mjs';
+import { frameClockRuns, frameRate, frameTime, referenceFrames } from './voicequeue/reference-frames.mjs';
 import { mulberry32, UNRELATED, synthesize } from './voicequeue/synthetic-log.mjs';
 
 const require = createRequire(import.meta.url);
@@ -37,8 +40,14 @@ const SELF = fileURLToPath(import.meta.url);
 // Set for the copies of this script that the public checks start: they only replay.
 const REPLAY_ONLY = 'TF2VE_VOICE_REPLAY_ONLY';
 
-let passed = 0;
-function check(name, ok, detail = '') { assert.ok(ok, `${name} ${detail}`); passed++; console.log(`  ok    ${name}${detail ? `   [${detail}]` : ''}`); }
+let passed = 0, failed = 0;
+// With --frames every check runs and a failure is counted and printed, so that a break of the
+// frame clock shows each check it fails; otherwise the first failure stops the suite.
+let keepGoing = false;
+function check(name, ok, detail = '') {
+  if (!ok && keepGoing) { failed++; console.log(`  FAIL  ${name}${detail ? `   [${detail}]` : ''}`); return; }
+  assert.ok(ok, `${name} ${detail}`); passed++; console.log(`  ok    ${name}${detail ? `   [${detail}]` : ''}`);
+}
 
 // ---------------------------------------------------------------------------------------
 // A second reading of the arithmetic of TF2's own routines, as the orchestrator's private run
@@ -839,6 +848,7 @@ function publicChecks() {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   timelineChecks();
+  frameClockChecks();
   endlessChecks();
   arrivalZeroChecks();
   console.log(`\n${passed} voice channel checks passed`);
@@ -866,12 +876,17 @@ const OPUS_DELAY = 156 / 24000;
 // list (a spurt is a run of messages up to a silence record, the record its last).
 // Under 1000/15 frames a second (W3-23a) the clock is the frame clock: the second model of
 // tests/voicequeue/reference-frames.mjs, written again from the order's text.
+// evenTimeline is the clock of even ticks and blocks at any frame rate (a timeline with no end
+// keeps it under 1000/15 until W3-23b, not built yet).
 function referenceTimeline(messages, { fps, bufferMs, fadeTime, length }) {
   if (frameClockRuns(fps)) {
     const r = referenceFrames(messages, { fps, bufferMs, fadeTime, length, createChannel });
     r.samples.spurtDropped = r.spurtDropped;
     return r.samples;
   }
+  return evenTimeline(messages, { fps, bufferMs, fadeTime, length });
+}
+function evenTimeline(messages, { fps, bufferMs, fadeTime, length }) {
   const ch = createChannel({ fps, bufferMs, fadeTime });
   const D = zeroOf(bufferMs, fps);
   const out = new Float32Array(length);
@@ -1374,6 +1389,234 @@ function timelineChecks() {
 }
 
 // ---------------------------------------------------------------------------------------
+// The frame clock (W3-23a, docs/work-orders/W3-23-low-frame-rates.md, "The frame clock" and "The
+// tests", checks 1 to 4, and "What moves", item 4): under 1000/15 frames a second a timeline with a
+// whole length takes the messages whose tick has come, runs the ticks due and runs the blocks due,
+// once a frame and in that order. Frame k is at (88200 k) / fps half samples, fps limited to 10 to
+// 1000 (frameTime: the definition the module and the second model share, and nothing else).
+
+const joinAll = (parts) => {
+  const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+  let k = 0;
+  for (const p of parts) { out.set(p, k); k += p.length; }
+  return out;
+};
+const infoText = (info) => JSON.stringify(info, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v));
+const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+// The first frame at or after time t (half samples), by the definition.
+const frameAtOrAfter = (t, fps) => {
+  let k = Math.max(0, Math.ceil(t * frameRate(fps) / 88200));
+  while (k > 0 && frameTime(k - 1, fps) >= t) k--;
+  while (frameTime(k, fps) < t) k++;
+  return k;
+};
+// The calls of a run: advance() at the ticks between(last, next) gives, then push(), for each
+// message; then finish(). Each call's [tick, samples returned so far], and for each message the
+// tick of the call in which the gain was handed it, 'finish' for finish().
+function framesRun(messages, opts, between = () => []) {
+  const handed = [];
+  let current = null;
+  const tl = createTimeline({ ...opts, gain: { reset() {}, process(pcm) { handed.push(current); return pcm; } } });
+  const parts = [], returns = [];
+  let total = 0, last = 0;
+  const keep = (x, tick) => { parts.push(x); total += x.length; returns.push([tick, total]); };
+  for (const m of messages) {
+    for (const t of between(last, m.tick)) { current = t; keep(tl.advance(t), t); }
+    current = m.tick;
+    keep(tl.push(m), m.tick);
+    last = m.tick;
+  }
+  current = 'finish';
+  const end = tl.finish();
+  parts.push(end.samples);
+  return { samples: joinAll(parts), info: end.info, returns, handed };
+}
+// advance() at every tick between two pushes.
+const everyTick = (last, next) => Array.from({ length: Math.max(0, next - last - 1) }, (_, i) => last + 1 + i);
+// The same run's samples and info as the second model's, or where they first differ.
+const sameAsModel = (run, model) => {
+  if (run.samples.length !== model.samples.length) return `${run.samples.length} samples against ${model.samples.length}`;
+  const at = run.samples.findIndex((v, i) => !Object.is(v, model.samples[i]));
+  if (at >= 0) return `sample ${at}: ${run.samples[at] * 32768} against ${model.samples[at] * 32768}`;
+  return infoText(run.info) === infoText(model.info) ? null : 'the info differs';
+};
+// An opening of 7056 samples of 0.5 (it plays 160 ms and the channel is freed long before the next).
+const opening = (tick, source) => ({ tick, pcm: new Float32Array(7056).fill(0.5), source });
+// The first sample of output at or after `from` that is not zero.
+const soundFrom = (samples, from = 0) => { for (let i = Math.max(0, from); i < samples.length; i++) if (samples[i] !== 0) return i; return -1; };
+
+function frameClockChecks() {
+  console.log('The frame clock under 1000/15 frames a second (W3-23a)');
+  {
+    // Check 1: made-up traffic at nine frame rates, three streams each (one with voice_buffer_ms 50 and a
+    // fade of 50 ms, one ending at 9 s while its messages run to 13.5 s, so that messages wait past the
+    // end), pushed whole, with advance() every 3 ticks, and with advance() at odd ticks twice over and
+    // at a tick before the last given (which does nothing).
+    const RATES = [10, 20, 24, 30, 40, 50, 59.94, 60, 66];
+    const PATTERNS = [() => [], (last, next) => { const t = []; for (let x = last + 1; x < next; x += 3) t.push(x); return t; },
+      (last, next) => { const t = []; for (let x = last + 1; x < next; x += 2) t.push(x, x, x - 3); return t; }];
+    let all = 0, same = 0, first = '', waited = 0, packets = 0;
+    for (const fps of RATES) {
+      for (const [seed, bufferMs, fadeTime, length] of [[1, 100, 0.1, 44100 * 14 + 37], [2, 50, 0.05, 44100 * 14 + 74], [3, 200, 0.1, 44100 * 9]]) {
+        const messages = madeUpMessages(seed, 900), opts = { fps, bufferMs, fadeTime, length };
+        const model = referenceFrames(messages, { ...opts, createChannel });
+        for (const between of PATTERNS) {
+          all++;
+          const why = sameAsModel(framesRun(messages, opts, between), model);
+          if (!why) same++; else if (!first) first = `${fps} fps, seed ${seed}: ${why}`;
+        }
+        if (seed === 3) waited += messages.filter((m) => 661.5 * m.tick - zeroOf(bufferMs, fps) >= length).length;
+        packets += model.info.packets;
+      }
+    }
+    check('check 1: createTimeline under the frame clock gives the second model\'s samples and info, member for member (made-up traffic at 10, 20, 24, 30, 40, 50, 59.94, 60 and 66 fps, three streams each; pushed whole, with advance() every 3 ticks, and with advance() twice at odd ticks and at a tick before the last)',
+      same === all && waited > 0, first || `${all} runs of ${packets} messages in all; in the streams that end at 9 s ${waited} messages past the end`);
+  }
+  {
+    // finish() adds every message given (the plan review's edit 3): a spurt that starts after the end
+    // still opens a channel and resets the gain, as on the clock of even ticks and blocks.
+    const rows = [];
+    let ok = true;
+    for (const fps of [30, 10, 66.67]) {
+      const run = framesRun([opening(100, 0), opening(400, 7056)], { fps, length: 44100 });
+      if (!(run.info.opens === 2 && run.info.gainResets === 2 && run.info.appended === 0 && run.handed.length === 2)) ok = false;
+      rows.push(`${fps} fps: opens ${run.info.opens}, gainResets ${run.info.gainResets}, the second handed in ${run.handed[1]}`);
+    }
+    check('finish() adds every message given: a spurt that starts 5 s past an end of 1 s opens a channel at 30 and 10 fps, as at 66.67', ok, rows.join('; '));
+  }
+  {
+    // Check 2: frames fall on ticks every 150 ms at 60 fps (frame 9 m on tick 10 m) and every 300 ms
+    // at 30 and 10 (frame 9 m on tick 20 m, frame 3 m on tick 20 m), and on blocks at frame 512 m at
+    // 60 and 256 m at 30 and 10 (8.53 s, 8.53 s and 25.6 s; the plan review's edit 7). Openings on
+    // such a tick c near 1, 2 and 3 s, on c - 1, c and c + 1; openings whose wait ends on such a tick
+    // near 4, 5 and 6 s, on c - 1, c and c + 1; one more past the frame on a block, so that advance()
+    // runs at every tick through it. Each message is handed to the channel in the call that runs its
+    // frame (the first frame at or after its tick); its wait counts from the first tick that frame
+    // runs, which can be numbered below its own (a frame's packets come before all of its ticks), and
+    // it plays from the first block of the frame of the wait's last tick; every call returns the
+    // blocks of every frame before its tick; and the run is the second model's.
+    const rows = [];
+    let ok = true;
+    for (const [fps, every, blockFrame, seconds] of [[60, 10, 512, 10], [30, 20, 256, 10], [10, 20, 256, 27]]) {
+      const w = waitTicks(100, fps), D = zeroOf(100, fps), length = 44100 * seconds, messages = [], onFrame = [];
+      const near = (sec) => every * Math.round(sec / 0.015 / every);
+      for (let j = 0; j < 3; j++) { const c = near(1 + j); onFrame.push(c); messages.push(opening(c + j - 1, 8000 * j)); }
+      for (let j = 0; j < 3; j++) { const c = near(4 + j); onFrame.push(c); messages.push(opening(c + j - 1 - (w - 1), 30000 + 8000 * j)); }
+      messages.push(opening(Math.round((seconds - 0.5) / 0.015), 60000));
+      const run = framesRun(messages, { fps, length }, everyTick);
+      const model = referenceFrames(messages, { fps, length, createChannel });
+      const lastTick = messages[messages.length - 1].tick;
+      const callOf = (k) => Math.floor(frameTime(k, fps) / 1323) + 1;
+      const handedRight = messages.every((m, i) => { const c = callOf(frameAtOrAfter(1323 * m.tick, fps)); return run.handed[i] === (c <= lastTick ? c : 'finish'); });
+      // The wait counts from the first tick of the message's frame; the channel plays from the first
+      // block of the frame of the wait's last tick.
+      const starts = messages.map((m) => {
+        const ka = frameAtOrAfter(1323 * m.tick, fps), i0 = Math.floor(frameTime(ka - 1, fps) / 1323) + 1;
+        const k = frameAtOrAfter(1323 * (i0 + w - 1), fps), want = 512 * (Math.floor(frameTime(k - 1, fps) / 1024) + 1) - D;
+        return { want, got: soundFrom(run.samples, want - 512 * 20), last: i0 + w - 1 };
+      });
+      // Of the waits, one ends on a tick that falls on a frame (60 and 30 fps; at 10 the wait is one tick).
+      const endsOnFrame = starts.filter((x) => frameTime(frameAtOrAfter(1323 * x.last, fps), fps) === 1323 * x.last).length;
+      // Every call returns the blocks of every frame before its tick.
+      let returnsRight = true, floor = 0;
+      for (const [tick, total] of run.returns) {
+        floor = Math.max(floor, tick);
+        let K = 0;
+        while (frameTime(K, fps) < 1323 * floor) K++;
+        const blocks = K === 0 ? 0 : Math.floor(frameTime(K - 1, fps) / 1024) + 1;
+        if (total !== Math.min(length, Math.max(0, 512 * blocks - D))) returnsRight = false;
+      }
+      const tb = frameTime(blockFrame, fps) / 1024;
+      const fall = onFrame.every((c) => frameTime(frameAtOrAfter(1323 * c, fps), fps) === 1323 * c) && Number.isInteger(tb) && 512 * tb - D < length
+        && callOf(blockFrame) < lastTick && (fps === 10 || endsOnFrame >= 1);
+      const why = sameAsModel(run, model);
+      if (!(handedRight && starts.every((s) => s.got === s.want) && returnsRight && fall && !why)) ok = false;
+      rows.push(`${fps} fps: ticks on frames ${onFrame.join(' ')}, block ${tb} on frame ${blockFrame}, ${endsOnFrame} waits ending on one${fall ? '' : ' (NOT SO)'}; handed ${handedRight ? 'in its frame' : `NOT: ${run.handed.join(' ')}`}; `
+        + `starts ${starts.map((s) => (s.got === s.want ? s.got : `${s.got} not ${s.want}`)).join(' ')}; returns ${returnsRight ? 'right' : 'WRONG'}; ${why || 'the second model\'s'}`);
+    }
+    check('check 2: where frames fall on a tick or a block (60, 30 and 10 fps), each message is handed to the channel in its frame, each channel counts its wait from that frame\'s first tick and plays from the first block of the frame that ends it, each call returns the blocks of every frame before its tick, and the run is the second model\'s',
+      ok, rows.join('; '));
+  }
+  {
+    // Check 3: at 10 fps with voice_buffer_ms 100 the wait is one tick, so a message taken in frame k
+    // is heard from the first block of frame k's burst (packets, then ticks, then the mixer).
+    const fps = 10, D = zeroOf(100, fps), messages = [];
+    for (let j = 0; j < 25; j++) messages.push(opening(20 + 97 * j, 8000 * j));
+    const run = framesRun(messages, { fps, length: 44100 * 40 });
+    let right = 0;
+    const wrong = [];
+    for (const m of messages) {
+      const k = frameAtOrAfter(1323 * m.tick, fps), at = 512 * (Math.floor(frameTime(k - 1, fps) / 1024) + 1) - D;
+      if (soundFrom(run.samples, at - 512 * 20) === at) right++; else wrong.push(`tick ${m.tick}: ${soundFrom(run.samples, at - 512 * 20)} not ${at}`);
+    }
+    check('check 3: at 10 fps (a wait of one tick) a message taken in frame k is heard from the first block of frame k\'s burst (25 openings at every phase)',
+      waitTicks(100, 10) === 1 && right === messages.length, wrong.join('; ') || `${right} of ${messages.length}`);
+  }
+  {
+    // Check 4: at 30 fps nine frames run 20 ticks, seven frames with two and two with three
+    // (arithmetic); with a wait of 3 a channel plays in its packet's frame exactly when that frame
+    // has three ticks (the frame's packets come before all of its ticks, so a packet on the frame's
+    // second or third tick is counted from its first). Openings on ticks 40 + 101 j, j = 0..19, one
+    // at each of the 20 phases.
+    const fps = 30, D = zeroOf(100, fps);
+    const ticksIn = (k) => Math.floor(frameTime(k, fps) / 1323) - Math.floor(frameTime(k - 1, fps) / 1323);
+    const counts = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(ticksIn);
+    const messages = Array.from({ length: 20 }, (_, j) => opening(40 + 101 * j, 8000 * j));
+    const run = framesRun(messages, { fps, length: 44100 * 33 });
+    let own = 0, right = 0;
+    const wrong = [];
+    for (const m of messages) {
+      const k = frameAtOrAfter(1323 * m.tick, fps), inOwn = ticksIn(k) === 3;
+      const at = soundFrom(run.samples, 512 * Math.ceil(1323 * m.tick / 1024) - D - 512 * 10);
+      const block = (at + D) / 512, playedIn = frameAtOrAfter(1024 * block, fps);
+      if (inOwn) own++;
+      if ((playedIn === k) === inOwn && Number.isInteger(block)) right++; else wrong.push(`tick ${m.tick} (frame ${k}, ${ticksIn(k)} ticks): played in frame ${playedIn}`);
+    }
+    check('check 4: at 30 fps nine frames run 20 ticks, seven with two and two with three; a channel with a wait of 3 plays in its packet\'s frame exactly when that frame has three ticks (6 of the 20 phases)',
+      counts.reduce((a, b) => a + b, 0) === 20 && counts.filter((c) => c === 2).length === 7 && counts.filter((c) => c === 3).length === 2
+      && waitTicks(100, fps) === 3 && own === 6 && right === 20, wrong.join('; ') || `ticks a frame ${counts.join(' ')}; ${own} of 20 in their own frame`);
+  }
+  {
+    // What moves, item 4 (with the plan review's edit 6): the threshold. 66.67 and 1000/15 give the
+    // same timeline (the clock of even ticks and blocks, the suite's own reading of it, and main's
+    // samples and info by hashes recorded on main 91d37c6 before W3-23a); 66.6 and the first double
+    // below 1000/15 do not, and give the second model's.
+    const MAIN = ['03861aa5723e05b21f9ec3ad4a67eb3d3b0d113f129dc7e83ab6621660eaa981', '0a5b49c7adea7965218e550cee6794cd44c6b68eeaf792f77b218eb1d977de24'];
+    const below = new Float64Array([1000 / 15]);
+    new BigInt64Array(below.buffer)[0] -= 1n;
+    const messages = madeUpMessages(5, 900), length = 44100 * 14 + 5 * 37;
+    const runAt = (fps) => framesRun(messages, { fps, length });
+    const withoutFps = (info) => { const { fps, ...rest } = info; return infoText(rest); };
+    const a = runAt(66.67), b = runAt(1000 / 15), c = runAt(66.6), d = runAt(below[0]);
+    const hashes = [sha256(new Uint8Array(a.samples.buffer)), sha256(withoutFps(a.info))];
+    const even = evenTimeline(messages, { fps: 66.67, bufferMs: 100, length });
+    const differs = (x) => x.samples.some((v, i) => !Object.is(v, a.samples[i]));
+    check('the threshold: 66.67 and 1000/15 give one timeline, the even clock\'s and main\'s (by hashes); 66.6 and the first double below 1000/15 (66.66666666666666) give another, the second model\'s',
+      !frameClockRuns(66.67) && !frameClockRuns(1000 / 15) && frameClockRuns(below[0]) && below[0] < 1000 / 15
+      && b.samples.every((v, i) => Object.is(v, a.samples[i])) && withoutFps(a.info) === withoutFps(b.info) && a.samples.every((v, i) => Object.is(v, even[i]))
+      && hashes.join() === MAIN.join() && differs(c) && differs(d)
+      && !sameAsModel(c, referenceFrames(messages, { fps: 66.6, length, createChannel })) && !sameAsModel(d, referenceFrames(messages, { fps: below[0], length, createChannel })),
+      `66.67: ${hashes.map((h) => h.slice(0, 12)).join(' ')}; 66.6 differs from sample ${c.samples.findIndex((v, i) => !Object.is(v, a.samples[i]))}, the double below from ${d.samples.findIndex((v, i) => !Object.is(v, a.samples[i]))}`);
+  }
+  {
+    // A timeline with no end keeps the clock of even ticks and blocks at every frame rate (W3-23b, not
+    // built yet): at 30 and 10 fps what its calls return is the even clock's reading, from sample 0.
+    let ok = true;
+    const rows = [];
+    for (const fps of [30, 10]) {
+      const messages = madeUpMessages(6, 700), length = 44100 * 9;
+      const tl = createTimeline({ fps, length: Infinity }), parts = [];
+      for (const m of messages) parts.push(tl.push(m));
+      const got = joinAll(parts), want = evenTimeline(messages, { fps, bufferMs: 100, length: got.length });
+      const same = got.length > length / 2 && got.every((v, i) => Object.is(v, want[i]));
+      if (!same) ok = false;
+      rows.push(`${fps} fps: ${got.length} samples ${same ? 'the even clock\'s' : 'NOT the even clock\'s'}`);
+    }
+    check('a timeline with no end keeps even ticks and blocks under 1000/15 (W3-23b, not built yet)', ok, rows.join('; '));
+  }
+}
+
+// ---------------------------------------------------------------------------------------
 // The timeline with no end (W3-02c-3a, docs/work-orders/W3-02c3-live-channel.md, part a, item 1):
 // what the live monitor's chain runs. It returns what a whole length returns, call for call, and
 // keeps nothing that grows with time.
@@ -1578,12 +1821,19 @@ function arrivalZeroChecks() {
 // ---------------------------------------------------------------------------------------
 
 const argv = process.argv.slice(2);
-let fixtureFile = null;
+let fixtureFile = null, framesOnly = false;
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--fixture' && i + 1 < argv.length) fixtureFile = argv[++i];
-  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>]'); process.exit(2); }
+  else if (argv[i] === '--frames') framesOnly = true;
+  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>] [--frames]'); process.exit(2); }
 }
-if (process.env[REPLAY_ONLY] !== '1') publicChecks();
+if (framesOnly) {
+  keepGoing = true;
+  frameClockChecks();
+  console.log(`\n${passed} voice channel checks passed, ${failed} failed (the frame clock's alone)`);
+  if (failed) process.exitCode = 1;
+}
+else if (process.env[REPLAY_ONLY] !== '1') publicChecks();
 if (fixtureFile) {
   // Nothing of the file is printed: a console log given here by mistake holds names.
   let text, fixture;

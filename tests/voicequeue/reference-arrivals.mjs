@@ -7,7 +7,14 @@
 // `age >= lag + (2u - 1) j`, so the two can agree to the last bit.
 //
 // referenceArrivals({ jitterMs, fps, seed, ticks }) -> { floorTicks, at: Int32Array }: for each sender tick p from 0
-// to ticks - 1, the tick its message reaches the voice channel less floorTicks. With jitterMs 0 or less, at[p] = p.
+// to ticks - 1, the tick its message reaches the voice channel less floorTicks. With jitterMs 0 or less, at[p] = p,
+// but where a frame is longer than a tick (W3-23a, below).
+//
+// W3-23a (docs/work-orders/W3-23-low-frame-rates.md, "The arrival at jitter 0"), written again from the order's
+// words: at jitter 0, when 1000 / fps > 15 (fps limited as above), the model with jitter as its jitter goes to 0, in
+// closed form. The message of tick p is in the listener's list from 15 (p + 1) ms (the server's relay tick); it leaves
+// at the first look r = k x 1000 / fps with r - 15 (p + 1) > 0; at[p] = ceil(r / 15) - 2; floorTicks 0. Here the looks
+// are walked in order, one pointer for every tick, where the engine guesses the look and corrects it.
 // Synthetic only: no recording, log or file of the game is read.
 
 // mulberry32, as published (Tommy Ettinger's generator), written here again.
@@ -25,9 +32,19 @@ export const REFERENCE_START_TICK = -200;
 
 export function referenceArrivals({ jitterMs, fps, seed, ticks }) {
   const at = new Int32Array(ticks);
-  if (!(jitterMs > 0)) { for (let p = 0; p < ticks; p++) at[p] = p; return { floorTicks: 0, at }; }
   // The listener's frame rate as the voice channel limits it: 10 to 1000, 300 when not given.
   const F = Math.min(1000, Math.max(10, Number.isFinite(fps) ? fps : 300));
+  if (!(jitterMs > 0)) {
+    if (1000 / F > 15) {
+      // W3-23a: the listener's first look after the server's relay tick.
+      for (let p = 0, k = 0; p < ticks; p++) {
+        const enter = 15 * (p + 1);
+        while (k * 1000 / F - enter <= 0) k++;
+        at[p] = Math.ceil(k * 1000 / F / 15) - 2;
+      }
+    } else for (let p = 0; p < ticks; p++) at[p] = p;
+    return { floorTicks: 0, at };
+  }
   const s = (Number.isFinite(seed) ? seed : 0xC0FFEE) >>> 0;
   // Item 1: the lag is twice the jitter; j = min(jitter, lag / 2).
   const lag = 2 * jitterMs, j = Math.min(jitterMs, lag / 2);
