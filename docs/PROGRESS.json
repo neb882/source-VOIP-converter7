@@ -6,14 +6,14 @@
     "serves": "main (GitHub Pages from the branch root)",
     "main": "the head of main (git log); the site's cache number is below",
     "cache": 50,
-    "last_merge": "AC-01 (no cache change, 2026-11-14): the accuracy suite renders each take as the page does by default, Steam voice on the game's voice queue (300 frames a second, voice_buffer_ms 100; Set C's photographed 295 and 336); with loss or jitter on the queue the render is lined up as the take is (the review's finding); the predictions keep the file's own timing; tests/retiming.mjs refuses JSON rendered on the queue; music_take_it_off's cut ends before the take's key release. docs/ACCURACY.md's table is the suite on the queue (private run, measured). Before it: W3-02g-a (cache v50, 2026-11-14): asked for the game's timeline with a demo's packets, the engine runs each message as Steam's client and the game run it: one Steam decoder with the 17-frame record rule as read, the 12-frame refusal, the 0.2 s silence drop, one resampler per speaker, the demo's own ticks as arrival ticks, and a zero of the module's latency less 0.16 s. Set J's cut, made again with it, gives 524,256 of 524,288 samples (measured, private). On Set D's demo no listener frame rate gives the sender take's four early phrase starts (private look ii), so the page keeps a demo's voice on the file's own timing and part b is withdrawn for now (an open finding in the record). No other render changes."
+    "last_merge": "AC-02 (no cache change, 2026-11-14): the accuracy suite's --seeds n measures each row at n different seeds (its own or the default, then the first n - 1 others from seed 1) and prints each figure as a median with its range, the worst band as the median seed's by size; without the option the suite is unchanged; tests/retiming.mjs refuses seeded JSON. Before it: AC-01 (no cache change, 2026-11-14): the accuracy suite renders each take as the page does by default, Steam voice on the game's voice queue (300 frames a second, voice_buffer_ms 100; Set C's photographed 295 and 336); with loss or jitter on the queue the render is lined up as the take is (the review's finding); the predictions keep the file's own timing; tests/retiming.mjs refuses JSON rendered on the queue; music_take_it_off's cut ends before the take's key release. docs/ACCURACY.md's table is the suite on the queue (private run, measured)."
   },
   "in_flight": [
     {
       "order": "AC-02",
       "file": "docs/work-orders/AC-02-suite-over-seeds.md",
-      "stage": "builder",
-      "line": "the accuracy suite over several seeds (--seeds n): each row's figures as a median and a range; without the option the suite is unchanged. Tests and docs only; no cache change."
+      "stage": "merged; the orchestrator's private run at nine seeds, for docs/ACCURACY.md's table",
+      "line": "the table as medians and ranges over nine seeds replaces the one-draw table of 2026-11-14."
     }
   ],
   "next": [

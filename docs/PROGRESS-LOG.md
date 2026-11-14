@@ -675,3 +675,7 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 - live.last_merge, earlier merges cut: "W3-02c-3b (cache v49, 2026-11-14): the live panel has a box, off on every load and never remembered, that runs the monitor through the game's voice queue on Steam voice with BC-4's arrivals, at the pa"
 - deferred, music_take_it_off removed (explained: the cut, AC-01): "{'finding': 'On the game's voice queue the accuracy suite's level on music_take_it_off is 2.14 / 24.0 dB (r 0.370) against 0.08 / 0.4 dB (r 0.997) on the file's own timing (measured privately 2026-11-14, docs/ACCURACY.md"
 - open_questions, Set D's 68 ms echo replaced: "Set D, PC A with set_d_street: the render's echo at 68.02 ms is 36% above the take's (0.0304 against 0.0224, 3.6 scatters), the other two within 10%. Random taps, the ambience, or the room's measures: not looked into."
+
+## 2026-11-14: AC-02 merged (no cache change); entries replaced
+
+- live.last_merge, earlier merges cut: "W3-02g-a (cache v50, 2026-11-14): asked for the game's timeline with a demo's packets, the engine runs each message as Steam's client and the game run it: one Steam decoder with the 17-frame record ru"

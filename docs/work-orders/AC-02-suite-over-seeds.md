@@ -1,6 +1,6 @@
 # AC-02: the accuracy suite over several seeds
 
-Status: written 2026-11-14 by the orchestrator. Not built yet.
+Status: written 2026-11-14 by the orchestrator; built, reviewed (merge after fixes; the four fixes made, below) and merged 2026-11-14 with no cache change.
 
 ## Why
 
