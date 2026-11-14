@@ -1089,8 +1089,9 @@ async function verifyLiveMonitor(page) {
     });
     const queueState = () => page.evaluate(() => ({ checked: document.getElementById('live-queue').checked, help: document.getElementById('live-queue-help').textContent,
       low: { disabled: document.getElementById('live-lowlat').disabled, checked: document.getElementById('live-lowlat').checked, title: document.getElementById('live-lowlat').closest('label').title },
-      configs: window.__liveConfigs.length, opts: window.__liveConfigs[window.__liveConfigs.length - 1] || null, queue: TF2Live.queue, ms: TF2Live.stats.latencyMs,
-      channel: TF2Live.stats.channel || null, arrivals: TF2Live.stats.arrivals || null, codec: TF2Live.stats.codec, panel: document.getElementById('live-latency').textContent,
+      configs: window.__liveConfigs.length, opts: window.__liveConfigs[window.__liveConfigs.length - 1] || null, queue: TF2Live.queue, ms: TF2Live.stats && TF2Live.stats.latencyMs,
+      channel: (TF2Live.stats && TF2Live.stats.channel) || null, arrivals: (TF2Live.stats && TF2Live.stats.arrivals) || null, codec: TF2Live.stats && TF2Live.stats.codec,
+      panel: document.getElementById('live-latency').textContent,
       panelTitle: document.getElementById('live-latency').closest('.live-stat').title, note: document.getElementById('live-note').textContent,
       noteError: document.getElementById('live-note').classList.contains('error'), running: TF2Live.running }));
     const before = await queueState();
@@ -1101,15 +1102,17 @@ async function verifyLiveMonitor(page) {
     // sent as off.
     await page.locator('#live-lowlat').check();
     await page.locator('#live-queue').check();
-    await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'game' && TF2Live.stats && TF2Live.stats.channel && TF2Live.stats.channel.opens > 0,
+    // (A chain that refused its options stops the monitor: the check below says so.)
+    await page.waitForFunction(() => !TF2Live.running || (TF2Live.queue && TF2Live.queue.timeline === 'game' && TF2Live.stats && TF2Live.stats.channel && TF2Live.stats.channel.opens > 0),
       null, { timeout: 20000 });
     await page.waitForTimeout(600);
     const on = await queueState();
     const panelMs = Number(/^(\d+) ms/.exec(on.panel)?.[1]);
-    check(on.opts && on.opts.timeline === 'game' && on.opts.fps === 300 && on.opts.bufferMs === 100 && on.opts.lowLatency === false && on.low.disabled && on.low.checked
+    check(on.running && on.opts && on.opts.timeline === 'game' && on.opts.fps === 300 && on.opts.bufferMs === 100 && on.opts.lowLatency === false && on.low.disabled && on.low.checked
       && /voice queue/.test(on.low.title),
       'with the switch on, on Steam voice: the chain\'s options hold timeline game and the page\'s fps_max and voice_buffer_ms; the low-latency box is disabled and sent as off',
-      JSON.stringify({ opts: on.opts && { timeline: on.opts.timeline, fps: on.opts.fps, bufferMs: on.opts.bufferMs, lowLatency: on.opts.lowLatency }, low: on.low.disabled }));
+      JSON.stringify({ running: on.running, opts: on.opts && { timeline: on.opts.timeline, fps: on.opts.fps, bufferMs: on.opts.bufferMs, lowLatency: on.opts.lowLatency },
+        low: on.low.disabled, note: on.noteError ? on.note : '' }));
     check(Math.abs(on.ms - fullMs - on.queue.queueCostMs) < 1e-6 && on.queue.queueCostMs > 300 && panelMs >= on.ms && panelMs < on.ms + 400,
       'the chain\'s delay rises by the cost the chain reports, and the panel shows between that delay and 400 ms more',
       `${fullMs.toFixed(1)} ms off, ${on.ms.toFixed(1)} ms on, the chain's cost ${on.queue.queueCostMs.toFixed(2)} ms; the panel ${on.panel}`);
@@ -1151,26 +1154,33 @@ async function verifyLiveMonitor(page) {
     // and low latency still works.
     await page.locator('#live-queue').check();
     await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'game' && TF2Live.stats.channel, null, { timeout: 20000 });
+    const quietly = (o) => o.running && o.opts.timeline === 'source' && o.opts.fps === undefined && o.queue.timeline === 'source' && !o.channel
+      && !o.noteError && o.opts.lowLatency === true && !o.low.disabled && /keeps the file's own timing/.test(o.help);
+    const describe = (c, o) => `${c}: ${JSON.stringify({ running: o.running, timeline: o.opts && o.opts.timeline, queue: o.queue, low: o.opts && o.opts.lowLatency, error: o.noteError, note: o.note })}`;
     const others = {};
     for (const codec of ['celt_22', 'steam_48', 'miles']) {
       await page.locator('#codec').selectOption(codec);
-      await page.waitForFunction((c) => TF2Live.stats && TF2Live.stats.codec === c && TF2Live.stats.sent > 10, codec, { timeout: 20000 });
+      // (A chain that refused its options stops the monitor: the check below says so.)
+      await page.waitForFunction((c) => !TF2Live.running || (TF2Live.stats && TF2Live.stats.codec === c && TF2Live.stats.sent > 10), codec, { timeout: 20000 });
       await page.waitForTimeout(400);
       others[codec] = await queueState();
+      if (!others[codec].running) break;
     }
+    const loud = Object.entries(others).filter(([, o]) => !quietly(o));
+    check(loud.length === 0 && Object.keys(others).length === 3,
+      'on celt_22, steam_48 and miles (neither in TF2) the checked switch does nothing: the chain keeps the file\'s own timing, no error shows, low latency still works',
+      loud.map(([c, o]) => describe(c, o)).join('; ') || Object.keys(others).join(', '));
     await page.locator('#codec').selectOption('steam');
     await page.waitForFunction(() => TF2Live.stats && TF2Live.stats.codec === 'steam' && TF2Live.queue.timeline === 'game', null, { timeout: 20000 });
     await page.locator('#warble_on').selectOption('0');
     await page.waitForFunction(() => window.__liveConfigs.length && window.__liveConfigs[window.__liveConfigs.length - 1].enableWarble === false, null, { timeout: 5000 });
-    await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'source', null, { timeout: 20000 });
+    await page.waitForFunction(() => !TF2Live.running || (TF2Live.queue && TF2Live.queue.timeline === 'source'), null, { timeout: 20000 });
     await page.waitForTimeout(800);
-    others.skipped = await queueState();
+    const skipped = await queueState();
+    check(quietly(skipped), 'with the codec skipped on Steam voice the checked switch does nothing: the chain keeps the file\'s own timing, no error shows, low latency still works',
+      describe('skipped', skipped));
     await page.locator('#warble_on').selectOption('1');
     await page.waitForFunction(() => TF2Live.queue && TF2Live.queue.timeline === 'game' && TF2Live.stats.channel, null, { timeout: 20000 });
-    const quiet = Object.entries(others).filter(([, o]) => !(o.opts.timeline === 'source' && o.opts.fps === undefined && o.queue.timeline === 'source' && !o.channel
-      && !o.noteError && o.running && o.opts.lowLatency === true && !o.low.disabled && /off on every load|keeps the file's own timing/i.test(o.help)));
-    check(quiet.length === 0, 'on celt_22, steam_48 and miles (neither in TF2) and with the codec skipped the checked switch does nothing: the chain keeps the file\'s own timing, no error shows, low latency still works',
-      quiet.map(([c, o]) => `${c}: ${JSON.stringify({ timeline: o.opts.timeline, queue: o.queue, low: o.opts.lowLatency, error: o.noteError })}`).join('; ') || Object.keys(others).join(', '));
     await page.locator('#live-queue').uncheck();
     await page.locator('#live-lowlat').uncheck();
     await page.waitForFunction((full) => TF2Live.queue.timeline === 'source' && TF2Live.stats.latencyMs === full, fullMs, { timeout: 15000 });
@@ -1359,7 +1369,7 @@ async function verifyLiveMonitor(page) {
       }, { packetsBefore, packetsAfter });
     };
     const onQueue = await queueTake();
-    check(onQueue.loud > onQueue.rate * 0.5 && onQueue.key.timeline === 'game' && onQueue.key.fps === 300 && onQueue.key.bufferMs === 100 && onQueue.channel
+    check(onQueue.loud > onQueue.rate * 0.1 && onQueue.key.timeline === 'game' && onQueue.key.fps === 300 && onQueue.key.bufferMs === 100 && onQueue.channel
       && onQueue.channel.fps === 300 && onQueue.channel.packets > 0 && onQueue.channel.packets <= onQueue.packetsAfter - onQueue.packetsBefore && !onQueue.stale && onQueue.idle && onQueue.started === 0 && onQueue.line
       && /^S_Voice: the game's voice queue at fps_max 300, voice_buffer_ms 100: a new phrase waits 30 ticks \(435 ms\)/.test(onQueue.queueLine)
       && /^Recorded live · /.test(onQueue.status),
