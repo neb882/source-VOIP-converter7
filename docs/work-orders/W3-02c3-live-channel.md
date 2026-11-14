@@ -583,3 +583,25 @@ chain's whole output after the mix equal to the render's in 8 of 8 runs, and no 
 - Part b's words say that a queue take's lane and the panel's frame counts are the sender's, off the sound by each
   phrase's offset (−0.33 to +0.08 s at jitter 0), and that under heavy loss on the queue the counts can stall (up to
   2.4 s at 100% with the gate on).
+
+## Part b after its review (2026-11-14, the orchestrator)
+
+The reviewer read `a73da7c` (merge after fixes; no wrong sample, no crash, no broken contract; the 156-sample
+lookahead holds for every codec delay the page can send). The fix round, binding on the builder:
+
+1. **The console's `voice_timeline` help** (`app/console.js:347` and its comment at `:345-346`) still ends "The live
+   monitor always keeps the file's own timing." `app/console.js` may be touched for that sentence and its comment,
+   worded as `index.html`'s Phrase timing help now is; one line in [Browser 3c5] holds the console help to the page's
+   sentence.
+2. **A take's channel counts:** `opens` and `droppedSamples` are held to the chain's own differences as `packets` is
+   (the break "only `packets` counted" left the take's console line counting the chain's whole life, and the suite
+   green); a recording that changes `voice_buffer_ms` midway checks the take's `packets` against the sum of the two
+   chains' rises (no check rebuilt the chain during a recording).
+3. **The switch's help with low latency ticked:** "this off" then means the low-latency chain (126.9 ms), so the step
+   to the queue is 437 ms at 300 frames a second where the help says 357 (computed from the suite's figures). The help
+   adds the low-latency saving when that box is ticked, or says "than with this and low latency off"; `docs/LIVE.md`'s
+   column gets the same note.
+4. **`docs/LIVE.md`'s panel figures at 48 kHz** say how they were measured: with the browser's audio forced to 48 kHz
+   in a headless browser, not on a sound device.
+
+Then the done-means again; the cache number rises at the merge (v48 to v49).
