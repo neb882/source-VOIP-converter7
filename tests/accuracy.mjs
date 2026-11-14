@@ -131,9 +131,18 @@ async function measureInPage({ takeUrl, sourceUrl, settings, takeChannelName, ta
   const trackOptions = { ...takeTrackOptions(opts), reference: { samples: guide.samples, rate, frames: guide.codecInfo.frameLog, frameSeconds: (guide.codecInfo.frameMs || 20) / 1000 } };
   const timeline = TF2Reference.track(take, rate, captured, rate, trackOptions);
   const aligned = TF2Reference.warpSegments(take, rate, timeline.segments, rate, captured.length);
-  const sim = rendered.samples;
-  const from = Math.max(0, Math.round(timeline.overlap.t0 * rate));
-  const to = Math.min(sim.length, aligned.length, Math.round(timeline.overlap.t1 * rate));
+  // On the game's voice queue a render with loss or jitter keeps a timeline
+  // of its own, away from the lossless guide's (the review of AC-01). So it
+  // is lined up too, as the take is: against the source with the guide as
+  // the reference, then warped. The two are compared where both cover. Every
+  // other render is compared as it is, as before.
+  const lineUpRender = opts.timeline === 'game' && random;
+  const renderTimeline = lineUpRender ? TF2Reference.track(rendered.samples, rate, captured, rate, trackOptions) : null;
+  const sim = lineUpRender ? TF2Reference.warpSegments(rendered.samples, rate, renderTimeline.segments, rate, captured.length) : rendered.samples;
+  const t0 = lineUpRender ? Math.max(timeline.overlap.t0, renderTimeline.overlap.t0) : timeline.overlap.t0;
+  const t1 = lineUpRender ? Math.min(timeline.overlap.t1, renderTimeline.overlap.t1) : timeline.overlap.t1;
+  const from = Math.max(0, Math.round(t0 * rate));
+  const to = Math.min(sim.length, aligned.length, Math.round(t1 * rate));
   if (to - from < rate) throw new Error('the take overlaps the source by less than a second');
   const report = TF2Reference.compareTake(aligned.subarray(from, to), sim.subarray(from, to), rate);
   const spurts = trackOptions.gate ? TF2Reference.gateSpurts(captured, rate, trackOptions.gate, trackOptions.micGain) : [];
@@ -142,6 +151,11 @@ async function measureInPage({ takeUrl, sourceUrl, settings, takeChannelName, ta
     takeStart, options: opts, trackOptions: { gate: trackOptions.gate, micGain: trackOptions.micGain },
     timeline: { spurts: timeline.spurts, points: timeline.points, correlation: timeline.correlation, polarity: timeline.polarity,
       overlap: timeline.overlap, segments: timeline.segments },
+    // Whether the render was lined up too, and its own timeline when it was.
+    renderLinedUp: lineUpRender,
+    renderTimeline: lineUpRender ? { spurts: renderTimeline.spurts, correlation: renderTimeline.correlation, polarity: renderTimeline.polarity,
+      overlap: renderTimeline.overlap, segments: renderTimeline.segments } : null,
+    compared: { t0, t1 },
     gateSpurts: spurts,
     report
   };
