@@ -16,7 +16,7 @@
     },
     {
       "order": "W3-02c-3",
-      "state": "planned again 2026-11-13 after BC-4 (docs/work-orders/W3-02c3-live-channel.md, two parts, a then b; the orchestrator's rulings at its end); a plan reviewer reads it before part a is built",
+      "state": "planned again 2026-11-13 after BC-4 and plan-reviewed (docs/work-orders/W3-02c3-live-channel.md, two parts, a then b; the rulings and the plan review's edits at its end); part a's builder started 2026-11-13 after W3-02f's merge (branch claude/w3-02c3a-live-channel)",
       "note": "The live monitor can run the game's voice queue, and with it BC-4's arrival times on Steam voice."
     }
   ],
