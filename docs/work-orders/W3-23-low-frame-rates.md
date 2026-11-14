@@ -414,3 +414,64 @@ The planner's commit on `claude/w3-23-plan` was not merged: its two files came t
 commit, with the repository's own attribution line.
 
 *Ruling 1 amended 2026-11-14, after W3-23r: W3-23a does not wait for the usage reset. The owner said on 2026-11-13 "I'm not worried about running out of usage this weekend", and that stands over the orchestrator's caution. It waits for the plan reviewer's pass only.*
+
+## After the plan review (2026-11-14)
+
+The plan review (build after edits; reviewed at `main` `3ef4990`) found what follows. Each edit holds over the text
+above it; the builder of W3-23a reads this section first.
+
+1. **What may move, two checks more (blocking).**
+   - `tests/voice-channel.verify.mjs` `endlessChecks` has the case `[30, 200, 0.1, 0]`, which asks the endless
+     timeline for what the whole-length one gives. In W3-23a only the whole-length one has the frame clock, and its
+     `counts()` differs once the last message is still waiting. In W3-23a that case moves to `[100, 200, 0.1, 0]`.
+   - `tests/render-channel.verify.mjs` section 10 has two cases of the live chain at 10 frames a second and jitter
+     500 (about `:854-857`) that ask `sameAsRender(live, ren)`. In W3-23a they move to 66.67, with their `grows`
+     thresholds checked again.
+   - W3-23b puts all three back at their old rates, and its checks list them beside 66.67, 100 and 300.
+2. **The predictions' note (blocking).** W3-23a changes hashed model files (`engine/network.js`, `engine/steam.js`,
+   `engine/render.js`). "May touch" gains `tests/predictions/PREDICTIONS.md`, the note only, in the form of the
+   notes before it.
+3. **`finish()` under the frame clock.** Today every message pushed is added, because `push` runs the events up to
+   its tick. Under the frame clock a message whose frame lies past the blocks that cover the length would never be
+   added. Its spurt would then count as `appended`, and `opens`, `gainResets` and `droppedSamples` would fall. That
+   happens in real renders at jitter 500. `finish()` runs frames until the blocks cover the length and every
+   message given has been added; the second model does the same.
+4. **The reference of checks 6 and 7.** `referenceRender` drives `VC.createTimeline` itself, and sets the gain's
+   blocks (`use(blocks)`) before `tl.push`: the stale blocks this order fixes in `steamChannel`. The reference:
+   - takes the second model's clock;
+   - queues each message's blocks with it;
+   - uses the closed form at jitter 0 under 66.67, with `arrivals` left absent.
+5. **The arrival rule under the frame clock** (the reviewer's computation). Composed with the frame clock, the rule
+   puts a message in a later frame than `at(p) = p` would for 0% of messages at 66, 60 and 50 frames a second. The
+   share is 10% at 59.94, 20% at 40, 50% at 30, 40% at 20 and 20% at 10. So at 60 the rule's 1.5 ms moves no
+   sample. Three consequences:
+   - finding 9's added line and the report do not call that 1.5 ms heard;
+   - the rule's breaks are caught by check 5 and by renders at 30 or 10, not at 60;
+   - the level at 30 and under rests on a chosen phase between the server's ticks and the listener's frames (0.13
+     against 0.74 dB). In the game that phase is not fixed. Ruling 2 stands; this is its cost, and the records say
+     so.
+6. **Check 4.** It does not use "a reference on today's clock". A render at 1000/15 equals the render at 66.67
+   sample for sample (same wait, same `D`, arrival plan null); the render at 66.67 has a recorded hash; and a render
+   at 66.6 differs.
+7. **Check 2.** Frames fall exactly on blocks only when k is a multiple of 512 at 60 frames a second (every 8.53 s),
+   and of 256 at 30 (8.53 s) and at 10 (25.6 s). The case that breaks step 3's `<` must sit at one of those frames.
+8. **A demo at 30 frames a second.** Section 21's rates (`[300, 66.67]`) gain 30. Any "behind" bound in it, and in
+   check 6's `createRender` in pieces, becomes the old bound plus `512 × ceil(88200 / (1024 × fps))` samples.
+9. **Words.**
+   - The lines the read made stale are the builder's to make true, with a dated mark: about lines 36 ("until 9 are
+     queued") and 37 (its standing), 86, 88, 89 and 91, the conditional at 111 to 114, and "What would settle it"
+     (no `sv_cheats 1`; 10 frames a second left out for the extra update). The run sheet's lines in
+     `docs/owner-runs.md` already have `sv_cheats 1`.
+   - The game paints once a frame at every rate, so below about 86 frames a second its pulls come in bursts.
+     Even pulls at 66.67 and above are chosen, to keep the recorded figures; the order and the records say so. The
+     help sentence "mixes once a frame" is true at every rate and is worded so.
+   - The help text and `VOICE_CHANNEL`'s comment say 300 is `fps_max`'s default. W3-23r read a start value of 400
+     in `engine.dll`; the record's 300 is what the owner's game ran at (logged, Set G). W3-23a words both so; the
+     page's default stays 300.
+10. **Figures.** The 40 row and the claim at 50 have no source in `W3-23-plan.md`. Check 10 measures again the dB
+    figures of "What is heard": the mean level lost in talk and the share of samples more than 3 dB down, at 60,
+    30, 20 and 10. Any figure not measured again is labelled the prototype's.
+11. **W3-23b's hold.** By arithmetic, not by search: at most one frame short, so `ceil(88200 / (1024 × fps))`
+    blocks (9 at 10 frames a second, 2 at 60). One block less fails at a phase built to make it fail, not over
+    random plans.
+12. **`onOpen` moves to W3-23b.** No whole-length caller uses it, only the live chain. W3-23a leaves it alone.
