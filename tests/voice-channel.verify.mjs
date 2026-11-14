@@ -25,6 +25,7 @@ import { logToFixture } from './voicequeue/log-to-fixture.mjs';
 import { createReferenceChannel, referenceWaitTicks, referenceLatency } from './voicequeue/reference-channel.mjs';
 import { engineRun, syntheticResults } from './voicequeue/synthetic-results.mjs';
 import { FAULTS, validFixture, replayFixture } from './voicequeue/replay.mjs';
+import { frameClockRuns, frameTime, referenceFrames } from './voicequeue/reference-frames.mjs';
 import { mulberry32, UNRELATED, synthesize } from './voicequeue/synthetic-log.mjs';
 
 const require = createRequire(import.meta.url);
@@ -863,7 +864,14 @@ const OPUS_DELAY = 156 / 24000;
 // channel's 16-bit units, and so is the output. Returns the whole output, and as
 // .spurtDropped the samples each spurt lost to overflow, read from the channel's own drops
 // list (a spurt is a run of messages up to a silence record, the record its last).
+// Under 1000/15 frames a second (W3-23a) the clock is the frame clock: the second model of
+// tests/voicequeue/reference-frames.mjs, written again from the order's text.
 function referenceTimeline(messages, { fps, bufferMs, fadeTime, length }) {
+  if (frameClockRuns(fps)) {
+    const r = referenceFrames(messages, { fps, bufferMs, fadeTime, length, createChannel });
+    r.samples.spurtDropped = r.spurtDropped;
+    return r.samples;
+  }
   const ch = createChannel({ fps, bufferMs, fadeTime });
   const D = zeroOf(bufferMs, fps);
   const out = new Float32Array(length);
@@ -1388,7 +1396,9 @@ function endlessChecks() {
   console.log('The timeline with no end (W3-02c-3a)');
   {
     // The clock's streams of the first check, with the codec's delay as a render gives it on one setting.
-    const cases = [[300, 100, 0.1, 0], [100, 100, 0.1, 0], [66.67, 100, 0.1, OPUS_DELAY], [150, 50, 0.05, 0], [30, 200, 0.1, 0], [300, 30, 0.02, OPUS_DELAY]];
+    // W3-23a (the plan review's edit 1): the case at 30 fps is at 100 here, since under 1000/15 only a whole
+    // length has the frame clock (a timeline with no end keeps even ticks and blocks: W3-23b, not built yet).
+    const cases = [[300, 100, 0.1, 0], [100, 100, 0.1, 0], [66.67, 100, 0.1, OPUS_DELAY], [150, 50, 0.05, 0], [100, 200, 0.1, 0], [300, 30, 0.02, OPUS_DELAY]];
     let calls = 0, same = 0, all = 0, first = '', countsSame = 0, finished = 0, dropped = 0, appended = 0;
     for (const [fps, bufferMs, fadeTime, codecDelay] of cases) {
       for (let seed = 1; seed <= 8; seed++) {

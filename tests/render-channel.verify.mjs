@@ -850,11 +850,15 @@ if (runs(10)) {
       // the chain holds more than its first buffer of 65,536 samples and grows it (engine/live-chain.js, store()).
       // There it grows once, early, while what it holds is still silence (the first arrivals come up to 1.6 s
       // late), and never again; so a second run takes blocks of 96,000 after 3 s of 480, which makes it grow
-      // past 131,072 while it holds sound.
-      ['jitter 500 at 10 fps, a 48 kHz microphone, blocks of 48,000 samples (the chain\'s buffer grows past 65,536 held samples)', 48000,
-        { fps: 10, jitterMs: 500, seed: 11 }, { plan: 48000, grows: 65536 }],
-      ['the same with blocks of 96,000 after 3 s of 480 (it grows again, past 131,072, while it holds sound)', 48000,
-        { fps: 10, jitterMs: 500, seed: 11 }, { plan: [...Array(300).fill(480), ...Array(5).fill(96000)], grows: 131072 }]
+      // past 131,072 while it holds sound. W3-23a (the plan review's edit 1): at 66.67 fps, not 10 as before, since
+      // under 1000/15 a render has the frame clock and the chain, which has no end, does not yet (W3-23b, not built
+      // yet). Checked again there: the margin is 33,471 samples at 66.67 (49,620 at 10), so blocks of 48,000 still
+      // make it grow past 65,536 (77,571 held at least), and the second run takes blocks of 112,000, not 96,000
+      // (121,671 held at least, under 131,072), to grow past 131,072.
+      ['jitter 500 at 66.67 fps, a 48 kHz microphone, blocks of 48,000 samples (the chain\'s buffer grows past 65,536 held samples)', 48000,
+        { fps: 66.67, jitterMs: 500, seed: 11 }, { plan: 48000, grows: 65536 }],
+      ['the same with blocks of 112,000 after 3 s of 480 (it grows again, past 131,072, while it holds sound)', 48000,
+        { fps: 66.67, jitterMs: 500, seed: 11 }, { plan: [...Array(300).fill(480), ...Array(5).fill(112000)], grows: 131072 }]
     ];
     for (const [name, rate, o, extra] of cases) {
       const x = talk(12, rate, 3), keyUp = extra.keyUp || [];

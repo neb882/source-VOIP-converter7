@@ -427,7 +427,11 @@
    *                 source's                                    ['source']
    *   fps, bufferMs: with timeline 'game', the listener's frames a second
    *                 and voice_buffer_ms, handed to the channel as given (it
-   *                 takes its own defaults and limits)           [300, 100]
+   *                 takes its own defaults and limits). Under 1000/15
+   *                 frames a second the channel takes packets, counts its
+   *                 ticks and mixes once a frame, and at jitter 0 each
+   *                 message reaches it at the listener's first look after
+   *                 the server's relay tick (W3-23a)             [300, 100]
    *   seed:         PRNG seed for the loss pattern / crackle        [0xC0FFEE]
    *   received:     the source is voice as the game received it, already
    *                 through a sender and the codec (a demo's packets,
@@ -485,7 +489,9 @@
    * and frame rate (as the model limits it), the least delay taken out (0
    * under arriveAt), and over the messages pushed into the channel the mean
    * and the most of the delay above it in ms and how many came on the tick
-   * of the message before; absent otherwise.
+   * of the message before; absent otherwise (at jitter 0 under 1000/15
+   * frames a second too, where the messages take the look once a frame:
+   * W3-23a).
    * With timeline 'game' and a demo's packets (W3-02g) codecInfo is the
    * demo's (backend 'demo', the counters of the file's own timing,
    * lookahead 0) with frameLog and frameBytes as played, sent and channel
@@ -694,7 +700,8 @@
       }
       codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate, lossSet), framesPerPacket };
       if (played) codecInfo = steamPlayedInfo(codecInfo, played, trip.lookahead);
-      if (arrivals) codecInfo.arrivals = { jitterMs: arrivals.jitterMs, fps: arrivals.fps, floorTicks: arrivals.floorTicks, ...channel.arrivals() };
+      // Not the look once a frame at jitter 0 (W3-23a, arrivals.frames): no jitter is on.
+      if (arrivals && !arrivals.frames) codecInfo.arrivals = { jitterMs: arrivals.jitterMs, fps: arrivals.fps, floorTicks: arrivals.floorTicks, ...channel.arrivals() };
       report(0.72);
     } else if (demoQueue) {
       // A demo's own packets on the game's timeline (W3-02g): one Steam

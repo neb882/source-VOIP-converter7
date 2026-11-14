@@ -223,8 +223,12 @@
   //     given the value the source's timeline brings to the mix.
   // steamTimeline's add() hands it each message that arrived:
   // push(tick, y, blocks, source), y the packet over 32768 (empty for an end
-  // marker alone or a refused packet), blocks its frames' blocks. What the
-  // timeline gives out is kept in order: take() returns it joined, and
+  // marker alone or a refused packet), blocks its frames' blocks. The blocks
+  // travel with their message: each push queues its blocks, and the gain
+  // takes the head of the queue at each process(), which the channel calls
+  // once for each message it adds, in the order pushed (W3-23a: under the
+  // frame clock a message is added in its frame, after later pushes). What
+  // the timeline gives out is kept in order: take() returns it joined, and
   // finish() ends the timeline and returns its info. Nothing pushed is kept
   // or written to: the gain's output is a new array.
   // arrive (BC-4; null: none): the tick on which the message the sender gave
@@ -288,11 +292,19 @@
       if (endless && tick > base) { answers.splice(0, tick - base); base = tick; }
       return a;
     };
-    let blocks = [], g = null;
+    // Each pushed message's blocks, until the channel adds it (from queuedHead on).
+    const queued = [];
+    let queuedHead = 0, blocks = [], g = null;
+    const nextBlocks = () => {
+      blocks = queued[queuedHead];
+      queued[queuedHead++] = null;
+      if (queuedHead === queued.length) { queued.length = 0; queuedHead = 0; }
+    };
     const late = (j) => blocks[j].code === FRAME_CODES.late;
     const gain = autoGain ? {
       reset() { g = createGain({ avgGain, maxGain, scale: voiceScale }); },
       process(y) {
+        nextBlocks();
         const F = blocks.length, n = y.length;
         if (!blocks.some((b) => b.code === FRAME_CODES.late)) return g.process(y);
         const out = Float32Array.from(y);
@@ -308,8 +320,10 @@
       }
     } : {
       reset() {},
-      process: (y) => Float32Array.from(y, (v) =>
-        roundEven(clamp(Math.fround(v * voiceScale), -INT16_FULL_SCALE, INT16_FULL_SCALE) * 32768) / 32768)
+      process: (y) => {
+        nextBlocks();
+        return Float32Array.from(y, (v) => roundEven(clamp(Math.fround(v * voiceScale), -INT16_FULL_SCALE, INT16_FULL_SCALE) * 32768) / 32768);
+      }
     };
     const demo = zeroSamples !== undefined;
     const timeline = createTimeline(demo ? { length, fps, bufferMs, zeroSamples, gain }
@@ -319,8 +333,8 @@
     return {
       zero: demo ? zeroSamples : zero(bufferMs, fps, lookahead / STEAM_RATE),
       push(tick, y, packetBlocks, source) {
-        blocks = packetBlocks;
         const a = at(tick);
+        queued.push(packetBlocks);
         if (arrive) {
           messages++;
           sumTicks += a - tick;
@@ -337,7 +351,7 @@
       arrivals: () => (arrive ? { messages, meanMs: messages ? STEAM_TICK_MS * sumTicks / messages : 0,
         maxMs: messages ? STEAM_TICK_MS * maxTicks : 0, sameTick } : null),
       counts: () => timeline.counts(),
-      held: () => answers.length + timeline.held(),
+      held: () => answers.length + (queued.length - queuedHead) + timeline.held(),
       finish() {
         const end = timeline.finish();
         keep(end.samples);
