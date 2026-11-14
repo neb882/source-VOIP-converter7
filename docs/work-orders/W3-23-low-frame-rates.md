@@ -522,3 +522,37 @@ For a later order, not built (finding 4): a closed form for `D` under the frame 
 reader's arithmetic). It agrees with check 10 except at 10, where the gap of 13 ms is put down to underruns in the
 first 0.2 s (inferred, not checked). Ruling 3 stands: the form rests on the chosen phase, and the game's lead of 10
 to 13 blocks pushes the other way by about as much. A take at a low frame rate is its gate.
+
+## W3-23b: the orchestrator's ruling on the hold (2026-11-14)
+
+The builder found that in the chain at jitter 0, one block less than the arithmetic hold does not run short at 30,
+20 or 10 frames a second. The least margin over 20 s of silence is 892, 1,327 and 1,183 samples, because the rule's
+look sits after the relay tick. Jitter of 45 to 150 ms gave margins above a block too (measured by the builder; 6
+seeds of 120 s each). One block less fails at the timeline's level at every rate, and in the chain at 60 and 50.
+
+The hold stays the arithmetic's, `ceil(88200 / (1024 × fps))` blocks over `D`. It does not depend on the jitter or on
+a draw. It costs 12 to 23 ms more delay than any run needed, and only with the monitor's box for the queue on, at
+30 frames a second and under.
+
+## W3-23b: after the review (2026-11-14)
+
+The review said merge after fixes, none blocking. It reproduced the hash list byte for byte, `onOpen`'s indices on
+the even clock, and the docs' figures. It proved the hold enough for every input, not only for the runs: the chain
+advances the timeline to `at(bound)`, at least `bound`, and on the frame clock the timeline then lacks at most H
+blocks of what the even clock has there. It also proved that under 33.3 frames a second the chain never needs the
+last of the H blocks, whatever the input: at most 2, 4 and 8 blocks are unrun at 30, 20 and 10, against H's 3, 5 and
+9. The ruling on the hold stands; that one block is its cost there, 11.6 ms.
+
+Fixed on the branch before the merge:
+
+1. **One formula for the hold.** `live.js` and `engine/live-chain.js` each work `ceil(88200 / (1024 × fps))` out,
+   and nothing ties the two: dropping the frame's blocks from `live.js`'s figure passes every suite. The formula goes
+   once into `voice-channel.js` (for example `TF2VoiceChannel.frameHold`), and both call it.
+2. **The delay check's rates** (`tests/render-channel.verify.mjs`, near `:1036`) gain 5, which holds fps 10's hold,
+   and 1000/15, which holds `D` alone. Without them a dropped clamp, or `>=` in place of `>`, passes.
+3. **`liveQueueHold` reads `fps` as the channel does**: a number only (`typeof fps === 'number' &&
+   Number.isFinite(fps)`), not through `finiteOr`. Today `fps: "30"` gives a channel at 300 with the hold at 30. It
+   could only hold too much, never too little.
+4. **Words.** The report and the record's line under finding 22 say that at 30 and under the last block is never
+   needed in the chain, by the arithmetic above, not only "in those runs". The report's CI table loses the blank line
+   that breaks it.
