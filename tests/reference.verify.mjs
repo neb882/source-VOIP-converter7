@@ -259,6 +259,24 @@ check('Level tracking rejects unequal lengths', true);
     const beepDelays = beepTrack.segments.map(g => g.delayMs);
     check(`Real take, spurt by spurt: three beeps 0.5 s apart are placed by their envelope, not on a neighbouring beep (${beepDelays.map(d => d.toFixed(1)).join(' / ')} ms)`,
       beepDelays.length === 2 && Math.abs(beepDelays[0] - beepDelays[1]) < 80);
+    // Bursts of noise repeat in the envelope as the beeps do, but each burst's
+    // waveform is its own, so the waveform's place stands wherever the
+    // envelope puts the spurt. Eight bursts of 100 ms, 0.5 s apart, come
+    // 0.5 s early in the take: the envelope's prior holds that spurt with
+    // the first, and the waveform moves it.
+    let burstSeed = 5, burstLp = 0;
+    const burstNoise = () => { burstSeed = (burstSeed * 1103515245 + 12345) >>> 0; burstLp += .3 * (burstSeed / 4294967296 * 2 - 1 - burstLp); return burstLp; };
+    const bursts = new Float32Array(10 * sr);
+    for (let i = Math.round(.5 * sr); i < 2.5 * sr; i++) bursts[i] = .1 * burstNoise() * (1 + .5 * Math.sin(i / sr * 9));
+    for (let k = 0; k < 8; k++) {
+      const start = Math.round((3.7 + .5 * k) * sr), n = Math.round(.1 * sr);
+      for (let i = 0; i < n; i++) bursts[start + i] = .1 * burstNoise() * Math.min(1, i / 96, (n - i) / 96);
+    }
+    const burstTake = TF2Reference.warpSegments(bursts, sr, [{ a: -1, b: 1, start: 0, end: 4.1 }, { a: -.5, b: 1, start: 4.1, end: 12 }], sr, 12 * sr)
+      .map(v => .316 * v + 1e-4 * burstNoise());
+    const burstDelays = TF2Reference.track(burstTake, sr, bursts, sr, { gate }).segments.map(g => g.delayMs);
+    check(`Real take, spurt by spurt: bursts of noise 0.5 s apart that come 0.5 s early are placed by their waveform (${burstDelays.map(d => d.toFixed(1)).join(' / ')} ms)`,
+      burstDelays.length === 2 && near(burstDelays[0], 1000, .5) && near(burstDelays[1], 500, .5));
   }
   // The render's frame log is read on its codec's frame grid, the profile's
   // own frame: 1024 samples of 22050 Hz sound (46.4 ms) for vaudio_celt_high.
