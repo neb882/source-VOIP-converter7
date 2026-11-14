@@ -69,3 +69,25 @@ May touch: `tests/accuracy.mjs`, `tests/README.md`, `docs/ACCURACY.md` (only as 
 May not touch: anything the site loads (`engine/`, `app/`, `index.html`, the codec modules, `voice-channel.js`,
 `reference.js`), `tests/accuracy.takes.json`, `tests/predictions/`, `tests/retiming.mjs`, `docs/PROGRESS.json`,
 `docs/PROGRESS-LOG.md`, `docs/README.md`, `sw.js`. No site file changes, so the cache number does not change.
+
+## After the review (2026-11-14)
+
+The review (merge after fixes) found four things; all four are done on the branch before the merge.
+
+1. **Blocking: the worst band's median seed** (`tests/accuracy.mjs:365`). Each seed's worst band is the band of
+   largest size, but the seeds were sorted by the signed value. With signs that differ, that picks the seed whose
+   worst band is smallest. Example: the builder's loss row has +0.0, +1.1 and −0.6 dB and printed "+0.0 dB at
+   120-200" where the sizes give 0.6 dB at 300-500. Sort by the size and print the median seed's band with its own
+   signed value; at an even count, the lower middle by size. The same rule applies wherever else the band is
+   summarised.
+2. **n measurements always** (`:346-348`). A row whose own seed falls in 1 to n − 1 gets n distinct seeds: its own,
+   then the first n − 1 others from seed 1 up. The header comment and `tests/README.md` say so.
+3. **`tests/retiming.mjs`** refuses JSON from a run with `--seeds` above 1, or any row holding `seeds`, right after
+   AC-01's refusal, with a message to run the suite without `--seeds`. Without it, every row of such a JSON is
+   skipped silently. `tests/retiming.mjs` joins "May touch". Show the refusal on a seeded scratch JSON, and that a
+   plain JSON still runs.
+4. **The row's seed as the engine takes it** (`:344`). `Number.isFinite(Number(settings.seed)) ?
+   Number(settings.seed) >>> 0 : DEFAULT_SEED`, as `finiteOr` in `engine/render.js` does, so `"seed": "3"` is
+   labelled 3 and not measured twice.
+
+No row of the manifest gives a seed, so items 2 and 4 change no printed figure of the committed rows.
