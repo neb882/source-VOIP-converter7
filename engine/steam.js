@@ -261,12 +261,18 @@
   // packets (voice-channel.js arrivalZero()), handed to createTimeline in
   // place of the codec's look-ahead, which is then not read; zero is then
   // zeroSamples.
-  //   onOpen(index) (null: none): called once for each open, where the
-  // channel resets the gain, once the push that opened it has returned;
-  // index is the count of samples the timeline has returned by then. Every
-  // block that starts before the open's tick has run and none after it, so
-  // index is the first sample of the first block that starts at or after
-  // that tick (0 when that is before the output's first sample).
+  //   onOpen(index) (null: none): handed to createTimeline (W3-23b), which
+  // calls it once for each open, where the channel resets the gain; index is
+  // the count of samples the timeline has made by then, returned or to be
+  // returned by the call that is running (push, advance or finish). On the
+  // clock of even ticks every block that starts before the open's tick has
+  // run and none after it, so index is the first sample of the first block
+  // that starts at or after that tick (0 when that is before the output's
+  // first sample): the count of samples returned once the push that opened
+  // it has returned, as this function counted it before W3-23b. Under the
+  // frame clock (below 1000/15 frames a second) it is the first sample of
+  // the first block not yet run when the frame that adds the message runs
+  // (0 at least), which can be in a later call than the message's push.
   function steamChannel({ length, lookahead, fps, bufferMs, autoGain, avgGain, maxGain, voiceScale, arrive = null, onOpen = null,
     zeroSamples = undefined }) {
     const { createTimeline, zero } = steamChannelModule();
@@ -326,10 +332,10 @@
       }
     };
     const demo = zeroSamples !== undefined;
-    const timeline = createTimeline(demo ? { length, fps, bufferMs, zeroSamples, gain }
-      : { length, fps, bufferMs, codecDelay: lookahead / STEAM_RATE, gain });
-    let pieces = [], lastMessage = null, returned = 0;
-    const keep = (y) => { pieces.push(y); returned += y.length; };
+    const timeline = createTimeline(demo ? { length, fps, bufferMs, zeroSamples, gain, onOpen }
+      : { length, fps, bufferMs, codecDelay: lookahead / STEAM_RATE, gain, onOpen });
+    let pieces = [], lastMessage = null;
+    const keep = (y) => { pieces.push(y); };
     return {
       zero: demo ? zeroSamples : zero(bufferMs, fps, lookahead / STEAM_RATE),
       push(tick, y, packetBlocks, source) {
@@ -342,9 +348,7 @@
           if (a === lastMessage) sameTick++;
           lastMessage = a;
         }
-        const opens = onOpen ? timeline.counts().opens : 0;
         keep(timeline.push({ tick: a, pcm: y, source }));
-        if (onOpen && timeline.counts().opens > opens) onOpen(returned);
       },
       advance(tick) { keep(timeline.advance(at(tick))); },
       ask(tick) { at(tick); },

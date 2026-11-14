@@ -25,7 +25,10 @@
 // 10. The live chain on the game's timeline (W3-02c-3a, docs/work-orders/W3-02c3-live-channel.md): at
 //     its mix point it gives createRender's samples on 'game', held back by D, at any jitter, for any plan
 //     of blocks; the hold is D and no less; the delay it reports; spurtStart at each open; its stats; its
-//     refusals; without the option, main's samples; the arrival model with no end.
+//     refusals; without the option, main's samples; the arrival model with no end. Under 1000/15 (W3-23b,
+//     docs/work-orders/W3-23-low-frame-rates.md, "W3-23b") the chain has the frame clock and holds back
+//     D and ceil(88200 / (1024 fps)) blocks of 512 more: the same checks at 60, 30 and 10 fps; the hold's
+//     arithmetic, and one block less running short at a phase built for it; the delay; spurtStart.
 // Jitter as arrival times (BC-4, docs/work-orders/BC-4-jitter-arrivals.md, "The tests" and
 // "After the plan review"):
 // 11. One list (fakeLagList) against the closed form of a lone packet's leaving look.
@@ -59,6 +62,8 @@
 // 24. The threshold: 1000/15 is 66.67 and main's; 66.6 and the double below 1000/15 are not.
 // 25. The stage keys: a render at 30 fps after one at 300 starts from B (check 9).
 // 26. Determinism under 1000/15 (check 11).
+// 27. onOpen through steamChannel (W3-23b, check 8): main's indices on the even clock, the timeline's under the frame
+//     clock.
 // Renders use deviceRate 44100 and compare the voice at the mix point (opts.onGain).
 // TF2_DIR points the suite at a copy of the sources. Every signal is synthetic, made here.
 import crypto from 'node:crypto';
@@ -68,7 +73,7 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { loadEngine, sourceRoot } from './lib/engine.cjs';
 import { closedForm, referenceArrivals } from './voicequeue/reference-arrivals.mjs';
-import { frameClockRuns, referenceFrames } from './voicequeue/reference-frames.mjs';
+import { frameClockRuns, frameTime, referenceFrames } from './voicequeue/reference-frames.mjs';
 
 const root = sourceRoot();
 const require = createRequire(import.meta.url);
@@ -230,7 +235,9 @@ function referenceGain(set) {
 //   a refused packet (over 11,264 samples): an empty packet at its place;
 //   a lost message: nothing.
 // onOpen (W3-02c-3a's check 10; none elsewhere): told, at each open (where the module resets
-// the gain), the count of samples the timeline has returned once that push has returned.
+// the gain), the count of samples the timeline has returned once that push has returned; under
+// 1000/15 (W3-23b) 512 b - D (0 at least, the length at most), b the blocks of the second model's
+// frames before the frame that adds the message (the order's check 8).
 // Under 1000/15 frames a second (W3-23a, the plan review's edit 4) the channel runs on the
 // frame clock of the second model (tests/voicequeue/reference-frames.mjs), each message carrying
 // its own frame blocks to the gain when it reaches the channel; at jitter 0 each message comes on
@@ -240,9 +247,9 @@ function referenceRender(src, set, onOpen = null) {
   const L = trip.lookahead;
   const { gain: inner, use } = referenceGain(set);
   const frames = frameClockRuns(set.fps);
-  if (frames && onOpen) throw new Error('referenceRender: onOpen runs on the even clock only (W3-23b, not built yet)');
-  let opened = false, returned = 0;
-  const gain = onOpen ? { process: (y) => inner.process(y), reset() { opened = true; inner.reset(); } } : inner;
+  let opened = false, returned = 0, adding = -1;
+  const openedAt = [];   // under the frame clock: the index of each message that opened the channel
+  const gain = onOpen ? { process: (y) => inner.process(y), reset() { opened = true; openedAt.push(adding); inner.reset(); } } : inner;
   const tl = frames ? null : VC.createTimeline({ length: voice.length, fps: set.fps, bufferMs: set.bufferMs, codecDelay: L / 24000, gain });
   const out = [], kinds = { sound: 0, record: 0, empty: 0, refused: 0, lost: 0 }, queued = [];
   const lastTick = messages.reduce((m, msg) => Math.max(m, msg.tick), 0);
@@ -283,7 +290,13 @@ function referenceRender(src, set, onOpen = null) {
     cursor = place + y16.length;
   });
   const end = frames ? referenceFrames(queued, { fps: set.fps, bufferMs: set.bufferMs, length: voice.length, codecDelay: L / 24000, gain,
-    beforeAdd: (m) => use(m.blocks), createChannel: VC.createChannel }) : tl.finish();
+    beforeAdd: (m, index) => { adding = index; use(m.blocks); }, createChannel: VC.createChannel }) : tl.finish();
+  if (frames && onOpen) {
+    const blocksBefore = new Map(), D = VC.zero(set.bufferMs, set.fps, L / 24000);
+    let blocks = 0;
+    for (const f of end.frames) { for (const i of f.added) blocksBefore.set(i, blocks); blocks += f.blocks; }
+    for (const i of openedAt) onOpen(Math.max(0, Math.min(voice.length, 512 * blocksBefore.get(i) - D)));
+  }
   out.push(end.samples);
   const counted = counting ? { jitterMs: set.jitterMs, fps: Math.min(1000, Math.max(10, set.fps ?? 300)), floorTicks: arrivals.floorTicks,
     messages: count.messages, meanMs: count.messages ? 15 * count.sum / count.messages : 0, maxMs: count.messages ? 15 * count.max : 0,
@@ -759,7 +772,12 @@ if (runs(9)) {
 // rates with the Opus codec's 156 samples, pinned by tests/voice-channel.verify.mjs; the full reach and
 // the codec's look-ahead the chain holds back on the file's own timing, 4,650 and 156 samples at 24 kHz
 // (read: engine/steam.js steamReach from the sender's constants, and the codec's look-ahead).
-const LIVE_D = { 66.67: 13312, 100: 15360, 300: 24576 };
+const LIVE_D = { 10: 9728, 20: 10240, 30: 10752, 50: 12288, 60: 12800, 66.67: 13312, 100: 15360, 300: 24576 };
+// W3-23b (the plan review's edit 11): what the chain holds back at its mix point, D and, under 1000/15, the blocks
+// of a frame, ceil(88200 / (1024 fps)): 9 at 10 fps, 5 at 20, 3 at 30, 2 at 50 and 60, none at 66.67 and above
+// (arithmetic, written again here from the order).
+const holdBlocks = (fps) => (88200 / fps > 1323 ? Math.ceil(88200 / (1024 * fps)) : 0);
+const LIVE_HOLD = Object.fromEntries(Object.entries(LIVE_D).map(([fps, d]) => [fps, d + 512 * holdBlocks(Number(fps))]));
 const REACH_AND_LOOKAHEAD = 4806;
 // The live chain's samples on main before W3-02c-3a (0617875), with no timeline and with 'source': the
 // SHA-256 of its output and of the voice at its mix point, for talk(4, 48000, 51) in blocks of 480.
@@ -783,7 +801,9 @@ const unevenPlan = (seed) => { const rnd = lcg(seed); return Array.from({ length
 // voice at its mix point (onGain), and at each call the chain makes to spurtStart() of the room path (a
 // stand-in that only counts, or a real path seen through a proxy, so that the path's own call from shares()
 // is not counted) the count of samples onGain had been handed. G is what the order's "The hold-back" says it
-// gives out: floor(P x 147 / 80) - D, P the samples given to the sender (stats.pushed), D its zero.
+// gives out: floor(P x 147 / 80) - hold, P the samples given to the sender (stats.pushed), hold what the chain
+// holds back (chain.hold: D, its zero, and under 1000/15 the blocks of a frame, W3-23b). marks: after each block,
+// the samples given to the sender, chain.held() and stats.margin.
 async function liveGame(x, rate, opts, plan = 480, { keyUp = [], room = null } = {}) {
   const voice = [], starts = [];
   let seen = 0;
@@ -802,12 +822,12 @@ async function liveGame(x, rate, opts, plan = 480, { keyUp = [], room = null } =
       chain.setTalking(!keyUp.some(([a, b]) => at >= a && at < b));
       await chain.process(x.subarray(at, at + n));
       at += n;
-      marks.push({ at, held: chain.held() });
+      marks.push({ at, held: chain.held(), pushed: chain.stats.pushed, margin: chain.stats.margin });
       codes.push(...chain.takeFrameCodes());
     }
   } catch (e) { error = e; } finally { if (chain) chain.free(); }
-  const D = chain ? chain.zero : null, P = chain ? chain.stats.pushed : null;
-  return { voice: join(voice), starts, stats: chain ? { ...chain.stats } : {}, D, G: Math.floor(P * 147 / 80) - D,
+  const D = chain ? chain.zero : null, hold = chain ? chain.hold : null, P = chain ? chain.stats.pushed : null;
+  return { voice: join(voice), starts, stats: chain ? { ...chain.stats } : {}, D, hold, G: Math.floor(P * 147 / 80) - hold,
     queueCostMs: chain ? chain.queueCostMs : null, marks, codes, error };
 }
 // A run's channel opens, or null where the chain gave no counts.
@@ -831,7 +851,7 @@ const liveText = (live, ren) => (live.error ? `threw ${live.error.message}` : `G
   + `opens ${opensOf(live)}`);
 
 if (runs(10)) {
-  console.log('\n[10] The live chain on the game\'s timeline (W3-02c-3a) gives at its mix point the stream render\'s samples, held back by D');
+  console.log('\n[10] The live chain on the game\'s timeline (W3-02c-3a) gives at its mix point the stream render\'s samples, held back by D (and under 1000/15 by a frame\'s blocks more, W3-23b)');
   const t0 = performance.now();
 
   // The chain is the render: [the microphone's rate, fps, jitter, loss, seed, seconds]. The three frame rates at
@@ -842,15 +862,19 @@ if (runs(10)) {
   SETTINGS.push([24000, 300, 50, 0, 2, 12], [24000, 300, 50, 0, 3, 12]);
   for (const fps of [66.67, 100, 300]) SETTINGS.push([24000, fps, 50, 15, 4, 12]);
   SETTINGS.push([48000, 66.67, 0, 0, 5, 12], [48000, 300, 50, 0, 5, 12]);
+  // W3-23b: under 1000/15, the frame clock: 60, 30 and 10 fps at jitter 0 and 50, and loss 15% with jitter 50, and a
+  // 48 kHz microphone at 30 fps.
+  for (const fps of [60, 30, 10]) SETTINGS.push([24000, fps, 0, 0, 1, 12], [24000, fps, 50, 0, 1, 12], [24000, fps, 50, 15, 4, 12]);
+  SETTINGS.push([48000, 30, 50, 0, 5, 12]);
   const margins = [], held = [];
   let opensSeen = 0, arrivalsRight = true, codesRight = 0, slots = 0;
   for (const [rate, fps, jitterMs, lossPct, seed, seconds] of SETTINGS) {
     const x = talk(seconds, rate, 3), o = { fps, jitterMs, lossPct, seed };
     const ren = await renderGame(x, rate, o), live = await liveGame(x, rate, o);
-    check(`${rate / 1000} kHz, ${fps} fps, jitter ${jitterMs}, loss ${lossPct}%, seed ${seed}, ${seconds} s: the chain gives floor(P x 147 / 80) - D samples at its mix point, D ${LIVE_D[fps]}, and they are createRender's`,
-      sameAsRender(live, ren) && live.D === LIVE_D[fps], liveText(live, ren));
+    check(`${rate / 1000} kHz, ${fps} fps, jitter ${jitterMs}, loss ${lossPct}%, seed ${seed}, ${seconds} s: the chain gives floor(P x 147 / 80) - hold samples at its mix point, D ${LIVE_D[fps]}, the hold ${LIVE_HOLD[fps]}, and they are createRender's`,
+      sameAsRender(live, ren) && live.D === LIVE_D[fps] && live.hold === LIVE_HOLD[fps], liveText(live, ren));
     margins.push({ jitterMs, seconds, fps, margin: live.stats.margin });
-    held.push({ rate, marks: live.marks });
+    held.push({ rate, fps, marks: live.marks });
     if (opensOf(live) > 0) opensSeen++;
     // The panel's frame codes stay the sender's, on the file's own timing: the render's log as sent.
     const sent = ren.info.sent.frameLog;
@@ -859,14 +883,14 @@ if (runs(10)) {
     if (jitterMs > 0 ? !(live.stats.arrivals && live.stats.arrivals.jitterMs === jitterMs && live.stats.arrivals.messages > 0) : 'arrivals' in live.stats) arrivalsRight = false;
   }
 
-  // The plan of blocks does not change the output.
-  {
-    const rate = 24000, x = talk(8, rate, 7), o = { fps: 300, jitterMs: 50, seed: 2 };
+  // The plan of blocks does not change the output: at 300 fps, and under the frame clock at 30 and 10 (W3-23b).
+  for (const [fps, jitterMs] of [[300, 50], [30, 50], [10, 0]]) {
+    const rate = 24000, x = talk(8, rate, 7), o = { fps, jitterMs, seed: 2 };
     const ren = await renderGame(x, rate, o);
     for (const [name, plan] of [['1', 1], ['480', 480], ['4,800', 4800], ['an uneven plan', unevenPlan(77)]]) {
       const live = await liveGame(x, rate, o, plan);
-      check(`blocks of ${name} (300 fps, jitter 50, seed 2, 8 s): createRender's samples`, sameAsRender(live, ren), liveText(live, ren));
-      margins.push({ jitterMs: 50, seconds: 8, fps: 300, margin: live.stats.margin });
+      check(`blocks of ${name} (${fps} fps, jitter ${jitterMs}, seed 2, 8 s): createRender's samples`, sameAsRender(live, ren), liveText(live, ren));
+      margins.push({ jitterMs, seconds: 8, fps, margin: live.stats.margin });
     }
   }
 
@@ -885,15 +909,14 @@ if (runs(10)) {
       // the chain holds more than its first buffer of 65,536 samples and grows it (engine/live-chain.js, store()).
       // There it grows once, early, while what it holds is still silence (the first arrivals come up to 1.6 s
       // late), and never again; so a second run takes blocks of 96,000 after 3 s of 480, which makes it grow
-      // past 131,072 while it holds sound. W3-23a (the plan review's edit 1): at 66.67 fps, not 10 as before, since
-      // under 1000/15 a render has the frame clock and the chain, which has no end, does not yet (W3-23b, not built
-      // yet). Checked again there: the margin is 33,471 samples at 66.67 (49,620 at 10), so blocks of 48,000 still
-      // make it grow past 65,536 (77,571 held at least), and the second run takes blocks of 112,000, not 96,000
-      // (121,671 held at least, under 131,072), to grow past 131,072.
-      ['jitter 500 at 66.67 fps, a 48 kHz microphone, blocks of 48,000 samples (the chain\'s buffer grows past 65,536 held samples)', 48000,
-        { fps: 66.67, jitterMs: 500, seed: 11 }, { plan: 48000, grows: 65536 }],
-      ['the same with blocks of 112,000 after 3 s of 480 (it grows again, past 131,072, while it holds sound)', 48000,
-        { fps: 66.67, jitterMs: 500, seed: 11 }, { plan: [...Array(300).fill(480), ...Array(5).fill(112000)], grows: 131072 }]
+      // past 131,072 while it holds sound. W3-23a (the plan review's edit 1) had them at 66.67 fps, with blocks of
+      // 112,000 in the second, while the chain had no frame clock; W3-23b puts both back at 10 fps, and the second
+      // back at blocks of 96,000: at 10 fps the margin and the voice of a block of 96,000 hold more than 131,072
+      // (the figure is in the check's detail).
+      ['jitter 500 at 10 fps, a 48 kHz microphone, blocks of 48,000 samples (the chain\'s buffer grows past 65,536 held samples)', 48000,
+        { fps: 10, jitterMs: 500, seed: 11 }, { plan: 48000, grows: 65536 }],
+      ['the same with blocks of 96,000 after 3 s of 480 (it grows again, past 131,072, while it holds sound)', 48000,
+        { fps: 10, jitterMs: 500, seed: 11 }, { plan: [...Array(300).fill(480), ...Array(5).fill(96000)], grows: 131072 }]
     ];
     for (const [name, rate, o, extra] of cases) {
       const x = talk(12, rate, 3), keyUp = extra.keyUp || [];
@@ -913,25 +936,103 @@ if (runs(10)) {
     }
   }
 
-  // The hold is D and no less.
-  const longZero = margins.filter((m) => m.seconds >= 30 && m.jitterMs === 0);
-  check('the hold is D: stats.margin is a count of 0 or more in every run, and under 512 in the runs of 30 s at jitter 0',
+  // The hold is D and no less (at 66.67 fps and above).
+  const longZero = margins.filter((m) => m.seconds >= 30 && m.jitterMs === 0 && m.fps >= 66.67);
+  check('the hold is D at 66.67 fps and above, and D and a frame\'s blocks under 1000/15: stats.margin is a count of 0 or more in every run, and under 512 in the runs of 30 s at jitter 0 at 66.67, 100 and 300 fps',
     margins.every((m) => Number.isInteger(m.margin) && m.margin >= 0) && longZero.length === 3 && longZero.every((m) => m.margin < 512),
     `least ${Math.min(...margins.map((m) => m.margin))}; at jitter 0 over 30 s ${longZero.map((m) => `${m.margin} at ${m.fps} fps`).join(', ')}; with jitter ${margins.filter((m) => m.jitterMs > 0).map((m) => m.margin).join(', ')}`);
 
-  // The delay the chain reports.
+  // The hold under the frame clock (W3-23b, the plan review's edit 11), by arithmetic. Advanced to a tick t, a
+  // timeline on the frame clock has run the blocks of every frame before 1323 t half samples, so it lacks at most
+  // the blocks that start after the last such frame and before 1323 t: an open stretch of at most a frame, which
+  // holds at most ceil(88200 / (1024 fps)) starts of a block. Read again here from the order: frameTime (the second
+  // model's F(k)), blocks of 1024 half samples, output sample 512 b - D for block b.
+  {
+    // (a) The timeline with no end, advanced tick by tick for 30 s with nothing pushed: what it has returned is never
+    // less than the even clock's 512 ceil(1323 t / 1024) - D by more than the frame's blocks, and at the first tick
+    // where the stretch holds that many starts (built by the arithmetic below) it is exactly that much less, so a
+    // hold one block shorter runs short there.
+    const rows = [];
+    let ok = true;
+    for (const fps of [60, 30, 20, 10]) {
+      const H = holdBlocks(fps), D = VC.zero(100, fps, 156 / 24000), tl = VC.createTimeline({ fps, length: Infinity, codecDelay: 156 / 24000 });
+      let returned = 0, k = 0, built = null, under = 0, at = null;
+      for (let t = 1; t <= 2000; t++) {
+        returned += tl.advance(t).length;
+        while (frameTime(k + 1, fps) < 1323 * t) k++;        // frame k: the last before 1323 t
+        let missing = 0;
+        for (let b = Math.floor(frameTime(k, fps) / 1024) + 1; 1024 * b < 1323 * t; b++) missing++;
+        const even = 512 * Math.ceil(1323 * t / 1024) - D;
+        if (even - 512 * H > 0) {
+          if (returned < even - 512 * H) under++;
+          if (built === null && missing === H) { built = t; at = { returned, bound: even - 512 * H }; }
+        }
+      }
+      const good = D === LIVE_D[fps] && under === 0 && built !== null && at.returned === at.bound;
+      if (!good) ok = false;
+      rows.push(`${fps} fps, ${H} blocks: ${under} ticks under the bound; built at tick ${built}, ${at ? `${at.returned} returned, the bound ${at.bound}` : 'never'}`);
+    }
+    check('the hold\'s arithmetic: a timeline with no end on the frame clock, advanced tick by tick for 30 s at 60, 30, 20 and 10 fps, has returned no less than 512 ceil(1323 t / 1024) - D - 512 ceil(88200 / (1024 fps)) at any tick t, and exactly that at the first tick where the stretch after the last frame holds that many blocks\' starts (one block less runs short there)',
+      ok, rows.join('; '));
+  }
+  {
+    // (b) The chain on 20 s of silence (no message: the bound tick is ceil((P / 24000 + 0.002) / 0.015), and
+    // arrive() the rule at jitter 0 of the second model, tests/voicequeue/reference-arrivals.mjs): its margin after P
+    // samples is the arithmetic's least of max(0, 512 b - D) - (floor(P x 147 / 80) - hold) up to P, b the blocks of
+    // the frames before 1323 arrive(bound). The chain is fed the samples up to the instant the arithmetic picks, then
+    // one more: at 60 and 50 fps the first instant where the margin is under 512, so a hold one block shorter runs
+    // short there; at 30, 20 and 10 the instant of the least margin in the 20 s, which is more than a block (measured):
+    // the rule's look comes after the relay tick, so the ticks the chain is advanced to sit later than the bound.
+    const rows = [];
+    let ok = true;
+    const figures = {};
+    for (const fps of [60, 50, 30, 20, 10]) {
+      const H = holdBlocks(fps), D = LIVE_D[fps], hold = LIVE_HOLD[fps], R = 24000, n = 20 * R;
+      const rule = referenceArrivals({ jitterMs: 0, fps, ticks: 2000 }).at;
+      const least = new Int32Array(n + 1).fill(2 ** 30);
+      let k = 0, b = 0, pick = null, low = 2 ** 30;
+      for (let P = 1; P <= n; P++) {
+        const T = Math.ceil((P / R + 0.002) / 0.015), t = 1323 * rule[T];
+        while (frameTime(k, fps) < t) { while (1024 * b <= frameTime(k, fps)) b++; k++; }
+        const G = Math.floor(P * 147 / 80) - hold;
+        least[P] = least[P - 1];
+        if (G > 0) {
+          const m = Math.max(0, 512 * b - D) - G;
+          if (m < least[P]) least[P] = m;
+          if (fps >= 50 ? pick === null && m < 512 : m < low) { pick = P; low = m; }
+        }
+      }
+      // The capture's resampler (24 kHz to 24 kHz here) hands the sender each sample a few samples after it comes in:
+      // that many more are fed, so that the sender has been given pick - 1 samples, then pick.
+      const lag = R - (await liveGame(new Float32Array(R), R, { fps, seed: 1 }, R)).stats.pushed;
+      const live = await liveGame(new Float32Array(n + lag), R, { fps, seed: 1 }, [pick - 1 + lag, 1, n - pick]);
+      const [before, at, end] = live.marks;
+      const good = !live.error && live.hold === hold && live.stats.channel.packets === 0 && before.pushed === pick - 1 && at.pushed === pick
+        && before.margin === least[pick - 1] && at.margin === least[pick] && end.margin === least[n] && at.margin >= 0
+        && (fps >= 50 ? before.margin >= 512 && at.margin < 512 : at.margin === end.margin);
+      if (!good) ok = false;
+      figures[fps] = end.margin;
+      rows.push(`${fps} fps (hold ${hold}, ${H} blocks over D): ${live.error ? `threw ${live.error.message}` : `margin ${before.margin} after ${pick - 1} samples, ${at.margin} after ${pick} (the arithmetic ${least[pick - 1]} and ${least[pick]}), ${end.margin} after 20 s`}`);
+    }
+    check('one block less runs short: on silence at jitter 0 the chain\'s margin is the arithmetic\'s at each instant; at 60 and 50 fps it falls under 512 at the instant the arithmetic gives (a hold one block shorter runs short there); at 30, 20 and 10 its least in 20 s is the arithmetic\'s, above a block',
+      ok && [30, 20, 10].every((fps) => figures[fps] >= 512), rows.join('; '));
+  }
+
+  // The delay the chain reports: the hold, D at 66.67 fps and above and D and the frame's blocks under 1000/15
+  // (W3-23b), in place of the reach and the look-ahead.
   {
     const rows = [];
     let ok = true;
-    for (const fps of [66.67, 100, 300]) {
+    for (const fps of [10, 20, 30, 60, 66.67, 100, 300]) {
       const plain = await A.createLiveChain({ codec: 'steam' }, 48000), queued = await A.createLiveChain({ codec: 'steam', timeline: 'game', fps }, 48000);
-      const want = 1000 * (LIVE_D[fps] / 44100 - REACH_AND_LOOKAHEAD / 24000);
+      const want = 1000 * (LIVE_HOLD[fps] / 44100 - REACH_AND_LOOKAHEAD / 24000);
       const cost = queued.queueCostMs, sum = plain.stats.latencyMs + cost;
-      if (!(Math.abs(cost - want) < 1e-9 && Math.abs(queued.stats.latencyMs - sum) < 1e-9 && queued.zero === LIVE_D[fps] && plain.zero === null)) ok = false;
-      rows.push(`${fps} fps: queueCostMs ${cost.toFixed(2)} (1000 x (${LIVE_D[fps]} / 44100 - 4806 / 24000) = ${want.toFixed(2)}), latencyMs ${plain.stats.latencyMs.toFixed(2)} without and ${queued.stats.latencyMs.toFixed(2)} with`);
+      if (!(Math.abs(cost - want) < 1e-9 && Math.abs(queued.stats.latencyMs - sum) < 1e-9 && queued.zero === LIVE_D[fps] && queued.hold === LIVE_HOLD[fps]
+        && plain.zero === null && plain.hold === null)) ok = false;
+      rows.push(`${fps} fps: queueCostMs ${cost.toFixed(2)} (1000 x (${LIVE_HOLD[fps]} / 44100 - 4806 / 24000) = ${want.toFixed(2)}), latencyMs ${plain.stats.latencyMs.toFixed(2)} without and ${queued.stats.latencyMs.toFixed(2)} with`);
       plain.free(); queued.free();
     }
-    check('the delay: queueCostMs is 1000 x (D / 44100 - 4806 / 24000) at 66.67, 100 and 300 fps, and stats.latencyMs with the queue is the figure without it plus queueCostMs', ok, rows.join('; '));
+    check('the delay: queueCostMs is 1000 x (hold / 44100 - 4806 / 24000), the hold D at 66.67, 100 and 300 fps and D + 512 ceil(88200 / (1024 fps)) at 60, 30, 20 and 10, and stats.latencyMs with the queue is the figure without it plus queueCostMs', ok, rows.join('; '));
   }
 
   // A channel's start: on the layouts P and Q at 300 fps a spurt can join a running channel. spurtStart is
@@ -968,21 +1069,51 @@ if (runs(10)) {
       ok && joined > 0, rows.join('; '));
   }
 
+  // A channel's start under the frame clock (W3-23b, the order's check 8): at 30 and 10 fps the timeline tells each
+  // open in the frame that adds its message, so spurtStart is called once for each open of the render's channel at
+  // 512 b - D, b the blocks of the second model's frames before that frame (referenceRender), before the mix stages
+  // are handed that sample, on whole blocks and the same at every plan of blocks.
+  {
+    const rows = [];
+    let ok = true;
+    for (const [name, L, seed, fps] of [['P', P, 1, 30], ['Q', Q, 1, 30], ['P', P, 2, 10], ['Q', Q, 2, 10]]) {
+      const o = { fps, seed }, src = await sourceRender(L.x, 24000, { seed }), refOpens = [];
+      referenceRender(src, { fps, seed }, (index) => refOpens.push(index));
+      const ren = await renderGame(L.x, 24000, o);
+      let same = true, base = null;
+      for (const plan of [480, 4800, unevenPlan(seed + 10)]) {
+        const live = await liveGame(L.x, 24000, o, plan);
+        const want = refOpens.filter((i) => i < live.G);
+        if (!base) base = live;
+        if (!(sameAsRender(live, ren) && isDeepStrictEqual(live.starts, want) && isDeepStrictEqual(live.starts, base.starts))) same = false;
+      }
+      const good = same && refOpens.length === ren.info.channel.opens && base.starts.length === ren.info.channel.opens
+        && base.starts.every((i) => (i + LIVE_D[fps]) % 512 === 0 || i === 0);
+      if (!good) ok = false;
+      rows.push(`${name} seed ${seed} at ${fps} fps: ${base.starts.length} calls at ${base.starts.join(', ')}; the render's opens ${ren.info.channel.opens}${same ? '' : '; NOT the same at every plan or not the reference\'s'}`);
+    }
+    check('a channel\'s start under the frame clock (30 and 10 fps): spurtStart is called once for each open of the render\'s channel, at 512 b - D with b the blocks of the frames before the one that adds its message (the reference\'s), before that sample is handed on, the same at every plan of blocks',
+      ok, rows.join('; '));
+  }
+
   check('stats: with the queue stats.channel.opens is above 0 after talk; stats.arrivals is there with jitter, with the jitter given, and absent at jitter 0; the frame codes (takeFrameCodes, stats.frames) are the render\'s log as sent, on the file\'s own timing, slot for slot',
     opensSeen === SETTINGS.length && arrivalsRight && codesRight === SETTINGS.length,
     `${opensSeen} of ${SETTINGS.length} runs opened a channel; the codes the render's in ${codesRight}, ${slots} slots in all`);
 
   // What the chain keeps: the channel and the arrival model with no end hold no more at the end of a run (12 or
   // 30 s) than after 5 s (chain.held(): the entries in their lists; steamTimeline's frame log aside, which grows
-  // on either timeline: PROGRESS's deferred list).
+  // on either timeline: PROGRESS's deferred list). Under 1000/15 (W3-23b) they also hold the messages that wait for
+  // their frame, which come and go with the phase of the frames: there no more at any point after 5 s than the most
+  // in the first 5 s.
   {
-    const grows = held.map(({ rate, marks }) => {
-      const five = marks.find((m) => m.at >= 5 * rate);
-      return { five: five ? five.held : NaN, end: marks.length ? marks[marks.length - 1].held : NaN };
+    const grows = held.map(({ rate, fps, marks }) => {
+      const five = marks.find((m) => m.at >= 5 * rate), early = marks.filter((m) => m.at <= 5 * rate), late = marks.filter((m) => m.at > 5 * rate);
+      return frameClockRuns(fps) ? { frames: true, five: Math.max(...early.map((m) => m.held)), end: Math.max(...late.map((m) => m.held)) }
+        : { frames: false, five: five ? five.held : NaN, end: marks.length ? marks[marks.length - 1].held : NaN };
     });
-    check('what the chain keeps: its channel and arrival model hold no more entries at the end of each run than after 5 s (chain.held())',
-      grows.length === SETTINGS.length && grows.every((g) => g.end <= g.five) && grows.some((g) => g.five > 0),
-      `after 5 s and at the end: ${[...new Set(grows.map((g) => `${g.five} then ${g.end}`))].join(', ')}`);
+    check('what the chain keeps: its channel and arrival model hold no more entries at the end of each run than after 5 s (chain.held()); under 1000/15 no more after 5 s than the most in the first 5 s',
+      grows.length === SETTINGS.length && grows.every((g) => g.end <= g.five) && grows.some((g) => g.five > 0) && grows.some((g) => g.frames),
+      `after 5 s and at the end: ${[...new Set(grows.filter((g) => !g.frames).map((g) => `${g.five} then ${g.end}`))].join(', ')}; under 1000/15, the most before 5 s and after: ${[...new Set(grows.filter((g) => g.frames).map((g) => `${g.five} then ${g.end}`))].join(', ')}`);
   }
 
   // The refusals.
@@ -1051,6 +1182,31 @@ if (runs(10)) {
     const hour = m.held();
     check('the arrival model with no end gives the whole model\'s answers tick for tick over 20,000 ticks (jitter 25, 50, 100, 500 at 10, 66.67, 300 fps; a tick asked twice gives one answer), refuses a tick below the last with a RangeError, and holds no more after an hour of ticks than after a minute (held(): its leaving ticks)',
       ok && fell instanceof RangeError && hour <= minute && minute > 0, `${rows.join('; ') || 'all twelve the same'}; held ${minute} after a minute, ${hour} after an hour; ${fell ? fell.message : 'a fall taken'}`);
+  }
+  // W3-23b: at jitter 0 under 1000/15 the model with no end takes the rule (the closed form of W3-23a): the whole
+  // model's ticks, a fall refused, nothing held (held() 0) through an hour of ticks at 10 fps, and at 66.67 and above
+  // every message on its own tick as before.
+  {
+    const rows = [];
+    let ok = true;
+    for (const fps of [10, 30, 60, 66.67, 300]) {
+      const whole = A.steamArrivals({ jitterMs: 0, fps }), endless = A.steamArrivals({ jitterMs: 0, fps, endless: true });
+      let at = -1, moved = 0;
+      for (let p = 0; p < 20000 && at < 0; p++) {
+        const a = endless.at(p);
+        if (a !== whole.at(p) || endless.at(p) !== a) at = p;
+        if (a !== p) moved++;
+      }
+      if (at >= 0 || endless.held() !== 0 || !!endless.frames !== (fps < 66.67) || (fps >= 66.67 ? moved !== 0 : moved === 0)) { ok = false; rows.push(`${fps} fps: ${at >= 0 ? `differs from tick ${at}` : ''} held ${endless.held()}, ${moved} moved`); }
+    }
+    const m = A.steamArrivals({ jitterMs: 0, fps: 10, endless: true });
+    let fell = null;
+    m.at(1000);
+    try { m.at(999); } catch (e) { fell = e; }
+    let most = 0;
+    for (let p = 1000; p < 1000 + 240000; p++) { m.at(p); most = Math.max(most, m.held()); }
+    check('at jitter 0 the model with no end gives the whole model\'s ticks over 20,000 ticks at 10, 30, 60, 66.67 and 300 fps (the rule under 1000/15, the tick itself above), refuses a tick below the last with a RangeError, and holds nothing through an hour of ticks at 10 fps (held() 0)',
+      ok && fell instanceof RangeError && most === 0, `${rows.join('; ') || 'all five the same'}; held at most ${most} in an hour; ${fell ? fell.message : 'a fall taken'}`);
   }
   console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
 }
@@ -1900,9 +2056,12 @@ if (runs(22)) {
     // At the first double below 1000/15 a frame outlasts a tick by about 1.6e-15 ms, so jitter 0.000001 does not
     // stand for jitter 0 there (it holds a packet the rule lets go): that rate is held to the second model alone.
     const small = fps === below[0] ? [] : [1, 2, 3].map((seed) => A.steamArrivals({ jitterMs: 1e-6, fps, seed }));
-    let bad = -1, last = -Infinity, rising = true, moved = 0, sum = 0, most = 0;
+    // W3-23b: the model with no end (the live chain's) takes the same rule, asked the same ticks in order.
+    const endlessModel = A.steamArrivals({ jitterMs: 0, fps, seed: 1, endless: true });
+    let bad = -1, last = -Infinity, rising = true, moved = 0, sum = 0, most = 0, endlessBad = -1;
     for (let p = 0; p < N; p++) {
       const a = zero.at(p);
+      if (endlessBad < 0 && endlessModel.at(p) !== a) endlessBad = p;
       if (bad < 0 && (a !== ref.at[p] || small.some((m) => m.at(p) !== a))) bad = p;
       if (a < p || a < last) rising = false;
       last = a;
@@ -1912,15 +2071,18 @@ if (runs(22)) {
     }
     const under = 1000 / limitFps(fps) > 15;
     const plan = steamArrivalPlan({ jitterMs: 0, fps, seed: 1 }), endless = steamArrivalPlan({ jitterMs: 0, fps, seed: 1, endless: true });
-    const planRight = endless === null && (under ? plan !== null && plan.frames === true && plan.floorTicks === 0 && plan.jitterMs === 0 && plan.fps === limitFps(fps) : plan === null);
-    if (!(bad < 0 && rising && planRight && !!zero.frames === under && zero.floorTicks === 0 && ref.floorTicks === 0 && (under || moved === 0))) ok = false;
-    rows.push(`${fps === 1000 / 15 ? '1000/15' : fps}: ${bad < 0 ? '' : `DIFFERS from tick ${bad}; `}${(100 * moved / N).toFixed(1)}% of ticks moved, ${(15 * sum / N).toFixed(2)} ms in the mean, ${most} at most${planRight ? '' : '; the plan WRONG'}${rising ? '' : '; FALLS'}`);
+    const rule = (x) => x !== null && x.frames === true && x.floorTicks === 0 && x.jitterMs === 0 && x.fps === limitFps(fps);
+    let endlessPlanBad = -1;
+    if (under && rule(endless)) for (let p = 0; p < N && endlessPlanBad < 0; p += 7) if (endless.at(p) !== zero.at(p)) endlessPlanBad = p;
+    const planRight = under ? rule(plan) && rule(endless) && endlessPlanBad < 0 && endless.held() === 0 && endlessModel.held() === 0 : plan === null && endless === null;
+    if (!(bad < 0 && endlessBad < 0 && rising && planRight && !!zero.frames === under && zero.floorTicks === 0 && ref.floorTicks === 0 && (under || moved === 0))) ok = false;
+    rows.push(`${fps === 1000 / 15 ? '1000/15' : fps}: ${bad < 0 ? '' : `DIFFERS from tick ${bad}; `}${endlessBad < 0 ? '' : `with no end DIFFERS from tick ${endlessBad}; `}${(100 * moved / N).toFixed(1)}% of ticks moved, ${(15 * sum / N).toFixed(2)} ms in the mean, ${most} at most${planRight ? '' : '; the plan WRONG'}${rising ? '' : '; FALLS'}`);
   }
   // Under 10 the rate is 10 (the fix round, item 1): a render's plan at 5 fps gives fps 10's ticks and says 10.
   const p5 = steamArrivalPlan({ jitterMs: 0, fps: 5, seed: 1 }), p10 = steamArrivalPlan({ jitterMs: 0, fps: 10, seed: 1 });
   let p5bad = -1;
   for (let p = 0; p < N && p5bad < 0; p++) if (p5.at(p) !== p10.at(p)) p5bad = p;
-  check('jitter 0 gives the ticks of jitter 0.000001 (seeds 1 to 3) and of the second model\'s closed form, tick for tick over 40,000 ticks, at 10, 20, 24, 30, 40, 50, 59.94, 60, 66, 1000/15, 66.67, 75 and 300 fps, and the second model\'s at 66.66666666666666; at(p) >= p and never falls; under 1000/15 a render\'s plan is this rule (frames true, floorTicks 0, jitter 0), at 1000/15 and above it is null as before, and with no end it is null (W3-23b, not built yet); at 5 fps the plan is fps 10\'s, tick for tick',
+  check('jitter 0 gives the ticks of jitter 0.000001 (seeds 1 to 3) and of the second model\'s closed form, tick for tick over 40,000 ticks, at 10, 20, 24, 30, 40, 50, 59.94, 60, 66, 1000/15, 66.67, 75 and 300 fps, and the second model\'s at 66.66666666666666; at(p) >= p and never falls; under 1000/15 a render\'s plan is this rule (frames true, floorTicks 0, jitter 0), at 1000/15 and above it is null as before; with no end (W3-23b) the model and the plan give the same ticks, hold nothing (held() 0) and are null where the whole one is; at 5 fps the plan is fps 10\'s, tick for tick',
     ok && p5bad < 0 && p5.fps === 10 && p5.frames === true, `${rows.join('; ')}; 5 fps: ${p5bad < 0 ? 'fps 10\'s' : `DIFFERS from tick ${p5bad}`}, fps ${p5.fps}`);
   // The fix round, item 2: the looks are the frame clock's frames, (88200 k) / fps half samples. At all 567 one-decimal
   // rates from 10.0 to 66.6, over 20,000 ticks: the rule equals the second model; it equals the rule worked in whole
@@ -2068,6 +2230,70 @@ if (runs(26)) {
     const a = await A.process(buffer(x, rate), { ...BASE, timeline: 'game', ...o }), b = await A.process(buffer(x, rate), { ...BASE, timeline: 'game', ...o });
     check(`${JSON.stringify(o)} twice: the same samples and codecInfo`, firstDiff(a.samples, b.samples) === -1 && isDeepStrictEqual(a.codecInfo, b.codecInfo) && a.samples.some((v) => v !== 0));
   }
+}
+
+/* ---------------- 27. onOpen through steamChannel (W3-23b) ---------------- */
+
+// The order's check 8 (docs/work-orders/W3-23-low-frame-rates.md, "An open happens in a frame, not in a push"; the
+// plan review's edit 12 moved it to W3-23b): steamChannel hands its onOpen to the timeline, which tells each open
+// where the channel opens. Made-up traffic of the suite's own: packets of noise of 1 to 6 frames, 1 to 5 ticks apart
+// in runs of 3 to 42, an end marker alone now and then, a silence record after each run and a pause of 40 to 100
+// ticks; steamChannel with no end, as the live chain makes it (the auto-gain on, the codec's 156 samples), advanced
+// every 3 ticks. OPEN_MAIN: on main before W3-23b (d788ce5), at 66.67 and 300 fps, seeds 1 and 2, the count of
+// opens and the SHA-256 of the indices joined by commas.
+const OPEN_MAIN = {
+  '66.67 1': [29, '25d5124e30fbdd5057f5a4c6ecb056676f3c7bec05f0977495e068488eebdd9b'],
+  '66.67 2': [32, '30608ed5c0c48f3fe3743dfeb934b96a4463824f799a5499868a8cf5f3f4bccb'],
+  '300 1': [29, 'e94012dbde40b4394ff0f31dd3dba1681ee0d7229e2506dbaa580acb17170c15'],
+  '300 2': [31, '93728a001645babfcd1948269df19f47f729a073471504a2a0937101ccb98e4f']
+};
+function openTraffic(seed, ticks) {
+  const rnd = lcg(seed), out = [];
+  let tick = 3 + Math.floor(rnd() * 20), pos = 0;
+  while (tick < ticks) {
+    const run = 3 + Math.floor(rnd() * 40);
+    for (let i = 0; i < run && tick < ticks; i++) {
+      const n = rnd() < 0.05 ? 0 : 882 * (1 + Math.floor(rnd() * 6));
+      out.push({ tick, y: Float32Array.from({ length: n }, () => 0.3 * (rnd() * 2 - 1)), source: pos });
+      pos += n;
+      tick += 1 + Math.floor(rnd() * 5);
+    }
+    out.push({ tick, y: new Float32Array(1764), source: -1 });
+    tick += 40 + Math.floor(rnd() * 60);
+  }
+  return out;
+}
+if (runs(27)) {
+  console.log('\n[27] onOpen through steamChannel (W3-23b, the order\'s check 8): main\'s indices on the even clock; the timeline\'s under the frame clock');
+  const { steamChannel } = engine.parts.steam;
+  const run = (fps, seed) => {
+    const opens = [], direct = [];
+    const ch = steamChannel({ length: Infinity, lookahead: 156, fps, bufferMs: 100, autoGain: true, avgGain: 0.5, maxGain: 4, voiceScale: 1, onOpen: (i) => opens.push(i) });
+    const tl = VC.createTimeline({ length: Infinity, fps, bufferMs: 100, codecDelay: 156 / 24000, onOpen: (i) => direct.push(i) });
+    let last = 0;
+    for (const m of openTraffic(seed, 4000)) {
+      for (let t = last + 3; t < m.tick; t += 3) { ch.advance(t); ch.take(); tl.advance(t); }
+      ch.push(m.tick, m.y, [], m.source);
+      ch.take();
+      tl.push({ tick: m.tick, pcm: m.y, source: m.source });
+      last = m.tick;
+    }
+    return { opens, direct };
+  };
+  const rows = [];
+  let even = true, frames = true;
+  for (const fps of [66.67, 300]) for (const seed of [1, 2]) {
+    const { opens } = run(fps, seed), [n, hash] = OPEN_MAIN[`${fps} ${seed}`];
+    if (!(opens.length === n && sha256(opens.join(',')) === hash)) { even = false; rows.push(`${fps} fps seed ${seed}: ${opens.length} opens, ${sha256(opens.join(',')).slice(0, 12)}`); }
+  }
+  check('on the clock of even ticks (66.67 and 300 fps, seeds 1 and 2): steamChannel\'s onOpen gives main\'s indices (recorded before W3-23b)', even, rows.join('; ') || 'all four main\'s');
+  const rowsF = [];
+  for (const fps of [60, 30, 10]) for (const seed of [1, 2]) {
+    const { opens, direct } = run(fps, seed);
+    if (!(opens.length > 20 && isDeepStrictEqual(opens, direct))) frames = false;
+    rowsF.push(`${fps} fps seed ${seed}: ${opens.length} opens${isDeepStrictEqual(opens, direct) ? '' : ' NOT the timeline\'s'}`);
+  }
+  check('under the frame clock (60, 30 and 10 fps): steamChannel\'s onOpen gives the timeline\'s own indices (each the output count at the frame of the open: tests/voice-channel.verify.mjs, onOpen)', frames, rowsF.join('; '));
 }
 
 console.log(`\n${passed} render-channel checks passed, ${failed} failed`);

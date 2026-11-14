@@ -195,18 +195,17 @@
   // at(p) is p and nothing is drawn, but where a frame is longer than a tick
   // (W3-23a, below). seed is the render's.
   //   At jitter 0 when a frame is longer than a tick (1000 / fps > 15, fps
-  // as steamArrivalFps limits it: under 1000/15 frames a second), and not
-  // endless (W3-23a, docs/work-orders/W3-23-low-frame-rates.md, "The arrival
-  // at jitter 0"): the model above as its jitter goes to 0, in closed form,
-  // so that jitter 0 and a very small jitter give the same ticks (the
+  // as steamArrivalFps limits it: under 1000/15 frames a second), endless or
+  // not (W3-23a, docs/work-orders/W3-23-low-frame-rates.md, "The arrival at
+  // jitter 0"; endless since W3-23b): the model above as its jitter goes to
+  // 0, in closed form, so that jitter 0 and a very small jitter give the same ticks (the
   // orchestrator's ruling 2). The message of tick p is on the server's next
   // tick, so in the listener's list from 15 (p + 1) ms; it leaves at the
   // first of the listener's looks (STEAM_CROSSINGS' second) r with r - 15 (p
   // + 1) > 0, and reaches the channel on ceil(r / 15) - 2. Nothing is drawn;
   // floorTicks is 0, jitterMs 0, and frames true says it is this rule (a
   // render does not report it as codecInfo.arrivals: no jitter is on). at(p)
-  // >= p and never falls. At 1000/15 and above, and endless (the live
-  // monitor's chain: W3-23b, not built yet), at(p) is p, as before. That is
+  // >= p and never falls. At 1000/15 and above at(p) is p, as before. That is
   // the listener's first look after the relay tick in ticks; in what is
   // heard, from 34 to 66 frames a second the two ticks taken off put the
   // message in the first frame at or after its own tick, and the whole look
@@ -217,7 +216,9 @@
   // RangeError (the same tick again is taken), and keeps no leaving tick
   // that a later call cannot ask for, so what it holds does not grow with
   // time. Its answers are the whole model's, tick for tick. held() is how
-  // many leaving ticks the model holds, for a test.
+  // many leaving ticks the model holds, for a test. At jitter 0 under
+  // 1000/15 (W3-23b) the rule above holds nothing: it is worked out for each
+  // tick asked, and held() is 0.
   function steamArrivals({ jitterMs, fps, seed, endless = false } = {}) {
     const J = finiteOr(jitterMs, 0), F = steamArrivalFps(fps);
     let last = -Infinity;   // the last tick asked, with endless
@@ -226,7 +227,11 @@
       last = tick;
     };
     if (!(J > 0)) {
-      if (!endless && 1000 / F > STEAM_TICK_MS) return steamFrameArrivals(F);
+      if (1000 / F > STEAM_TICK_MS) {
+        const rule = steamFrameArrivals(F);
+        if (!endless) return rule;
+        return { ...rule, at: (tick) => { const a = rule.at(tick); rising(tick); return a; }, held: () => 0 };
+      }
       if (!endless) return { jitterMs: 0, fps: F, floorTicks: 0, at: (tick) => tick };
       return { jitterMs: 0, fps: F, floorTicks: 0, at: (tick) => { rising(tick); return tick; }, held: () => 0 };
     }
@@ -298,17 +303,19 @@
   // null (every message on its own tick), or { jitterMs, fps, floorTicks,
   // at(tick) }. opts.arriveAt, a test's or a replay's own arrival ticks, in
   // place of the model (floorTicks 0); else the model with jitter above 0;
-  // else, with a whole length (not endless) and a frame longer than a tick,
-  // the model at jitter 0 (W3-23a: steamArrivals, with frames true, which a
-  // render does not report as codecInfo.arrivals). So at 1000/15 frames a
-  // second and above a render at jitter 0 gets null, as before.
+  // else, where a frame is longer than a tick, the model at jitter 0
+  // (W3-23a: steamArrivals, with frames true, which a render does not report
+  // as codecInfo.arrivals; with endless too since W3-23b, the live monitor's
+  // chain). So at 1000/15 frames a second and above a render at jitter 0
+  // gets null, as before.
   // jitterMs and fps are the render's; the model's draws use the render's
   // seed through streams of their own, so the loss draw is untouched.
   // endless is passed on to the model (the live monitor's chain, W3-02c-3).
   function steamArrivalPlan({ jitterMs, fps, seed, arriveAt, endless = false }) {
     if (typeof arriveAt === 'function') return { jitterMs: Math.max(0, finiteOr(jitterMs, 0)), fps: steamArrivalFps(fps), floorTicks: 0, at: arriveAt };
     if (finiteOr(jitterMs, 0) > 0) return steamArrivals(endless ? { jitterMs, fps, seed, endless } : { jitterMs, fps, seed });
-    return !endless && 1000 / steamArrivalFps(fps) > STEAM_TICK_MS ? steamFrameArrivals(steamArrivalFps(fps)) : null;
+    if (1000 / steamArrivalFps(fps) > STEAM_TICK_MS) return steamArrivals(endless ? { jitterMs: 0, fps, endless } : { jitterMs: 0, fps });
+    return null;
   }
 
   // buildLossMask, a frame at a time, with the same random sequence.
