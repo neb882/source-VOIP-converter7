@@ -1935,7 +1935,7 @@ async function verifySettingsWords(page) {
     && t.timeline[0] === 'Phrase timing' && JSON.stringify(words.options.timeline) === '["The game\'s voice queue","The file\'s own timing"]'
     && t.timeline[1] === 'The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. '
       + 'At 300 frames a second a sound that opens the queue loses short pieces in its first seconds. '
-      + 'Which phrases move depends on the sender\'s clock, which no recording shows. The file\'s own timing keeps every sound where the source has it. The live monitor always keeps the file\'s own timing.'
+      + 'Which phrases move depends on the sender\'s clock, which no recording shows. The file\'s own timing keeps every sound where the source has it. The live monitor keeps the file\'s own timing unless its own switch for the queue is on.'
     && t.fps[0] === 'Listener\'s frame rate fps_max' && t.fps[1] === 'How many frames a second the listener\'s game draws. A new phrase waits before it plays, longer at a higher rate: about 0.09 s at 67 and 0.44 s at 300. '
       + 'The game\'s fps_max caps the rate; 300 is its default. At 200 or less, sound that never pauses for minutes thins out; at 67 the level first dips after about 2 minutes. '
       + 'That is the game\'s rule as read, run on the model; no recording shows it.'
