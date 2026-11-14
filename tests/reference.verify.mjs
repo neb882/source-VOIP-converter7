@@ -167,11 +167,15 @@ check('Level tracking rejects unequal lengths', true);
   assert.throws(() => TF2Reference.locate(Float32Array.from({ length: sr * 5 }, () => .1 * random()), sr, src, sr), /not found|line up/);
   check('Real take: unrelated audio is rejected', true);
 
-  // TF2's receiver re-times talk spurts and trims latency in 5.8 ms skips.
+  // A take whose delay changes between talk spurts and steps inside one.
+  // The step's size, 5.8 ms (256 samples at 44.1 kHz), is the class the
+  // first recordings were read as; the game has no such operation (it drops
+  // one sample from every packet and skips what overflows its voice queue;
+  // tests/REFERENCE_2026.md, finding 10). Here it is only a step to find.
   // A source with a 1.2 s pause (two talk spurts for the gate); in the take
-  // the second spurt comes 250 ms early, and 5.8 ms (256 samples at
-  // 44.1 kHz) are skipped inside it at 16 s. The take must come apart into
-  // those segments, breaks included, and line up.
+  // the second spurt comes 250 ms early, and 5.8 ms are skipped inside it at
+  // 16 s. The take must come apart into those segments, breaks included,
+  // and line up.
   const paused = src.map((v, i) => (i >= 6.4 * sr && i < 7.6 * sr ? 0 : v));
   const simPaused = (await audio.process({ sampleRate: sr, length: paused.length, numberOfChannels: 1, getChannelData: () => paused }, { codec: 'steam' })).samples;
   const skip = 256 / 44100;

@@ -312,6 +312,14 @@ the level, and in SPEC the frequency with its nearest note, the level and the an
     late.
   - Hovering gives the frame's packet size and bitrate.
   - The legend under the view counts each kind.
+  - **On the game's voice queue** (Phrase timing's default on Steam voice) the lane shows what plays in each 20 ms of
+    the render, so a phrase the queue starts early is drawn early. An empty slot reads **silence**: nothing of the
+    source plays there, because the gate was closed, the queue was waiting, or it had run out. A white mark across
+    the lane is one skip: the queue holds half a second of sound, and when more arrives than fits the oldest is
+    dropped and the voice jumps ahead (read; findings 22 and 23). A skip that would come after the source's end is
+    never heard and gets no mark. The legend counts the marks and the sound they skipped. Hovering also gives the
+    number of the frame the sender sent, the second of the source heard there and how early or late it plays, whether
+    its phrase opened the queue or joined a running one, and the sound skipped at a mark.
 - **LUFS** adds a loudness lane: momentary (400 ms, thin) and short-term (3 s, bold) loudness of the render (blue),
   the source (white) and a loaded real take (green), each drawn at the centre of its window. Dashed lines mark each
   version's integrated loudness.
@@ -364,8 +372,29 @@ of some spurts (finding 19).
 - **Refining.** Windows of 1 s at 8 kHz follow the delay through the spurt, and split it where it steps. One clock
   ratio serves the whole take.
 
-The status line then gives the spurts, the 5.8 ms latency trims and other moves, the clock in ppm and the
-correlation.
+The status line then gives the phrases and the pieces the take came apart into, the least and the greatest delay,
+the clock in ppm and the correlation. The delay is the take's time less the render's when the take was lined up
+against a render ("take minus render"), and less the source's otherwise ("take minus source"). The changes of delay
+are counted as changes between phrases and within a phrase. Within a phrase the engine drops one sample from every
+packet, and on the game's voice queue skips what overflows its ring (read; finding 10).
+
+Lined up against a render on the game's voice queue, an early start that the take and the render share shows no
+change of delay. On a take of some length the take's clock then reads near 0 parts in a million in place of about
++400, because that render drops the one sample from every packet too (inferred from the rule; the orchestrator's
+private run on two takes gave +5 and +0 against +408 and +413 on the file's own timing, measured). On 30 s of short
+phrases the fit varies by several hundred parts in a million (measured on the model).
+
+**Phrase starts.** After its other lines the report says at how many changes from one phrase to the next the take
+starts early, by 80 ms or more (chosen), and, with a render on the game's voice queue on screen, at how many the
+render does and at how many the two are of one kind (early, kept, or late by 80 ms or more). A line under it lists
+the changes, the take's beside the render's, in ms. The take's own change is its change of delay plus the change
+the render it was lined up with made there (from that render's phrases on the queue), so it is the take's change
+against the source. With a render on the file's own timing on screen the report says that render starts no phrase
+early. A source of one phrase has no change and no such line.
+- The take's phrases still come from the 20 ms frame gate, a fit, not from Steam's sender.
+- The count was checked on takes made from the model's own renders (measured on the model) and on the owner's
+  speech take, where the take's early starts are as many as `tests/retiming.mjs` counts on both timings (measured,
+  private).
 
 The lined-up take then plays as a third version under **Hear** (B cycles the render, the original and the take),
 shows in WAVE, SPEC, the loudness lane and AVG, and joins the meter.
