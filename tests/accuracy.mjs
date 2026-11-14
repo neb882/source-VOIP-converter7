@@ -5,7 +5,10 @@
  * this script finds the files by name in a folder, then, in headless
  * Chromium running the app itself:
  *   - decodes the take and the source with the browser's decoders (48 kHz)
- *   - renders the source with the take's settings (TF2Audio.process)
+ *   - renders the source with the take's settings (TF2Audio.process), as
+ *     the page renders by default: on the game's voice queue for Steam voice
+ *     with its codec on, unless the row asks for the file's own timing
+ *     (order AC-01; the predictions below keep the file's own timing)
  *   - lines the take up with the source talk spurt by talk spurt
  *     (TF2Reference.track, the page's real-take check)
  *   - compares the two over the part the take covers (compareTake)
@@ -20,14 +23,16 @@
  * hypothesis's render plus the game sound from a real take, to check that
  * the scoring picks the hypothesis a take was made from.
  *
- * Usage: node tests/accuracy.mjs --takes <folder> [--only name,name] [--json out.json]
+ * Usage: node tests/accuracy.mjs --takes <folder> [--only name,name] [--json out.json] [--manifest file]
  *        node tests/accuracy.mjs --write-predictions
  *        node tests/accuracy.mjs --score-predictions --takes <folder> [--json out.json]
  *        node tests/accuracy.mjs --simulate-takes <folder> --ambience <take>
  *   The folder (or TF2_TAKES) holds the takes and the non-generated sources
  *   under the names in the manifest; an 8-hex-digit upload prefix
  *   ("1a2b3c4d-") and punctuation are ignored when matching. Generate the
- *   test signals first (tests/testsignal/README.md).
+ *   test signals first (tests/testsignal/README.md). --manifest reads the
+ *   rows from another file of the same form as accuracy.takes.json (a run on
+ *   rows of one's own; order AC-01).
  *   CHROMIUM_EXECUTABLE picks a preinstalled Chromium, as in browser.verify.js.
  */
 import crypto from 'node:crypto';
@@ -42,12 +47,13 @@ const { PART_FILES } = require('./lib/engine.cjs');
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
 function args() {
-  const out = { takes: process.env.TF2_TAKES || '', only: null, json: '', write: false, score: false, simulate: '', ambience: '' };
+  const out = { takes: process.env.TF2_TAKES || '', only: null, json: '', manifest: '', write: false, score: false, simulate: '', ambience: '' };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--takes') out.takes = argv[++i];
     else if (argv[i] === '--only') out.only = argv[++i].split(',').map(s => s.trim()).filter(Boolean);
     else if (argv[i] === '--json') out.json = argv[++i];
+    else if (argv[i] === '--manifest') out.manifest = argv[++i];
     else if (argv[i] === '--write-predictions') out.write = true;
     else if (argv[i] === '--score-predictions') out.score = true;
     else if (argv[i] === '--simulate-takes') out.simulate = argv[++i];
@@ -97,13 +103,28 @@ async function measureInPage({ takeUrl, sourceUrl, settings, takeChannelName, ta
     take = take.slice(a, b);
     takeStart = a / rate;
   }
-  const opts = { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, ...settings };
+  // The take is rendered as the page renders it by default (order AC-01): the
+  // row's settings over the page's, then the timing from the options as
+  // merged, by the page's own rule (renderOptions(), app/render.js). The
+  // game's voice queue for Steam voice with its codec on, unless the row asks
+  // for the file's own timing ("timeline": "source"), at the row's frame rate
+  // and voice_buffer_ms or the module's defaults; otherwise the file's own
+  // timing, as SOURCE_TIMING in app/render.js. The page's controls for the
+  // codec and the warble are not relied on: a row may change either.
+  const merged = { ...renderOptions(), ...settings };
+  const queue = merged.codec === 'steam' && merged.enableWarble === true && settings.timeline !== 'source';
+  const channel = TF2VoiceChannel.VOICE_CHANNEL;
+  const opts = queue
+    ? { ...merged, timeline: 'game', fps: settings.fps !== undefined ? settings.fps : channel.fps,
+      bufferMs: settings.bufferMs !== undefined ? settings.bufferMs : channel.bufferMs }
+    : { ...merged, timeline: 'source', fps: undefined, bufferMs: undefined };
   const rendered = await TF2Audio.process(source, opts);
   // The render is at the listener's device's rate (W3-10; 48000 Hz by
   // default, the takes' rate): the take is compared at the render's rate.
   if (rendered.sampleRate !== rate) throw new Error(`rendered at ${rendered.sampleRate} Hz, not the takes' ${rate} Hz (snd_device_rate)`);
   // The take is lined up against a render (see track()); a lossless one
-  // when the take has random loss or jitter, whose concealment differs.
+  // when the take has random loss or jitter, whose concealment differs. It
+  // keeps the render's timing (opts holds it).
   const random = opts.lossPct > 0 || opts.jitterMs > 0;
   const guide = random ? await TF2Audio.process(source, { ...opts, lossPct: 0, jitterMs: 0 }) : rendered;
   const captured = TF2Audio.bufferToMono(source, opts.captureChannel);
@@ -132,6 +153,8 @@ async function predictInPage({ sourceUrl, segmentsUrl, settings }) {
   const rate = 48000, ctx = new OfflineAudioContext(1, 1, rate);
   const source = await ctx.decodeAudioData(await (await fetch(sourceUrl)).arrayBuffer());
   const segments = (await (await fetch(segmentsUrl)).json()).segments;
+  // The file's own timing, as the predictions were registered on it; they
+  // are not re-registered on the game's voice queue (order AC-01).
   const opts = { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, ...settings };
   const rendered = await TF2Audio.process(source, opts);
   // Measured at the render's own rate (the device's, W3-10), which the takes
@@ -164,6 +187,8 @@ async function takeStatsInPage({ takeUrl, sourceUrl, segmentsUrl, settings }) {
   const [takeBuffer, source] = await Promise.all([decode(takeUrl), decode(sourceUrl)]);
   const segments = (await (await fetch(segmentsUrl)).json()).segments;
   const take = takeChannel(takeBuffer, 'mix');
+  // The file's own timing, as the predictions it is scored against were
+  // registered on it (order AC-01).
   const opts = { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, ...settings };
   const rendered = await TF2Audio.process(source, opts);
   if (rendered.sampleRate !== rate) throw new Error(`rendered at ${rendered.sampleRate} Hz, not the take's ${rate} Hz (snd_device_rate)`);
@@ -408,6 +433,8 @@ async function simulateInPage({ sourceUrl, ambienceUrl, settings }) {
   const cut = windows.map(w => w.e).sort((x, y) => x - y)[Math.floor(windows.length * .3)];
   const quiet = windows.filter(w => w.e > 0 && w.e <= cut).map(w => a.subarray(w.at, w.at + step));
   if (!quiet.length) throw new Error('the ambience take is silent');
+  // The file's own timing, as the predictions these stand in for were
+  // registered on it (order AC-01).
   const render = await TF2Audio.process(source, { ...renderOptions(), timeline: 'source', fps: undefined, bufferMs: undefined, ...settings });
   if (render.sampleRate !== rate) throw new Error(`rendered at ${render.sampleRate} Hz, not ${rate} Hz (snd_device_rate)`);
   const rendered = render.samples;
@@ -454,9 +481,9 @@ async function main() {
   if (opt.simulate) return simulateTakes(opt);
   if (opt.write) return writePredictions();
   if (opt.score) return scorePredictions(opt);
-  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'tests/accuracy.takes.json'), 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(opt.manifest ? path.resolve(opt.manifest) : path.join(root, 'tests/accuracy.takes.json'), 'utf8'));
   if (opt.help) {
-    console.log('node tests/accuracy.mjs --takes <folder> [--only name,name] [--json out.json]\n');
+    console.log('node tests/accuracy.mjs --takes <folder> [--only name,name] [--json out.json] [--manifest file]\n');
     for (const t of manifest.takes) console.log(`  ${t.name.padEnd(26)} set ${t.set}  ${t.take[0]}  ←  ${t.source}`);
     return;
   }
