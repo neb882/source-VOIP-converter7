@@ -15,6 +15,17 @@
  * It prints one row per take and, with --json, writes everything, including
  * each talk spurt's timing in the take.
  *
+ * Over several seeds (order AC-02): --seeds <n> measures each row at n
+ * different seeds: the row's own (settings.seed) or the default, then the
+ * first n - 1 others from seed 1 up. The seed draws what no
+ * recording shows: the sender's clock and capture phase, and with them where
+ * the queue's skips and early starts fall; the room's random taps; which
+ * messages a loss takes. Each measurement is the whole of measureInPage. The
+ * row prints each figure as its median over the seeds, most with their range,
+ * and the worst band as the median seed's by size, with its own value; the
+ * JSON keeps every seed's result under the row and a summary. Without
+ * the option, or with --seeds 1, the suite runs as before.
+ *
  * Pre-registered predictions (tests/predictions): --write-predictions
  * renders every hypothesis in tests/predictions/plan.json and writes
  * predictions.json; --score-predictions --takes <folder> scores the takes
@@ -23,7 +34,7 @@
  * hypothesis's render plus the game sound from a real take, to check that
  * the scoring picks the hypothesis a take was made from.
  *
- * Usage: node tests/accuracy.mjs --takes <folder> [--only name,name] [--json out.json] [--manifest file]
+ * Usage: node tests/accuracy.mjs --takes <folder> [--only name,name] [--json out.json] [--manifest file] [--seeds n]
  *        node tests/accuracy.mjs --write-predictions
  *        node tests/accuracy.mjs --score-predictions --takes <folder> [--json out.json]
  *        node tests/accuracy.mjs --simulate-takes <folder> --ambience <take>
@@ -33,6 +44,8 @@
  *   test signals first (tests/testsignal/README.md). --manifest reads the
  *   rows from another file of the same form as accuracy.takes.json (a run on
  *   rows of one's own; order AC-01).
+ *   --seeds is refused with --write-predictions, --score-predictions and
+ *   --simulate-takes: their renders keep the default seed, as registered.
  *   CHROMIUM_EXECUTABLE picks a preinstalled Chromium, as in browser.verify.js.
  */
 import crypto from 'node:crypto';
@@ -47,7 +60,7 @@ const { PART_FILES } = require('./lib/engine.cjs');
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
 function args() {
-  const out = { takes: process.env.TF2_TAKES || '', only: null, json: '', manifest: '', write: false, score: false, simulate: '', ambience: '' };
+  const out = { takes: process.env.TF2_TAKES || '', only: null, json: '', manifest: '', write: false, score: false, simulate: '', ambience: '', seeds: null };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--takes') out.takes = argv[++i];
@@ -58,6 +71,7 @@ function args() {
     else if (argv[i] === '--score-predictions') out.score = true;
     else if (argv[i] === '--simulate-takes') out.simulate = argv[++i];
     else if (argv[i] === '--ambience') out.ambience = argv[++i];
+    else if (argv[i] === '--seeds') out.seeds = argv[++i] === undefined ? '' : argv[i];
     else if (argv[i] === '--help' || argv[i] === '-h') out.help = true;
     else throw new Error(`Unknown argument ${argv[i]}`);
   }
@@ -324,6 +338,48 @@ function summary(result) {
     clipTake: r.clip && r.clip.real ? r.clip.real.clippedPercent : null, clipSim: r.clip && r.clip.sim ? r.clip.sim.clippedPercent : null };
 }
 
+// Over several seeds (order AC-02). The default seed is the engine's, read in
+// engine/render.js (opts.seed, 0xC0FFEE); a row's own seed is settings.seed,
+// taken as the engine takes it (finiteOr, engine/dsp.js: Number(), then >>> 0),
+// so "3" is seed 3.
+const DEFAULT_SEED = 0xC0FFEE;
+const firstSeed = (settings) => (settings && Number.isFinite(Number(settings.seed)) ? Number(settings.seed) >>> 0 : DEFAULT_SEED);
+// n different seeds: the first, then the first n - 1 others from 1 up.
+function seedList(first, n) {
+  const seeds = [first];
+  for (let s = 1; seeds.length < n; s++) if (s !== first) seeds.push(s);
+  return seeds;
+}
+const median = (values) => {
+  const v = values.filter(Number.isFinite).sort((a, b) => a - b), m = v.length >> 1;
+  return !v.length ? null : v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
+const spread = (values) => {
+  const v = values.filter(Number.isFinite);
+  return { median: median(v), least: v.length ? Math.min(...v) : null, most: v.length ? Math.max(...v) : null };
+};
+// The medians and ranges of a row's measurements. Each seed's worst band is
+// its band of largest size, so the worst band is the median seed's by that
+// size (the lower of the two middle ones for an even count): its band and its
+// own signed value, with the range of the sizes.
+function seedSummary(measured) {
+  const of = (get) => spread(measured.map(get));
+  const byBand = measured.filter(m => Number.isFinite(m.summary.bandWorst))
+    .sort((a, b) => Math.abs(a.summary.bandWorst) - Math.abs(b.summary.bandWorst));
+  const middle = byBand.length ? byBand[(byBand.length - 1) >> 1] : null;
+  return {
+    seeds: measured.map(m => m.seed),
+    spurts: of(m => m.timeline.spurts), segments: of(m => m.timeline.segments.length),
+    delayMinMs: of(m => m.timing.minMs), delayMaxMs: of(m => m.timing.maxMs),
+    trims: of(m => m.timing.trims), otherSteps: of(m => m.timing.within + m.timing.between),
+    clockPpm: of(m => m.timing.clockPpm), alignmentR: of(m => m.timeline.correlation),
+    levelRms: of(m => m.summary.levelRms), levelWorst: of(m => m.summary.levelWorst), levelR: of(m => m.summary.levelR),
+    bandWorst: { hz: middle ? middle.summary.bandWorstHz : '', seed: middle ? middle.seed : null, db: middle ? middle.summary.bandWorst : null,
+      sizeDb: of(m => Math.abs(m.summary.bandWorst)) },
+    clipTake: of(m => m.summary.clipTake), clipSim: of(m => m.summary.clipSim), anchorDb: of(m => m.summary.anchorDb)
+  };
+}
+
 const f = (v, d = 1, sign = false) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : `${sign && v >= 0 ? '+' : ''}${v.toFixed(d)}`);
 
 // The app in headless Chromium, with local files served under /__take/.
@@ -492,12 +548,26 @@ async function simulateTakes(opt) {
 
 async function main() {
   const opt = args();
+  if (opt.seeds !== null) {
+    if (opt.simulate || opt.write || opt.score) {
+      console.error('--seeds is for the accuracy rows only. --write-predictions, --score-predictions and --simulate-takes render at the default seed, '
+        + 'as the predictions were registered (tests/predictions/PREDICTIONS.md); run them without --seeds.');
+      process.exitCode = 1;
+      return;
+    }
+    if (!/^[1-9][0-9]*$/.test(opt.seeds)) {
+      console.error(`--seeds takes a whole number of seeds, 1 or more (got ${opt.seeds === '' ? 'nothing' : `"${opt.seeds}"`}).`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  const seedCount = opt.seeds === null ? 1 : Number(opt.seeds);
   if (opt.simulate) return simulateTakes(opt);
   if (opt.write) return writePredictions();
   if (opt.score) return scorePredictions(opt);
   const manifest = JSON.parse(fs.readFileSync(opt.manifest ? path.resolve(opt.manifest) : path.join(root, 'tests/accuracy.takes.json'), 'utf8'));
   if (opt.help) {
-    console.log('node tests/accuracy.mjs --takes <folder> [--only name,name] [--json out.json] [--manifest file]\n');
+    console.log('node tests/accuracy.mjs --takes <folder> [--only name,name] [--json out.json] [--manifest file] [--seeds n]\n');
     for (const t of manifest.takes) console.log(`  ${t.name.padEnd(26)} set ${t.set}  ${t.take[0]}  ←  ${t.source}`);
     return;
   }
@@ -515,6 +585,15 @@ async function main() {
   const app = await openApp();
   const { page, base, served } = app;
   const results = [];
+  if (seedCount > 1) {
+    try { await measureOverSeeds(app, jobs, seedCount, results); } finally { await app.close(); }
+    if (opt.json) {
+      fs.writeFileSync(opt.json, JSON.stringify({ generated: new Date().toISOString(), seeds: seedCount, results }, null, 1));
+      console.log(`\nWrote ${opt.json}`);
+    }
+    if (results.some(r => r.error || (r.seeds && r.seeds.some(x => x.error)))) process.exitCode = 1;
+    return;
+  }
   try {
     console.log('\nTake                       Set  Spurts Segs  Delay, s (min…max)  Trims Other  Clock ppm  r     Level rms/worst dB  r      Worst band 80 Hz–12 kHz  Clip % take/sim  Level, sim − take');
     for (const job of jobs) {
@@ -545,6 +624,54 @@ async function main() {
     console.log(`\nWrote ${opt.json}`);
   }
   if (results.some(r => r.error)) process.exitCode = 1;
+}
+
+// Each row measured at several seeds (order AC-02): one measureInPage a seed,
+// printed as medians and ranges.
+async function measureOverSeeds({ page, base, served }, jobs, n, results) {
+  const range = (x, d, sign = false) => `${f(x.median, d, sign)} [${f(x.least, d, sign)}…${f(x.most, d, sign)}]`;
+  const count = (x) => (x.median === null ? '—' : Number.isInteger(x.median) ? String(x.median) : x.median.toFixed(1));
+  console.log(`\nEach figure is the median over the row's seeds (its own or the default, then the first ${n - 1} others from seed 1); [least…most] is the range.`
+    + '\nSpurts, Segs, Delay, Trims, Other and Clip give the medians only; the worst band is the band of the median seed by its size, with that seed\'s value.');
+  console.log('\nTake                       Set  Spurts Segs  Delay, s (min…max)  Trims Other  Clock ppm [least…most]  r [least…most]     '
+    + 'Level rms [least…most] / worst [least…most], dB  r [least…most]       Worst band 80 Hz–12 kHz  Clip % take/sim  Level, sim − take [least…most]');
+  let k = 0;
+  for (const job of jobs) {
+    served.set('take', job.takeFile);
+    served.set('source', job.sourceFile);
+    process.stdout.write(`${job.name.padEnd(27)}${job.set.padEnd(5)}`);
+    const first = firstSeed(job.settings), seeds = [];
+    for (const seed of seedList(first, n)) {
+      // The first seed is the row as it stands, so its measurement is the
+      // one the suite makes without --seeds.
+      const settings = seed === first ? job.settings || {} : { ...(job.settings || {}), seed };
+      try {
+        const result = await page.evaluate(measureInPage, { takeUrl: `${base}/__take/take?${k}`, sourceUrl: `${base}/__take/source?${k}`,
+          settings, takeChannelName: job.takeChannel || 'mix', takeSeconds: job.takeSeconds || null });
+        seeds.push({ seed, timing: timing(result), summary: summary(result), ...result });
+      } catch (error) {
+        seeds.push({ seed, error: error.message });
+      }
+      k++;
+    }
+    const measured = seeds.filter(x => !x.error), failed = seeds.filter(x => x.error);
+    if (!measured.length) {
+      console.log(`failed: ${failed[0].error.split('\n')[0]}`);
+      results.push({ name: job.name, set: job.set, error: failed[0].error, seeds });
+      continue;
+    }
+    const s = seedSummary(measured);
+    results.push({ name: job.name, set: job.set, take: path.basename(job.takeFile), source: path.basename(job.sourceFile),
+      settings: job.settings, random: !!job.random, seeds, summary: s });
+    console.log(`${count(s.spurts).padStart(6)} ${count(s.segments).padStart(4)}  `
+      + `${f(s.delayMinMs.median / 1000, 3).padStart(8)}…${f(s.delayMaxMs.median / 1000, 3).padEnd(9)}  ${count(s.trims).padStart(5)} ${count(s.otherSteps).padStart(5)}  `
+      + `${range(s.clockPpm, 0, true).padStart(22)}  ${range(s.alignmentR, 2).padEnd(17)}  `
+      + `${range(s.levelRms, 2).padStart(22)} / ${range(s.levelWorst, 1).padEnd(22)}  ${range(s.levelR, 3).padEnd(19)}  `
+      + `${(f(s.bandWorst.db, 1, true) + ' dB at ' + s.bandWorst.hz).padEnd(23)}  ${(f(s.clipTake.median, 1) + ' / ' + f(s.clipSim.median, 1)).padEnd(15)}  `
+      + `${range(s.anchorDb, 1, true)} dB`
+      + `${job.random ? '  (random loss: statistics only)' : ''}`
+      + `${failed.length ? `  (failed at seed${failed.length > 1 ? 's' : ''} ${failed.map(x => x.seed).join(', ')}: ${failed[0].error.split('\n')[0]})` : ''}`);
+  }
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

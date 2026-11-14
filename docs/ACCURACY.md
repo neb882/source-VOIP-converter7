@@ -177,6 +177,7 @@ How to read each column:
 - **Worst band** is the band from 80 Hz to 12 kHz in which the render's spectrum is furthest from the take's, with the two matched in level at 300 Hz to 3 kHz. Plus means the render is louder there.
 - **Clipped** is the share of samples within 5% of the ceiling, in the take and in the render.
 - **Offset** is the render's level less the take's in the 300 Hz to 3 kHz bands.
+- **Over several seeds:** when the table comes from a run with `--seeds` (AC-02, 2026-11-14), each figure is the median over the seeds, with its range after it for the clock, the alignment r, the level and the offset.
 
 | Take | Set | Phrases | Pieces | Delay, s | 5.8 ms steps | Other steps | Clock, ppm | Alignment r | Level, rms / worst, dB | Level r | Worst band | Clipped %, take / render | Offset, dB |
 | --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | --- | ---: | --- | --- | ---: |

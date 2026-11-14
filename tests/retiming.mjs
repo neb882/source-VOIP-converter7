@@ -18,7 +18,8 @@
  * "timeline": "source" in every row's settings. Each piece's delay is read as the take
  * against the source, in source time; since AC-01 the suite renders Steam voice on the
  * game's voice queue, where the delay is the take against that render. So JSON with any
- * row rendered with options.timeline 'game' is refused.
+ * row rendered with options.timeline 'game' is refused. So is JSON from a run with
+ * --seeds above 1 (AC-02), whose rows keep their timelines under each seed.
  * With the Set D SourceTV demo, the Set D takes are checked transition by
  * transition against the packets' arrival at the server. Every take is then
  * predicted transition by transition from its own earlier transitions only
@@ -65,6 +66,15 @@ if (onQueue.length) {
     + 'where a delay is the take against that render, not against the source. Run the suite through --manifest on a scratch copy of '
     + 'tests/accuracy.takes.json, outside the repository, with "timeline": "source" in every row\'s settings: '
     + 'pnpm accuracy --takes <folder> --manifest <scratch copy> --json results.json');
+  process.exit(1);
+}
+// A run over several seeds (AC-02) keeps each row's results under its
+// seeds, with no timeline at the row: every row would be skipped.
+const seeded = (accuracy.results || []).filter(r => r.seeds).map(r => r.name);
+if (accuracy.seeds > 1 || seeded.length) {
+  console.log(`Refused: the JSON comes from a run with --seeds${accuracy.seeds > 1 ? ` ${accuracy.seeds}` : ''}`
+    + `${seeded.length ? ` (${seeded.length} row(s) hold seeds: ${seeded.join(', ')})` : ''}, whose rows keep their timelines under each seed. `
+    + 'Run the suite without --seeds: pnpm accuracy --takes <folder> --manifest <scratch copy> --json results.json');
   process.exit(1);
 }
 
