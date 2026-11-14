@@ -679,3 +679,7 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-14: AC-02 merged (no cache change); entries replaced
 
 - live.last_merge, earlier merges cut: "W3-02g-a (cache v50, 2026-11-14): asked for the game's timeline with a demo's packets, the engine runs each message as Steam's client and the game run it: one Steam decoder with the 17-frame record ru"
+
+## 2026-11-14: the accuracy table over nine seeds; entries replaced
+
+- open_questions, the one-draw level figure replaced: "2026-11-14: the level figure of a Steam row is one draw of the sender. On sender_A it reads 0.12 / 0.5 dB at the default seed and 0.74 to 0.88 / 8.7 to 10.4 at seeds 1 to 8, from one half-second block"
