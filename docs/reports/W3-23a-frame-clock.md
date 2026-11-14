@@ -272,7 +272,9 @@ The `tests` workflow on the branch, read with `gh run view` (only `verify` with 
 | 43583785588 | `7219302` (the engine and the reference) | failure | `browser` failure (a 10 s timeout in `speedFirstSecondsRerenderCancel`, see "Not done"); the other four success |
 | 43587100851 | `aefddd3` (the checks) | success | all five success |
 | 43589826981 | `3fa643c` (the records and the words; every code change) | success | all five success |
-| HEADRUN |
+| 43592486773 | `71f3cfc` (this report, `tests/README.md`'s times) | success | all five success |
+
+This line's commit changes only `docs/` and starts no run, so `71f3cfc`'s run is the branch's last.
 
 ## The cache number
 
