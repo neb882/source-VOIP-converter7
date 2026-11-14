@@ -80,9 +80,11 @@ many joined a running one, and the milliseconds dropped to overflow. With jitter
 packets came, past the least delay, and how many came on the tick of the one before. While the render on screen was made on the
 queue, a line beside **Hear** says that Rendered and Original do not stay in step: a phrase can start early, by up
 to about the wait, and at 300 frames a second the render gains about 0.4 ms every second. The line follows the
-render on screen, not the controls. A recorded live session is the monitor's sound, on the file's own timing: with
-Phrase timing on the game's queue it is marked as made with other settings, its line says so, and it does not
-render by itself, whatever its length; a changed setting or **Render** renders it. What is not exact on the queue,
+render on screen, not the controls. A recorded live session is the monitor's sound, on the timing the monitor ran:
+the file's own, or the game's queue with the monitor's own switch on (below). Where Phrase timing says the other it
+is marked as made with other settings, its line says which way it was made, and it does not render by itself,
+whatever its length; a changed setting or **Render** renders it. A take made on the queue has the queue's console
+line and the line beside **Hear**. What is not exact on the queue,
 the short pieces it cuts from a sound's first seconds among it, is listed in the README's "Accuracy" and in
 [ACCURACY.md](ACCURACY.md).
 
@@ -161,7 +163,12 @@ output**, and **Extras: not in the game**. The codec, the listener's position an
 above the groups; the advanced groups open with a switch. Every control has one sentence under it saying what it
 does to the sound and, where that is not plain, whose default it is. The console's `help <command>` says the same.
 A label shows a variable's name only where the game has that variable; the app's own names are console commands.
-Most controls have a console name; how long the sender's Steam has run and the live monitor's low latency do not.
+Most controls have a console name; how long the sender's Steam has run and the live monitor's two switches (low
+latency, and the game's voice queue) do not. **Live monitor: the game's voice queue**, among the extras, plays the
+live monitor through the queue on Steam voice with the codec on, at the page's frame rate and voice buffer, whatever
+Phrase timing says. It is off on every load and kept in no remembered setting and no share link; its help gives
+what it adds to the monitor's delay at the page's own frame rate and buffer, and what a listener hears with it on
+([LIVE.md](LIVE.md)).
 
 **The game's voice queue.** Three controls set it, for Steam voice only (another codec hides them):
 - **Listener's frame rate** (`fps_max`, 10 to 1000, 300 by default) is how many frames a second the listener's game
@@ -172,7 +179,7 @@ Most controls have a console name; how long the sender's Steam has run and the l
 - **Phrase timing** (`voice_timeline`, the app's name) is "The game's voice queue" by default, or "The file's own
   timing", which keeps every sound where the source has it. A preset sets the queue. With the codec skipped, a
   demo's voice or a video, a line under the control says why the render keeps the file's own timing. The live
-  monitor always keeps it. The page no longer offers "Talk-spurt timing", a flat rule fitted to one set of takes;
+  monitor keeps it unless its own switch for the queue is on. The page no longer offers "Talk-spurt timing", a flat rule fitted to one set of takes;
   `voice_retime` 1 and 0 now set `voice_timeline` `game` and `source`, and a share link or saved settings with
   `retime=1` get the game's queue.
 
@@ -199,9 +206,11 @@ each kind of path, and a line under the control says which, while the control is
 The chain strip's Network cell follows the same rule: "50 ms jitter" where it runs on the queue, "50 ms jitter (a
 fit)" on another codec, "jitter off (no queue)" on Steam voice on the file's own timing, and "loss and jitter off"
 with the reason where no codec runs; it is marked only where loss or jitter acts. Its Receiver cell names the queue
-only where a render runs it, so for a demo's voice or a video it says "the file's own timing". The live monitor keeps
-the file's own timing, so on Steam voice jitter does nothing there yet (the queue in the monitor is W3-02c-3, not
-built yet); while the monitor runs on Steam voice with jitter above 0, its note under the panel says so. There is
+only where a render runs it, so for a demo's voice or a video it says "the file's own timing". With its queue's
+switch off the live monitor keeps the file's own timing, so on Steam voice jitter does nothing there; while the
+monitor runs on Steam voice with jitter above 0 and the switch off, its note under the panel says "Jitter does
+nothing in the live monitor on the file's own timing." With the switch on, jitter acts in the monitor as in a render
+on the queue, and the note says nothing of it. There is
 no lag control: a steady lag delays every packet alike and a render does not show it. The console's `net_fakelag`
 says so and changes nothing. A share link keeps jitter as `jit`, and the Laggy preset sets 50.
 
