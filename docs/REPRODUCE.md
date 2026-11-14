@@ -698,6 +698,12 @@ measured, the same table); it is inferred to be the take that had 22.3 packets a
 table), and 22.3 / 44100 is 506 (computed; finding 24's 505 is that figure or an earlier reading, inferred, as its
 note says).
 
+*Corrected 2026-11-14: since AC-01 the table of [ACCURACY.md](ACCURACY.md) is on the game's voice queue, where the
+clock reads near 0, and this check renders on the file's own timing. The +397 to +416 and the +510 above are that
+table as it stood on 2026-11-12, on the file's own timing (in the repository's history). ACCURACY.md's section
+"Against the file's own timing" gives the same takes on that timing in one draw of 2026-11-14: +401 to +413, and
++499 on `take3_voice_maxgain_1` (measured). The range this check accepts is unchanged.*
+
 **What a pass shows, and what it does not.** A pass shows that the recording played about P / 44100 faster than the
 render, and not why: a recording resampled by 1.0004 on its way would pass too. What says the cause is the game's is
 the record: the clock follows the packet rate and is not a recorder's (measured, finding 24, and the record's
