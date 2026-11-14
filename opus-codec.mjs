@@ -210,9 +210,37 @@ export async function roundTrip(samples, sampleRate, bitrate, options = {}) {
 // previous end marker was lost (BC-1, rule C), so the decoder keeps its state
 // and its expected number, and late frames counted before are forgotten.
 // receive() returns the 480-sample blocks it made, the concealed ones first.
+//
+// record(entries) (W3-02g) is for a demo's own packets: one type 6 record of
+// a voice message as Steam's client walks it, under the decoder's buffer of
+// STEAM_RECORD_FRAMES frames (W3-16 read, section 3; finding 29). entries are
+// the record's in its order, { seq, data } (short: true for a frame whose
+// data ran past the end of its record) or { end: true }. Frame by frame, by
+// the rules above: an end marker resets; a number behind the expected one
+// resets and conceals nothing; one ahead conceals min(gap, 10) frames, and
+// concealing stops when the buffer is full; the expected number becomes the
+// frame's plus one before the room is looked at; a short frame ends the
+// record there, undecoded; a frame that would be the 18th block is not
+// decoded (its number is spent all the same) and the rest of the record is
+// not read, end markers in it included (the cut); a frame of length 0 gives
+// 480 zeros. The rules for a short frame and a frame of length 0 are read
+// and reached by nothing in the recordings (ruling 6 of
+// docs/work-orders/W3-02g-demo-packets.md). It resolves to { pcm, blocks,
+// cut, unread, concealed, resets }: pcm the blocks' samples in order (an
+// Int16Array); blocks one entry per 480 samples, { code, bytes, seq } (code
+// FRAME.lost for a concealed block, which stands for one of the frames
+// directly before the frame that came; FRAME.dtx for a frame of 2 bytes or
+// fewer; else the frame's coding mode); cut whether the buffer cut the
+// record; unread the frames of the record from the cut one on (its number
+// spent); concealed and resets the counts. A decoder is driven by receive()
+// or by record(), never both: record() reads no late frame.
 export async function createSteamDecoder(options = {}) {
   const { createDecoder } = await runtime(options.runtime ?? '1.1.5');
   const sampleRate = 24000, frameSize = 480;
+  // The decoder's 24 kHz buffer for one record: 17 frames of 480 samples,
+  // concealed ones included (read: docs/reports/W3-16-steam-hold-read.md,
+  // section 3; seen once, Set J, tests/REFERENCE_2026.md finding 29).
+  const STEAM_RECORD_FRAMES = 17;
   // next: the number the decoder expects (one past the last frame it was
   // given); late: the late frames at or above it since then.
   let decoder = await createDecoder({ sampleRate, channels: 1 }), next = 0, late = 0;
@@ -234,6 +262,34 @@ export async function createSteamDecoder(options = {}) {
       blocks.push(decoder.decodeInt16(packet, { frameSize }));
       next = (seq + 1) & 0xFFFF; late = 0;
       return blocks;
+    },
+    async record(entries) {
+      const made = [], blocks = [];
+      let cut = false, unread = 0, concealed = 0, resets = 0, i = 0;
+      for (; i < entries.length; i++) {
+        const e = entries[i];
+        if (e.end) { await reset(); resets++; continue; }
+        const seq = e.seq & 0xFFFF;
+        if (seq < next) { await reset(); resets++; }
+        else {
+          const conceal = Math.min(seq - next, 10);
+          for (let k = 0; k < conceal && made.length < STEAM_RECORD_FRAMES; k++) {
+            made.push(decoder.decodePacketLossInt16(frameSize));
+            blocks.push({ code: FRAME.lost, bytes: 0, seq: (seq - conceal + k) & 0xFFFF });
+            concealed++;
+          }
+        }
+        next = (seq + 1) & 0xFFFF; late = 0;
+        if (e.short) break;
+        if (made.length === STEAM_RECORD_FRAMES) { cut = true; break; }
+        const data = e.data;
+        made.push(data.length === 0 ? new Int16Array(frameSize) : decoder.decodeInt16(data, { frameSize }));
+        blocks.push({ code: data.length <= 2 ? FRAME.dtx : FRAME[packetMode(data)], bytes: data.length, seq });
+      }
+      if (cut) for (let j = i; j < entries.length; j++) if (!entries[j].end) unread++;
+      const pcm = new Int16Array(made.length * frameSize);
+      made.forEach((b, k) => pcm.set(b, k * frameSize));
+      return { pcm, blocks, cut, unread, concealed, resets };
     },
     late(seq) { if ((seq & 0xFFFF) >= next) late++; return new Int16Array(frameSize); },
     carry() { late = 0; },

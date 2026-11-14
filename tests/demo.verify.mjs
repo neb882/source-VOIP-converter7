@@ -7,12 +7,14 @@
 // (tests/demovoice/extract.mjs). Real demos are players' voices and stay out
 // of the repository.
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import * as opus from '../vendor/libopus-1.1/index.mjs';
 import { createCodec } from '../vendor/celt-0.11/index.mjs';
 import { loadEngine } from './lib/engine.cjs';
@@ -51,15 +53,29 @@ function crc32(d) {
 // invalid, so they cannot be anyone's account: 4503603922337793 and
 // 4503603922337794 are individual accounts 1 and 2 there.
 function steamPayload(steamId, frames) {
-  const opusBytes = [];
-  for (const f of frames) {
-    if (f === 'end') { opusBytes.push(0xFF, 0xFF); continue; }
-    opusBytes.push(f.data.length & 255, f.data.length >> 8, f.seq & 255, f.seq >> 8, ...f.data);
-  }
+  return steamMessage(steamId, [{ rate: 24000 }, { frames }]);
+}
+// The same with any records in order (W3-02g): { rate } a sample-rate section
+// (11), { silence } a silence section (0) of that many samples, { frames } an
+// Opus section (6) of frames { seq, data } and 'end' markers; { cut: n } on an
+// Opus section leaves out its last n bytes (its length says so), so that its
+// last frame's data runs past the end of its record.
+function steamMessage(steamId, records) {
   const body = [];
   const id = new DataView(new ArrayBuffer(8));
   id.setBigUint64(0, BigInt(steamId), true);
-  body.push(...new Uint8Array(id.buffer), 11, 24000 & 255, 24000 >> 8, 6, opusBytes.length & 255, opusBytes.length >> 8, ...opusBytes);
+  body.push(...new Uint8Array(id.buffer));
+  for (const r of records) {
+    if (r.rate !== undefined) { body.push(11, r.rate & 255, r.rate >> 8); continue; }
+    if (r.silence !== undefined) { body.push(0, r.silence & 255, r.silence >> 8); continue; }
+    const opusBytes = [];
+    for (const f of r.frames) {
+      if (f === 'end') { opusBytes.push(0xFF, 0xFF); continue; }
+      opusBytes.push(f.data.length & 255, f.data.length >> 8, f.seq & 255, f.seq >> 8, ...f.data);
+    }
+    const stated = opusBytes.length - (r.cut || 0);
+    body.push(6, stated & 255, stated >> 8, ...opusBytes.slice(0, stated));
+  }
   const crc = crc32(body);
   body.push(crc & 255, (crc >>> 8) & 255, (crc >>> 16) & 255, crc >>> 24);
   return Uint8Array.from(body);
@@ -95,7 +111,14 @@ const msg = {
   gameEvent: (w) => { w.write(25, 6); w.write(37, 11); w.write(0x1FFFFFFFFF, 37); },
   entities: (w) => { w.write(26, 6); w.write(24, 11); w.write(1, 1); w.write(77, 32); w.write(0, 1); w.write(3, 11); w.write(13, 20); w.write(0, 1); w.write(8191, 13); },
   voiceInit: (codec, quality = 255, rate = 0) => (w) => { w.write(14, 6); w.string(codec); w.write(quality, 8); if (quality === 255) w.write(rate, 16); },
-  voice: (client, payload) => (w) => { w.write(15, 6); w.write(client, 8); w.write(0, 8); w.write(payload.length * 8, 16); w.data(payload); }
+  voice: (client, payload) => (w) => { w.write(15, 6); w.write(client, 8); w.write(0, 8); w.write(payload.length * 8, 16); w.data(payload); },
+  // Server info with the tick length as a 32-bit float, as a server sends it (protocol 24).
+  serverInfo: (tick) => (w) => {
+    const f = new DataView(new ArrayBuffer(4));
+    f.setFloat32(0, tick, true);
+    w.write(8, 6); w.write(0, 16 + 32 + 1 + 1 + 32 + 16); w.write(0, 128); w.write(0, 16); w.write(f.getUint32(0, true), 32); w.write(0, 8);
+    w.string('tf'); w.string('ctf_2fort'); w.string('sky_tf2_04'); w.string('Synthetic test'); w.write(0, 1);
+  }
 };
 
 console.log('\n[Demo] Voice in a TF2 demo');
@@ -155,6 +178,175 @@ const match = (lag) => {
 };
 const lags = Array.from({ length: 41 }, (_, k) => 136 + k), best = lags.reduce((b, l) => (match(l) > match(b) ? l : b));
 check('The voice decodes back to the tone', match(best) > .98, `r ${match(best).toFixed(3)} at ${best} samples`);
+
+// W3-02g: a demo's own packets, for the game's decoder and voice queue
+// (docs/work-orders/W3-02g-demo-packets.md, part a). The reader says where
+// each packet came from, and decode() gives each message as it came.
+const sha = (a) => crypto.createHash('sha256').update(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)).digest('hex');
+{
+  // Each packet's message (m, its index in parsed.voice), record (r, every
+  // record of the message counted: the sample-rate record is 0) and rate.
+  const where = (sp) => sp.packets.map((p) => `${p.m}:${p.r}:${p.rate}`).join(' ');
+  const s1Where = ['0:1:24000 '.repeat(10), '1:1:24000 '.repeat(11), '3:1:24000 '.repeat(11)].join('').trim();
+  const s2Where = ['2:1:24000 '.repeat(5), '4:1:24000 '.repeat(6)].join('').trim();
+  check('W3-02g: each Steam packet gains its message\'s index (m), its record\'s (r) and the message\'s sample rate; no packet is short',
+    where(s1) === s1Where && where(s2) === s2Where && [...s1.packets, ...s2.packets].every((p) => !('short' in p))
+    && s1.packets.length === 32 && s2.packets.length === 11,
+    `${s1.packets.length} and ${s2.packets.length} packets`);
+  // What decode() returned before W3-02g, by hashes recorded on main (61c8834) before any change.
+  const was = {
+    '4503603922337793': ['23d74bb548b41a9103a8390bc1981df6bcecff360ad0d92b7c71b8b3d19331a9', '80cf19bae3df4c23ec91d076def16a088d54ed7227473651ecd3a19a2f7a1a80',
+      '4d0df7856e7468e8d7e9fd3327eab5089955c54175e3dd5e09dc47a19ac5c658'],
+    '4503603922337794': ['d1182b6632daadddb88a032bc60bcc4558506eedc9ec5da7796daf2bb0c42190', '3500d93214caf7f502af5adcd28f8f4fb3620eae3bedbeb327cc5c68a57b3129',
+      '1de8ce6fda33fa4f952d3bd4785e8fb2e5ce60236a603e9038fb4d81c3f29223']
+  };
+  const same = [[s1, decoded], [s2, decoded2]].every(([sp, d]) => isDeepStrictEqual([sha(d.samples), sha(d.frameLog), sha(d.frameBytes)], was[sp.id]));
+  check('decode() gives synthetic.dem\'s samples, frame logs and frame sizes of main, both speakers, by hashes recorded there before any change', same
+    && Object.keys(decoded).join() === 'samples,rate,frameSeconds,frameSamples,frameLog,frameBytes,concealed,undecodable,spurts,packets,firstTick,tickSeconds');
+  // The messages: every frame byte for byte, every end marker, in their
+  // messages' order; at, where the file's own timing lays each message's
+  // first frame (the frame log's slot round(at / 480), since the decode lays
+  // a frame at a 24 kHz sample and logs it at its nearest slot).
+  const flat = (d) => d.packets.flatMap((m) => m.records.flatMap((r) => r.frames ? r.frames.map((e) => (e.end ? 'end' : `${e.seq}:${Buffer.from(e.data).toString('hex')}`)) : [`silence ${r.silence}`]));
+  const want = (sp) => sp.packets.map((p) => (p.kind === 'end' ? 'end' : p.kind === 'silence' ? `silence ${p.samples}` : `${p.seq}:${Buffer.from(p.data).toString('hex')}`));
+  const ats = decoded.packets.map((m) => m.at).join(), ats2 = decoded2.packets.map((m) => m.at).join();
+  check('decode()\'s packets: one entry per message, every frame byte for byte and every end marker in order, the tick, the rate, firstTick and tickSeconds',
+    isDeepStrictEqual(flat(decoded), want(s1)) && isDeepStrictEqual(flat(decoded2), want(s2)) && decoded.packets.length === 3 && decoded2.packets.length === 2
+    && decoded.packets.map((m) => m.tick).join() === '200,201,400' && decoded2.packets.map((m) => m.tick).join() === '201,400'
+    && [...decoded.packets, ...decoded2.packets].every((m) => m.rate === 24000 && m.records.length === 1)
+    && decoded.firstTick === 200 && decoded2.firstTick === 201 && decoded.tickSeconds === parsed.intervalPerTick
+    && decoded.packets[0].records[0].frames[0].data === s1.packets[0].data,
+    `${decoded.packets.length} and ${decoded2.packets.length} messages`);
+  // Speaker 1: its second message starts after the 10 frames of its first
+  // (the run goes on); its third at its own tick, 6 s after the first.
+  // Speaker 2's runs on with its numbers, back to back.
+  check('decode()\'s at: where the file\'s own timing lays each message\'s first frame, which the frame log has at slot round(at / 480)',
+    ats === `0,4800,${second0}` && ats2 === '0,2400' && decoded.packets.every((m) => decoded.frameLog[Math.round(m.at / 480)] !== 0)
+    && decoded.frameLog[Math.round(decoded.packets[1].at / 480)] === 2, `${ats}; ${ats2}`);
+  // A frame whose data runs past its record: cut there as before, marked short.
+  const cutDemo = D.parse(demoFile([{ tick: 10, messages: [msg.voiceInit('steam'), msg.voice(1, steamMessage('4503603922337793',
+    [{ silence: 300 }, { rate: 24000 }, { frames: [{ seq: 0, data: packets[0] }, { seq: 1, data: packets[1] }], cut: 5 }]))] }]));
+  const cp = cutDemo.speakers[0].packets;
+  const cd = await D.decode(cutDemo, cutDemo.speakers[0], { opus: (r) => opus.createDecoder({ sampleRate: r, channels: 1 }) });
+  check('A frame whose data runs past the end of its record comes out cut there, marked short; every record is counted in r; a packet before the message\'s sample-rate record has rate null, and the message\'s rate is that record\'s',
+    cp.length === 3 && cp[0].kind === 'silence' && cp[0].r === 0 && cp[0].rate === null && cp[1].r === 2 && cp[1].rate === 24000 && !('short' in cp[1])
+    && cp[2].short === true && cp[2].data.length === packets[1].length - 5 && cd.packets.length === 1 && cd.packets[0].rate === 24000
+    && isDeepStrictEqual(cd.packets[0].records.map((r) => (r.frames ? r.frames.map((e) => `${e.seq}${e.short ? ' short' : ''}`).join() : r.silence)), [300, '0,1 short']),
+    JSON.stringify(cd.packets[0].records.map((r) => (r.frames ? r.frames.length : r.silence))));
+}
+
+// tests/demo/queue.dem (W3-02g): a demo for the game's decoder and voice
+// queue on a demo's own packets; tests/render-channel.verify.mjs renders it,
+// and the page's checks can choose either speaker. Speaker 1 is shaped as
+// Set D's demo (finding 21, and the orchestrator's private look (i) in the
+// order): phrases that open with 8 frames from number 0 and go on with 3
+// frames every fourth tick, each ended by an end marker and, four ticks
+// later, a silence record of 1,500 samples. A long pause (70 ticks) before
+// its second phrase, which opens the queue again; a short one (16 ticks)
+// before its third, which joins it; one of 26 ticks before its fourth, which
+// joins it at 300 frames a second and opens it at 66.67. Inside its
+// phrases: 3 frames that never reached the server in front of a message
+// (concealed in front of its first frame), one missing between two frames of
+// a message (concealed inside it), two messages on one tick; an opening of
+// 13 frames (refused by the game); a message of 7 + 7 frames in two records
+// (each fits, together refused) and one of 4 + 5 (taken); an empty packet (an
+// end marker alone) 20 ticks before a phrase; 34 frames that never reached
+// the server, then a message of 12 frames (10 concealed and 7 decoded: the
+// record is cut at 17, and refused) and one of 5 (4 concealed and 5 decoded:
+// taken), Set J's shape (finding 29); and last an end marker alone 140 ticks
+// after the voice, past a render's end. Speaker 2 has one short phrase from
+// number 0. The tick length is the server's float 0.015. Test SteamIDs of
+// universe 0.
+const QUEUE_IDS = ['4503603922337793', '4503603922337794'];
+async function queueDemo() {
+  // A phrase's frames, coded by one encoder as Steam's sender codes a spurt:
+  // harmonics of f0 under a syllable envelope, at a level of the phrase's own.
+  const coded = async (count, f0, level) => {
+    const enc = await opus.createEncoder({ sampleRate: rate, channels: 1, bitrate: 32000, vbr: true, complexity: 10 });
+    const out = [];
+    for (let k = 0; k < count; k++) {
+      out.push(enc.encodeFloat(Float32Array.from({ length: 480 }, (_, i) => {
+        const t = (480 * k + i) / rate;
+        let v = 0;
+        for (let h = 1; h <= 6; h++) v += Math.sin(2 * Math.PI * f0 * h * t) / h;
+        return level * (0.55 + 0.45 * Math.sin(2 * Math.PI * 3 * t)) * v / 2;
+      })));
+    }
+    enc.free();
+    return out;
+  };
+  const voice = [];
+  // A message of speaker `who` on `tick`: its records after the sample-rate record.
+  const add = (who, tick, ...records) => voice.push({ who, tick, records });
+  // Frames a to b of a phrase, less those in `skip`, with an end marker after them when `end`.
+  const run = (f, a, b, { skip = [], end = false } = {}) => {
+    const out = [];
+    for (let s = a; s <= b; s++) if (!skip.includes(s)) out.push({ seq: s, data: f[s] });
+    return { frames: end ? [...out, 'end'] : out };
+  };
+  // A steady phrase of speaker `who`: frames 0-7 on tick t, then 3 frames
+  // every 4 ticks up to frame `last`, the end marker with the last ones; the
+  // silence record 4 ticks after. Returns the silence record's tick.
+  const steady = (who, f, t, last) => {
+    add(who, t, run(f, 0, 7));
+    let tick = t;
+    for (let s = 8; s <= last; s += 3) { tick += 4; add(who, tick, run(f, s, Math.min(last, s + 2), { end: s + 2 >= last })); }
+    add(who, tick + 4, { silence: 1500 });
+    return tick + 4;
+  };
+  const one = 0, two = 1;
+  // Phrase 1, tick 100.
+  const f1 = await coded(50, 130, 0.25);
+  add(one, 100, run(f1, 0, 7));
+  add(one, 104, run(f1, 8, 10)); add(one, 108, run(f1, 11, 13)); add(one, 112, run(f1, 14, 16));
+  add(one, 120, run(f1, 20, 22));                        // 17-19 never reached the server
+  add(one, 124, run(f1, 23, 25));
+  add(one, 132, run(f1, 26, 28)); add(one, 132, run(f1, 29, 31));   // two on one tick
+  add(one, 136, run(f1, 32, 34));
+  add(one, 140, run(f1, 35, 38, { skip: [37] }));        // 37 never reached the server
+  add(one, 144, run(f1, 39, 41)); add(one, 148, run(f1, 42, 44)); add(one, 152, run(f1, 45, 47));
+  add(one, 156, run(f1, 48, 49, { end: true }));
+  add(one, 160, { silence: 1500 });
+  // Phrase 2 after a long pause, phrase 3 after a short one, phrase 4 after
+  // one of 26 ticks.
+  const end2 = steady(one, await coded(50, 175, 0.1), 230, 49);
+  const end3 = steady(one, await coded(50, 150, 0.3), end2 + 16, 49);
+  const end4 = steady(one, await coded(50, 140, 0.2), end3 + 26, 49);
+  // Speaker 2's phrase, among speaker 1's.
+  steady(two, await coded(17, 220, 0.2), 400, 16);
+  // Phrase 5: an opening of 13 frames; 7 + 7 and 4 + 5 frames in two records.
+  const f4 = await coded(60, 120, 0.15), t4 = end4 + 70;
+  add(one, t4, run(f4, 0, 12));
+  add(one, t4 + 4, run(f4, 13, 15)); add(one, t4 + 8, run(f4, 16, 18));
+  add(one, t4 + 12, run(f4, 19, 25), run(f4, 26, 32));
+  add(one, t4 + 16, run(f4, 33, 35));
+  add(one, t4 + 20, run(f4, 36, 39), run(f4, 40, 44));
+  for (let s = 45, t = t4 + 24; s <= 59; s += 3, t += 4) add(one, t, run(f4, s, s + 2, { end: s === 57 }));
+  add(one, t4 + 44, { silence: 1500 });
+  // Phrase 6: an empty packet 20 ticks before it; 34 frames lost, then 12 and 5.
+  const f5 = await coded(80, 160, 0.2), t5 = t4 + 44 + 70;
+  add(one, t5 - 20, { frames: ['end'] });
+  add(one, t5, run(f5, 0, 7)); add(one, t5 + 4, run(f5, 8, 10)); add(one, t5 + 8, run(f5, 11, 13));
+  add(one, t5 + 12, run(f5, 48, 59));                    // 14-47 never reached the server
+  add(one, t5 + 16, run(f5, 60, 64));
+  for (let s = 65, t = t5 + 20; s <= 79; s += 3, t += 4) add(one, t, run(f5, s, s + 2, { end: s === 77 }));
+  add(one, t5 + 40, { silence: 1500 });
+  // Past the end: an end marker alone 140 ticks after the voice.
+  add(one, t5 + 180, { frames: ['end'] });
+  // One demo frame per tick, its messages in order.
+  const frames = [{ tick: 90, messages: [msg.serverInfo(0.015), msg.voiceInit('steam')] }];
+  for (const m of voice.map((v, k) => ({ ...v, k })).sort((a, b) => a.tick - b.tick || a.k - b.k)) {
+    const payload = msg.voice(m.who + 1, steamMessage(QUEUE_IDS[m.who], [{ rate: 24000 }, ...m.records]));
+    if (frames[frames.length - 1].tick === m.tick) frames[frames.length - 1].messages.push(payload);
+    else frames.push({ tick: m.tick, messages: [payload] });
+  }
+  return demoFile(frames, { ticks: 800, seconds: 12 });
+}
+const queueBytes = await queueDemo();
+const queueFixture = new URL('./demo/queue.dem', import.meta.url);
+if (process.argv.includes('--write-fixture')) fs.writeFileSync(queueFixture, queueBytes);
+check('tests/demo/queue.dem is the demo these checks make', fs.existsSync(queueFixture) && Buffer.compare(fs.readFileSync(queueFixture), Buffer.from(queueBytes)) === 0,
+  'node tests/demo.verify.mjs --write-fixture rewrites it');
 
 // Talk spurts after a lost end marker. One speaker's frames as SourceTV
 // writes them: the 3 frames (60 ms) sent since the last batch go out together
