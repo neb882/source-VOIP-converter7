@@ -56,6 +56,10 @@ option, or with `'source'`, the chain gives `main`'s samples. No render moves.
 - `tests/render-channel.verify.mjs`: section 10 replaced by the order's checks; the suite's reference
   (`referenceRender`) takes an optional spy that is told where each open falls, which nothing before used.
 - `tests/README.md`: the two suites' rows. `tests/predictions/PREDICTIONS.md`: the note for the hashed model files.
+- `tests/browser.verify.js`, one line, by the orchestrator's ruling of 2026-11-14 (the order's last section): in
+  [Browser 3f2] (`verifyLiveRoom`) the options handed to the live worker carry `timeline: 'source', fps: undefined,
+  bufferMs: undefined`, as `live.js`'s `liveOptions()` sends them, with a comment that says so and that part b adds
+  the queue's case. Nothing else of that file changed.
 
 `sw.js` is not touched: no file the site loads was added, removed or renamed.
 
@@ -185,7 +189,10 @@ the suites' times and a merge of `main`): `verify` failure; `units`, `engine`, `
 
 ## The question, and what was not done
 
-### The question
+### The question, and the ruling
+
+**Ruled 2026-11-14 by the orchestrator: the first way below**, made as the file-by-file list says; the result is
+under "After the ruling" at the end.
 
 [Browser 3f2] (`tests/browser.verify.js`, `verifyLiveRoom`, about line 1553) starts the live monitor's worker
 itself and hands it `{ ...renderOptions(), codec, ... }`, not `live.js`'s `liveOptions()`. Since W3-02d-1 the page's
@@ -240,3 +247,12 @@ stopped there. Two ways out, for the orchestrator to choose:
   the suite first reads a whole length's `info`, not at a recorded value.
 - The diff and the commit messages were scanned for recordings, personal details, SteamIDs and model names: none,
   but the commits' attribution lines.
+
+## After the ruling
+
+The one line of [Browser 3f2] changed as ruled. The browser suite, `CHROMIUM_EXECUTABLE=$(ls -d
+/opt/pw-browsers/chromium-*/chrome-linux*/chrome | head -1) flock /tmp/tf2ve-heavy.lock pnpm test:browser`:
+`== browser: passed, 383.5 s`, the check reading "4 spurt starts for 4 spurts; 26/256 for 91 blocks after the hall,
+then 41/256 after a spurt start". `main` was merged first (the ruling, documents only).
+
+CI_RESULT
