@@ -469,3 +469,6 @@ tests/render-channel.verify.mjs`: "319 render-channel checks passed, 0 failed". 
 tests/render-stream.verify.mjs --hashes` after the fix: equal byte for byte to the output at `91d37c6` (SHA-256
 `f73fee8b…`). The whole `pnpm test` and the browser suite were not run again locally (the account's weekly usage);
 CI runs every suite on the head.
+
+**CI** on `d70838e` (the fix round): run 43596387410, `verify` success, all five jobs success. This line's commit
+changes only `docs/` and starts no run.
