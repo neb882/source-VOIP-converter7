@@ -412,3 +412,5 @@ The record has no log under 66 frames a second. Two things would settle the chos
 
 The planner's commit on `claude/w3-23-plan` was not merged: its two files came to `main` in the orchestrator's
 commit, with the repository's own attribution line.
+
+*Ruling 1 amended 2026-11-14, after W3-23r: W3-23a does not wait for the usage reset. The owner said on 2026-11-13 "I'm not worried about running out of usage this weekend", and that stands over the orchestrator's caution. It waits for the plan reviewer's pass only.*
