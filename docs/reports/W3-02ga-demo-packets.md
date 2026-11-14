@@ -154,7 +154,7 @@ machine shared with another builder.
 | everything else | `flock /tmp/tf2ve-heavy.lock pnpm test` | `27 of 27 suites passed. 1016.6 s summed` |
 | the browser suite | `CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux*/chrome \| head -1) flock /tmp/tf2ve-heavy.lock pnpm test:browser` | `== browser: passed, 400.9 s`, unchanged (no check of it was touched) |
 | the cache | `node tests/cache-number.mjs origin/main --report` | `cache number against origin/main (fe19237): the number is v48, not above v48: it must rise (node tests/cache-number.mjs origin/main --set)`; the cached files changed are `demo.js`, `engine/render-stream.js`, `engine/render.js`, `engine/steam.js`, `opus-codec.mjs` and `voice-channel.js`. The builder does not set the number |
-| the inspection | CI on the branch's head | CI_RESULT |
+| the inspection | CI on the branch's head | run 43556702560 on `d29a486`: `verify` success (units, engine, render, stages and browser all success). The commit that adds this line changes `docs/` only, so it starts no run |
 
 What must not move: `git diff origin/main -- tests/` adds checks, cases with their hashes and the fixture; it
 changes no hash, reference or tolerance (it changes the voice-channel suite's list of the module's exported names,
