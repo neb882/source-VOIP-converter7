@@ -13,8 +13,9 @@
 // W3-23a (docs/work-orders/W3-23-low-frame-rates.md, "The arrival at jitter 0"), written again from the order's
 // words: at jitter 0, when 1000 / fps > 15 (fps limited as above), the model with jitter as its jitter goes to 0, in
 // closed form. The message of tick p is in the listener's list from 15 (p + 1) ms (the server's relay tick); it leaves
-// at the first look r = k x 1000 / fps with r - 15 (p + 1) > 0; at[p] = ceil(r / 15) - 2; floorTicks 0. Here the looks
-// are walked in order, one pointer for every tick, where the engine guesses the look and corrects it.
+// at the first look r with r - 15 (p + 1) > 0; at[p] = ceil(r / 15) - 2; floorTicks 0. Since the fix round (item 2)
+// the looks are the frame clock's frames, (88200 k) / fps half samples against 1323 a tick. Here the looks are walked
+// in order, one pointer for every tick, where the engine guesses the look and corrects it.
 // Synthetic only: no recording, log or file of the game is read.
 
 // mulberry32, as published (Tommy Ettinger's generator), written here again.
@@ -36,11 +37,12 @@ export function referenceArrivals({ jitterMs, fps, seed, ticks }) {
   const F = Math.min(1000, Math.max(10, Number.isFinite(fps) ? fps : 300));
   if (!(jitterMs > 0)) {
     if (1000 / F > 15) {
-      // W3-23a: the listener's first look after the server's relay tick.
+      // W3-23a: the listener's first look after the server's relay tick, the looks timed as the frame clock times
+      // its frames, (88200 k) / fps half samples against 1323 per tick (the fix round, item 2).
       for (let p = 0, k = 0; p < ticks; p++) {
-        const enter = 15 * (p + 1);
-        while (k * 1000 / F - enter <= 0) k++;
-        at[p] = Math.ceil(k * 1000 / F / 15) - 2;
+        const enter = 1323 * (p + 1);
+        while ((88200 * k) / F <= enter) k++;
+        at[p] = Math.ceil((88200 * k) / F / 1323) - 2;
       }
     } else for (let p = 0; p < ticks; p++) at[p] = p;
     return { floorTicks: 0, at };

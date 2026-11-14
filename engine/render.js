@@ -431,7 +431,10 @@
    *                 frames a second the channel takes packets, counts its
    *                 ticks and mixes once a frame, and at jitter 0 each
    *                 message reaches it at the listener's first look after
-   *                 the server's relay tick (W3-23a)             [300, 100]
+   *                 the server's relay tick, in ticks; in what is heard,
+   *                 from 34 to 66 frames a second that is the first frame at
+   *                 or after its own tick, and the whole look is in the
+   *                 delay only at 30 and under (W3-23a)          [300, 100]
    *   seed:         PRNG seed for the loss pattern / crackle        [0xC0FFEE]
    *   received:     the source is voice as the game received it, already
    *                 through a sender and the codec (a demo's packets,

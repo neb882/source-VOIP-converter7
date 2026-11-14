@@ -13,7 +13,9 @@ frame what the game does once a frame: it adds the messages whose arrival tick h
 runs every tick due, then pulls every mixer block due (the order W3-23r read). Frame k is at (88200 k) / fps half
 samples. At jitter 0 each message reaches the channel at the listener's first look after the server's relay tick,
 the model with jitter as its jitter goes to 0, in closed form (the orchestrator's ruling 2); `codecInfo.arrivals`
-stays absent there. `steamChannel` hands the gain each message's own frame blocks when the channel adds it, not
+stays absent there. *Corrected in the fix round:* that is true in ticks; in what is heard, from 34 to 66 frames a
+second the two ticks taken off put the message in the first frame at or after its own tick, and the whole look is
+in the delay only at 30 and under (measured, the second reader). `steamChannel` hands the gain each message's own frame blocks when the channel adds it, not
 the last pushed message's. At 1000/15 frames a second and above nothing changes, to the last sample, and a
 timeline with no end (the live monitor's) keeps even ticks and blocks at every rate until W3-23b.
 
@@ -431,3 +433,39 @@ const ms = performance.now() - t0;
 console.log(JSON.stringify({ root: path.basename(root), fps, jitterMs, seconds: +(ms / 1000).toFixed(2), maxRssMb: +(process.resourceUsage().maxRSS / 1024).toFixed(1),
   samples: r.samples.length, opens: r.codecInfo.channel.opens }));
 ```
+
+## The fix round (2026-11-14)
+
+The order's section "W3-23a: after the review and the second read", items 1 to 4, after `main` (`c28e296`) was
+merged in.
+
+1. **Frame rates under 10.** Check 1 gains fps 5: two streams at 5 fps give fps 10's samples and `info`, `fps`
+   aside. Section 22 gains 5: the render's plan at 5 fps gives fps 10's ticks over 40,000 ticks and says fps 10.
+   The reviewer's two breaks now fail: a frame time from the raw `fps` fails check 1 (`--frames`), and the arrival
+   plan from the raw `fps` fails section 22's first check.
+2. **The looks' rounding.** The rule's looks are now the frame clock's frames, `(88200 k) / fps` half samples
+   against `1323 (p + 1)`, and the arrival is `ceil(F(k) / 1323) − 2` (`engine/network.js`; the second model in
+   `reference-arrivals.mjs` likewise). That does not make jitter 0 equal jitter 0.000001 at all 567 one-decimal rates
+   from 10.0 to 66.6, because jitter 0.000001 itself rounds: its looks are `k × 1000 / fps` ms and its arrival
+   `ceil(r / 15)`. The closest exact statement, now a check in section 22: at all 567 rates over 20,000 ticks the rule
+   is the second model's, and it is the rule worked in whole numbers at the rate f / 10 (BigInt) wherever no look
+   falls exactly on a tick; at such a look the clock's double decides (at 61 rates), and jitter 0.000001 departs from
+   the whole numbers only at such looks too (at 60 rates, by its own milliseconds). Elsewhere neither differs
+   (measured). Break: the looks as `k × (88200 / fps)` fail that check.
+   **What it moved:** against the rule as it stood at `4f7e160`, arrival ticks change at 63 of the 567 rates, on 2 to
+   360 of 20,000 ticks (360 at 11.2, 292 at 18.4 and 36.8, 236 at 65.6), each at a look exactly on a tick; none at the
+   order's rates (10, 20, 24, 30, 40, 50, 59.94, 60, 66), where every figure above stands. On 12 s of the suite's talk
+   (seed 1, jitter 0) a render's samples move at 36.8 fps (103 of 529,200 samples, from sample 235,403) and at 65.6
+   (512 samples, one block, from 151,041), and not at 11.2, 18.4, 32.8, 66.6, 30 or 60 (measured).
+3. **The words of the rule** (`engine/render.js`, `engine/network.js`, this report's first paragraph, a dated line
+   under finding 9): the first look after the relay tick is true in ticks; from 34 to 66 frames a second the message
+   is heard from the first frame at or after its own tick, and the whole look is in the delay only at 30 and under.
+4. **The block's phase is chosen.** Dated lines under finding 22 ("The pulls' count") and finding 30, and in
+   `docs/reports/W3-23r-frame-read.md`: a fixed lead moves no sample only when it is whole blocks; the read lead
+   `A = (0.1 + frame) × 44100` samples is not, and the model's step 3 is the case `A mod 512 = 0`.
+
+**Checks.** `node tests/voice-channel.verify.mjs`: "162 voice channel checks passed". `node
+tests/render-channel.verify.mjs`: "319 render-channel checks passed, 0 failed". `flock /tmp/tf2ve-heavy.lock node
+tests/render-stream.verify.mjs --hashes` after the fix: equal byte for byte to the output at `91d37c6` (SHA-256
+`f73fee8b…`). The whole `pnpm test` and the browser suite were not run again locally (the account's weekly usage);
+CI runs every suite on the head.

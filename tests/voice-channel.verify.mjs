@@ -1469,8 +1469,16 @@ function frameClockChecks() {
         packets += model.info.packets;
       }
     }
-    check('check 1: createTimeline under the frame clock gives the second model\'s samples and info, member for member (made-up traffic at 10, 20, 24, 30, 40, 50, 59.94, 60 and 66 fps, three streams each; pushed whole, with advance() every 3 ticks, and with advance() twice at odd ticks and at a tick before the last)',
-      same === all && waited > 0, first || `${all} runs of ${packets} messages in all; in the streams that end at 9 s ${waited} messages past the end`);
+    // Under 10 the rate is 10 (the fix round, item 1): at 5 fps each stream gives fps 10's samples and info, fps aside.
+    let under = 0, underSame = 0;
+    for (const [seed, bufferMs, fadeTime, length] of [[1, 100, 0.1, 44100 * 14 + 37], [3, 200, 0.1, 44100 * 9]]) {
+      const messages = madeUpMessages(seed, 900), a = framesRun(messages, { fps: 5, bufferMs, fadeTime, length }), b = framesRun(messages, { fps: 10, bufferMs, fadeTime, length });
+      const { fps: fa, ...ia } = a.info, { fps: fb, ...ib } = b.info;
+      under++;
+      if (fa === 5 && a.samples.every((v, i) => Object.is(v, b.samples[i])) && infoText(ia) === infoText(ib)) underSame++;
+    }
+    check('check 1: createTimeline under the frame clock gives the second model\'s samples and info, member for member (made-up traffic at 10, 20, 24, 30, 40, 50, 59.94, 60 and 66 fps, three streams each; pushed whole, with advance() every 3 ticks, and with advance() twice at odd ticks and at a tick before the last); at 5 fps, fps 10\'s run',
+      same === all && waited > 0 && underSame === under, first || `${all} runs of ${packets} messages in all; in the streams that end at 9 s ${waited} messages past the end; at 5 fps ${underSame} of ${under} streams fps 10's`);
   }
   {
     // finish() adds every message given (the plan review's edit 3): a spurt that starts after the end

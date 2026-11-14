@@ -1916,8 +1916,36 @@ if (runs(22)) {
     if (!(bad < 0 && rising && planRight && !!zero.frames === under && zero.floorTicks === 0 && ref.floorTicks === 0 && (under || moved === 0))) ok = false;
     rows.push(`${fps === 1000 / 15 ? '1000/15' : fps}: ${bad < 0 ? '' : `DIFFERS from tick ${bad}; `}${(100 * moved / N).toFixed(1)}% of ticks moved, ${(15 * sum / N).toFixed(2)} ms in the mean, ${most} at most${planRight ? '' : '; the plan WRONG'}${rising ? '' : '; FALLS'}`);
   }
-  check('jitter 0 gives the ticks of jitter 0.000001 (seeds 1 to 3) and of the second model\'s closed form, tick for tick over 40,000 ticks, at 10, 20, 24, 30, 40, 50, 59.94, 60, 66, 1000/15, 66.67, 75 and 300 fps, and the second model\'s at 66.66666666666666; at(p) >= p and never falls; under 1000/15 a render\'s plan is this rule (frames true, floorTicks 0, jitter 0), at 1000/15 and above it is null as before, and with no end it is null (W3-23b, not built yet)',
-    ok, rows.join('; '));
+  // Under 10 the rate is 10 (the fix round, item 1): a render's plan at 5 fps gives fps 10's ticks and says 10.
+  const p5 = steamArrivalPlan({ jitterMs: 0, fps: 5, seed: 1 }), p10 = steamArrivalPlan({ jitterMs: 0, fps: 10, seed: 1 });
+  let p5bad = -1;
+  for (let p = 0; p < N && p5bad < 0; p++) if (p5.at(p) !== p10.at(p)) p5bad = p;
+  check('jitter 0 gives the ticks of jitter 0.000001 (seeds 1 to 3) and of the second model\'s closed form, tick for tick over 40,000 ticks, at 10, 20, 24, 30, 40, 50, 59.94, 60, 66, 1000/15, 66.67, 75 and 300 fps, and the second model\'s at 66.66666666666666; at(p) >= p and never falls; under 1000/15 a render\'s plan is this rule (frames true, floorTicks 0, jitter 0), at 1000/15 and above it is null as before, and with no end it is null (W3-23b, not built yet); at 5 fps the plan is fps 10\'s, tick for tick',
+    ok && p5bad < 0 && p5.fps === 10 && p5.frames === true, `${rows.join('; ')}; 5 fps: ${p5bad < 0 ? 'fps 10\'s' : `DIFFERS from tick ${p5bad}`}, fps ${p5.fps}`);
+  // The fix round, item 2: the looks are the frame clock's frames, (88200 k) / fps half samples. At all 567 one-decimal
+  // rates from 10.0 to 66.6, over 20,000 ticks: the rule equals the second model; it equals the rule worked in whole
+  // numbers at the rate f / 10 wherever no look falls exactly on a tick (there the frame clock's own double decides);
+  // jitter 0.000001 also departs from the whole numbers only at such looks (its looks and its ceil are in ms).
+  {
+    let bad = '', offTick = 0, smallOff = 0, onTickRates = 0, smallRates = 0;
+    for (let f = 100; f <= 666; f++) {
+      const fps = f / 10, z = A.steamArrivals({ jitterMs: 0, fps }), e = A.steamArrivals({ jitterMs: 1e-6, fps, seed: 1 }), ref = referenceArrivals({ jitterMs: 0, fps, ticks: 20000 });
+      let on = 0, sm = 0;
+      for (let p = 0; p < 20000; p++) {
+        const a = z.at(p);
+        if (a !== ref.at[p] && !bad) bad = `${fps} at tick ${p}`;
+        const enter = 1323n * BigInt(p + 1) * BigInt(f), k = enter / 882000n + 1n, num = 882000n * k, den = 1323n * BigInt(f);
+        const whole = Number((num + den - 1n) / den) - 2, onTick = num % den === 0n || num - 882000n === enter;
+        if (a !== whole) { if (onTick) on++; else offTick++; }
+        if (e.at(p) !== whole) { if (onTick) sm++; else smallOff++; }
+      }
+      if (on) onTickRates++;
+      if (sm) smallRates++;
+    }
+    check('the looks timed as the frame clock times its frames: at all 567 one-decimal rates from 10.0 to 66.6, over 20,000 ticks, the rule is the second model\'s, and the whole numbers\' at the rate f / 10 wherever no look falls exactly on a tick; jitter 0.000001 departs from the whole numbers only at such looks too',
+      !bad && offTick === 0 && smallOff === 0,
+      bad ? `the second model differs at ${bad}` : `at a look exactly on a tick the rule follows the frame clock's double at ${onTickRates} rates and jitter 0.000001 its own ms at ${smallRates}; elsewhere ${offTick} and ${smallOff} differences`);
+  }
   // Against jitter 0.5 and 1, seeds 1 to 3: the mean of the model's tick less the rule's, in ms (both less their floor).
   const figures = [];
   let close = true;

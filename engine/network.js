@@ -206,7 +206,12 @@
   // floorTicks is 0, jitterMs 0, and frames true says it is this rule (a
   // render does not report it as codecInfo.arrivals: no jitter is on). at(p)
   // >= p and never falls. At 1000/15 and above, and endless (the live
-  // monitor's chain: W3-23b, not built yet), at(p) is p, as before.
+  // monitor's chain: W3-23b, not built yet), at(p) is p, as before. That is
+  // the listener's first look after the relay tick in ticks; in what is
+  // heard, from 34 to 66 frames a second the two ticks taken off put the
+  // message in the first frame at or after its own tick, and the whole look
+  // is in the delay only at 30 and under (measured, the second reader of
+  // W3-23a).
   //   endless (W3-02c-3, the live monitor's chain, which has no end): at()
   // takes ticks that never fall, refuses one below the last asked with a
   // RangeError (the same tick again is taken), and keeps no leaving tick
@@ -262,21 +267,29 @@
   // than a tick (W3-23a; steamArrivals says the rule): the listener's look
   // after the server's relay tick. F is the frame rate, limited. at() takes
   // whole ticks from FAKE_LAG_START_TICK on, as the model with jitter does.
+  // The looks are the listener's frames, timed as the voice channel's frame
+  // clock times them (voice-channel.js: frame k at (88200 k) / fps half
+  // samples at 44.1 kHz, compared with the whole numbers 1323 x tick), so the
+  // look is the frame the clock runs after the relay tick, by the clock's own
+  // arithmetic. A look exactly on a tick (in whole numbers at the rate) is
+  // decided by that double, as the clock decides it; k x 1000 / fps in ms
+  // decided some such looks the other way (the second reader of W3-23a; the
+  // fix round, item 2).
   function steamFrameArrivals(F) {
-    const look = STEAM_CROSSINGS[1].looks(F);
+    const frame = (k) => (88200 * k) / F, TICK = 1323;
     return {
       jitterMs: 0, fps: F, floorTicks: 0, frames: true,
       at(tick) {
         if (!Number.isInteger(tick) || tick < FAKE_LAG_START_TICK) {
           throw new RangeError(`steamArrivals: at() takes a whole tick from ${FAKE_LAG_START_TICK} on, not ${tick}.`);
         }
-        const enter = STEAM_TICK_MS * (tick + 1);
+        const enter = TICK * (tick + 1);
         // The first look past the entry: a guess from the looks' spacing, then
         // the exact comparison each way.
-        let k = Math.floor(enter * F / 1000);
-        while (look(k) - enter > 0) k--;
-        while (look(k) - enter <= 0) k++;
-        return Math.ceil(look(k) / STEAM_TICK_MS) - 2;
+        let k = Math.floor(enter * F / 88200);
+        while (frame(k) > enter) k--;
+        while (frame(k) <= enter) k++;
+        return Math.ceil(frame(k) / TICK) - 2;
       }
     };
   }
