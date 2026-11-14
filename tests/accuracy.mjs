@@ -15,14 +15,15 @@
  * It prints one row per take and, with --json, writes everything, including
  * each talk spurt's timing in the take.
  *
- * Over several seeds (order AC-02): --seeds <n> measures each row n times,
- * at the row's own seed (settings.seed) or the default, then at seeds 1 to
- * n - 1, skipping any that equals the first. The seed draws what no
+ * Over several seeds (order AC-02): --seeds <n> measures each row at n
+ * different seeds: the row's own (settings.seed) or the default, then the
+ * first n - 1 others from seed 1 up. The seed draws what no
  * recording shows: the sender's clock and capture phase, and with them where
  * the queue's skips and early starts fall; the room's random taps; which
  * messages a loss takes. Each measurement is the whole of measureInPage. The
- * row prints each figure as its median over the seeds, most with their range;
- * the JSON keeps every seed's result under the row and a summary. Without
+ * row prints each figure as its median over the seeds, most with their range,
+ * and the worst band as the median seed's by size, with its own value; the
+ * JSON keeps every seed's result under the row and a summary. Without
  * the option, or with --seeds 1, the suite runs as before.
  *
  * Pre-registered predictions (tests/predictions): --write-predictions
@@ -339,13 +340,14 @@ function summary(result) {
 
 // Over several seeds (order AC-02). The default seed is the engine's, read in
 // engine/render.js (opts.seed, 0xC0FFEE); a row's own seed is settings.seed,
-// taken as the engine takes it.
+// taken as the engine takes it (finiteOr, engine/dsp.js: Number(), then >>> 0),
+// so "3" is seed 3.
 const DEFAULT_SEED = 0xC0FFEE;
-const firstSeed = (settings) => (settings && Number.isFinite(settings.seed) ? settings.seed >>> 0 : DEFAULT_SEED);
-// The first seed, then 1 to n - 1 without the first.
+const firstSeed = (settings) => (settings && Number.isFinite(Number(settings.seed)) ? Number(settings.seed) >>> 0 : DEFAULT_SEED);
+// n different seeds: the first, then the first n - 1 others from 1 up.
 function seedList(first, n) {
   const seeds = [first];
-  for (let s = 1; s <= n - 1; s++) if (s !== first) seeds.push(s);
+  for (let s = 1; seeds.length < n; s++) if (s !== first) seeds.push(s);
   return seeds;
 }
 const median = (values) => {
@@ -356,13 +358,14 @@ const spread = (values) => {
   const v = values.filter(Number.isFinite);
   return { median: median(v), least: v.length ? Math.min(...v) : null, most: v.length ? Math.max(...v) : null };
 };
-// The medians and ranges of a row's measurements. The worst band is the band
-// of the median seed's measurement, the one whose worst band's value is the
-// median (the lower of the two middle ones for an even count), with the
-// median of the values.
+// The medians and ranges of a row's measurements. Each seed's worst band is
+// its band of largest size, so the worst band is the median seed's by that
+// size (the lower of the two middle ones for an even count): its band and its
+// own signed value, with the range of the sizes.
 function seedSummary(measured) {
   const of = (get) => spread(measured.map(get));
-  const byBand = measured.filter(m => Number.isFinite(m.summary.bandWorst)).sort((a, b) => a.summary.bandWorst - b.summary.bandWorst);
+  const byBand = measured.filter(m => Number.isFinite(m.summary.bandWorst))
+    .sort((a, b) => Math.abs(a.summary.bandWorst) - Math.abs(b.summary.bandWorst));
   const middle = byBand.length ? byBand[(byBand.length - 1) >> 1] : null;
   return {
     seeds: measured.map(m => m.seed),
@@ -371,7 +374,8 @@ function seedSummary(measured) {
     trims: of(m => m.timing.trims), otherSteps: of(m => m.timing.within + m.timing.between),
     clockPpm: of(m => m.timing.clockPpm), alignmentR: of(m => m.timeline.correlation),
     levelRms: of(m => m.summary.levelRms), levelWorst: of(m => m.summary.levelWorst), levelR: of(m => m.summary.levelR),
-    bandWorst: { hz: middle ? middle.summary.bandWorstHz : '', seed: middle ? middle.seed : null, ...of(m => m.summary.bandWorst) },
+    bandWorst: { hz: middle ? middle.summary.bandWorstHz : '', seed: middle ? middle.seed : null, db: middle ? middle.summary.bandWorst : null,
+      sizeDb: of(m => Math.abs(m.summary.bandWorst)) },
     clipTake: of(m => m.summary.clipTake), clipSim: of(m => m.summary.clipSim), anchorDb: of(m => m.summary.anchorDb)
   };
 }
@@ -627,8 +631,8 @@ async function main() {
 async function measureOverSeeds({ page, base, served }, jobs, n, results) {
   const range = (x, d, sign = false) => `${f(x.median, d, sign)} [${f(x.least, d, sign)}…${f(x.most, d, sign)}]`;
   const count = (x) => (x.median === null ? '—' : Number.isInteger(x.median) ? String(x.median) : x.median.toFixed(1));
-  console.log(`\nEach figure is the median over the row's seeds (its own or the default, then 1 to ${n - 1}); [least…most] is the range.`
-    + '\nSpurts, Segs, Delay, Trims, Other and Clip give the medians only; the worst band is the median seed\'s band, with the median value.');
+  console.log(`\nEach figure is the median over the row's seeds (its own or the default, then the first ${n - 1} others from seed 1); [least…most] is the range.`
+    + '\nSpurts, Segs, Delay, Trims, Other and Clip give the medians only; the worst band is the band of the median seed by its size, with that seed\'s value.');
   console.log('\nTake                       Set  Spurts Segs  Delay, s (min…max)  Trims Other  Clock ppm [least…most]  r [least…most]     '
     + 'Level rms [least…most] / worst [least…most], dB  r [least…most]       Worst band 80 Hz–12 kHz  Clip % take/sim  Level, sim − take [least…most]');
   let k = 0;
@@ -663,7 +667,7 @@ async function measureOverSeeds({ page, base, served }, jobs, n, results) {
       + `${f(s.delayMinMs.median / 1000, 3).padStart(8)}…${f(s.delayMaxMs.median / 1000, 3).padEnd(9)}  ${count(s.trims).padStart(5)} ${count(s.otherSteps).padStart(5)}  `
       + `${range(s.clockPpm, 0, true).padStart(22)}  ${range(s.alignmentR, 2).padEnd(17)}  `
       + `${range(s.levelRms, 2).padStart(22)} / ${range(s.levelWorst, 1).padEnd(22)}  ${range(s.levelR, 3).padEnd(19)}  `
-      + `${(f(s.bandWorst.median, 1, true) + ' dB at ' + s.bandWorst.hz).padEnd(23)}  ${(f(s.clipTake.median, 1) + ' / ' + f(s.clipSim.median, 1)).padEnd(15)}  `
+      + `${(f(s.bandWorst.db, 1, true) + ' dB at ' + s.bandWorst.hz).padEnd(23)}  ${(f(s.clipTake.median, 1) + ' / ' + f(s.clipSim.median, 1)).padEnd(15)}  `
       + `${range(s.anchorDb, 1, true)} dB`
       + `${job.random ? '  (random loss: statistics only)' : ''}`
       + `${failed.length ? `  (failed at seed${failed.length > 1 ? 's' : ''} ${failed.map(x => x.seed).join(', ')}: ${failed[0].error.split('\n')[0]})` : ''}`);
