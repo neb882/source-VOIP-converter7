@@ -42,7 +42,7 @@ So the gap was the take's ending, not the render.
    A row asks for the file's own timing with `"timeline": "source"` in its settings. Do not rely on the page's
    controls for the codec or the warble: a row's settings may change either.
 
-   The lossless guide render (`guide`, `:107`) takes the same timing as the render.
+   The lossless guide render (`guide`, `:108`) takes the same timing as the render.
 
    The JSON a run writes (`--json`) records the timing each take was rendered on (`options` already holds it once
    merged; check that it does).
