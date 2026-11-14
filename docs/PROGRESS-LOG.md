@@ -687,3 +687,7 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-14: W3-23a merged (cache v51); entries replaced
 
 - live.last_merge, earlier merges cut: "AC-01 (no cache change, 2026-11-14): the accuracy suite renders each take as the page does by default, Steam voice on the game's voice queue (300 frames a second, voice_buffer_ms 100; Set C's photogra"
+
+## 2026-11-14: AC-03 being planned; entries replaced
+
+- deferred, the line-up's pieces on repeated bursts, removed (now AC-03, in_flight)

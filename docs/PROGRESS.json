@@ -14,6 +14,12 @@
       "file": "docs/work-orders/W3-23-low-frame-rates.md",
       "stage": "builder",
       "line": "the live monitor's chain on the frame clock: a hold of ceil(88200 / (1024 x fps)) blocks over D, onOpen, and the three cases W3-23a moved put back. Nothing moves at 66.67 and above."
+    },
+    {
+      "order": "AC-03",
+      "file": "docs/work-orders/AC-03-line-up-on-repeats.md (being planned)",
+      "stage": "planner",
+      "line": "the line-up (TF2Reference.track) places some pieces of the test signal 0.3 to 0.5 s off on its repeated bursts (measured privately 2026-11-14); a fix serves the accuracy suite and the page's real-take check."
     }
   ],
   "next": [
@@ -172,10 +178,6 @@
     {
       "finding": "The live chain's steamTimeline keeps an open-ended frame log, so a monitor session grows about 2 MB an hour, with or without the queue (inferred from the code by W3-02c-3's planner, 2026-11-13).",
       "why": "Nothing breaks within a session's usual length; W3-02c-3 does not fix it, and an order of its own can cap the log."
-    },
-    {
-      "finding": "The accuracy suite's line-up places some pieces of the test signal 0.3 to 0.5 s off, on its repeated bursts, on both timings and at different pieces: take3_voice_avggain_0.25's first 30 s on the queue, two pieces of 2 s on each timing in take1_default (measured privately 2026-11-14; docs/ACCURACY.md, 'Against the file's own timing').",
-      "why": "It moves the level figures of those takes, not the render; a fix is in TF2Reference.track (the page's real-take check too), so it is an order of its own."
     }
   ],
   "ideas_not_started": [
