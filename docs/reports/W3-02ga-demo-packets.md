@@ -237,6 +237,31 @@ On this branch, before the merge, with nothing of the record copied out but numb
   section is also run by the stages suite, where nothing can be awaited, so the library's encoder cannot run
   there); the real-Opus fixture is rendered in render-channel 21.
 
+## The fix round (2026-11-14)
+
+From the order's last section ("The private look (ii), the review, the second read and the rulings"), ruling 3.
+`main` (W3-02c-3b, cache v49, and the documents) was merged in first (`77ddd4d`).
+
+- **A cut source.** Section 21 renders `queue.dem` with its source cut at 72,000 samples (3 s) at 300 and 66.67 fps
+  and compares `process()` with the reference, samples, `codecInfo.channel` and `codecInfo.demo`. Messages arrive
+  between the render's end and the end plus the zero (5 at 300 fps, 1 at 66.67; asserted at least one), are pushed,
+  and still sound; the rest are past the end. The reviewer's break, the first block past the end counted without the
+  zero, fails both renders (made on the scratch copy).
+- **A silence record in front of frames.** Section 21's silence packets gain a message of a silence record alone,
+  which closes the spurt, and a message `[{ silence: 750 }, { frames: [end marker, 6 frames] }]`. Its source is its
+  first frame's place less the zeros (1,378 samples), and `codecInfo.channel` (the source map and the spurts) and the
+  voice equal `demoReference`'s. The reviewer's break, `before` dropped, fails it.
+- **Standings.** `engine/steam.js`: a refused message given to the channel as an empty packet, which opens a channel
+  when none is open, is marked chosen, not read (ruling 5 of 2026-11-11, one line of Set J's log); a record that
+  made no block and a silence record of 0 samples, which make no resampler call, are marked as choices.
+  `tests/REFERENCE_2026.md`: finding 29 gains a dated line with the refused message's standing; finding 21 gains a
+  dated entry with look (ii)'s table, ruling 2's open finding, the second read's figures and Set D's slot counts
+  beside the grid's expectation, each with its standing as the order's section gives it. Nothing was edited there,
+  only added.
+- **The report.** Its comparison with the prototype is corrected (above, "Not done, and open").
+
+Checks: `node tests/render-channel.verify.mjs 21` passed; `flock /tmp/tf2ve-heavy.lock pnpm test` on `371ddc6`: `27 of 27 suites passed. 1222.6 s summed` (`== render-channel: passed, 158.4 s`). CI run 43559321413 on `371ddc6`: `verify` success (units, engine, render, stages and browser all success). The commit that adds this section changes `docs/` only and starts no run.
+
 ## The scan
 
 `git diff origin/main...HEAD` and the branch's commit messages were read for recordings, personal details, real
