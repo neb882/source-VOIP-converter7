@@ -760,3 +760,26 @@ reached by nothing in Set D are built from the read alone and marked so; an unus
 marked so); the parts in the order of the table; a second reader for part a, none for part b. A plan reviewer reads
 the order before part a is built; part a starts after W3-02c-3a is merged. The orchestrator runs private look (i)
 meanwhile.
+
+## The orchestrator's private look (i) (2026-11-14)
+
+The plan report's script on Set D's demo at `main` `f5de42a` (measured, private; the demo stays private). It holds
+one speaker:
+
+| Figure | Set D |
+| --- | --- |
+| tick length | 0.014999999664723873 s (the float 0.015) |
+| messages | 1,816 |
+| ticks holding 1 / 2 messages | 1,264 / 276 |
+| ticks between one message's tick and the next | 4 at 1,376, 8 at 146, longer 15 times (the pauses) |
+| frames a message | 0 to 8: 0 at 19, 1 at 181, 2 at 235, 3 at 1,155, 4 at 189, 5 at 19, 6 at 1, 8 at 17 |
+| records a message | 1 in every message |
+| sample-rate records | 24,000 in every message |
+| silence records | 750 samples twice, 1,500 samples 17 times |
+| messages over 12 frames, empty messages, gaps, numbers behind, frames of length 0, frames past their record | none |
+| first number of each phrase | 0, at all 20 phrases |
+
+**What follows.** Set D reaches the path and the ticks, and "several messages on one tick" (276 ticks), on SourceTV's
+60 ms spacing; it reaches neither the 12-frame refusal nor the 17-frame cut nor any of ruling 6's three rules, so the
+cut rests on Set J (look ii, step 5), and those rules stay built from the read alone, marked so. Every phrase starting
+at number 0 agrees with ruling 7's inferred expectation and does not test it.
