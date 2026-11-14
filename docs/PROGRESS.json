@@ -5,15 +5,15 @@
     "url": "https://neb882.github.io/source-VOIP-converter7/",
     "serves": "main (GitHub Pages from the branch root)",
     "main": "the head of main (git log); the site's cache number is below",
-    "cache": 50,
-    "last_merge": "AC-02 (no cache change, 2026-11-14): the accuracy suite's --seeds n measures each row at n different seeds (its own or the default, then the first n - 1 others from seed 1) and prints each figure as a median with its range, the worst band as the median seed's by size; without the option the suite is unchanged; tests/retiming.mjs refuses seeded JSON. Before it: AC-01 (no cache change, 2026-11-14): the accuracy suite renders each take as the page does by default, Steam voice on the game's voice queue (300 frames a second, voice_buffer_ms 100; Set C's photographed 295 and 336); with loss or jitter on the queue the render is lined up as the take is (the review's finding); the predictions keep the file's own timing; tests/retiming.mjs refuses JSON rendered on the queue; music_take_it_off's cut ends before the take's key release. docs/ACCURACY.md's table is the suite on the queue (private run, measured)."
+    "cache": 51,
+    "last_merge": "W3-23a (cache v51, 2026-11-14): on the game's voice queue at a listener frame rate under 1000/15, the voice channel runs a frame clock in the order W3-23r read from the owner's engine.dll (in each frame the messages due, then the ticks due, then the mixer's blocks), and at jitter 0 a message arrives on the listener's first look after the server's relay tick, as the jitter model gives in its limit. Nothing moves at 66.67 frames a second and above (the hash list equal byte for byte). Measured on the model: an opened phrase sits 18, 8, 18 and 19 ms early at 60, 30, 20 and 10 (ruling 3: D unchanged); at 60 and 50 the level moves under 0.01 dB. The live monitor's chain is W3-23b. Before it: AC-02 (no cache change, 2026-11-14): the accuracy suite's --seeds n measures each row at n different seeds (its own or the default, then the first n - 1 others from seed 1) and prints each figure as a median with its range, the worst band as the median seed's by size; without the option the suite is unchanged; tests/retiming.mjs refuses seeded JSON."
   },
   "in_flight": [
     {
       "order": "W3-23",
       "file": "docs/work-orders/W3-23-low-frame-rates.md",
-      "stage": "W3-23r read and plan-reviewed 2026-11-14; W3-23a built 2026-11-14 (nothing moves at 66.67 and above: the hash list equal byte for byte), in review and second read; then W3-23b",
-      "line": "frame rates under 67 on the game's voice queue: the voice channel's frame clock and the arrival at jitter 0 (a), the live monitor's chain (b). Nothing moves at 66.67 and above."
+      "stage": "W3-23r read and W3-23a merged 2026-11-14 (cache v51); W3-23b (the live monitor's chain) not started",
+      "line": "W3-23b puts the live chain on the frame clock with a hold of ceil(88200 / (1024 x fps)) blocks, takes onOpen, and puts back the three cases W3-23a moved."
     }
   ],
   "next": [

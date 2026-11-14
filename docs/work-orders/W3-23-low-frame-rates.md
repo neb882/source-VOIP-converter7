@@ -1,6 +1,6 @@
 # W3-23: frame rates under 67 on the game's voice queue
 
-**Status 2026-11-14: planned, not built.** Written by a planner from the repository alone, at `main` `7e5e9e6`
+**Status 2026-11-14: planned and plan-reviewed; W3-23r read; W3-23a built, reviewed, second-read and merged (cache v51); W3-23b not built.** Written by a planner from the repository alone, at `main` `7e5e9e6`
 (cache v50). It is read by a plan reviewer before any build. Three rulings are wanted first ("Rulings wanted before
 the build").
 
