@@ -8,7 +8,14 @@
     "cache": 50,
     "last_merge": "AC-02 (no cache change, 2026-11-14): the accuracy suite's --seeds n measures each row at n different seeds (its own or the default, then the first n - 1 others from seed 1) and prints each figure as a median with its range, the worst band as the median seed's by size; without the option the suite is unchanged; tests/retiming.mjs refuses seeded JSON. Before it: AC-01 (no cache change, 2026-11-14): the accuracy suite renders each take as the page does by default, Steam voice on the game's voice queue (300 frames a second, voice_buffer_ms 100; Set C's photographed 295 and 336); with loss or jitter on the queue the render is lined up as the take is (the review's finding); the predictions keep the file's own timing; tests/retiming.mjs refuses JSON rendered on the queue; music_take_it_off's cut ends before the take's key release. docs/ACCURACY.md's table is the suite on the queue (private run, measured)."
   },
-  "in_flight": [],
+  "in_flight": [
+    {
+      "order": "W3-23",
+      "file": "docs/work-orders/W3-23-low-frame-rates.md (being planned)",
+      "stage": "planner",
+      "line": "frame rates under 67 on the game's voice queue: the render at jitter 0 has no look once a frame where the model with jitter has one (BC-4's item 10); ticks, looks and pulls worked out together. Expected to move nothing at the page's 300 frames a second."
+    }
+  ],
   "next": [
     {
       "order": "W3-02g-b",
