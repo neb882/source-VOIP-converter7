@@ -179,7 +179,9 @@ README and the report changed after it).
 5. This report.
 
 CI (`tests`) on the branch: run 43533980213 on `c38895e`: `verify` failure; `units`, `engine`, `render` and
-`stages` success, `browser` failure at the same check as above. The later pushes are recorded at the end.
+`stages` success, `browser` failure at the same check as above. Run 43539904627 on the head `8f1f017` (the report,
+the suites' times and a merge of `main`): `verify` failure; `units`, `engine`, `render` and `stages` success;
+`browser` failure at [Browser 3f2], the same line. This line's commit changes only `docs/` and starts no run.
 
 ## The question, and what was not done
 
