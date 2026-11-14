@@ -783,3 +783,39 @@ one speaker:
 60 ms spacing; it reaches neither the 12-frame refusal nor the 17-frame cut nor any of ruling 6's three rules, so the
 cut rests on Set J (look ii, step 5), and those rules stay built from the read alone, marked so. Every phrase starting
 at number 0 agrees with ruling 7's inferred expectation and does not test it.
+
+## After the plan review (2026-11-14, the orchestrator)
+
+A plan reviewer read the order as its builder would (ready with edits). It rebuilt the worked table by an independent
+walk on the pinned libopus and the swresample port (all seven rows match) and `synthetic.dem` on the queue (the first
+speaker's three messages refused, the second's two taken), and recomputed `arrivalZero` (4,096, 6,144 and 14,848;
+never below 0), all measured. Each point binds part a's builder and holds over the text above.
+
+1. **`steamChannel().zero` with `zeroSamples`.** W3-02c-3a's `steamChannel` returns `zero: zero(bufferMs, fps,
+   lookahead / STEAM_RATE)` (`engine/steam.js:246` on its branch). With `zeroSamples` given, `steamChannel` passes no
+   codec delay and its `zero` is `zeroSamples`; `steamDemoVoice` is given the zero explicitly; a check that
+   `steamChannel({ zeroSamples }).zero === zeroSamples`. The table of meeting places gains this row.
+2. **The silence-record drop is checked**, with packets built in the render-channel suite: 11 frames then a silence
+   record of 750 (9,702 is more than 8,820: dropped, `droppedSilence` 1) and 10 frames then 750 (8,820 is not more:
+   kept, about 10,198 samples). A break row for each.
+3. **`queue.dem` gains four shapes**, and the payload writer in `tests/demo.verify.mjs` learns type 0 records and
+   several records a message (within its file): a message of 7 + 7 frames in two records (each fits, together refused)
+   and one of 4 + 5 (taken), so the rows "the resampler called once per message with two records joined" and "the
+   refusal judged per record" fail when broken (one call over a joined 7 + 7 differs from two calls in 6,177 of 12,348
+   samples, measured); a gap between two frames of one taken message; a message past the end (`pastEnd` 1, `pushed`
+   messages − 1, `channel.packets` = `pushed`), with a break row "past-end messages pushed".
+4. **What `decode()` returned before** is held by hashes of `samples`, `frameLog` and `frameBytes` for both speakers
+   of `synthetic.dem`, recorded on `main` before any change, not by the suite's counts alone.
+5. **The opus suite** compares `record()` with `receive()` frame by frame, which has no buffer; `record()` takes no
+   buffer size (17 stays a named constant).
+6. **Places that read two ways.** The builder settles each in the report with its choice, consistent with the order's
+   rules, and a check for each: the `source` of a message whose packet starts with a silence record's zeros; whether
+   past-end messages are decoded and counted in `concealed`, `refusedMessages` and the other counts; whether
+   `onDecoded` is called for silence records; `at` is the `pos` where the frame was laid and its `frameLog` index
+   `round(at / 480)`, so the "frameLog as played against sent" check allows a slot at `pos` ≡ 360 (mod 480) to show its
+   neighbour's code (`steamPlayedInfo` maps by floor). For part b: `app/console.js:382`'s sentence keeps its second
+   half ("The other codecs: ..."); the two timeline checks (`tests/browser.verify.js` near `:2352` and `:2660`) set
+   `voice_timeline source` first and keep their subject, and a check whose subject is the queue loads `queue.dem`.
+
+Size stands: 12 hours for part a (the edits add under one), 5 for part b. Part a starts after W3-02c-3a is merged and
+may run beside W3-02c-3b.
