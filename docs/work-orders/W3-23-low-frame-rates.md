@@ -485,3 +485,40 @@ above it; the builder of W3-23a reads this section first.
     blocks (9 at 10 frames a second, 2 at 60). One block less fails at a phase built to make it fail, not over
     random plans.
 12. **`onOpen` moves to W3-23b.** No whole-length caller uses it, only the live chain. W3-23a leaves it alone.
+
+## W3-23a: after the review and the second read (2026-11-14)
+
+The review said merge as is. It reproduced the hash list byte for byte at `91d37c6` and `4f7e160`, every changed
+recorded value and its reason, and check 10's figures. It judged the browser timeout on the branch's first commit
+timing: nothing in the diff runs at 300 frames a second but one push and pop per message.
+
+The second reader said the model is right with corrections. It wrote its own frame model from W3-23r alone and
+compared it with the branch at 60, 30, 20 and 10 frames a second, and at 59.94, 50, 40, 24 and 66, on 180 s of talk
+and three seeds: the same events in the same order and the same samples (measured). Nothing moves at 66.67 and above
+by any path it tried (18 of 18 `process()` hashes).
+
+Fixed on the branch before the merge:
+
+1. **Frame rates under 10** (the review). The code clamps them to 10, but two breaks pass every suite: a frame time
+   from the raw `fps`, and the arrival plan from the raw `fps`. The page passes a typed 5. Check 1 gains 5, against
+   fps 10's run. Section 22 gains 5, its plan's ticks against fps 10's.
+2. **The rounding of a look** (the second reader, finding 2). At 60 of the 567 one-decimal rates from 10.0 to 66.6
+   (36.8, 32.8, 33.3 and 66.6 among them), the rule at jitter 0 differs from jitter 1e-6 on up to 77 of 20,000
+   ticks, always one look earlier. The cause is `k * 1000 / fps` rounding a look a hair past a relay tick it should
+   fall on. The look times are computed as the frame clock computes its frames (the same `F(k)`). The check runs
+   over all 567 rates.
+3. **The words of the rule** (finding 1). "The listener's first look after the relay tick" is true in ticks. From 34
+   to 66 frames a second the two ticks taken off put the message in the first frame at or after its own tick; the
+   whole look is in the delay only at 30 and under (measured: 100% of messages a frame earlier at 50, 60 and 64 to
+   66, 0% at 30 and under). That is why the offsets are not monotonic. Say so at `engine/render.js:433`,
+   `engine/network.js:265`, the report's first paragraph and the record's line under finding 9.
+4. **The block's phase is chosen** (finding 3). The read gives block `b` painted at the first frame with
+   `512 b <= A + played`, where `A = (0.1 + frame) × 44100` samples is not whole blocks. Step 3 is the case
+   `A mod 512 = 0`, the plainest. The device's phase is free in the game. The records mark the block phase chosen,
+   beside the tick and frame phase, and "a fixed lead moves no sample" holds for a lead of whole blocks.
+
+For a later order, not built (finding 4): a closed form for `D` under the frame clock exists. As built it is
+−10.8 ms at 60, −12.5 at 50, −20.0 at 40, −5.8 at 30, −26.7 at 24, −22.5 at 20 and −32.5 at 10 (the second
+reader's arithmetic). It agrees with check 10 except at 10, where the gap of 13 ms is put down to underruns in the
+first 0.2 s (inferred, not checked). Ruling 3 stands: the form rests on the chosen phase, and the game's lead of 10
+to 13 blocks pushes the other way by about as much. A take at a low frame rate is its gate.
