@@ -750,22 +750,27 @@ async function liveGame(x, rate, opts, plan = 480, { keyUp = [], room = null } =
   const path = new Proxy(real, { get: (t, k) => (k === 'spurtStart' ? () => { starts.push(seen); return t.spurtStart(); }
     : typeof t[k] === 'function' ? t[k].bind(t) : t[k]) });
   const liveRoom = { path, attached: !!room };
-  const chain = await A.createLiveChain({ ...BASE, ...opts, timeline: 'game', liveRoom,
-    onGain: (g) => { voice.push(Float32Array.from(g)); seen += g.length; } }, rate);
   const sizes = typeof plan === 'number' ? [plan] : plan;
-  const marks = [];
+  const marks = [], codes = [];
+  let chain = null, error = null;
   try {
+    chain = await A.createLiveChain({ ...BASE, ...opts, timeline: 'game', liveRoom,
+      onGain: (g) => { voice.push(Float32Array.from(g)); seen += g.length; } }, rate);
     for (let at = 0, k = 0; at < x.length; k++) {
       const n = Math.min(sizes[k % sizes.length], x.length - at);
       chain.setTalking(!keyUp.some(([a, b]) => at >= a && at < b));
       await chain.process(x.subarray(at, at + n));
       at += n;
       marks.push({ at, held: chain.held() });
+      codes.push(...chain.takeFrameCodes());
     }
-  } finally { chain.free(); }
-  const D = chain.zero, P = chain.stats.pushed;
-  return { voice: join(voice), starts, stats: { ...chain.stats }, D, G: Math.floor(P * 147 / 80) - D, queueCostMs: chain.queueCostMs, marks };
+  } catch (e) { error = e; } finally { if (chain) chain.free(); }
+  const D = chain ? chain.zero : null, P = chain ? chain.stats.pushed : null;
+  return { voice: join(voice), starts, stats: chain ? { ...chain.stats } : {}, D, G: Math.floor(P * 147 / 80) - D,
+    queueCostMs: chain ? chain.queueCostMs : null, marks, codes, error };
 }
+// A run's channel opens, or null where the chain gave no counts.
+const opensOf = (live) => (live.stats.channel ? live.stats.channel.opens : null);
 // createRender on the game's timeline, its voice at the mix point and its codecInfo.
 async function renderGame(x, rate, opts) {
   const voice = [];
@@ -777,11 +782,12 @@ async function renderGame(x, rate, opts) {
 }
 // The chain's voice against the render's: G samples given, G above 0, and sample n of the one sample n of the
 // other for every n below G.
-const sameAsRender = (live, ren) => live.G > 0 && live.voice.length === live.G && live.G <= ren.voice.length
+const sameAsRender = (live, ren) => !live.error && live.G > 0 && live.voice.length === live.G && live.G <= ren.voice.length
   && firstDiff(live.voice, ren.voice.subarray(0, live.G)) === -1;
-const liveText = (live, ren) => `G ${live.G} of the render's ${ren.voice.length}; ${live.voice.length === live.G ? '' : `${live.voice.length} given; `}`
+const liveText = (live, ren) => (live.error ? `threw ${live.error.message}` : `G ${live.G} of the render's ${ren.voice.length}; `
+  + `${live.voice.length === live.G ? '' : `${live.voice.length} given; `}`
   + `first difference ${live.G > 0 && live.voice.length === live.G ? firstDiff(live.voice, ren.voice.subarray(0, live.G)) : 'n/a'}; margin ${live.stats.margin}; `
-  + `opens ${live.stats.channel.opens}`;
+  + `opens ${opensOf(live)}`);
 
 if (runs(10)) {
   console.log('\n[10] The live chain on the game\'s timeline (W3-02c-3a) gives at its mix point the stream render\'s samples, held back by D');
@@ -796,7 +802,7 @@ if (runs(10)) {
   for (const fps of [66.67, 100, 300]) SETTINGS.push([24000, fps, 50, 15, 4, 12]);
   SETTINGS.push([48000, 66.67, 0, 0, 5, 12], [48000, 300, 50, 0, 5, 12]);
   const margins = [], held = [];
-  let opensSeen = 0, arrivalsRight = true;
+  let opensSeen = 0, arrivalsRight = true, codesRight = 0, slots = 0;
   for (const [rate, fps, jitterMs, lossPct, seed, seconds] of SETTINGS) {
     const x = talk(seconds, rate, 3), o = { fps, jitterMs, lossPct, seed };
     const ren = await renderGame(x, rate, o), live = await liveGame(x, rate, o);
@@ -804,7 +810,11 @@ if (runs(10)) {
       sameAsRender(live, ren) && live.D === LIVE_D[fps], liveText(live, ren));
     margins.push({ jitterMs, seconds, fps, margin: live.stats.margin });
     held.push({ rate, marks: live.marks });
-    if (live.stats.channel.opens > 0) opensSeen++;
+    if (opensOf(live) > 0) opensSeen++;
+    // The panel's frame codes stay the sender's, on the file's own timing: the render's log as sent.
+    const sent = ren.info.sent.frameLog;
+    if (live.codes.length > 0.9 * sent.length && live.codes.every((c, i) => c === sent[i]) && live.stats.frames === live.codes.length) codesRight++;
+    slots += live.codes.length;
     if (jitterMs > 0 ? !(live.stats.arrivals && live.stats.arrivals.jitterMs === jitterMs && live.stats.arrivals.messages > 0) : 'arrivals' in live.stats) arrivalsRight = false;
   }
 
@@ -840,7 +850,7 @@ if (runs(10)) {
       let clipped = 0;
       if (o.agc === false) for (const v of ren.voice) if (Math.abs(v) >= 32767 / 32768) clipped++;
       check(`${name}: createRender's samples${room ? `, and spurtStart called at each open (${live.starts.length})` : ''}${o.agc === false ? ', where it clips' : ''}`,
-        sameAsRender(live, ren) && (!room || live.starts.length === live.stats.channel.opens) && (o.agc !== false || clipped > 0),
+        sameAsRender(live, ren) && (!room || live.starts.length === opensOf(live)) && (o.agc !== false || clipped > 0),
         `${liveText(live, ren)}${o.agc === false ? `; ${clipped} samples at the clip` : ''}`);
       margins.push({ jitterMs: o.jitterMs || 0, seconds: 12, fps: o.fps, margin: live.stats.margin });
     }
@@ -901,14 +911,18 @@ if (runs(10)) {
       ok && joined > 0, rows.join('; '));
   }
 
-  check('stats: with the queue stats.channel.opens is above 0 after talk; stats.arrivals is there with jitter, with the jitter given, and absent at jitter 0',
-    opensSeen === SETTINGS.length && arrivalsRight, `${opensSeen} of ${SETTINGS.length} runs opened a channel`);
+  check('stats: with the queue stats.channel.opens is above 0 after talk; stats.arrivals is there with jitter, with the jitter given, and absent at jitter 0; the frame codes (takeFrameCodes, stats.frames) are the render\'s log as sent, on the file\'s own timing, slot for slot',
+    opensSeen === SETTINGS.length && arrivalsRight && codesRight === SETTINGS.length,
+    `${opensSeen} of ${SETTINGS.length} runs opened a channel; the codes the render's in ${codesRight}, ${slots} slots in all`);
 
   // What the chain keeps: the channel and the arrival model with no end hold no more at the end of a run (12 or
   // 30 s) than after 5 s (chain.held(): the entries in their lists; steamTimeline's frame log aside, which grows
   // on either timeline: PROGRESS's deferred list).
   {
-    const grows = held.map(({ rate, marks }) => ({ five: marks.find((m) => m.at >= 5 * rate).held, end: marks[marks.length - 1].held }));
+    const grows = held.map(({ rate, marks }) => {
+      const five = marks.find((m) => m.at >= 5 * rate);
+      return { five: five ? five.held : NaN, end: marks.length ? marks[marks.length - 1].held : NaN };
+    });
     check('what the chain keeps: its channel and arrival model hold no more entries at the end of each run than after 5 s (chain.held())',
       grows.length === SETTINGS.length && grows.every((g) => g.end <= g.five) && grows.some((g) => g.five > 0),
       `after 5 s and at the end: ${[...new Set(grows.map((g) => `${g.five} then ${g.end}`))].join(', ')}`);
