@@ -130,6 +130,20 @@
     return VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (latency(bufferMs, fps) + ARRIVAL_SECONDS + delay) / VOICE_CHANNEL.mixBlock);
   }
 
+  // frameHold(fps) (W3-23b, docs/work-orders/W3-23-low-frame-rates.md, the plan review's edit 11 and "W3-23b: after
+  // the review"): how many mixer blocks of 512 samples a caller that gives out what the timeline has made final by a
+  // tick must hold back more than D under the frame clock, fps read as createTimeline reads it (a number, else 300;
+  // limited to 10..1000). Advanced to a tick t, the timeline has run the blocks of every frame before 1323 t half
+  // samples; the frames not run start at or after it, so the blocks not yet run start in an open stretch no longer
+  // than a frame, 88200 / fps half samples, which holds at most ceil(88200 / (1024 fps)) starts of a block
+  // (arithmetic): 9 at 10, 5 at 20, 3 at 30, 2 at 60. 0 where the frame clock does not run (1000/15 and above).
+  // The live chain (engine/live-chain.js) and the live monitor's page (live.js) both take it from here.
+  function frameHold(fps) {
+    const rate = clamp(finiteOr(fps, VOICE_CHANNEL.fps), VOICE_CHANNEL.fpsRange[0], VOICE_CHANNEL.fpsRange[1]);
+    const HALF = 2 * VOICE_CHANNEL.rate, TICK = Math.round(HALF * VOICE_CHANNEL.tick), BLOCK = 2 * VOICE_CHANNEL.mixBlock;
+    return HALF / rate > TICK ? Math.ceil(HALF / (BLOCK * rate)) : 0;
+  }
+
   // The zero for packets that come with their own arrival ticks (W3-02g: a demo's, each on the
   // tick SourceTV wrote it on), which createTimeline takes as zeroSamples: latency(bufferMs, fps)
   // less the opening burst (OPENING_SECONDS), on whole mixer blocks. Such a spurt's place in the
@@ -664,7 +678,7 @@
     return Object.freeze({ push, advance, finish, counts, held });
   }
 
-  const TF2VoiceChannel = { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, createChannel, createTimeline };
+  const TF2VoiceChannel = { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, frameHold, createChannel, createTimeline };
   if (typeof module !== 'undefined' && module.exports) module.exports = TF2VoiceChannel;
   else root.TF2VoiceChannel = TF2VoiceChannel;
 })(typeof self !== 'undefined' ? self : this);

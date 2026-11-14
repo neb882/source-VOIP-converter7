@@ -1023,16 +1023,21 @@ if (runs(10)) {
   {
     const rows = [];
     let ok = true;
-    for (const fps of [10, 20, 30, 60, 66.67, 100, 300]) {
+    // W3-23b's fix round, item 2: 5 fps is held as 10 (the channel's limit), and 1000/15, where the frame clock does
+    // not run, holds D alone (13,312, as 66.67). Item 3: fps '30', which is not a number, is read as the channel reads
+    // it, 300, so the chain holds 300's D alone.
+    const as = (fps) => (fps === 5 ? 10 : fps === 1000 / 15 ? 66.67 : fps === '30' ? 300 : fps);
+    const holdAt = (fps) => LIVE_HOLD[as(fps)], zeroAt = (fps) => LIVE_D[as(fps)];
+    for (const fps of [5, 10, 20, 30, 60, 1000 / 15, 66.67, 100, 300, '30']) {
       const plain = await A.createLiveChain({ codec: 'steam' }, 48000), queued = await A.createLiveChain({ codec: 'steam', timeline: 'game', fps }, 48000);
-      const want = 1000 * (LIVE_HOLD[fps] / 44100 - REACH_AND_LOOKAHEAD / 24000);
+      const want = 1000 * (holdAt(fps) / 44100 - REACH_AND_LOOKAHEAD / 24000);
       const cost = queued.queueCostMs, sum = plain.stats.latencyMs + cost;
-      if (!(Math.abs(cost - want) < 1e-9 && Math.abs(queued.stats.latencyMs - sum) < 1e-9 && queued.zero === LIVE_D[fps] && queued.hold === LIVE_HOLD[fps]
+      if (!(Math.abs(cost - want) < 1e-9 && Math.abs(queued.stats.latencyMs - sum) < 1e-9 && queued.zero === zeroAt(fps) && queued.hold === holdAt(fps)
         && plain.zero === null && plain.hold === null)) ok = false;
-      rows.push(`${fps} fps: queueCostMs ${cost.toFixed(2)} (1000 x (${LIVE_HOLD[fps]} / 44100 - 4806 / 24000) = ${want.toFixed(2)}), latencyMs ${plain.stats.latencyMs.toFixed(2)} without and ${queued.stats.latencyMs.toFixed(2)} with`);
+      rows.push(`${fps === 1000 / 15 ? '1000/15' : JSON.stringify(fps)} fps: queueCostMs ${cost.toFixed(2)} (1000 x (${holdAt(fps)} / 44100 - 4806 / 24000) = ${want.toFixed(2)}), hold ${queued.hold}, latencyMs ${plain.stats.latencyMs.toFixed(2)} without and ${queued.stats.latencyMs.toFixed(2)} with`);
       plain.free(); queued.free();
     }
-    check('the delay: queueCostMs is 1000 x (hold / 44100 - 4806 / 24000), the hold D at 66.67, 100 and 300 fps and D + 512 ceil(88200 / (1024 fps)) at 60, 30, 20 and 10, and stats.latencyMs with the queue is the figure without it plus queueCostMs', ok, rows.join('; '));
+    check('the delay: queueCostMs is 1000 x (hold / 44100 - 4806 / 24000), the hold D at 1000/15, 66.67, 100 and 300 fps and D + 512 ceil(88200 / (1024 fps)) at 60, 30, 20 and 10, fps 10\'s at 5, 300\'s for the string \'30\', and stats.latencyMs with the queue is the figure without it plus queueCostMs', ok, rows.join('; '));
   }
 
   // A channel's start: on the layouts P and Q at 300 fps a spurt can join a running channel. spurtStart is

@@ -82,14 +82,8 @@
   // sample, at 24 kHz (the chain's lowLatencySavingMs, 80.04 ms; read).
   const lowLatencySaving = () => { const S = TF2SteamSender.STEAM_SENDER; return 1000 * (S.preroll - S.frame + 1) / S.rate; };
   // The frame's mixer blocks the chain holds back over the queue's zero, in samples at 44.1 kHz (0 at 1000/15 frames
-  // a second and above): the engine's liveQueueHold (engine/live-chain.js), worked here from the voice channel's
-  // own constants and limits, as the zero is (the page's scripts reach the engine through TF2Audio only).
-  const frameHold = (fps) => {
-    const V = TF2VoiceChannel.VOICE_CHANNEL, n = Number(fps);
-    const F = Math.min(V.fpsRange[1], Math.max(V.fpsRange[0], Number.isFinite(n) ? n : V.fps));
-    const HALF = 2 * V.rate, TICK = Math.round(HALF * V.tick), BLOCK = 2 * V.mixBlock;
-    return HALF / F > TICK ? V.mixBlock * Math.ceil(HALF / (BLOCK * F)) : 0;
-  };
+  // a second and above): voice-channel.js's frameHold, the one formula the chain's liveQueueHold takes too.
+  const frameHold = (fps) => TF2VoiceChannel.VOICE_CHANNEL.mixBlock * TF2VoiceChannel.frameHold(fps);
   function queueCost(fps, bufferMs) {
     const S = TF2SteamSender.STEAM_SENDER, VC = TF2VoiceChannel;
     try {

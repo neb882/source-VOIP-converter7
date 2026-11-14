@@ -107,25 +107,15 @@
   //     reported, as a render does not report it) and margin.
   // The hold over the queue's zero D, in samples at the voice rate (W3-23b,
   // docs/work-orders/W3-23-low-frame-rates.md, "W3-23b" and the plan
-  // review's edit 11). Under 1000/15 frames a second the voice channel runs
-  // the frame clock (voice-channel.js createTimeline: frame k at (88200 k) /
-  // fps half samples, fps limited to 10..1000; on when 88200 / fps > 1323),
-  // so advanced to a tick t it has run the blocks of every frame before t,
-  // not every block that starts before t. The frames not run start at or
-  // after t, so the last frame run is at most a frame before t, and the
-  // blocks not run start in the open stretch between it and t: at most
-  // ceil(88200 / (1024 x fps)) of them (arithmetic: an open stretch no longer
-  // than a frame holds no more starts of 1024 half samples). So the chain
-  // holds back that many blocks of 512 samples more than D: 9 at 10 frames a
-  // second, 5 at 20, 3 at 30, 2 at 60 (2 from 43.07 to 66.66). At 1000/15
-  // and above the clock is the even one and the hold over D is 0, as before.
-  // null where voice-channel.js is not loaded.
+  // review's edit 11): voice-channel.js's frameHold(fps) blocks of 512
+  // samples, ceil(88200 / (1024 x fps)) under 1000/15 frames a second (9 at
+  // 10, 5 at 20, 3 at 30, 2 at 60; arithmetic, its comment has it) and 0 at
+  // 1000/15 and above, fps read as the channel reads it. null where
+  // voice-channel.js is not loaded.
   function liveQueueHold(fps) {
     const VC = typeof TF2VoiceChannel !== 'undefined' ? TF2VoiceChannel : null;
     if (!VC) return null;
-    const V = VC.VOICE_CHANNEL, F = clamp(finiteOr(fps, V.fps), V.fpsRange[0], V.fpsRange[1]);
-    const HALF = 2 * V.rate, TICK = Math.round(HALF * V.tick), BLOCK = 2 * V.mixBlock;
-    return HALF / F > TICK ? V.mixBlock * Math.ceil(HALF / (BLOCK * F)) : 0;
+    return VC.VOICE_CHANNEL.mixBlock * VC.frameHold(fps);
   }
 
   async function steamLiveChain(c) {

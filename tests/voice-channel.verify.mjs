@@ -35,7 +35,7 @@ import { mulberry32, UNRELATED, synthesize } from './voicequeue/synthetic-log.mj
 const require = createRequire(import.meta.url);
 const V = require('../voice-channel.js');
 const { createSender } = require('../steam-sender.js');
-const { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, createChannel, createTimeline } = V;
+const { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, frameHold, createChannel, createTimeline } = V;
 const TOOL = fileURLToPath(new URL('./voicequeue/log-to-fixture.mjs', import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
 // Set for the copies of this script that the public checks start: they only replay.
@@ -1838,6 +1838,18 @@ function onOpenChecks() {
     }
     check('under the frame clock (60, 30 and 10 fps), whole and with no end: onOpen gives each open 512 b - D (within 0 and the length), b the blocks of the frames before the one that adds its message (the second model\'s), which in some runs is not the count once the opening push has returned',
       ok && opens > 0 && later > 0, rows.join('; ') || `${opens} opens; in ${later} of 36 runs not the count once the opening push has returned`);
+  }
+  {
+    // frameHold (W3-23b's fix round, item 1): the hold's one formula, which the live chain and the page take, read
+    // again here: ceil(88200 / (1024 fps)) blocks where the frame clock runs, fps a number limited to 10..1000
+    // (else 300), and 0 at 1000/15 and above.
+    const below = new Float64Array([1000 / 15]);
+    new BigInt64Array(below.buffer)[0] -= 1n;
+    const rows = [[5, 9], [10, 9], [20, 5], [30, 3], [40, 3], [50, 2], [60, 2], [below[0], 2], [1000 / 15, 0], [66.67, 0], [300, 0], [1000, 0], [5000, 0], ['30', 0], [NaN, 0], [undefined, 0]];
+    const got = rows.map(([fps]) => frameHold(fps));
+    check('frameHold: 9 blocks at 5 and 10 fps, 5 at 20, 3 at 30 and 40, 2 at 50, 60 and the double below 1000/15, 0 at 1000/15, 66.67, 300 and 1000 and above, and 0 for "30", NaN and none (read as 300)',
+      rows.every(([fps, want], k) => got[k] === want && (typeof fps !== 'number' || !Number.isFinite(fps) || got[k] === (frameClockRuns(fps) ? Math.ceil(88200 / (1024 * Math.min(1000, Math.max(10, fps)))) : 0))),
+      got.join(', '));
   }
   {
     let refused = 0;

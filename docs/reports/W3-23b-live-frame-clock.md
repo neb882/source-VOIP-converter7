@@ -34,7 +34,7 @@ changes, in the render or in the chain.
   The rule at jitter 0 is not reported as `stats.arrivals`, as a render does not report it as `codecInfo.arrivals`.
 - `live.js` (the delay's words): the switch's help counts the frame's blocks in its figure and, under 67, says so in
   one sentence ("That counts 104 ms of a frame's mixing, since under 67 frames a second the queue mixes once a
-  frame."); the latency's title names it under 67. Both read `TF2Engine.liveChain.liveQueueHold`.
+  frame."); the latency's title names it under 67. Both take the formula from `TF2VoiceChannel.frameHold` (since the fix round).
 - `tests/voice-channel.verify.mjs`: the endless case `[30, 200, 0.1, 0]` is back (below); "a timeline with no end has
   the frame clock" in place of "keeps even ticks"; an hour of packets at 10 fps; the group `onOpen` (`--frames` runs
   it too).
@@ -81,19 +81,16 @@ D and the hold are read from `zero()` and arithmetic; the delays are what the su
    shorter throws "the hold-back runs short" there. At each rate the chain's `stats.margin` is the arithmetic's at
    both instants and after 20 s.
 
-**A reading where the order and the chain part (inferred, measured).** At 30, 20 and 10 fps the chain at jitter 0
-does not come within a block of the hold: its least margin in 20 s of silence is 892, 1,327 and 1,183 samples
-(measured; over 120 s, more than the phases' whole period of 76.8 s, the arithmetic gives 892, 1,327 and 1,171). The reason: the
-rule's look comes after the relay tick, so the tick the chain is advanced to is later than the bound, and the last
-frame run is more than a tick closer to it than a whole frame. A scan of the engine's arrival model with jitter 45,
-90 and 150 ms, seeds 1 to 6, 120 s each, by the same arithmetic (a script in the builder's scratch folder, not in
-the repository) gave least margins of 787 to 10,649 at those rates: above a block too. So one block less fails in
-the chain at 60 and 50, and at 30, 20 and 10 only at the timeline's level. The hold is built as the order says,
-by the arithmetic and not by a search: it does not depend on jitter (W3-02c-3's rule), and a tick on which the
-arrival adds nothing leaves only the bound (inferred). A tighter hold at 30 and under would need the arrival model's
-least lift in closed form; the orchestrator may want it as a question. The cost: in those runs a hold one block shorter at 30,
-and two shorter at 20 and at 10, would not have run short, so the monitor there is 12 to 23 ms later than it had to
-be in them.
+**The last block under 33.3 frames a second (arithmetic; corrected in the fix round).** The review proved what the
+runs only showed: the chain advances the timeline to `at(bound)`, at least the bound, so the hold is enough for every
+input; and under 33.3 frames a second the chain never needs the last of the H blocks, whatever the input, because
+the rule's look puts the tick it advances to past the bound: at most 2, 4 and 8 blocks are unrun at 30, 20 and 10,
+against H's 3, 5 and 9. So one block less runs short in the chain at 60 and 50 (above) and at 30, 20 and 10 only at
+the timeline's level. The measured figures agree: on silence at jitter 0 the least margin in 20 s is 892, 1,327 and
+1,183 samples (measured; over 120 s the arithmetic gives 892, 1,327 and 1,171), and with jitter 45, 90 and 150 ms,
+seeds 1 to 6, 120 s each, 787 to 10,649 (a script in the builder's scratch folder). The ruling on the hold stands:
+the hold is the arithmetic's bound, which does not depend on jitter (W3-02c-3's rule). That one block is its cost
+there, 11.6 ms.
 
 ## The three cases put back (the plan review's edit 1)
 
@@ -184,7 +181,6 @@ The `tests` workflow on the branch, read with `gh run`:
 | --- | --- | --- | --- |
 | 43640039306 | `b8a143e` (the code and the words) | failure | `units` failure (the harness: `live.js` named `TF2Engine`); the other four success |
 | 43640708955 | `8a6000d` (`live.js` fixed) | success | all five success |
-
 | 43644151421 | `f65a41d` (the merge of `main` `cdefc3f`, this report, the one-block check's guard) | success | all five success |
 
 This line's commit changes only `docs/` and starts no run, so `f65a41d`'s run is the branch's last.
@@ -198,12 +194,47 @@ origin/main --set)". The builder did not set it.
 
 ## Not done, or uncertain
 
-- The page's figure under 67 (`live.js`) is checked by no suite: the browser suite asserts the help at 300 and 67
-  frames a second only, where the hold is D, and `tests/browser.verify.js` is not among the files part b may touch.
-  A break of the frame's blocks in `queueCost` passes every suite.
-- One block less does not run short in the chain at 30, 20 and 10 frames a second in any run measured ("A reading
-  where the order and the chain part").
+- The page's figure under 67 (`live.js`) is tied to the chain's by the one formula, `TF2VoiceChannel.frameHold`,
+  which the voice-channel suite and section 10's delay check hold; a break of the formula fails both. `live.js`'s own
+  use of it (`queueCost` adding `frameHold(fps)`) is checked by no suite: the browser suite asserts the help at 300
+  and 67 frames a second only, where the hold is D, and `tests/browser.verify.js` is not among the files part b may
+  touch. Taking the term out of `queueCost` alone still passes every suite.
+- One block less never runs short in the chain at 30, 20 and 10 frames a second ("The last block under 33.3 frames
+  a second"): that block is the hold's cost there.
 - No log under 66 frames a second exists; every figure here is the model's, on synthetic signals.
 - The work order's status line and `docs/README.md` say W3-23b is not built; they are the orchestrator's.
 - The branch's diff, its commit messages and this report were scanned for recordings, personal details, real
   SteamIDs, machine paths and model names: none, but the branch's name and the attribution lines on each commit.
+
+## The fix round (2026-11-14)
+
+The order's section "W3-23b: after the review", items 1 to 4, after `main` (`50b38ee`) was merged in.
+
+1. **One formula for the hold.** `voice-channel.js` exports `frameHold(fps)`: ceil(88200 / (1024 × fps)) blocks where
+   the frame clock runs, 0 at 1000/15 and above, fps read as `createTimeline` reads it and limited to 10..1000.
+   `engine/live-chain.js`'s `liveQueueHold` is 512 × it, and `live.js` takes it too. A check in the voice-channel
+   suite (`onOpen`'s group, so `--frames` runs it) reads the values again: 9 at 5 and 10, 5 at 20, 3 at 30 and 40, 2
+   at 50, 60 and the double below 1000/15, 0 at 1000/15 and above, 0 for `'30'`, NaN and none. What ties the page to
+   the chain is now the shared function, which this check and section 10's delay check hold; taking the term out of
+   `live.js`'s `queueCost` alone still passes every suite ("Not done").
+2. **The delay check's rates** gain 5 (fps 10's hold, 14,336) and 1000/15 (D alone, 13,312).
+3. **`fps` read as the channel reads it**: `frameHold` uses `voice-channel.js`'s own `finiteOr`, a number only. The
+   delay check gains the string `'30'`, which the chain holds as 300 (D alone, 24,576).
+4. **Words:** this report's section "The last block under 33.3 frames a second" and the record's line under finding
+   22 give the review's arithmetic (at most 2, 4 and 8 blocks unrun at 30, 20 and 10 against 3, 5 and 9); the CI
+   table is one table.
+
+The breaks, each in a copy of the branch:
+
+| Break | Command | What failed |
+| --- | --- | --- |
+| no clamp in `frameHold` | `node tests/voice-channel.verify.mjs --frames`; `node tests/render-channel.verify.mjs 10` | the `frameHold` check (18 blocks at 5 fps); the delay check |
+| `>=` for `>` in `frameHold` | the same | the `frameHold` check; the delay check |
+| `fps` coerced with `Number()` in `frameHold` | the same | the `frameHold` check; the delay check (the string `'30'`) |
+
+**Checks.** `node tests/render-channel.verify.mjs 10`: `57 render-channel checks passed, 0 failed`. `node
+tests/voice-channel.verify.mjs --frames`: `11 voice channel checks passed, 0 failed`. `node tests/harness.verify.mjs`:
+`34 passed, 0 failed`; `node tests/site.verify.mjs`: `12 passed, 0 failed`. `flock /tmp/tf2ve-heavy.lock node
+tests/render-stream.verify.mjs --hashes` after the fix: equal byte for byte to the output at `2f0212e` (SHA-256
+`f73fee8b…`). The whole `pnpm test` and the browser suite were not run again locally (the heavy lock is the
+orchestrator's accuracy run's); CI runs every suite on the head.
