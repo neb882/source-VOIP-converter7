@@ -185,7 +185,9 @@ The `tests` workflow on the branch, read with `gh run`:
 | 43640039306 | `b8a143e` (the code and the words) | failure | `units` failure (the harness: `live.js` named `TF2Engine`); the other four success |
 | 43640708955 | `8a6000d` (`live.js` fixed) | success | all five success |
 
-The merge of `main` and this report follow; their run is read for the hand-back.
+| 43644151421 | `f65a41d` (the merge of `main` `cdefc3f`, this report, the one-block check's guard) | success | all five success |
+
+This line's commit changes only `docs/` and starts no run, so `f65a41d`'s run is the branch's last.
 
 ## The cache number
 
