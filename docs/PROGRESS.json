@@ -16,7 +16,7 @@
     },
     {
       "order": "W3-02g",
-      "state": "planned 2026-11-14 (docs/work-orders/W3-02g-demo-packets.md, two parts: a 12 hours with a second reader, b 5 hours; the rulings at its end); a plan reviewer reads it; part a starts after W3-02c-3a is merged",
+      "state": "planned and plan-reviewed 2026-11-14 (docs/work-orders/W3-02g-demo-packets.md; the orchestrator's private look (i) at its end); part a's builder started 2026-11-14 after W3-02c-3a's merge (branch claude/w3-02ga-demo-packets)",
       "note": "A demo's own packets through the render's decoder and the game's voice queue, with the demo's own ticks; the old section of W3-02-receiver-queue.md written again as an order of its own."
     }
   ],
