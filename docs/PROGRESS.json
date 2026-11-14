@@ -8,15 +8,14 @@
     "cache": 51,
     "last_merge": "W3-23a (cache v51, 2026-11-14): on the game's voice queue at a listener frame rate under 1000/15, the voice channel runs a frame clock in the order W3-23r read from the owner's engine.dll (in each frame the messages due, then the ticks due, then the mixer's blocks), and at jitter 0 a message arrives on the listener's first look after the server's relay tick, as the jitter model gives in its limit. Nothing moves at 66.67 frames a second and above (the hash list equal byte for byte). Measured on the model: an opened phrase sits 18, 8, 18 and 19 ms early at 60, 30, 20 and 10 (ruling 3: D unchanged); at 60 and 50 the level moves under 0.01 dB. The live monitor's chain is W3-23b. Before it: AC-02 (no cache change, 2026-11-14): the accuracy suite's --seeds n measures each row at n different seeds (its own or the default, then the first n - 1 others from seed 1) and prints each figure as a median with its range, the worst band as the median seed's by size; without the option the suite is unchanged; tests/retiming.mjs refuses seeded JSON."
   },
-  "in_flight": [
-    {
-      "order": "W3-23",
-      "file": "docs/work-orders/W3-23-low-frame-rates.md",
-      "stage": "W3-23r read and W3-23a merged 2026-11-14 (cache v51); W3-23b (the live monitor's chain) not started",
-      "line": "W3-23b puts the live chain on the frame clock with a hold of ceil(88200 / (1024 x fps)) blocks, takes onOpen, and puts back the three cases W3-23a moved."
-    }
-  ],
+  "in_flight": [],
   "next": [
+    {
+      "order": "W3-23b",
+      "file": "docs/work-orders/W3-23-low-frame-rates.md",
+      "after": "W3-23a (merged 2026-11-14, cache v51) and the weekly usage reset (2026-11-16 13:00 UTC; 96% used at W3-23a's merge)",
+      "line": "the live monitor's chain on the frame clock: a hold of ceil(88200 / (1024 x fps)) blocks by arithmetic, onOpen, and the three cases W3-23a moved put back at their old rates. Only the monitor's box for the queue, off on every load, at a frame rate under 67 is affected."
+    },
     {
       "order": "W3-02g-b",
       "file": "docs/work-orders/W3-02g-demo-packets.md",
