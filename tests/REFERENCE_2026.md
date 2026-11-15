@@ -908,20 +908,20 @@ The bursts one by one: the odd bursts (1, 3, 5, 7) open a channel and lose sound
 - At jitter 100 the end loses 82 ms at 300 frames a second and 234 at 66.67. (Marked 2026-11-15: since W3-24 the render plays them out; below.)
 - On 60 s of the stand-in signal at 300 frames a second, unbroken sound skips 138 ms a minute against 98 at jitter 0 and talk 1,897 against 1,557, with no more channel restarts. At 66.67 nothing is skipped at any jitter, and the share of the mixer's blocks played with under 100 ms queued, where the level dips, rises from 4.0% to 10.5%.
 
-**The render plays out what the queue holds at the source's end** (added 2026-11-15, W3-24, `docs/work-orders/W3-24-render-end.md`). Since W3-24 a render of Steam voice on the game's voice queue runs on past the source's end until the channel has given out the last place of the source it holds (the orchestrator's ruling of 2026-11-14: in the game the channel plays out what it holds), so the ends the three lines above mark are heard. The voice's samples up to the source's length are those without the run-on; a render whose source has nothing in the queue at its end is unchanged to the last sample. The run-on, `codecInfo.channel.over`, in milliseconds, the mean and the range over seeds 1 to 10, `voice_buffer_ms` 100, the suites' `speechLike` at -20 dB, 48 kHz (measured on the build, the model; no recording of a file's end through the queue exists):
+**The render plays out what the queue holds at the source's end** (added 2026-11-15, W3-24, `docs/work-orders/W3-24-render-end.md`). Since W3-24 a render of Steam voice on the game's voice queue runs on past the source's end until the channel has given out the last place of the source it holds (the orchestrator's ruling of 2026-11-14: in the game the channel plays out what it holds), so the ends the three lines above mark are heard. A render whose source has nothing in the queue at its end is unchanged to the last sample. On a render that runs on, an output sample before the source's length changes only where the device stage's read for it touches the voice's length or later (the orchestrator's ruling A of 2026-11-15): through the 24 kHz codec the voice can be a sample shorter than the source at 44.1 kHz, and the run-on now fills that place where zero padding was, and at a device rate other than 44.1 kHz the device's linear interpolation reads the next mix sample (measured on the build: on a 44.1 kHz source of 176,408 samples, one sample at a 44.1 kHz device and two at 48 kHz; on a 24 kHz source, none at 44.1 kHz and one at 48 kHz). The run-on, `codecInfo.channel.over`, in milliseconds, the mean and the range over seeds 1 to 10, `voice_buffer_ms` 100, the suites' `speechLike` at -20 dB, 48 kHz (measured on the build, the model; no recording of a file's end through the queue exists). The rows marked 1000/15 were run at exactly 1000/15 frames a second, the page's 66.67 rounded to its threshold:
 
 | Source | Frames a second | Run-on at jitter 0 | Run-on at jitter 50 |
 | --- | ---: | ---: | ---: |
 | One phrase of 6.13 s that ends with the file | 300 | 0.0 (0.0 to 0.0) | 16.5 (0.0 to 41.2) |
-|  | 66.67 | 6.6 (0.0 to 26.1) | 81.3 (0.0 to 142.2) |
+|  | 1000/15 | 6.6 (0.0 to 26.1) | 81.3 (0.0 to 142.2) |
 |  | 60 | 0.3 (0.0 to 2.9) | 83.6 (0.0 to 150.9) |
 |  | 30 | 4.2 (0.0 to 24.4) | 95.7 (40.7 to 130.6) |
 | Four phrases in 8.4 s, the last ending with the file | 300 | 0.0 (0.0 to 0.0) | 0.0 (0.0 to 0.0) |
-|  | 66.67 | 9.9 (0.0 to 41.5) | 79.1 (0.0 to 165.4) |
+|  | 1000/15 | 9.9 (0.0 to 41.5) | 79.1 (0.0 to 165.4) |
 |  | 60 | 3.2 (0.0 to 14.5) | 89.5 (0.0 to 130.6) |
 |  | 30 | 9.2 (0.0 to 41.5) | 102.8 (33.7 to 153.8) |
 | The first with 1 s of silence after it | 300 | 0.0 (0.0 to 0.0) | 0.0 (0.0 to 0.0) |
-|  | 66.67 | 0.0 (0.0 to 0.0) | 0.0 (0.0 to 0.0) |
+|  | 1000/15 | 0.0 (0.0 to 0.0) | 0.0 (0.0 to 0.0) |
 |  | 60 | 0.0 (0.0 to 0.0) | 0.0 (0.0 to 0.0) |
 |  | 30 | 0.0 (0.0 to 0.0) | 0.0 (0.0 to 0.0) |
 
@@ -930,15 +930,15 @@ The two test signals, seeds 1 to 3 (measured on the build):
 | Source | Frames a second | Run-on at jitter 0 | Run-on at jitter 50 |
 | --- | ---: | ---: | ---: |
 | `tf2_voice_nettest_v1` (58.2 s) | 300 | 0.0 (0.0 to 0.0) | 18.9 (11.9 to 23.5) |
-|  | 66.67 | 0.0 (0.0 to 0.0) | 88.3 (56.1 to 117.9) |
+|  | 1000/15 | 0.0 (0.0 to 0.0) | 88.3 (56.1 to 117.9) |
 |  | 60 | 0.0 (0.0 to 0.0) | 96.0 (67.7 to 117.9) |
 |  | 30 | 0.0 (0.0 to 0.0) | 84.4 (56.1 to 106.3) |
 | `tf2_voice_testsignal_v1` (142.9 s) | 300 | 0.0 (0.0 to 0.0) | 13.2 (0.0 to 39.5) |
-|  | 66.67 | 0.0 (0.0 to 0.0) | 93.0 (44.1 to 136.6) |
+|  | 1000/15 | 0.0 (0.0 to 0.0) | 93.0 (44.1 to 136.6) |
 |  | 60 | 0.0 (0.0 to 0.0) | 77.6 (67.3 to 86.8) |
 |  | 30 | 0.0 (0.0 to 0.0) | 55.1 (0.0 to 86.8) |
 
-These equal, figure for figure, what the order's planner measured on a prototype. The second reader's 27 and 121 ms above were of the network test signal over seeds and a count not in the record; the build gives 18.9 and 88.3 ms at jitter 50 over seeds 1 to 3, and none at jitter 0. At jitter 0 the page's default is not always free of a run-on. 360 short renders at each rate, a phrase or a 440 Hz tone that ends with the file, six lengths from 1.0 to 3.3 s, seeds 1 to 30 (measured on the build):
+These equal, figure for figure, what the order's planner measured on a prototype. The second reader's 27 and 121 ms above were of the network test signal over seeds and a count not in the record; the build gives 18.9 at 300 and 88.3 ms at 1000/15 at jitter 50 over seeds 1 to 3, and none at jitter 0; at a literal 66.67 frames a second the network signal at jitter 50 reads 92.2 ms (56.1 to 114.1; measured on the build by the order's reviewer). At jitter 0 the page's default is not always free of a run-on. 360 short renders at each rate, a phrase or a 440 Hz tone that ends with the file, six lengths from 1.0 to 3.3 s, seeds 1 to 30 (measured on the build):
 
 | Frames a second | Renders that run on (of 360) | Mean run-on | Largest |
 | ---: | ---: | ---: | ---: |
@@ -948,7 +948,7 @@ These equal, figure for figure, what the order's planner measured on a prototype
 | 235 | 15 | 0.1 ms | 5.4 ms |
 | 144 | 96 | 3.1 ms | 27.6 ms |
 | 100 | 170 | 5.3 ms | 39.2 ms |
-| 66.67 | 170 | 6.5 ms | 39.2 ms |
+| 1000/15 | 170 | 6.5 ms | 39.2 ms |
 | 60 | 56 | 1.3 ms | 27.6 ms |
 | 30 | 204 | 6.9 ms | 27.0 ms |
 | 10 | 94 | 2.0 ms | 15.4 ms |
