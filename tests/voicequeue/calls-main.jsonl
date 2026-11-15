@@ -73,3 +73,4 @@
 {"input":"f7a333d6bfad1272886d66f27bb57e21ec827651482b4ca86d17b4dc36ee154d","opts":"{\"bufferMs\":100,\"fps\":300}","error":"line 10: a voice line that does not read as one (a sign, more than 9 digits, something before or after it, or cut short)"}
 {"input":"522110c19ea78395ddb6038597dad51d630f6974121d335ef336cc7c8ef228de","opts":"{\"bufferMs\":100,\"fps\":300}","error":"no voice lines (voice_showincoming 1 and voice_showchannels 1)"}
 {"input":"92e0dc2ea0f643e902fc4c0a09be388fdeb41e7dccee3bf9ee7511fd63864270","opts":"{\"bufferMs\":200,\"fps\":66.67}","error":"line 13: the queue moved during the wait: 21162 + 0 to 20136"}
+{"input":"fd9c01ddea3e6adb50c006632fc6c8b5b462faaf097dba4b6bb10d1d742ee05b","opts":"{\"bufferMs\":100,\"fps\":300}","fixture":"92debbaa3def16f3647eb91ec38763d85ccbc78789b9a84ed6526c7d515ffdad","stats":{"packets":90,"ticks":471,"sessions":2,"opens":4,"opensAfterFree":2,"graces":1,"emptyPackets":1,"offGrid":0,"unendedLastLine":false,"waitTicks":30}}

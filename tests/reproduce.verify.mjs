@@ -912,6 +912,20 @@ try {
     const two = run('queue', writeLog('voice_q_second.log', second), '--fps', '300');
     check('a second channel\'s line added: differs, "more than one channel", the channels listed by number and tick lines',
       fails(two, /more than one channel: channel 0 \(\d+ tick lines\), channel 1 \(1 tick line\); the tool reads one channel at a time/), show(two));
+    // The channel passed to a second speaker after an unseen free (ent 2 from the third opening on): read as main
+    // reads it, an unseen free, so every line the check prints is main's (recorded on main at 363f8cb, W3-25's fix
+    // round 2).
+    const third = marks.filter((m) => m.opened)[2];
+    const ent2 = s300.lines.map((l, i) => (i >= third.line ? l.replace(/^Voice - chan 0, ent 1,/, 'Voice - chan 0, ent 2,') : l));
+    const r2 = run('queue', writeLog('voice_q_ent2.log', ent2), '--fps', '300');
+    const main2 = ['  lines read: 569: 90 packet lines, 471 tick lines, 8 other lines (counted, not kept)',
+      '  channels opened: 4, of which after a free the log did not print: 2; graces (a packet on the tick after the ring ran dry): 1; empty packets: 1; sessions after the first: 2',
+      '  channels by the tick lines from their packet to the first fall of their queue: 30 lines in 4 (finding 23 has 7 at 67 frames a second, 10 at 100, 30 to 32 at 300)',
+      '  Q1, ticks on which the rule gives the logged queue: 473 of 473, expected all: as expected',
+      '  Q2, channels whose queue first fell on tick line 30 to 33 after their packet: 4 of 4, expected all; one on line 30 or 31: yes, expected yes: as expected',
+      '    ring + 1: 282', '    ring - 1: 282', '    wait + 1: 148', '    wait - 1: 81', '    sample kept: 366', '    no grace: 117'];
+    check('a second speaker taking the channel after an unseen free (ent 2 from the third opening on): as expected, every line main printed',
+      passes(r2) && main2.every((l) => r2.out.split('\n').includes(l)), show(r2));
     const packetsOnly = run('queue', writeLog('voice_q_packets.log', s300.lines.filter((l) => !/bufsize/.test(l))), '--fps', '300');
     check('the packet lines alone: differs', fails(packetsOnly), show(packetsOnly));
     const cut = (n) => { const out = []; let ticks = 0; for (const l of s67.lines) { if (ticks === n) break; out.push(l); if (/bufsize/.test(l)) ticks++; } return out; };
