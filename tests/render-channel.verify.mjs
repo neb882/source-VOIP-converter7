@@ -64,6 +64,8 @@
 // 26. Determinism under 1000/15 (check 11).
 // 27. onOpen through steamChannel (W3-23b, check 8): main's indices on the even clock, the timeline's under the frame
 //     clock.
+// A render's end on the game's voice queue (W3-24, docs/work-orders/W3-24-render-end.md, "The tests"):
+// 29. A source that ends in 1 s of silence: main's WAV hashes, no over (check 12).
 // Renders use deviceRate 44100 and compare the voice at the mix point (opts.onGain).
 // TF2_DIR points the suite at a copy of the sources. Every signal is synthetic, made here.
 import crypto from 'node:crypto';
@@ -2299,6 +2301,40 @@ if (runs(27)) {
     rowsF.push(`${fps} fps seed ${seed}: ${opens.length} opens${isDeepStrictEqual(opens, direct) ? '' : ' NOT the timeline\'s'}`);
   }
   check('under the frame clock (60, 30 and 10 fps): steamChannel\'s onOpen gives the timeline\'s own indices (each the output count at the frame of the open: tests/voice-channel.verify.mjs, onOpen)', frames, rowsF.join('; '));
+}
+
+/* ---------------- 29. a render's end: nothing cut, nothing changed (W3-24, check 12) ---------------- */
+
+// A source that ends in 1 s of silence (the suite's talk, 6 s at 24 kHz, seed 5, and 24,000 zeros) through Steam
+// voice on the game's queue at 300, 66.67, 60 and 30 fps, at jitter 0 and 50: nothing of it is in the queue at its
+// end, so the play-out of W3-24 (docs/work-orders/W3-24-render-end.md) changes nothing. The WAV's hash of each is
+// the one recorded from main (3d8c04d) before the order's first change, in a commit of its own.
+const ENDS_IN_SILENCE_MAIN = {
+  '300 0': '08fe5217a7a35922a710bb976570c9a1b0bee48ed0db55ef6c5d2130cffb46ec',
+  '300 50': 'dfe687a550523dc3c8144e45b92670d7b7354e95e5da9b7adbcd6d1fbdcdfae5',
+  '66.67 0': 'b0a9a30ffab0b5fd239337e2068ac323085b63e091db0f33487e5dc18704d899',
+  '66.67 50': '8d56f3675b646c7acadbc4e7bbff0e39f9ad59f68fa514fa64cf82ef954eb967',
+  '60 0': '910681100fedeeb22ec15392225e24ff6e6fce94ffe0c16496c60c299d0d23e3',
+  '60 50': '4524496d4141bb64529c80b2a5968786174e534f569a2ae47fa94810f2dea341',
+  '30 0': '96363636b8d36951748d3eccd88537d3149742c98923e42ee61d90ac5be3895e',
+  '30 50': '965dd8f325749641a884f4719ad3b0daadfbb34866d68c0b15500724f10fd816'
+};
+if (runs(29)) {
+  console.log('\n[29] A render\'s end (W3-24, check 12): a source that ends in 1 s of silence renders as main did, WAV hash for WAV hash, with no over');
+  const t0 = performance.now(), talked = talk(6, 24000, 5), x = new Float32Array(talked.length + 24000);
+  x.set(talked);
+  const rows = [];
+  let ok = true;
+  for (const fps of [300, 66.67, 60, 30]) for (const jitterMs of [0, 50]) {
+    const r = await A.process(buffer(x, 24000), { ...BASE, timeline: 'game', fps, jitterMs, seed: 7 });
+    const h = sha256(new Uint8Array(await r.blob.arrayBuffer())), key = `${fps} ${jitterMs}`;
+    if (!(h === ENDS_IN_SILENCE_MAIN[key] && !('over' in r.codecInfo.channel) && r.samples.length === x.length * 44100 / 24000)) {
+      ok = false;
+      rows.push(`${key}: ${h}${'over' in r.codecInfo.channel ? `, over ${r.codecInfo.channel.over}` : ''}`);
+    }
+  }
+  check('at 300, 66.67, 60 and 30 fps, jitter 0 and 50: the WAV\'s hash is main\'s, the length the source\'s, and codecInfo.channel has no over', ok, rows.join('; ') || 'all eight main\'s');
+  console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
 }
 
 console.log(`\n${passed} render-channel checks passed, ${failed} failed`);
