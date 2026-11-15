@@ -12,7 +12,7 @@
   const { buildLossMask, steamArrivalPlan, steamLoser, streamLossMask } = E.network;
   const { DEFAULT_SENDER_GATE, FRAME_CODES, celtModeRate, gateThresholdDb, loadOpusModule, profileEq,
     receivedCodecInfo } = E.codec;
-  const { mixAtDevice, resolveRoom, roomModule, tailAtDevice } = E.room;
+  const { runOnAtDevice, resolveRoom, roomModule, tailAtDevice } = E.room;
   const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule, steamCodecInfo,
     steamDemoVoice, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamRunOn, steamSenderOptions,
     steamTimeline } = E.steam;
@@ -459,7 +459,7 @@
         return finalSamples(keep < y.length ? y.subarray(0, keep) : y);
       },
       flush() {
-        const runOn = runsOn ? mixAtDevice(steamRunOn(steam.played), deviceRate) : 0;
+        const runOn = runsOn ? runOnAtDevice(steamRunOn(steam.played), deviceRate) : 0;
         const rest = new Int32Array(outLength + runOn + (room ? tailAtDevice(output.mix.tail(), deviceRate) : 0) - emitted);
         let at = 0;
         for (const y of over) { if (at >= rest.length) break; rest.set(y.subarray(0, rest.length - at), at); at += y.length; }

@@ -2372,37 +2372,65 @@ if (runs(28)) {
     ok && [300, 66.67, 60, 30].every((f) => ranOn[f] > 0) && none300.length > 0, rows.join('; '));
 
   // Check 10: the output's length, at 44.1 and 48 kHz, with and without a room; the head of a render without a room
-  // against the same render by an engine whose channel does not play out.
+  // against the same render by an engine whose channel does not play out (the order's ruling A, 2026-11-15).
+  //   - The length: round(source x device rate / source rate), then the run-on at the device's rate rounded up
+  //     (fix 2: ceil(over x device rate / 44100), so that no output sample that still reads the run-on is cut), then
+  //     the room's tail at the device's rate, rounded as before.
+  //   - Ruling A: on a render that ran on, an output sample before the source's length changes only if the device
+  //     stage's read for it touches mix sample voiceLength or later; on one that did not, nothing changes. The device
+  //     stage reads, for output n at R Hz, mix samples k = floor(44100 n / R) and, where 44100 n is not a whole
+  //     multiple of R, k + 1 (its linear interpolation, phase 0; at 44.1 kHz output n is mix sample n). The mix at
+  //     44.1 kHz is the voice sample for sample, so voiceLength is the voice's length at the mix point less over.
+  //     The changed samples must be exactly those.
   {
-    const plain = enginePlayingNoOut(), rows10 = [];
-    let lengths = true, heads = true;
+    const plain = enginePlayingNoOut(), rows10 = [], rowsA = [];
+    let lengths = true, heads = true, allowedSeen = 0;
+    // The reviewer's source: 44.1 kHz, 176,408 samples, silence then a voice of 150 Hz harmonics to the end, whose
+    // voice through the 24 kHz codec is one sample shorter than the source at 44.1 kHz.
+    const L44 = 176408, x44 = new Float32Array(L44);
+    for (let i = 0; i < L44; i++) {
+      const t = i / 44100;
+      let v = 0;
+      for (let h = 1; h <= 6; h++) v += Math.sin(2 * Math.PI * 150 * h * t) / h;
+      x44[i] = i > 0.5 * 44100 ? 0.2 * v : 0;
+    }
+    const sources = [
+      ...[CASES[5], CASES[9], CASES[13], CASES[0], CASES[2]].map((c) => ({ c, src: x, srate: rate })),
+      ...[[66.67, 61], [30, 62], [300, 63]].map(([fps, seed]) => ({ c: { name: `the 44.1 kHz source at ${fps} fps, jitter 50 ms`, fps, opts: { jitterMs: 50, seed } }, src: x44, srate: 44100 }))
+    ];
     try {
-      for (const c of [CASES[5], CASES[9], CASES[13], CASES[0]]) {
+      for (const { c, src, srate } of sources) {
         for (const deviceRate of [44100, 48000]) {
           for (const room of [null, { preset: 6 }]) {
+            let voiceAt = 0;
             const o = { ...BASE, ...c.opts, fps: c.fps, timeline: 'game', deviceRate, ...(room ? { room } : {}) };
-            const r = await A.process(buffer(x, rate), o), head = Math.round(x.length * deviceRate / rate);
-            const tail = room ? Math.round(r.codecInfo.room.tail * deviceRate / 44100) : 0, run = Math.round(over(r) * deviceRate / 44100);
+            const r = await A.process(buffer(src, srate), { ...o, onGain: (g) => { voiceAt = g.length; } });
+            const head = Math.round(src.length * deviceRate / srate), ov = over(r);
+            const tail = room ? Math.round(r.codecInfo.room.tail * deviceRate / 44100) : 0, run = Math.ceil(ov * deviceRate / 44100);
             if (r.samples.length !== head + run + tail) lengths = false;
             let note = '';
             if (!room) {
-              const p = await plain.audio.process(buffer(x, rate), o);
-              // At 48 kHz the device stage reads one mix sample ahead: the head's last sample is made with the run-on's
-              // first sample where the render without the play-out had a zero. Every other sample of the head is equal.
-              const at = firstDiff(r.samples.subarray(0, head), p.samples), want = deviceRate === 44100 || over(r) === 0 ? -1 : head - 1;
-              const rest = at === head - 1 ? firstDiff(r.samples.subarray(0, head - 1), p.samples.subarray(0, head - 1)) : -1;
-              if (!(p.samples.length === head && at === want && rest === -1 && !('over' in p.codecInfo.channel))) heads = false;
-              note = `, the head's first difference ${at}`;
+              const p = await plain.audio.process(buffer(src, srate), o);
+              const M = voiceAt - ov, changed = [], allowed = [];
+              for (let n = 0; n < head; n++) {
+                if (r.samples[n] !== p.samples[n]) changed.push(n);
+                const k = Math.floor(44100 * n / deviceRate), between = (44100 * n) % deviceRate !== 0;
+                if (ov > 0 && (k >= M || (between && k + 1 >= M))) allowed.push(n);
+              }
+              allowedSeen += allowed.length;
+              if (!(p.samples.length === head && isDeepStrictEqual(changed, allowed) && !('over' in p.codecInfo.channel))) heads = false;
+              note = `; voiceLength ${M}, the head's changed samples [${changed.join(', ')}], ruling A's [${allowed.join(', ')}]`;
+              rowsA.push(`${c.name}, ${deviceRate / 1000} kHz: over ${ov}${note}`);
             }
-            rows10.push(`${c.name}, ${deviceRate / 1000} kHz${room ? ', a room' : ''}: ${r.samples.length} = ${head} + ${run} + ${tail}${note}`);
+            rows10.push(`${c.name}, ${deviceRate / 1000} kHz${room ? ', a room' : ''}: ${r.samples.length} = ${head} + ${run} + ${tail}`);
           }
         }
       }
     } finally { fs.rmSync(plain.dir, { recursive: true, force: true }); }
-    check('the output\'s length is round(source x device rate / source rate) + round(over x device rate / 44100) + the room\'s tail at the device\'s rate, at 44.1 and 48 kHz, with and without a room',
+    check('the output\'s length is round(source x device rate / source rate) + ceil(over x device rate / 44100) + the room\'s tail at the device\'s rate (rounded), at 44.1 and 48 kHz, with and without a room, from a 24 and a 44.1 kHz source',
       lengths, rows10.join('; '));
-    check('the head of a render without a room is the same render\'s by an engine whose channel does not play out: every sample at 44.1 kHz; at 48 kHz every one but the last, which the device stage makes with the run-on\'s first sample where it ran on',
-      heads, rows10.filter((r) => !r.includes('a room')).join('; '));
+    check('ruling A: against an engine whose channel does not play out, the head\'s changed samples are exactly those whose device read touches mix sample voiceLength or later on a render that ran on, and none on one that did not (24 and 44.1 kHz sources, 44.1 and 48 kHz devices)',
+      heads && allowedSeen > 0, rowsA.join('; '));
   }
 
   // Check 11: the stream, in pieces of odd sizes (and with the last pieces one sample long), with a room too: process()'s

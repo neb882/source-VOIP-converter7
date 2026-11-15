@@ -11,7 +11,7 @@
   const { createMixStage, createOutStage, deviceRateOf, joinInts } = E.mix;
   const { buildLossMask, steamArrivalPlan, steamLoser } = E.network;
   const { DEFAULT_SENDER_GATE, celtModeRate, gateThresholdDb, loadOpusModule, profileEq, receivedCodecInfo } = E.codec;
-  const { mixAtDevice, resolveRoom, roomPreset, tailAtDevice } = E.room;
+  const { runOnAtDevice, resolveRoom, roomPreset, tailAtDevice } = E.room;
   const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
     steamCodecInfo, steamDemoVoice, steamGameTimeline, steamModules, steamPlayedInfo, steamRunOn, steamSenderOptions, steamTimeline } = E.steam;
 
@@ -810,7 +810,7 @@
     const { volume, deviceRate } = r;
     const playbackLength = Math.round(b.sourceLength * deviceRate / srcRate);
     const atDevice = whole(createOutStage(volume, deviceRate, o.onMixBlock), mix);
-    const outLength = playbackLength + mixAtDevice(steamRunOn(codecInfo.channel), deviceRate) + tailAtDevice(tail, deviceRate);
+    const outLength = playbackLength + runOnAtDevice(steamRunOn(codecInfo.channel), deviceRate) + tailAtDevice(tail, deviceRate);
     samples = new Float32Array(outLength);
     for (let i = 0, n = Math.min(outLength, atDevice.length); i < n; i++) samples[i] = atDevice[i] / 32768;
 
