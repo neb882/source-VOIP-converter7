@@ -9,6 +9,9 @@
 //                                                           after one fails
 //   node tests/voice-channel.verify.mjs --play-out          the play-out's checks alone (W3-24),
 //                                                           each run even after one fails
+//   node tests/voice-channel.verify.mjs --server-logs       the log tool's checks on a real server's
+//                                                           log alone (W3-25), each run even after
+//                                                           one fails
 //
 // The public checks write a console log in the game's format from a seeded run of the
 // channel itself under a mixer of their own, turn it into a fixture with
@@ -28,12 +31,12 @@ import vm from 'node:vm';
 import { isDeepStrictEqual } from 'node:util';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { logToFixture } from './voicequeue/log-to-fixture.mjs';
+import { logToFixture, FixtureError } from './voicequeue/log-to-fixture.mjs';
 import { createReferenceChannel, referenceWaitTicks, referenceLatency } from './voicequeue/reference-channel.mjs';
 import { engineRun, syntheticResults } from './voicequeue/synthetic-results.mjs';
 import { FAULTS, validFixture, replayFixture } from './voicequeue/replay.mjs';
 import { frameClockRuns, frameRate, frameTime, referenceFrames } from './voicequeue/reference-frames.mjs';
-import { mulberry32, UNRELATED, synthesize } from './voicequeue/synthetic-log.mjs';
+import { mulberry32, UNRELATED, synthesize, synthesizeServer } from './voicequeue/synthetic-log.mjs';
 
 const require = createRequire(import.meta.url);
 const V = require('../voice-channel.js');
@@ -771,15 +774,15 @@ function publicChecks() {
       check(`the tool stops: ${name}`, x.status !== 0 && expect.test(x.err) && !x.err.includes('qXz') && x.out === '', x.err.trim());
     };
     const P = (n) => `Voice - ${n} incoming samples added to channel 0`, T = (b) => `Voice - chan 0, ent 1, bufsize: ${b}`;
-    refuse('two packet lines before a tick line', [P(100), T(198), P(100), P(100), T(594)].join('\n'), ['--fps', '300'], /second packet line/);
     refuse('a packet line with no tick line', [P(100), T(198), P(100)].join('\n'), ['--fps', '300'], /no tick line/);
     refuse('a tick line before any packet', [T(198), P(100), T(396)].join('\n'), ['--fps', '300'], /no channel/);
     refuse('a session break between a packet and its tick line', [P(100), T(198), P(100), UNRELATED, UNRELATED, T(396)].join('\n'), ['--fps', '300'], /another session/);
-    refuse('a second speaker', [P(100), T(198), 'Voice - chan 1, ent 3, bufsize: 198'].join('\n'), ['--fps', '300'], /second channel/);
+    refuse('a second channel, with no --channel: the channels and their tick lines listed', [P(100), T(198), 'Voice - chan 1, ent 3, bufsize: 198'].join('\n'), ['--fps', '300'],
+      /more than one channel: channel 0 \(1 tick line\), channel 1 \(1 tick line\); the tool reads one channel at a time; give --channel <n>/);
     refuse('a second speaker on the same channel number', [P(100), T(198), 'Voice - chan 0, ent 3, bufsize: 198'].join('\n'), ['--fps', '300'], /second channel/);
     refuse('a grace at a wait of 3 ticks, which cannot be told from a new channel', [P(101), T(200), T(200), T(200), T(100), P(51), T(100), T(40)].join('\n'), ['--fps', '30'], /cannot be told/);
     refuse('an odd number of bytes leaving the queue', [P(100), T(198), ...Array(29).fill(T(198)), T(197)].join('\n'), ['--fps', '300'], /cannot go/);
-    refuse('pull lines (voice_showchannels 2)', [P(100), 'Voice - mixed 512 samples from channel 0', T(198)].join('\n'), ['--fps', '300'], /showchannels 2/);
+    refuse('a pull line that does not read as one', [P(100), T(198), 'Voice - mixed 512 samples from channel', T(198)].join('\n'), ['--fps', '300'], /line 3: a voice line that does not read/);
     refuse('a marker that is not there', [P(100), T(198)].join('\n'), ['--fps', '300', '--section', 'MARK99'], /marker/);
     refuse('no frame rate', [P(100), T(198)].join('\n'), [], /--fps/);
     refuse('a new channel whose queue is not its packet', [P(100), T(200)].join('\n'), ['--fps', '300'], /new channel holds/);
@@ -852,6 +855,7 @@ function publicChecks() {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+  serverLogChecks();
   timelineChecks();
   frameClockChecks();
   endlessChecks();
@@ -859,6 +863,214 @@ function publicChecks() {
   playOutChecks();
   arrivalZeroChecks();
   console.log(`\n${passed} voice channel checks passed`);
+}
+
+// ---------------------------------------------------------------------------------------
+// The log tool on a real server's log (W3-25, docs/work-orders/W3-25-server-logs.md): several
+// packets on a tick, several speakers (--channel), and voice_showchannels 2's pull lines.
+
+// A fixture of one channel of a synthetic server log with the pulls an even clock would make
+// in place of the ones read: before tick i the blocks b with 1323 (i - 1) <= 1024 b < 1323 i,
+// 512 samples each, and the sample more of a start's first pull where the read pull had it.
+function evenPulls(fixture, marks, chan) {
+  const own = marks.filter((m) => m.chan === chan), ev = fixture.sections[0].events.slice();
+  const blocks = (i) => Math.ceil(1323 * i / 1024) - Math.ceil(1323 * (i - 1) / 1024);
+  let mi = 0, extra = 0;
+  for (let k = 0; k < ev.length; k += 2) {
+    if (ev[k] === 3 && ev[k + 1] !== -1) { mi++; continue; }
+    if (ev[k] !== 2) continue;
+    let n = k + 2;
+    while (ev[n] !== 3) n += 2;
+    if (ev[n + 1] === -1) continue;
+    if (ev[k + 1] % 512 === 1) extra = 1;
+    const even = 512 * blocks(own[mi].tick);
+    ev[k + 1] = even + (even > 0 ? extra : 0);
+    if (even > 0) extra = 0;
+  }
+  return { ...fixture, sections: [{ ...fixture.sections[0], events: ev }] };
+}
+
+function serverLogChecks() {
+  console.log('The log tool on a real server\'s log: several packets on a tick, several speakers, pull lines');
+  const P = (n, c = 0) => `Voice - ${n} incoming samples added to channel ${c}`, T = (b, c = 0, e = 1) => `Voice - chan ${c}, ent ${e}, bufsize: ${b}`;
+  const M = (n, c = 0) => `Voice - mixed ${n} samples from channel ${c}`;
+  const read = (lines, fps, more = {}) => logToFixture(lines.join('\n'), { fps, ...more });
+  const events = (lines, fps, more) => JSON.stringify(read(lines, fps, more).fixture.sections[0].events);
+  const stopped = (lines, fps, more) => { try { read(lines, fps, more); return ''; } catch (e) { return e.message; } };
+  const wait7 = [P(101), T(200), T(200), T(200), T(200), T(200), T(200), T(200)];
+  const made7 = [1, 101, 3, 200, 2, 512, 3, 200, 2, 1024, 3, 200, 2, 512, 3, 200, 2, 1024, 3, 200, 2, 512, 3, 200, 2, 1024, 3, 200];
+  // A part whose log the tool stops on where a check expects it to read fails as a check.
+  const part = (name, fn) => { try { fn(); } catch (e) { if (!(e instanceof FixtureError)) throw e; check(`${name}: the tool read the logs`, false, e.message); } };
+
+  // 1. Several packets on a tick: each is added on that tick, in the log's order.
+  part('several packets on a tick', () => {
+    const inWait = [P(100), T(198), P(51), P(0), P(31), T(358)];
+    check('three packets on a tick in a wait (one empty): three packet events in the log\'s order, the queue their sum', events(inWait, 300) === JSON.stringify([1, 100, 3, 198, 2, 512, 1, 51, 1, 0, 1, 31, 3, 358]), events(inWait, 300));
+    const opening = [P(0), P(101), T(200)];
+    const o = read(opening, 300).stats;
+    check('an opening of two packets, the first empty: the channel holds what both bring', events(opening, 300) === JSON.stringify([1, 0, 1, 101, 3, 200])
+      && o.opens === 1 && o.packets === 2 && o.emptyPackets === 1 && o.severalPackets === 1, events(opening, 300));
+    const playing = [P(1001), T(2000), P(51), P(31), T(1136)];
+    check('two packets on a tick while the channel plays: the demand is what left the queue less what both brought', events(playing, 10) === JSON.stringify([1, 1001, 3, 2000, 2, 512, 1, 51, 1, 31, 3, 1136]), events(playing, 10));
+    const over = [P(20001), T(40000), P(2001), P(1563), T(44100)];
+    check('two packets that overflow the ring: the demand hidden as by one packet of both (3024 bytes over: 1024)', events(over, 10) === JSON.stringify([1, 20001, 3, 40000, 2, 1024, 1, 2001, 1, 1563, 3, 44100]), events(over, 10));
+    const grace = [...wait7, T(100), P(51), P(0), T(100), T(100), T(100), T(40)];
+    const g = read(grace, 66.67).stats;
+    check('a grace of two packets, one empty: one grace, both packets after the made-up pull', events(grace, 66.67) === JSON.stringify([...made7, 2, 50, 3, 100, 2, 1024, 1, 51, 1, 0, 3, 100, 2, 0, 3, 100, 2, 0, 3, 100, 2, 30, 3, 40])
+      && g.graces === 1 && g.opens === 1, events(grace, 66.67));
+    const freed = [...wait7, T(100), P(31), P(11), T(80), T(80), T(80), T(80)];
+    check('a new channel after an unseen free, opened by two packets: the free, then both', events(freed, 66.67) === JSON.stringify([...made7, 2, 50, 3, 100, 2, 1024, 3, -1, 1, 31, 1, 11, 3, 80, 2, 512, 3, 80, 2, 1024, 3, 80, 2, 512, 3, 80]), events(freed, 66.67));
+    check('a packet line with no tick line after it still stops, at the first of the step\'s packet lines', /^line 3: a packet line with no tick line/.test(stopped([P(100), T(198), P(100), P(100)], 300)), stopped([P(100), T(198), P(100), P(100)], 300));
+  });
+
+  // 2. Several speakers: one channel at a time, matched by its number.
+  part('several speakers', () => {
+    const two = [P(1001, 0), T(2000, 0, 1), P(501, 1), T(976, 0, 1), T(1000, 1, 2), P(51, 1), T(976, 0, 1), T(1100, 1, 2)];
+    const c0 = read(two, 10, { channel: 0 }), c1 = read(two, 10, { channel: 1 });
+    check('--channel 0 and --channel 1 of a log of two channels each read only their own packet and tick lines',
+      JSON.stringify(c0.fixture.sections[0].events) === JSON.stringify([1, 1001, 3, 2000, 2, 512, 3, 976, 2, 0, 3, 976])
+      && JSON.stringify(c1.fixture.sections[0].events) === JSON.stringify([1, 501, 3, 1000, 2, 0, 1, 51, 3, 1100])
+      && c0.stats.otherChannelLines === 4 && c1.stats.otherChannelLines === 4 && c0.stats.channel === 0 && c1.stats.channel === 1,
+      `${JSON.stringify(c0.fixture.sections[0].events)} | ${JSON.stringify(c1.fixture.sections[0].events)}`);
+    check('with no --channel the tool stops and lists the channels with their tick lines, numbers only', stopped(two, 10) === 'more than one channel: channel 0 (3 tick lines), channel 1 (2 tick lines); the tool reads one channel at a time', stopped(two, 10));
+    check('--channel naming a channel with no tick line stops', stopped(two, 10, { channel: 2 }) === 'no tick line of channel 2', stopped(two, 10, { channel: 2 }));
+    // A channel's entity changes: after a free nobody printed it is a new session; with no free tick between, a stop.
+    const reused = [P(1001), T(2000, 0, 1), T(976, 0, 1), P(101), T(200, 0, 3), T(200, 0, 3)];
+    const r = read(reused, 10);
+    check('a second speaker on a channel after its ring ran dry: a new session, then the new channel',
+      JSON.stringify(r.fixture.sections[0].events) === JSON.stringify([1, 1001, 3, 2000, 2, 512, 3, 976, 0, 0, 1, 101, 3, 200, 2, 0, 3, 200]) && r.stats.speakers === 1 && r.stats.sessions === 1 && r.stats.opens === 2,
+      JSON.stringify(r.fixture.sections[0].events));
+    for (const [what, lines] of [['its ring too full to have run dry', [P(5001), T(10000, 0, 1), T(8976, 0, 1), P(101), T(200, 0, 3)]],
+      ['no packet on the new speaker\'s first tick line', [P(1001), T(2000, 0, 1), T(976, 0, 1), T(976, 0, 3)]],
+      ['the first speaker still waiting', [P(1001), T(2000, 0, 1), P(101), T(200, 0, 3)]]]) {
+      const fps = what.startsWith('the first') ? 66.67 : 10;
+      check(`a change of entity with no free tick between stops: ${what}`, /a second channel while one is in use: the entity changed with no free tick between/.test(stopped(lines, fps)), stopped(lines, fps));
+    }
+  });
+
+  // 3. Pull lines: the demand read, a frame's ticks before its pulls (30 frames a second, a wait of 3).
+  part('pull lines', () => {
+    const log30 = [P(3001), T(6000), T(6000), T(6000), M(513), M(512), P(101), T(4150), T(4150), M(512), M(512), M(512), T(1078)];
+    const e30 = [1, 3001, 3, 6000, 2, 512, 3, 6000, 2, 1024, 3, 6000, 2, 1025, 1, 101, 3, 4150, 2, 0, 3, 4150, 2, 1536, 3, 1078];
+    const a = read(log30, 30);
+    check('pull lines at 30 frames a second: the pulls after a run of tick lines are the next tick\'s demand, before its packet; none between two tick lines of a frame',
+      JSON.stringify(a.fixture.sections[0].events) === JSON.stringify(e30) && a.stats.pullLines === 5 && a.stats.offGrid === 0 && /voice_showchannels 2/.test(a.fixture.about),
+      JSON.stringify(a.fixture.sections[0].events));
+    // The same with a second speaker playing on channel 1 and its pulls: counted, not taken.
+    const other = [P(3001), T(6000), T(30000, 1, 2), T(6000), T(30000, 1, 2), M(512, 1), M(512, 1), T(6000), T(30000, 1, 2), M(513), M(512, 1), M(512), M(512, 1),
+      P(101), T(4150), T(30000, 1, 2), T(4150), T(30000, 1, 2), M(512), M(512, 1), M(512), M(512, 1), M(512), M(512, 1), T(1078), T(30000, 1, 2)];
+    const b = read(other, 30, { channel: 0 });
+    check('... with another channel\'s tick and pull lines between: the same events, the other\'s pulls counted and not taken',
+      JSON.stringify(b.fixture.sections[0].events) === JSON.stringify(e30) && b.stats.pullLines === 5 && b.stats.otherChannelLines === 13 && b.stats.readTicks === 3,
+      JSON.stringify(b.fixture.sections[0].events));
+    // voice_showchannels 2 set in the middle of a stretch: that stretch is worked out from the queue, the next ones read.
+    const wait6000 = [P(3001), T(6000), T(6000), T(6000), T(6000), T(6000), T(6000), T(6000)];
+    const made6000 = [1, 3001, 3, 6000, 2, 512, 3, 6000, 2, 1024, 3, 6000, 2, 512, 3, 6000, 2, 1024, 3, 6000, 2, 512, 3, 6000, 2, 1024, 3, 6000];
+    const midway = [...wait6000, T(4976), M(512), T(2928), M(512), T(1904)];
+    const c = read(midway, 66.67);
+    check('pull lines that begin in the middle of a stretch: that stretch worked out from the queue (1024), the next read (512)',
+      JSON.stringify(c.fixture.sections[0].events) === JSON.stringify([...made6000, 2, 512, 3, 4976, 2, 1024, 3, 2928, 2, 512, 3, 1904]) && c.stats.readTicks === 1 && replayFixture(c.fixture)[0].engine.bad === 0,
+      JSON.stringify(c.fixture.sections[0].events));
+    const inWait = [P(101), T(200), T(200), M(512), T(200), M(512), T(200), T(200), T(200), T(200)];
+    check('a pull of the channel while it waits stops', /^line 7: a pull of 512 samples while the channel waits$/.test(stopped(inWait, 66.67)), stopped(inWait, 66.67));
+    const offBlock = [...wait6000, M(512), T(4976), M(500), T(3976)];
+    check('a pull read off the 512-sample blocks is counted, and --strict refuses it', read(offBlock, 66.67).stats.offGrid === 1
+      && /^line 12: a pull of 500 samples, not whole blocks of 512 \(--strict\)$/.test(stopped(offBlock, 66.67, { strict: true })), stopped(offBlock, 66.67, { strict: true }));
+    // At 20 frames a second (a wait of 2, up to 4 ticks a frame) a frame's pulls empty 5098 bytes, more than the
+    // 4096 the worked-out rules allow; the next frame's packet came to a channel kept or freed. The next pull, 3 tick
+    // lines on, cannot tell by when it came; it tells by its size: 513, a start (freed), or 512, kept (a grace).
+    const at20 = (first) => [M(512, 1), P(2550), T(5098), T(5098), T(5098), M(513), M(512), M(512), M(512), M(512),
+      P(1001), T(2000), T(2000), T(2000), M(first), T(2000 - 2 * first)];
+    const freed = read(at20(513), 20, { channel: 0 }), kept = read(at20(512), 20, { channel: 0 });
+    check('pulls that empty the ring, at 20 frames a second: a next pull of 513 is a new channel after an unseen free, of 512 a grace',
+      JSON.stringify(freed.fixture.sections[0].events) === JSON.stringify([1, 2550, 3, 5098, 2, 512, 3, 5098, 2, 0, 3, 5098, 2, 2561, 3, -1, 1, 1001, 3, 2000, 2, 1024, 3, 2000, 2, 0, 3, 2000, 2, 513, 3, 974])
+      && freed.stats.opensAfterFree === 1 && freed.stats.graces === 0
+      && JSON.stringify(kept.fixture.sections[0].events) === JSON.stringify([1, 2550, 3, 5098, 2, 512, 3, 5098, 2, 0, 3, 5098, 2, 2561, 1, 1001, 3, 2000, 2, 0, 3, 2000, 2, 0, 3, 2000, 2, 512, 3, 976])
+      && kept.stats.graces === 1 && kept.stats.opensAfterFree === 0 && replayFixture(freed.fixture)[0].engine.bad === 0 && replayFixture(kept.fixture)[0].engine.bad === 0,
+      `${JSON.stringify(freed.fixture.sections[0].events)} | ${JSON.stringify(kept.fixture.sections[0].events)}`);
+    check('... and a next pull of neither stops', /^line 12: at a wait of 2 ticks a grace cannot be told from a new channel \(the channel is next pulled 3 tick lines on\)$/.test(stopped(at20(500), 20, { channel: 0 })), stopped(at20(500), 20, { channel: 0 }));
+  });
+
+  // 4. Synthetic server logs from the module's own channels on the frame clock (synthesizeServer).
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf2ve-serverlog-'));
+  try {
+    const runs = [[300, false], [300, true], [30, true]].map(([fps, pulls]) => ({ fps, pulls, ...synthesizeServer({ fps, seed: 0x5EED, pulls }, createChannel) }));
+    for (const x of runs) part(`the server log at ${x.fps} frames a second${x.pulls ? ' with pull lines' : ''}`, () => {
+      const t = x.truth, c0 = t.perChannel[0], c1 = t.perChannel[1];
+      const both = new Set(x.marks.filter((m) => m.chan === 0).map((m) => m.tick));
+      const together = x.marks.filter((m) => m.chan === 1 && both.has(m.tick)).length;
+      const three = x.marks.some((m) => m.packets.length === 3 && m.packets.includes(0)), twoPk = x.marks.some((m) => m.packets.length === 2);
+      const what = `${x.fps} frames a second${x.pulls ? ' with pull lines' : ''}`;
+      check(`the server log at ${what} has two and three packets on a tick (one empty), two channels in use at once, channel 0 taken by a second speaker after a free, an overflow and a grace`,
+        three && twoPk && together > 100 && t.perChannel.length === 2 && c0.speakers.join() === '1,3' && c0.reuses === 1 && t.dropped > 0 && c0.graces >= 1
+        && (x.pulls ? c0.pullLines > 0 && c1.pullLines > 0 : t.pullLines === 0) && x.lines.includes(UNRELATED),
+        `${t.packets} packets, ${t.ticks} tick lines (${together} with both channels), ${t.severalPackets} ticks of several packets, ${t.dropped} samples dropped, ${t.pullLines} pull lines`);
+      const text = x.lines.join('\n');
+      let listed = '';
+      try { logToFixture(text, { fps: x.fps }); } catch (e) { listed = e.message; }
+      check(`... with no --channel the tool lists its channels: ${listed}`, listed === `more than one channel: channel 0 (${c0.ticks} tick lines), channel 1 (${c1.ticks} tick lines); the tool reads one channel at a time`);
+      const faults = new Array(FAULTS.length).fill(0);
+      for (const c of [0, 1]) {
+        const tc = t.perChannel[c];
+        const { fixture, stats } = logToFixture(text, { fps: x.fps, channel: c });
+        const r = replayFixture(fixture)[0];
+        check(`... channel ${c}: the tool finds what the channel did, and the replay gives the logged queue on every tick line`,
+          r.engine.bad === 0 && stats.packets === tc.packets && stats.ticks === tc.ticks && stats.opens === tc.opens && stats.opensAfterFree === tc.opensAfterFree
+          && stats.graces === tc.graces && stats.emptyPackets === tc.emptyPackets && stats.severalPackets === tc.severalPackets && stats.speakers === tc.reuses
+          && r.engine.ticks === tc.ticks + tc.opensAfterFree && r.engine.packets === tc.packets && r.engine.opens === tc.opens
+          && stats.pullLines === tc.pullLines && stats.readTicks === (x.pulls ? tc.ticks - 1 - x.marks.filter((m) => m.chan === c && m.line < x.lines.findIndex((l) => l.startsWith('Voice - mixed'))).length : 0),
+          `${r.engine.ticks} ticks, ${r.engine.bad} off; ${stats.packets} packets, ${stats.opens} opens (${stats.opensAfterFree} after a free), ${stats.graces} graces, ${stats.speakers} new speakers, demand read on ${stats.readTicks}; faults ${r.faults.map((f) => f.bad).join(', ')}`);
+        r.faults.forEach((f, i) => { faults[i] += f.bad; });
+        x[`fixture${c}`] = fixture;
+      }
+      check(`... each of the six faults mismatches on one of its channels`, faults.every((n) => n > 0), FAULTS.map(([l], i) => `${l} ${faults[i]}`).join(', '));
+    });
+    if (!runs.every((x) => x.fixture0 && x.fixture1)) return;
+
+    // The tool run on its own, with --channel, on a file.
+    const x300 = runs[1], file = path.join(dir, 'server300.log');
+    fs.writeFileSync(file, `${x300.lines.join('\r\n')}\r\n`);
+    const cli = runTool(file, ['--fps', '300', '--channel', '1']);
+    const none = runTool(file, ['--fps', '300']);
+    check('the tool run with --channel 1 prints the same fixture, and a line on the channel, its pull lines and the other channels\' lines',
+      cli.status === 0 && JSON.stringify(cli.fixture) === JSON.stringify(x300.fixture1)
+      && new RegExp(`channel 1: ${x300.truth.perChannel[1].pullLines} pull lines, the demand read on \\d+ ticks; 1 ticks with several packets; 0 new speakers on the channel; \\d+ lines of other channels`).test(cli.err)
+      && !cli.out.includes('qXz') && !cli.err.includes('qXz'), cli.err.trim());
+    check('... and with no --channel stops, listing the channels and saying to give --channel', none.status === 1 && none.out === '' && /more than one channel: channel 0 \(\d+ tick lines\), channel 1 \(\d+ tick lines\); the tool reads one channel at a time; give --channel <n>/.test(none.err), none.err.trim());
+
+    // The frame's order at 30 frames a second: the read pulls replay; an even clock's do not.
+    const x30 = runs[2];
+    const perFrame = new Map();
+    for (const m of x30.marks) if (m.chan === 0) perFrame.set(m.frame, (perFrame.get(m.frame) || 0) + 1);
+    const lens = [...perFrame.values()];
+    const evenRow = replayFixture(evenPulls(x30.fixture0, x30.marks, 0))[0], readRow = replayFixture(x30.fixture0)[0];
+    check('at 30 frames a second channel 0\'s tick lines come in runs of 2 and 3 before its pulls; the replay gives every tick line with the read pulls and mismatches with an even clock\'s',
+      lens.includes(2) && lens.includes(3) && lens.every((n) => n === 2 || n === 3) && readRow.engine.bad === 0 && evenRow.engine.bad > 50,
+      `runs: ${lens.filter((n) => n === 2).length} of 2, ${lens.filter((n) => n === 3).length} of 3; the even clock's pulls mismatch on ${evenRow.engine.bad} of ${evenRow.engine.ticks} ticks`);
+
+    // The line printed late: an incoming line after the tick line that counts it.
+    for (const x of [runs[1], runs[0]]) {
+      const lines = x.lines.slice(), own = x.marks.filter((m) => m.chan === 0);
+      const at = own.findIndex((m, j) => j > 80 && m.packets.length === 1 && m.packets[0] > 0 && m.playedBefore && m.b > 8000 && m.b < 30000 && own[j + 1].packets.length === 0);
+      const m = own[at];
+      let pl = m.line - 1;
+      while (lines[pl] !== P(m.packets[0], 0)) pl--;
+      const [moved] = lines.splice(pl, 1);
+      lines.splice(m.line, 0, moved);                       // after the tick line (which moved up by one)
+      let fx = null, why = '';
+      try { fx = logToFixture(lines.join('\n'), { fps: x.fps, channel: 0 }).fixture; } catch (e) { why = e.message; }
+      if (x.pulls) {
+        const r = replayFixture(fx)[0];
+        check('a packet line printed after the tick line that counts it, in a log with pull lines: the replay reports that tick line alone as off, and the next is right again',
+          r.engine.bad === 1 && r.engine.first.tick === at + 1 && r.engine.first.logged === m.b && r.engine.first.model === m.b - 2 * (m.packets[0] - 1), JSON.stringify(r.engine.first));
+      } else {
+        check('... in a log without them, where the queue rose by more than its packets, the tool stops on that tick line (the demand is worked out from the queue)',
+          fx === null && new RegExp(`^line ${m.line}: the queue cannot go from`).test(why), why);
+      }
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -2240,14 +2452,21 @@ function playOutChecks() {
 // ---------------------------------------------------------------------------------------
 
 const argv = process.argv.slice(2);
-let fixtureFile = null, framesOnly = false, playOnly = false;
+let fixtureFile = null, framesOnly = false, playOnly = false, serverOnly = false;
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--fixture' && i + 1 < argv.length) fixtureFile = argv[++i];
+  else if (argv[i] === '--server-logs') serverOnly = true;
   else if (argv[i] === '--frames') framesOnly = true;
   else if (argv[i] === '--play-out') playOnly = true;
-  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>] [--frames] [--play-out]'); process.exit(2); }
+  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>] [--frames] [--play-out] [--server-logs]'); process.exit(2); }
 }
-if (playOnly) {
+if (serverOnly) {
+  keepGoing = true;
+  serverLogChecks();
+  console.log(`\n${passed} voice channel checks passed, ${failed} failed (the server logs' alone)`);
+  if (failed) process.exitCode = 1;
+}
+else if (playOnly) {
   keepGoing = true;
   playOutChecks();
   console.log(`\n${passed} voice channel checks passed, ${failed} failed (the play-out's alone)`);

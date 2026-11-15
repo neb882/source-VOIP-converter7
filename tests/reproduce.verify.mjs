@@ -76,8 +76,8 @@
 //     of marked parts read with --section) print "as expected", the faults as
 //     information (the ring's print 0 at 66.67), Q2 on both; a queue line 2
 //     bytes off at four kinds of line, the 66.67 log judged at 300, the 300
-//     log judged at 66.67 and at 280 (Q2), a pull line, a second
-//     speaker, the packet lines alone, 99 tick lines, a queue that never
+//     log judged at 66.67 and at 280 (Q2), one pull line added, a second
+//     channel, the packet lines alone, 99 tick lines, a queue that never
 //     falls, no voice line, a line cut short, marked parts without --section:
 //     "differs"; bad options: "cannot check".
 // [12] gate: its stand-in, copied text, console_log.txt with stamps and mixed
@@ -903,11 +903,13 @@ try {
     const pull = s300.lines.slice();
     pull.splice(marks[opening + 40].line, 0, 'Voice - mixed 512 samples from channel 0');
     const pulls = run('queue', writeLog('voice_q_pull.log', pull), '--fps', '300');
-    check('a pull line added (voice_showchannels 2): differs, naming the setting', fails(pulls, /voice_showchannels 2/), show(pulls));
+    check('one pull line added (as if voice_showchannels 2 were set there): differs, the demand being read from the pull lines from there on, and the log having no others',
+      fails(pulls, /the rule mismatches the log|the log cannot be read as the rule asks/), show(pulls));
     const second = s300.lines.slice();
     second.splice(marks[opening + 40].line + 1, 0, 'Voice - chan 1, ent 3, bufsize: 14110');
     const two = run('queue', writeLog('voice_q_second.log', second), '--fps', '300');
-    check('a second speaker\'s line added: differs, "a second channel"', fails(two, /second channel/), show(two));
+    check('a second channel\'s line added: differs, "more than one channel", the channels listed by number and tick lines',
+      fails(two, /more than one channel: channel 0 \(\d+ tick lines\), channel 1 \(1 tick line\); the tool reads one channel at a time/), show(two));
     const packetsOnly = run('queue', writeLog('voice_q_packets.log', s300.lines.filter((l) => !/bufsize/.test(l))), '--fps', '300');
     check('the packet lines alone: differs', fails(packetsOnly), show(packetsOnly));
     const cut = (n) => { const out = []; let ticks = 0; for (const l of s67.lines) { if (ticks === n) break; out.push(l); if (/bufsize/.test(l)) ticks++; } return out; };
