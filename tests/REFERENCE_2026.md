@@ -382,6 +382,15 @@ and the orchestrator's first count is corrected in its place.
   runs of two to four (2, 3 and 4 in 27, 58 and 15%), and 1,276 of 1,297 packet lines come after a frame's pulls and
   before its ticks, 5 between two tick lines of one frame (read by the frame's second tick), 16 after another packet
   line. A frame's order is packets, ticks, mixer, as W3-23r read and W3-23a built.
+- **Through the repository's own tool** (measured by the orchestrator; added later on 2026-11-15, W3-25):
+  `tests/voicequeue/log-to-fixture.mjs` with `--channel` and `--mid-play` reads every part of both logs, and
+  `voice-channel.js` gives the logged queue on every tick line the replay compares: 13,483 of the music channel's
+  13,488 in the first log (5 are lines the tool starts from: the log's first, 3 after two other lines, and the one
+  printed late), 152 of 152 on the second speaker's channel, 5,098 of 5,100 at 67 frames a second, 969 and 75 on two
+  other channels there, and 4,789 of 4,791 at 30 frames a second with the demand read from the pull lines. Where the
+  demand is not read it is worked out from the queue, so a playing line matches by construction; the openings, the
+  waits, the overflows and the frees are what test the module there
+  (`docs/work-orders/W3-25-server-logs.md`, "The private run").
 
 ### The file-input runs, measured again (2026-11-13)
 

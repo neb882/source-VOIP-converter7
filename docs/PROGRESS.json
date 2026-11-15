@@ -6,16 +6,9 @@
     "serves": "main (GitHub Pages from the branch root)",
     "main": "the head of main (git log); the site's cache number is below",
     "cache": 54,
-    "last_merge": "W3-24 (cache v54, 2026-11-15): a render of Steam voice on the game's voice queue runs on past its source's end until the channel has given out the last of the source it holds, so the last words are heard instead of cut. Measured on the build: a 6.13 s phrase ending with the file runs on 0 ms at 300 frames a second and jitter 0, 16.5 ms (0 to 41.2) at jitter 50, and 81 to 96 ms at 1000/15, 60 and 30 with jitter 50; a source that ends in 1 s of silence runs on by nothing. A render that does not run on is unchanged sample for sample (the recorded hashes equal main's). On one that does, a sample before the source's length changes only where the device stage's read touches the voice's end or later (one sample at a 44.1 kHz device, two at 48 kHz, on the review's case). The console says how long a render ran on. Not checked against the game. Before it: W3-23b (cache v53, 2026-11-14): the live monitor's chain runs the frame clock under 66.67 frames a second, as a render does, holding back D plus frameHold(fps) blocks (ceil(88200 / (1024 x fps)): 2 at 60, 3 at 30, 5 at 20, 9 at 10), one formula the page and the chain share; onOpen from the timeline; the three cases W3-23a moved are back. Nothing moves at 66.67 and above. Only the monitor's box for the queue, off on every load, at a frame rate under 67 is affected."
+    "last_merge": "W3-25 (no cache change, 2026-11-15): tests/voicequeue/log-to-fixture.mjs reads a real server's log: several packets on a tick, one channel of several (--channel), the mixer's demand from voice_showchannels 2's pull lines, and with --mid-play a log that begins while the channel plays (a new fixture pair 4, B, a start that is not compared). On Set Q's two logs the module gives the logged queue on every tick line the replay compares (measured privately; docs/work-orders/W3-25-server-logs.md). No site file changed. Before it: W3-24 (cache v54, 2026-11-15): a render of Steam voice on the game's voice queue runs on past its source's end until the channel has given out the last of the source it holds, so the last words are heard instead of cut. Measured on the build: a 6.13 s phrase ending with the file runs on 0 ms at 300 frames a second and jitter 0, 16.5 ms (0 to 41.2) at jitter 50, and 81 to 96 ms at 1000/15, 60 and 30 with jitter 50; a source that ends in 1 s of silence runs on by nothing. A render that does not run on is unchanged sample for sample (the recorded hashes equal main's). On one that does, a sample before the source's length changes only where the device stage's read touches the voice's end or later (one sample at a 44.1 kHz device, two at 48 kHz, on the review's case). The console says how long a render ran on. Not checked against the game."
   },
-  "in_flight": [
-    {
-      "order": "W3-25",
-      "file": "docs/work-orders/W3-25-server-logs.md",
-      "stage": "written 2026-11-15; the builder next",
-      "line": "tests/voicequeue/log-to-fixture.mjs reads a real server's log: several packets on a tick, several speakers (--channel), and voice_showchannels 2's pull lines; no site file changes."
-    }
-  ],
+  "in_flight": [],
   "next": [
     {
       "order": "W3-02g-b",
@@ -180,6 +173,10 @@
     {
       "finding": "W3-24 left: the page draws no lane over a render's run-on, and createRender gives a caller no bound of the run-on before finish(), so one buffer for the whole output cannot be sized ahead on the game's voice queue (the builder's report, 'Not done').",
       "why": "The page keeps pieces and sizes nothing ahead; the run-on at the page's default is 0 to 14 ms. For whoever next touches the lanes or a caller with one buffer."
+    },
+    {
+      "finding": "tests/reproduce/queue.mjs's Q2 looks only at a tick's last packet, so it can be off on a fixture with several packets on a tick (W3-25's builder, 2026-11-15).",
+      "why": "No committed fixture has several packets on a tick, and the check `queue` does not take --channel or --mid-play. It matters only if a fixture from a real server's log is ever committed, which needs the owner's word first."
     }
   ],
   "ideas_not_started": [

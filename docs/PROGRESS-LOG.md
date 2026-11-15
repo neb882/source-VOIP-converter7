@@ -732,3 +732,9 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 
 - in_flight: W3-25 added (it was empty).
 - deferred, the log tool's rule of one packet a tick, removed (now W3-25, in_flight): "tests/voicequeue/log-to-fixture.mjs refuses a log with two packets before one tick line, but a real server gives that (Set Q: 25 ticks with two and 1 with three in 202 s), and W3-23r read that one call drains every waiting packet. Allowed in a scratch copy, the replay gives the logged queue on every line (Set Q)."
+
+## 2026-11-15: W3-25 merged (no cache change); entries replaced
+
+- live.last_merge: W3-25 put first; earlier merges cut: "W3-23b (cache v53, 2026-11-14): the live monitor's chain runs the frame clock under 66.67 frames a second, as a render does, holding back D plus frameHold(fps) blocks (ceil(88200 / (1024 x fps)): 2 at 60, 3 at 30, 5 at 20, 9 at 10), one formula the page and the chain share; onOpen from the timeline; the three cases W3-23a moved are back. Nothing moves at 66.67 and above. Only the monitor's box for the queue, off on every load, at a frame rate under 67 is affected."
+- in_flight, W3-25 removed (merged): "[{"order": "W3-25", "file": "docs/work-orders/W3-25-server-logs.md", "stage": "written 2026-11-15; the builder next", "line": "tests/voicequeue/log-to-fixture.mjs reads a real server's log: several packets on a tick, several speakers (--channel), and voice_showchannels 2's pull lines; no site file changes."}]"
+- deferred: one entry added (queue.mjs's Q2 and several packets on a tick).

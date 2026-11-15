@@ -1,6 +1,6 @@
 # W3-25: the log tool reads a real server's log
 
-Status: written 2026-11-15 by the orchestrator; not built.
+Status: written 2026-11-15 by the orchestrator; built, then widened after the private run on the branch (a start in mid-play, below), reviewed (merge after fixes; the fixes made, below) and merged 2026-11-15 with no cache change.
 
 ## Why
 
@@ -99,3 +99,72 @@ The orchestrator runs the committed tool on Set Q's two logs: the first log's mu
 and the 67 and 30 parts of the second. Expected (the private reader's figures with scratch copies, measured): the
 logged queue on 13,486 of 13,487 tick lines, 151 of 151, 5,099 of 5,099 and 1,034 of 1,034, and 4,790 of 4,790
 with the read pulls.
+
+## Added after the private run on the branch (2026-11-15): a log that begins while the channel plays
+
+The order missed this. The orchestrator ran the first build on Set Q before the review, and the tool stopped on three
+of the four parts: a log made on a real server begins while someone is already talking, so the channel's first tick
+line has no opening before it (measured). The first log also has three places where two other lines in a row fall
+between voice lines while the music plays, and the one line printed late (measured). So the expectation above was
+wrong in two ways: the first build could not give it, and a line the tool starts from is not compared.
+
+Added to "What to build":
+
+- **`--mid-play`.** Without it the tool is as first built: every stop, message and fixture the same. With it the
+  channel may be read from a tick line on with no opening in the log, in three places:
+  - a session's first tick line of the channel that is not an opening (no packet, or a queue that is not what its
+    packets bring), at the log's start or after a session break;
+  - a line the queue cannot explain, on a log without pull lines: a new session is written and the line is the
+    start. The line is not guessed at; the stats count such lines.
+- **A start in mid-play** takes the channel as playing, its wait over, with the line's bytes. Its packets are counted
+  and not written. The first pull after it may be a sample over whole blocks (chosen: the log may have begun inside
+  the channel's wait, which a start cannot tell).
+- **The fixture** has a new pair for it, `4, B`: a channel already playing that holds B bytes after this tick line,
+  B even and 0 to 44100. A fixture without one keeps its `about` text byte for byte.
+- **The replay** (`tests/voicequeue/replay.mjs`, which joins "Files") brings a fresh channel to playing with B bytes
+  by the module's own calls. The line is not compared and counts in neither ticks, packets nor opens.
+- Each start costs one compared tick line. A section with no opening cannot show the wait's two faults.
+
+## After the review (2026-11-15)
+
+The review (merge after fixes, nothing blocking) found four things; all four are done on the branch before the merge.
+
+1. **A second entity on the channel after an unseen free** was written as a new session, where main wrote an unseen
+   free, so a log main reads gave a different fixture and different `queue` lines (the reviewer's case: the reproduce
+   stand-in at 300 with a second entity from its third opening on). It is written as main wrote it: the pull, the
+   free, then the opening. The free tick is compared again. The case is a check, and its call is in main's record.
+2. **Two rules had no check**: the replay's probe for the fault that keeps a packet's first sample, and the first
+   pull after a start. Each has one.
+3. **With `--mid-play` a start of odd bytes, or of more than 44100, was written** where the replay refuses it; the
+   tool stops on it. A line the queue cannot explain now counts as a new session and a start in the stats.
+4. **`tests/voicequeue/README.md`** says what a start in mid-play leaves untested: with no opening and no pull lines
+   the playing tick lines match by construction, as the demand is worked out from the queue, so only the overflow,
+   grace and unseen-free lines test the module there; and a line the queue cannot explain may be a disagreement with
+   the module, so more than the odd one deserves a run without the option.
+
+The stops that changed on logs main also refused are in the report.
+
+Left, and recorded in `docs/PROGRESS.json`: `tests/reproduce/queue.mjs`'s Q2 looks only at a tick's last packet, so
+it can be off on a fixture with several packets on a tick. No committed fixture has one.
+
+## The private run (2026-11-15)
+
+The orchestrator, with the merged tool (the branch's head, `17594e8`) and `--mid-play`, on Set Q's two logs. All
+measured; the logs stay private.
+
+| Part | Tick lines | Starts in mid-play | Compared by the replay | Off |
+| --- | ---: | ---: | ---: | ---: |
+| First log, the music's channel (294 frames a second) | 13,488 | 5: the first line, 3 after two other lines, 1 the queue could not explain | 13,483, and one unseen free | 0 |
+| First log, a second speaker's channel | 152 | 0 | 152 | 0 |
+| 67 frames a second, the music's channel | 5,100 | 2: the first line, 1 after two other lines | 5,098 | 0 |
+| 67 frames a second, two other channels (9 and 1 openings, 3 changes of speaker) | 969 and 75 | 0 | 969 and 8 unseen frees; 75 | 0 |
+| 30 frames a second, the music's channel, the demand read from 6,191 pull lines | 4,791 | 2 | 4,789 | 0 |
+
+- The first log's music channel has one pull off the 512-sample blocks: the line after the one the queue could not
+  explain (the `incoming` line printed late).
+- Only the 30 frames a second part has its demand read. On the others it is worked out from the queue, so their
+  playing lines match by construction; what tests the module there is the openings, the waits, the overflows and the
+  frees.
+- Faults on the first log's music channel (tick lines off): ring one sample longer or shorter 1,674 each, the wait
+  one tick longer 1 and shorter 2, a packet's first sample kept 13,419, no grace 0 (no grace happened). The two
+  music parts of the second log have no opening: only the kept sample shows there.
