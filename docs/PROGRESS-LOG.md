@@ -727,3 +727,8 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-15: Set Q's arrivals measured; entry replaced
 
 - open_questions, a real server's arrivals replaced: "2026-11-15, Set Q: a real server's arrivals are rougher than a render's at jitter 0 (gaps of 0 to 7 ticks between messages against 3 to 5; two stalls of about 0.2 s in 202 s; measured). The page's default, jitter 0, is a local server's. Not measured: whether any jitter setting of the page gives Set Q's spread of gaps, and how far the default render's skips and overflows differ from a render fed Set Q's own arrivals. A private measurement first; an order only if the difference is audible in the level or the skips."
+
+## 2026-11-15: W3-25 written; entries replaced
+
+- in_flight: W3-25 added (it was empty).
+- deferred, the log tool's rule of one packet a tick, removed (now W3-25, in_flight): "tests/voicequeue/log-to-fixture.mjs refuses a log with two packets before one tick line, but a real server gives that (Set Q: 25 ticks with two and 1 with three in 202 s), and W3-23r read that one call drains every waiting packet. Allowed in a scratch copy, the replay gives the logged queue on every line (Set Q)."
