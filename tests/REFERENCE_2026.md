@@ -354,6 +354,29 @@ and the orchestrator's first count is corrected in its place.
   second (the rule under "The queue, not recorded"). The fade and the underrun were not reached: the queue never
   held under 25,428 bytes (288 ms). Lost sound lowers the queue faster than the drain: in the first log its median
   stood at 451 ms after the restart and at 182 ms after the second stall (measured, the second reader).
+- **These arrivals against the render's** (measured on the module by a private reader, added later on 2026-11-15;
+  one server, one evening):
+  - *Gaps.* Of the page's jitter settings, 15 comes closest to the first log's gaps at 294 frames a second: 3.4% of
+    messages placed differently (2.5 to 4.4 over 20 seeds), against 33.1% at jitter 0, 6.5% at 10, 10.2% at 20 and
+    29.2% at 50. Two seeds at jitter 15 lie 2.0% apart, and the log's two halves 7.3%. The ends are thin: none on
+    the same tick (the log 0.71%) and 0.14% at 7 ticks or more (1.31%). At 67 and 30 the closest is jitter 10 (4.2
+    and 6.1%), so one setting does not carry across frame rates.
+  - *The queue in steady play.* The log's 176 s without a stall: no overflow and no underrun, the queue's median
+    400 ms. A channel opened in mid-stream and run 60 s drops 36.8 ms with the log's arrivals (8.8 to 75.4 by where
+    it opens), 23.8 at jitter 0 and 38.8 at jitter 15, with the queue's median at 425, 438 and 429 ms.
+  - *In sound.* 202 s of pink noise rendered with the log's own arrival ticks (each packet line as one read of the
+    sender cutting the log's frame count; the two empty packets, the sound that never came and the log's own
+    opening not mapped) has 10 skips and 115.8 ms dropped, against 6 to 7 skips and 105 to 117 ms at jitter 0 over
+    three seeds, all of those at the opening. Its level in half-second blocks leaves the default render's by over
+    1 dB in two blocks, both at the restart, where it also has one silence of 441 ms. On the committed test signals
+    the openings decide: each drops 105 to 131 ms in every render, and the default's own seeds differ more than the
+    log's arrivals move it.
+  - *What it says.* A real server's steady arrivals change little that can be counted and nothing that was found
+    in the level: about 13 ms more dropped at an opening and a queue 13 ms shallower. What differs is the stall:
+    two in 202 s, 0.47 s of sound that never came, one restart with its silence, and a queue left near 180 ms. No
+    jitter setting gives a stall, and the page's loss draws each message alone (read).
+  - *Left open.* After the restart the log has about twice the overflows the module's even clock gives on the
+    same packets (14 lines and about 141 ms, inferred, against 7 and 67.0 ms), a matter of the mixer's clock.
 - **At 30 frames a second** (measured, `voice_showchannels 2`): tick lines come in runs of two and three (1,659 and
   488 in 2,150 frames, 29.92 a second; the arithmetic of a 33.3 ms frame gives 1,659 and 491), the mixer's pulls in
   runs of two to four (2, 3 and 4 in 27, 58 and 15%), and 1,276 of 1,297 packet lines come after a frame's pulls and
