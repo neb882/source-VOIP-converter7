@@ -209,15 +209,16 @@ export function logToFixture(text, opts) {
     const ranDry = read ? 2 * s.pulls >= prev : prev <= 4096;
     const addPackets = () => { for (const n of s.packets) events.push(1, n); };
     // A second speaker on the channel: the first was freed on a tick that printed nothing, and
-    // the second's packets opened the channel again. Anything else is a stop.
+    // the second's packets opened the channel again. That is an unseen free, as for one speaker:
+    // the made-up or read pull, the free, then the opening (never a grace). Anything else is a stop.
+    let open = false;
     if (alive && s.ent !== life.ent) {
       if (!(has && playing && ranDry && s.b === Math.min(CAP, w))) stop(s.line, 'a second channel while one is in use: the entity changed with no free tick between');
-      events.push(0, 0);
-      stats.sessions++; stats.speakers++;
-      alive = false;
+      events.push(2, read ? s.pulls : 1024, 3, -1);
+      stats.opensAfterFree++; stats.speakers++;
+      open = true;
     }
-    let open = false;
-    if (has) {
+    if (has && !open) {
       if (!alive) open = true;
       else if (playing && ranDry && s.b === Math.min(CAP, w)) {
         let grace;
@@ -255,8 +256,10 @@ export function logToFixture(text, opts) {
     // mid-play: the channel is taken as playing, its wait over, and holding the line's bytes; the line's
     // packets are counted and not written. Not known: whether the channel was still in its wait.
     const startMidPlay = (unexplained = false) => {
+      if (s.b % 2 || s.b > CAP) stop(s.line, `a start in mid-play holds ${s.b} bytes, not whole samples within the ring's ${CAP}`);
       events.push(4, s.b);
-      if (unexplained) stats.unexplained++; else stats.midStarts++;
+      stats.midStarts++;
+      if (unexplained) stats.unexplained++;
       anyMid = true;
       alive = true; age = wait; prev = s.b; firstPull = true;
       life = { ent: s.ent };
@@ -286,7 +289,7 @@ export function logToFixture(text, opts) {
       else {
         if (raw < 0 || raw % 2) {
           // With --mid-play the line is not guessed at: a new session, and the line a start in mid-play.
-          if (opts.midPlay) { events.push(0, 0); startMidPlay(true); continue; }
+          if (opts.midPlay) { events.push(0, 0); stats.sessions++; startMidPlay(true); continue; }
           stop(s.line, `the queue cannot go from ${prev} + ${w} to ${s.b}`);
         }
         demand = raw / 2;
@@ -354,8 +357,8 @@ function main(argv) {
         + `${s.severalPackets} ticks with several packets; ${s.speakers} new speakers on the channel; ${s.otherChannelLines} lines of other channels (counted, not kept)\n`);
     }
     if (opts.midPlay) {
-      process.stderr.write(`log-to-fixture: ${s.midStarts} starts in mid-play (the channel taken as playing, its line not compared); `
-        + `${s.unexplained} lines the queue could not explain (each a new session and a start in mid-play)\n`);
+      process.stderr.write(`log-to-fixture: ${s.midStarts} starts in mid-play (the channel taken as playing, its line not compared), `
+        + `of which ${s.unexplained} at lines the queue could not explain (each also a new session)\n`);
     }
     if (s.unendedLastLine) process.stderr.write('log-to-fixture: the last line has no line end; it was read as it stands (was the log cut off?)\n');
   } catch (e) {
