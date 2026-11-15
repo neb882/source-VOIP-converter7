@@ -890,11 +890,13 @@ function frameAt(info, t) {
 }
 const frameStart = (info, f) => (f * info.frameSamples - laneLookahead(info)) / info.sampleRate;
 
-// The queue's skips that are heard: those before the source's end (the
-// render with a room runs longer by the room's tail). [] off the queue.
+// The queue's skips that are heard: those before the voice's end, the
+// source's end and the run-on of the queue at it (W3-24: the channel's
+// `over`, samples at 44.1 kHz; the render with a room runs longer still by
+// the room's tail). [] off the queue.
 function laneSkips(info) {
   if (!laneOnQueue(info) || !info.channel.drops || !state.renderedSource) return [];
-  const end = state.renderedSource.duration;
+  const end = state.renderedSource.duration + (info.channel.over || 0) / 44100;
   return info.channel.drops.filter((d) => d.time < end);
 }
 

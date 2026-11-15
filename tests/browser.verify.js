@@ -2544,6 +2544,51 @@ async function verifyPageTimeline(browser, base) {
         && (await receiverCell(page)).includes('queue at 300 fps'),
         'the console gives the queue\'s frame rate, its wait in ticks and ms, the phrases that opened the channel and joined one, and the overflow; the chain strip says "queue at 300 fps"', queueLine);
 
+      // W3-24 (docs/work-orders/W3-24-render-end.md, check 16): the speech fixture ends in sound. At 66.67 frames a
+      // second and jitter 50 (the page's own seed) the queue still holds some of it at the file's end, and the render
+      // plays it out: the status line's seconds, the player's duration and the downloaded WAV's length are the
+      // render's, which is longer than the source by the run-on; the console says by how much. At 300 and jitter 0 a
+      // source that ends in a second of silence keeps its length, with no such line.
+      {
+        const mark = 'test: the render\'s end';
+        await page.evaluate((m) => logLine(m, 'sys'), mark);
+        await renderAfter(page, 'fps_max 66.67; net_fakejitter 50');
+        const runOn = async () => {
+          const got = await page.evaluate(async () => {
+            const a = els.audio;
+            if (!(a.duration > 0)) await new Promise((r) => a.addEventListener('loadedmetadata', r, { once: true }));
+            return { length: state.processedBuffer.length, rate: state.processedRate, over: state.lastCodecInfo.channel.over ?? 0,
+              source: Math.round(state.decodedSource.length * state.processedRate / state.decodedSource.sampleRate),
+              duration: a.duration, status: els.renderStatus.textContent, seconds: secondsText(state.processedBuffer.length / state.processedRate),
+              wav: state.lastWav.size };
+          });
+          const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#download').click()]);
+          got.saved = fs.readFileSync(await download.path()).length;
+          got.lines = (await linesSince(page, mark)).filter((t) => t.startsWith('S_Voice: the queue was still playing'));
+          return got;
+        };
+        const long = await runOn();
+        const ms = Math.round(1000 * long.over / 44100);
+        check(long.over > 0 && long.length === long.source + Math.round(long.over * long.rate / 44100) && long.status.includes(` · ${long.seconds} of sound at `)
+          && Math.abs(long.duration - long.length / long.rate) < 0.01 && long.saved === 44 + 2 * long.length && long.wav === long.saved
+          && long.lines.length === 1 && long.lines[0] === `S_Voice: the queue was still playing at the file's end: the render runs ${ms} ms longer`,
+          'a source that ends in sound at 66.67 fps and jitter 50: the render runs on past the file\'s end; the status line\'s seconds, the player\'s duration and the downloaded WAV are the render\'s length, and the console says by how much',
+          JSON.stringify({ over: long.over, length: long.length, source: long.source, duration: long.duration, saved: long.saved, line: long.lines[0] }));
+        const quiet = Buffer.from(wavSpeech(5));
+        quiet.fill(0, 44 + 2 * 4 * 48000);
+        await page.evaluate((m) => logLine(`${m}, silence`, 'sys'), mark);
+        await page.evaluate(() => { execCommand('fps_max 300'); execCommand('net_fakejitter 0'); });
+        await chooseFile(page, { name: 'quiet-end.wav', mimeType: 'audio/wav', buffer: quiet });
+        await settled(page);
+        const still = await page.evaluate(() => ({ length: state.processedBuffer.length, over: 'over' in state.lastCodecInfo.channel, fps: state.lastCodecInfo.channel.fps,
+          source: Math.round(state.decodedSource.length * state.processedRate / state.decodedSource.sampleRate) }));
+        const quietLines = (await linesSince(page, `${mark}, silence`)).filter((t) => t.startsWith('S_Voice: the queue was still playing'));
+        check(!still.over && still.fps === 300 && still.length === still.source && quietLines.length === 0,
+          'a source that ends in a second of silence at 300 fps and jitter 0 keeps the source\'s length, with no line for a run-on', JSON.stringify(still));
+        await page.evaluate(() => { execCommand('fps_max 300'); execCommand('net_fakejitter 0'); });
+        await chooseFile(page, { name: 'timeline.wav', mimeType: 'audio/wav', buffer: wavSpeech(4) });
+      }
+
       // fps_max 67 and voice_buffer_ms 200: the render is the engine's with those two numbers.
       await renderAfter(page, 'fps_max 67; voice_buffer_ms 200');
       const at67 = await renderIs(page, { ...gameOpts, fps: 67, bufferMs: 200 });

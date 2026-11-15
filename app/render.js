@@ -532,6 +532,17 @@ function presentRender({ samples, sampleRate, blob, realOpus, codecInfo, stats, 
     logLine(`S_Voice: the game's voice queue at fps_max ${ch.fps}, voice_buffer_ms ${ch.bufferMs}: a new phrase waits ${ch.waitTicks} ticks `
       + `(${Math.round((ch.waitTicks - 1) * tick * 1000)} ms); ${ch.opens} phrase${ch.opens === 1 ? '' : 's'} opened the channel, `
       + `${ch.appended} joined a running one; ${Math.round(1000 * ch.droppedSamples / rate)} ms dropped to overflow`, 'sys');
+    // W3-24: the queue still held sound of the source at its end, and the
+    // render plays it out (the channel's info has `over` only then). A run-on
+    // over 10 s (the orchestrator's ruling 3) comes from the wait: at a long
+    // voice_buffer_ms and a high fps_max a phrase near the end waits that long.
+    if (ch.over > 0) {
+      logLine(`S_Voice: the queue was still playing at the file's end: the render runs ${Math.round(1000 * ch.over / rate)} ms longer`, 'sys');
+      if (ch.over > 10 * rate) {
+        logLine(`S_Voice: the render runs on ${(ch.over / rate).toFixed(1)} s past the file's end because at voice_buffer_ms ${ch.bufferMs} `
+          + `and fps_max ${ch.fps} a new phrase waits ${ch.waitTicks} ticks (${((ch.waitTicks - 1) * tick).toFixed(1)} s) before it plays`, 'sys');
+      }
+    }
   }
   // BC-4a: jitter on the game's voice queue: how late the packets came past
   // the least delay (taken out), and how many came on the tick of the one
