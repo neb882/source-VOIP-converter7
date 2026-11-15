@@ -1,6 +1,6 @@
 # W3-24: a render's end on the game's voice queue
 
-**Status 2026-11-14: planned, not built.** Written by a planner from the repository alone, at `main` `20bc58d`
+**Status 2026-11-15: built, reviewed and read a second time (merge after fixes; the eight fixes made, at the end), and merged with cache v54. First status, 2026-11-14: planned, not built.** Written by a planner from the repository alone, at `main` `20bc58d`
 (cache v53). It is read by a plan reviewer before any build. Five rulings are wanted first ("Rulings wanted before
 the build").
 
