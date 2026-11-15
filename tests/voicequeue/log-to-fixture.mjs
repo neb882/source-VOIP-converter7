@@ -1,7 +1,7 @@
 // The game's voice queue from a console log, as numbers only.
 //
 //   node tests/voicequeue/log-to-fixture.mjs <console log> --fps <frames a second>
-//        [--channel <n>] [--name <name>] [--section <marker>] [--buffer-ms 100] [--strict]
+//        [--channel <n>] [--mid-play] [--name <name>] [--section <marker>] [--buffer-ms 100] [--strict]
 //
 // Reads the lines that voice_showincoming 1 and voice_showchannels 1 or 2 print ("Voice - N
 // incoming samples added to channel C" for each packet, "Voice - chan C, ent E, bufsize: B" for
@@ -10,7 +10,8 @@
 // stdout: { about, sections: [{ name, fps, bufferMs, events }] }, events a flat list of pairs
 // kind, value: 0, 0 a new session (a fresh channel); 1, N a packet of N decoded samples; 2, n
 // the mixer wanting n samples before the next tick; 3, B a client tick after which the channel
-// holds B bytes, or 3, -1 a tick after which the channel is free.
+// holds B bytes, or 3, -1 a tick after which the channel is free; with --mid-play also 4, B a
+// tick line of a channel already playing, which holds B bytes after it and is not compared.
 // tests/voice-channel.verify.mjs --fixture <file> replays it through voice-channel.js.
 //
 // One channel is read: the one --channel names, or the log's only one. Every packet line of
@@ -20,6 +21,11 @@
 // packets, ticks, mixer, so the pulls printed after one tick line come before the next tick's
 // packets). A log without them has the demand worked out from the queue. The other channels'
 // lines are counted and not kept.
+//
+// A log made on a real server can begin while the channel plays. With --mid-play a session's
+// first tick line of the channel that is not an opening, and a line the queue cannot explain
+// (with the demand worked out; a new session is written first), is a start in mid-play: the
+// channel is taken as playing with the line's bytes (W3-25, fix round 1).
 //
 // Nothing but counts leaves the log: every other line is only counted, the voice lines give
 // their numbers, and no message quotes a line. The rules are W3-02a's
@@ -61,10 +67,18 @@ const ABOUT_PULLS = 'The game\'s voice queue from a console log (voice_showincom
   + '1, N a packet of N decoded samples; 2, n the mixer wanting n samples before the next tick, read from the '
   + 'log\'s pull lines where it has them; 3, B a client tick after which the channel holds B bytes (-1: free).';
 
+// A fixture with a start in mid-play (a pair 4, B) says what the pair is; one without keeps its text.
+const MID_PLAY = '3, B a client tick after which the channel holds B bytes (-1: free); 4, B a tick line of a channel '
+  + 'already playing when the log began (or began again), which holds B bytes after it and is not compared.';
+const aboutOf = (read, mid) => {
+  const base = read ? ABOUT_PULLS : ABOUT;
+  return mid ? base.replace('3, B a client tick after which the channel holds B bytes (-1: free).', MID_PLAY) : base;
+};
+
 export class FixtureError extends Error {}
 const stop = (line, what) => { throw new FixtureError(line ? `line ${line}: ${what}` : what); };
 
-// text: the console log; opts: { fps, bufferMs = 100, name, section, strict, channel }.
+// text: the console log; opts: { fps, bufferMs = 100, name, section, strict, channel, midPlay }.
 // Returns { fixture, stats }; throws a FixtureError when a line breaks the rules.
 export function logToFixture(text, opts) {
   const fps = opts.fps, bufferMs = opts.bufferMs === undefined ? 100 : opts.bufferMs;
@@ -78,8 +92,8 @@ export function logToFixture(text, opts) {
   const frameTicks = Math.max(1, Math.ceil(88200 / fps / TICK_HALF));
 
   // A byte-order mark (UTF-8, read as bytes or as text) is not part of the first line.
-  if (text.startsWith('ï»¿')) text = text.slice(3);
-  else if (text.startsWith('﻿')) text = text.slice(1);
+  if (text.startsWith('\u00EF\u00BB\u00BF')) text = text.slice(3);
+  else if (text.startsWith('\uFEFF')) text = text.slice(1);
   let lines = text.split('\n'), first = 1;        // first: the file's line number of lines[0]
   if (lines.length && lines[lines.length - 1] === '') lines.pop();
   // A last line with no line end is read as it stands, and said (the log may have been cut).
@@ -128,7 +142,7 @@ export function logToFixture(text, opts) {
   const steps = [];
   let others = 0, packets = [], packetLine = 0, pulls = 0, pullsShown = false, readNext = false;
   const stats = { packets: 0, ticks: 0, sessions: 0, opens: 0, opensAfterFree: 0, graces: 0, emptyPackets: 0, offGrid: 0, unendedLastLine: unended,
-    channel: chan, otherChannelLines: 0, pullLines: 0, readTicks: 0, severalPackets: 0, speakers: 0 };
+    channel: chan, otherChannelLines: 0, pullLines: 0, readTicks: 0, severalPackets: 0, speakers: 0, midStarts: 0, unexplained: 0 };
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i], at = first + i;
     if (t.kind === 'other') { others++; continue; }
@@ -178,7 +192,7 @@ export function logToFixture(text, opts) {
   }
 
   const events = [];
-  let anyRead = false;
+  let anyRead = false, anyMid = false;
   // firstPull: the channel has played nothing the log shows since it started, so its first
   // pull may be a multiple of 512 plus one (the 513 or 1025 of every start in the logs).
   let alive = false, age = 0, prev = 0, synth = 0, life = null, firstPull = false;
@@ -237,6 +251,17 @@ export function logToFixture(text, opts) {
         }
       }
     }
+    // With --mid-play, a session's first tick line of the channel that is not an opening is a start in
+    // mid-play: the channel is taken as playing, its wait over, and holding the line's bytes; the line's
+    // packets are counted and not written. Not known: whether the channel was still in its wait.
+    const startMidPlay = (unexplained = false) => {
+      events.push(4, s.b);
+      if (unexplained) stats.unexplained++; else stats.midStarts++;
+      anyMid = true;
+      alive = true; age = wait; prev = s.b; firstPull = true;
+      life = { ent: s.ent };
+    };
+    if (open && !alive && opts.midPlay && s.b !== Math.min(CAP, w)) { startMidPlay(); continue; }
     if (open) {
       if (s.b !== Math.min(CAP, w)) stop(s.line, `a new channel holds ${s.b} bytes, its packet${s.packets.length > 1 ? 's' : ''} ${w}`);
       addPackets();
@@ -246,6 +271,7 @@ export function logToFixture(text, opts) {
       life = { ent: s.ent };
       continue;
     }
+    if (!alive && opts.midPlay) { startMidPlay(); continue; }
     if (!alive) stop(s.line, 'a tick line with no channel open in the log');
     let demand = null;
     if (age < wait) {                       // the wait: no demand reaches the channel; one that plays early fails
@@ -258,7 +284,11 @@ export function logToFixture(text, opts) {
       const raw = prev + w - s.b;
       if (s.b === CAP && has) demand = raw >= 2048 ? 1024 : raw >= 1024 ? 512 : 0;   // an overflow hides it
       else {
-        if (raw < 0 || raw % 2) stop(s.line, `the queue cannot go from ${prev} + ${w} to ${s.b}`);
+        if (raw < 0 || raw % 2) {
+          // With --mid-play the line is not guessed at: a new session, and the line a start in mid-play.
+          if (opts.midPlay) { events.push(0, 0); startMidPlay(true); continue; }
+          stop(s.line, `the queue cannot go from ${prev} + ${w} to ${s.b}`);
+        }
         demand = raw / 2;
       }
     }
@@ -277,11 +307,11 @@ export function logToFixture(text, opts) {
   }
   if (!stats.ticks) stop(0, 'no voice lines (voice_showincoming 1 and voice_showchannels 1)');
 
-  return { fixture: { about: anyRead ? ABOUT_PULLS : ABOUT, sections: [{ name, fps, bufferMs, events }] }, stats: { ...stats, waitTicks: wait } };
+  return { fixture: { about: aboutOf(anyRead, anyMid), sections: [{ name, fps, bufferMs, events }] }, stats: { ...stats, waitTicks: wait } };
 }
 
 function usage(what) {
-  process.stderr.write(`log-to-fixture: ${what}\nusage: node tests/voicequeue/log-to-fixture.mjs <console log> --fps <frames a second> [--channel <n>] [--name <name>] [--section <marker>] [--buffer-ms 100] [--strict]\n`);
+  process.stderr.write(`log-to-fixture: ${what}\nusage: node tests/voicequeue/log-to-fixture.mjs <console log> --fps <frames a second> [--channel <n>] [--mid-play] [--name <name>] [--section <marker>] [--buffer-ms 100] [--strict]\n`);
   process.exit(2);
 }
 
@@ -302,6 +332,7 @@ function main(argv) {
       else if (a === '--name') opts.name = v;
       else opts.section = v;
     } else if (a === '--strict') opts.strict = true;
+    else if (a === '--mid-play') opts.midPlay = true;
     else if (a.startsWith('--')) usage(`unknown option ${a}`);
     else if (file === null) file = a;
     else usage('one console log at a time');
@@ -322,10 +353,15 @@ function main(argv) {
       process.stderr.write(`log-to-fixture: channel ${s.channel}: ${s.pullLines} pull lines, the demand read on ${s.readTicks} ticks; `
         + `${s.severalPackets} ticks with several packets; ${s.speakers} new speakers on the channel; ${s.otherChannelLines} lines of other channels (counted, not kept)\n`);
     }
+    if (opts.midPlay) {
+      process.stderr.write(`log-to-fixture: ${s.midStarts} starts in mid-play (the channel taken as playing, its line not compared); `
+        + `${s.unexplained} lines the queue could not explain (each a new session and a start in mid-play)\n`);
+    }
     if (s.unendedLastLine) process.stderr.write('log-to-fixture: the last line has no line end; it was read as it stands (was the log cut off?)\n');
   } catch (e) {
     if (!(e instanceof FixtureError)) throw e;
-    process.stderr.write(`log-to-fixture: ${e.message}${e.channels ? '; give --channel <n>' : ''}\n`);
+    const midHint = !opts.midPlay && /: (a new channel holds|a tick line with no channel open)/.test(e.message) ? '; a log that begins while the channel plays: give --mid-play' : '';
+    process.stderr.write(`log-to-fixture: ${e.message}${e.channels ? '; give --channel <n>' : ''}${midHint}\n`);
     process.exit(1);
   }
 }
