@@ -265,6 +265,8 @@
   // the timeline plays out (W3-24, createTimeline's playOut): finish() gives
   // what the channel still held at the end, the voice's run-on, and its info
   // has `over` where it ran on, so take() can then give more than length.
+  // With onOpen too, an open's index is its place in the played-out stream,
+  // which can be at or past length + over (createTimeline's header).
   //   onOpen(index) (null: none): handed to createTimeline (W3-23b), which
   // calls it once for each open, where the channel resets the gain; index is
   // the count of samples the timeline has made by then, returned or to be

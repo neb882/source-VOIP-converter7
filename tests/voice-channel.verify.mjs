@@ -2168,7 +2168,7 @@ function playOutChecks() {
     // 1000 fps: a wait of 5000 ticks (75 s), and finish() still ends.
     const rows = [];
     let ok = true;
-    for (const [fps, bufferMs] of [[300, 1000], [1000, 5000]]) {
+    for (const [fps, bufferMs] of [[300, 1000], [1000, 5000], [30, 1000], [10, 1000], [30, 5000]]) {
       const length = 44100 * 4, T = tickOfOut(length, bufferMs, fps) - 2;
       const messages = [{ tick: T, pcm: Float32Array.from({ length: 2000 }, (_, i) => 0.25 + 0.1 * Math.sin(i / 7)), source: length - 3000 }];
       const opts = { fps, bufferMs, length }, run = framesRun(messages, { ...opts, playOut: true }), model = playModel(messages, opts);
@@ -2177,11 +2177,15 @@ function playOutChecks() {
       const wait = waitTicks(bufferMs, fps), sound = soundFrom(run.samples, length);
       // The channel plays on tick T + wait - 1, the wait's last; its first block starts at or after it.
       const playsAt = Math.ceil(1323 * (T + wait - 1) / 1024) * 512 - zeroOf(bufferMs, fps);
-      const good = !d && run.info.over === model.over && sound === playsAt && run.samples.length === playsAt + 1999;
+      // Under the frame clock (fix 5, 2026-11-15) the wait ends in the frame at or after its last tick, and the run-on
+      // runs whole frames: the samples and info are the second model's, and the sound comes in the run-on.
+      const good = frameClockRuns(fps)
+        ? !d && run.info.over === model.over && model.over > 0 && sound > length && run.samples.length === sound + 1999
+        : !d && run.info.over === model.over && sound === playsAt && run.samples.length === playsAt + 1999;
       if (!good) ok = false;
       rows.push(`${fps} fps, voice_buffer_ms ${bufferMs}: wait ${wait} ticks, over ${run.info.over} (${(run.info.over / 44.1).toFixed(1)} ms), sound from ${sound} (${playsAt} by the clock)${d ? `; ${d}` : ''}`);
     }
-    check('a channel still waiting at the end: the run-on holds the wait and then the sound, to its last place; at voice_buffer_ms 5000 and 1000 fps finish() ends, and over is the models\'', ok, rows.join('; '));
+    check('a channel still waiting at the end: the run-on holds the wait and then the sound, to its last place; at voice_buffer_ms 5000 and 1000 fps finish() ends, and over is the models\'; under the frame clock (30 and 10 fps) the second model\'s samples and info', ok, rows.join('; '));
   }
   {
     // Check 7: the refusals.
@@ -2206,7 +2210,31 @@ function playOutChecks() {
       && !('over' in runPast.info) && infoText(runPast.info) === infoText(plainPast.info) && runPast.info.drops.length > 0;
     check('an overflow in the run-on has its time in info.drops before (length + over) / 44100 (the model\'s info); with nothing of the source left to play, the time it has without playOut',
       good, `over ${run.info.over}; drops at ${t.map((x) => x.toFixed(4)).join(', ')} s, the end ${end.toFixed(4)} s; without playOut ${plain.info.drops.map((d) => d.time.toFixed(4)).join(', ')} s`);
+  }  {
+    // Fix 3 (2026-11-15): an overflow heard at exactly length + over keeps the base's time, by whole samples. At 300
+    // fps, a steady stream of places plays to the end; on the tick between the last block before the length and the
+    // first at it, a message of 30,000 samples at the length's own place (none of it a place) overflows the ring. The
+    // run-on's first block plays the kept sample, the last place (over 1), and the skip is heard right after it, at
+    // length + 1 = length + over: not before, so the time is the base's, length / 44100. The block is chosen where
+    // (h / 44100) x 44100 is less than h in double precision, so a comparison of the time in seconds would let it
+    // take the run-on's.
+    const D = zeroOf(100, 300);
+    let found = null;
+    for (let b = 300; b < 2000 && !found; b++) {
+      const length = 512 * b - D, h = length + 1, T = Math.floor(1024 * b / 1323);
+      if (!(1323 * T > 1024 * (b - 1) && 1323 * T <= 1024 * b && (h / 44100) * 44100 < h && T > 80)) continue;
+      found = { length, T };
+    }
+    const { length, T } = found;
+    const messages = [];
+    for (let t = 20, k = 0; t < T; t += 2, k++) messages.push({ tick: t, pcm: new Float32Array(1323).fill(0.25), source: 1323 * k % (length - 2000) });
+    messages.push({ tick: T, pcm: new Float32Array(30000).fill(0.25), source: length });
+    const opts = { fps: 300, length }, run = framesRun(messages, { ...opts, playOut: true }), model = playModel(messages, opts);
+    const d = sameAsModel(run, model), times = run.info.drops.map((x) => x.time);
+    check('an overflow heard at exactly length + over keeps the base\'s time, compared in whole samples (the model\'s info, over 1, the time length / 44100)',
+      !d && run.info.over === 1 && times.length > 0 && times.every((x) => x === length / 44100), `${d || ''} length ${length}, over ${run.info.over}, drops at ${times.map((x) => x * 44100).join(', ')} samples`);
   }
+
 }
 
 // ---------------------------------------------------------------------------------------

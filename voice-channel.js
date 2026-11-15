@@ -393,8 +393,11 @@
   //     over > 0, info.over is that count and info.source has ceil((length + over) / 882) slots, a
   //     slot past length filled as the others are (by the base's blocks, any sample of a sound
   //     message at 0 or more; by the run-on, places only) where its centre is before length + over.
-  //   - onOpen's index past length is the next block's first sample, counted on past length (no
-  //     caller passes playOut and onOpen together); held() does not count what the play-out keeps.
+  //   - onOpen with playOut (steamChannel passes both when it is handed onOpen with a whole
+  //     length): the index is the open's place in the played-out stream, the output samples made
+  //     by then counted on past length (past length, the first sample of the next block). It can
+  //     be at or past length + over, where nothing of the source is heard after the open, and then
+  //     it is past everything finish() returns. held() does not count what the play-out keeps.
   //
   // info: { timeline: 'game', fps, bufferMs, codecDelay, waitTicks, latency, packets, opens, appended,
   // gainResets, droppedSamples, drops: [{ time, ms }], spurts: [{ start, end, opened,
@@ -499,9 +502,9 @@
     let made = 0;                                 // the output samples made so far (onOpen's index)
     // The play-out (W3-24): the output at or past length, kept apart; the voice's end, one past the
     // last output sample at which a place of the source (0 <= pos < length) was heard; the slots
-    // past length, [slot, pos, out]; and whether finish() is running the clock on past what it
-    // runs without playOut.
-    const late = [], lateSlots = [];
+    // past length, [slot, pos, out]; the output sample at which the run-on hears an overflow, a
+    // whole number; and whether finish() is running the clock on past what it runs without playOut.
+    const late = [], lateSlots = [], heardAt = new Map();
     let voiceEnd = 0, runningOn = false;
     // The frame clock: the next frame, and the messages pushed and not yet added, in the order
     // given (from waitHead on).
@@ -552,7 +555,10 @@
         fresh = false;
         // A skip is heard where the channel next plays: at the first sample of this block that
         // left the ring after it (here, for every drop not yet placed).
-        for (const d of unheard) d.time = (at + (first ? 0 : 1)) / VOICE_CHANNEL.rate;
+        for (const d of unheard) {
+          d.time = (at + (first ? 0 : 1)) / VOICE_CHANNEL.rate;
+          if (runningOn) heardAt.set(d, at + (first ? 0 : 1));   // the play-out compares whole samples
+        }
         unheard.length = 0;
         const r = ch.pull(first ? N + 1 : N), n = r.samples.length;
         samples = new Float32Array(N);
@@ -725,7 +731,7 @@
           while (more()) { if (TICK * nextTick <= BLOCK * nextBlock) runTick(); else runBlock(); }
         }
         over = Math.max(0, voiceEnd - length);
-        for (const [d, t] of today) if (!(d.time * VOICE_CHANNEL.rate < length + over)) d.time = t;
+        for (const [d, t] of today) if (!(heardAt.has(d) && heardAt.get(d) < length + over)) d.time = t;
         unheard.length = 0;
       }
       const info = {
