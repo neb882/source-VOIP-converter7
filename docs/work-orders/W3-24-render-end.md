@@ -393,3 +393,56 @@ piece (inferred; not run by the planner, who has no recordings).
 6. **No exemption at the page's default.** The run-on there is rare and small (33 of 360 short renders ending in
    sound at 300 frames a second and jitter 0 cut something, 13.7 ms at most; measured on the planner's prototype),
    and it is what the game plays.
+
+## After the review and the second read (2026-11-15)
+
+The review's verdict is merge after fixes; the second read's is that the model is right (its own play-out, built
+from the rule alone, gave the branch's `over`, samples and `info` in every run it made; measured on the model, none
+against a recording). The orchestrator's rulings on the builder's two matters, then the fixes, all on the branch
+before the merge.
+
+**Ruling A: which samples before the source's length may change.** The order said none. That is wrong in two
+places, and the build is right in both:
+
+- The run-on follows the voice with no gap. The voice is `voiceLength` samples at 44.1 kHz, and through the 24 kHz
+  codec that can be one less than the source's own length there. On `main` the place between them was zero padding;
+  it now holds the run-on's first sample (the review, measured: one sample at a 44.1 kHz device, two at 48 kHz, on a
+  44.1 kHz source of 176,408 samples).
+- At a device rate other than 44.1 kHz the device stage's interpolation reads the next mix sample (the second read,
+  measured: the 48 kHz render equals a plain linear interpolation of the 44.1 kHz render with its run-on).
+
+So the rule is: on a render that ran on, an output sample before the source's length changes only if the device
+stage's read for it touches mix index `voiceLength` or later. On a render that did not run on, nothing changes.
+
+**Ruling B: `createRender` against `process()` at the bound** stands as built (the review: 150 random cases, no
+difference; the second read: the play-out removes a difference `main` has).
+
+**The fixes.**
+
+1. **Blocking: ruling A, said and checked.** Check 10 gains a 44.1 kHz source whose `voiceLength` is under its
+   length, at 44.1 and 48 kHz devices, and asserts that the changed samples are exactly those ruling A allows.
+   `docs/VOICE-PATH.md`, the report and check 10's name say ruling A, not "one sample at 48 kHz".
+2. **The run-on's last sample at the device.** `mixAtDevice` rounds, which cuts a last output sample that still
+   reads the run-on's last place (the second read: 2 of 5 run-on renders at 48 kHz without a room, values 9325 and
+   9805 of 32768). The run-on's length at the device is rounded up. The room's tail keeps `Math.round`: it must not
+   move. Check 10's length formula follows, and the order's own (`The tests`, 10) is read with this ruling.
+3. **Whole sample numbers** at `voice-channel.js:728`: the overflow's heard sample is kept as a whole number and
+   compared with `length + over` as whole numbers, as the second model does (both readers; a drop's time could take
+   the run-on's where the rule gives the base's, at exactly `length + over`). A check on a built case.
+4. **`onOpen` with `playOut`.** The header's "no caller passes both" is false (`engine/steam.js` passes both when
+   handed `onOpen` with a whole length). Both headers say what the index is under `playOut`: the place in the
+   played-out stream, which can be at or past `length + over` when nothing of the source is heard after it. No
+   change of behaviour.
+5. **Check 6 under the frame clock**: rows at 30 and 10 frames a second against the second model (the review's
+   break A, the run-on as even ticks under the frame clock, passed every suite).
+6. **The console lines.** Check 16 asserts the 66.67 case prints no "the render runs on" line, and a small check
+   pins the over-10 s line (the review's break C passed the browser suite).
+7. **The lane check** (`tests/browser.verify.js`, the skips' division) takes `over` into its end, or a case with a
+   skip inside the run-on is built.
+8. **The words.** The report's count of checks goes. The report says `6be5e2c` (the help-text audit) moved because
+   this order's `index.html` sentence forces it, not that it is of the kind the order lets move. The rows labelled
+   66.67 were run at 1000/15 and are labelled so in the report and in the record's new paragraph (at a literal
+   66.67 the network signal at jitter 50 reads 92.2, 56.1 to 114.1, against 88.3; the review, measured).
+
+**Accepted as it is:** the dated note in `tests/predictions/PREDICTIONS.md`, a file the order forbade. The
+predictions' renders keep the file's own timing and do not run on; the note says so and changes no prediction.
