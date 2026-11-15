@@ -991,6 +991,18 @@ function serverLogChecks() {
     check('... and a next pull of neither stops', /^line 12: at a wait of 2 ticks a grace cannot be told from a new channel \(the channel is next pulled 3 tick lines on\)$/.test(stopped(at20(500), 20, { channel: 0 })), stopped(at20(500), 20, { channel: 0 }));
   });
 
+  // 4a. The pair 4, B in the replay, worked by hand: a channel already playing with B bytes, not compared.
+  {
+    const rows = replayFixture({ sections: [{ fps: 300, events: [4, 0, 2, 0, 3, 0, 2, 512, 3, -1] }, { fps: 300, events: [4, 10000, 2, 512, 3, 8976] },
+      { fps: 300, events: [4, 44100, 1, 101, 3, 44100, 2, 1024, 3, 42052] }] });
+    const e = rows.map((r) => r.engine), ring = rows[2].faults.filter((f) => /^ring/.test(f.label)).map((f) => f.bad);
+    check('4, B in the replay: a channel playing with 0, 10000 and 44100 bytes, then pulled, added to and ticked; the start neither compared nor counted as a tick, a packet or an open',
+      e.every((x) => x.bad === 0 && x.opens === 0) && e.map((x) => x.ticks).join() === '2,1,2' && e.map((x) => x.packets).join() === '0,0,1'
+      && rows[0].faults.every((f) => f.bad === 0) && ring.join() === '2,2', JSON.stringify(e) + ` ring faults at 44100: ${ring}`);
+    const refused = [1, -2, 44102].map((B) => { try { validFixture({ sections: [{ fps: 300, events: [4, B] }] }); return null; } catch (err) { return err.message; } });
+    check('validFixture refuses 4, B with B odd, negative or over 44100', refused.every((m) => /impossible value/.test(m || '')), refused.join(' | '));
+  }
+
   // 4. Synthetic server logs from the module's own channels on the frame clock (synthesizeServer).
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf2ve-serverlog-'));
   try {
@@ -1066,8 +1078,60 @@ function serverLogChecks() {
       } else {
         check('... in a log without them, where the queue rose by more than its packets, the tool stops on that tick line (the demand is worked out from the queue)',
           fx === null && new RegExp(`^line ${m.line}: the queue cannot go from`).test(why), why);
+        part('the line printed late, with --mid-play', () => {
+        const mid = logToFixture(lines.join('\n'), { fps: x.fps, channel: 0, midPlay: true });
+        const r = replayFixture(mid.fixture)[0], ev = mid.fixture.sections[0].events;
+        const k = ev.findIndex((e, i) => i % 2 === 0 && e === 4);
+        check('... with --mid-play the line is given up: a new session and a start in mid-play there, one line the queue could not explain, every other tick line matching',
+          r.engine.bad === 0 && mid.stats.unexplained === 1 && mid.stats.midStarts === 0 && ev[k - 2] === 0 && ev[k + 1] === m.b
+          && r.engine.ticks - mid.stats.opensAfterFree === mid.stats.ticks - 1, `${r.engine.ticks} ticks replayed, ${r.engine.bad} off; ${mid.stats.unexplained} unexplained`);
+        });
       }
     }
+
+    // 5. A log that begins while the channel plays (fix round 1): --mid-play.
+    for (const x of runs) part(`the server log at ${x.fps} frames a second${x.pulls ? ' with pull lines' : ''}, begun in mid-play`, () => {
+      const own = x.marks.filter((m) => m.chan === 0);
+      const quiet = own.find((m, j) => j > 50 && m.playedBefore && m.packets.length === 0 && m.b > 4096);
+      const loud = own.find((m, j) => j > 50 && m.playedBefore && m.packets.length === 1 && m.packets[0] > 0 && m.b > 4096 && m.b !== 2 * (m.packets[0] - 1));
+      let pl = loud.line - 1;
+      while (x.lines[pl] !== P(loud.packets[0], 0)) pl--;
+      for (const [what, from, msg] of [['on a tick line with no packet', quiet.line, /^line 1: a tick line with no channel open in the log$/],
+        ['on a packet line and its tick line', pl, /^line \d+: a new channel holds \d+ bytes, its packet \d+$/]]) {
+        const lines = x.lines.slice(from), text = lines.join('\n');
+        check(`... cut ${what}: without --mid-play the tool stops as before`, msg.test(stopped(lines, x.fps, { channel: 0 })), stopped(lines, x.fps, { channel: 0 }));
+        const { fixture, stats } = logToFixture(text, { fps: x.fps, channel: 0, midPlay: true });
+        const r = replayFixture(fixture)[0], ev = fixture.sections[0].events;
+        check(`... with --mid-play: one start in mid-play (4, B, its packets not written), every compared tick line matching, the tick lines less the start compared`,
+          r.engine.bad === 0 && stats.midStarts === 1 && ev[0] === 4 && ev[1] === (what.startsWith('on a packet') ? loud.b : quiet.b) && ev[2] !== 1
+          && r.engine.ticks - stats.opensAfterFree === stats.ticks - 1 && /4, B a tick line of a channel already playing/.test(fixture.about), `${r.engine.ticks} replayed of ${stats.ticks} tick lines, ${r.engine.bad} off`);
+        if (what.startsWith('on a tick')) {
+          // Two other lines in a row while it plays: a new session, so one more start and one compared line fewer.
+          const at = own.findIndex((m) => m.line > quiet.line + 200 && m.playedBefore && m.b > 4096);
+          const cut = lines.slice();
+          cut.splice(own[at].line - from + 1, 0, UNRELATED, UNRELATED);
+          const b = logToFixture(cut.join('\n'), { fps: x.fps, channel: 0, midPlay: true }), rb = replayFixture(b.fixture)[0];
+          check('... two other lines in a row while the channel plays: one more start, one compared line fewer, all matching',
+            rb.engine.bad === 0 && b.stats.midStarts === 2 && b.stats.sessions === stats.sessions + 1 && rb.engine.ticks === r.engine.ticks - 1, `${rb.engine.ticks} replayed, ${rb.engine.bad} off, ${b.stats.midStarts} starts, ${b.stats.sessions} sessions`);
+        }
+      }
+    });
+    part('a section begun in mid-play with no opening', () => {
+      // A section with no opening in it (channel 1 of the 300 log, cut while it plays) cannot show the wait's faults.
+      const x = runs[0], own = x.marks.filter((m) => m.chan === 1);
+      const from = own.find((m, j) => j > 50 && m.playedBefore).line;
+      const { fixture, stats } = logToFixture(x.lines.slice(from).join('\n'), { fps: 300, channel: 1, midPlay: true });
+      const r = replayFixture(fixture)[0], f = Object.fromEntries(r.faults.map((q) => [q.label, q.bad]));
+      check('a section begun in mid-play with no opening after it: the replay matches, and the wait\'s two faults (and here the ring\'s and no grace) mismatch nowhere',
+        stats.opens === 0 && r.engine.bad === 0 && f['wait + 1'] === 0 && f['wait - 1'] === 0 && f['sample kept'] > 0, JSON.stringify(f));
+      // The tool run on its own: the hint without the option, the line on starts with it.
+      const file = path.join(dir, 'midplay.log');
+      fs.writeFileSync(file, `${x.lines.slice(from).join('\n')}\n`);
+      const no = runTool(file, ['--fps', '300', '--channel', '1']), yes = runTool(file, ['--fps', '300', '--channel', '1', '--mid-play']);
+      check('the tool on its own: without --mid-play the stop says to give it; with it, stderr counts the starts in mid-play and the lines not explained',
+        no.status === 1 && /a tick line with no channel open in the log; a log that begins while the channel plays: give --mid-play/.test(no.err)
+        && yes.status === 0 && /1 starts in mid-play \(the channel taken as playing, its line not compared\); 0 lines the queue could not explain/.test(yes.err), `${no.err.trim()} | ${yes.err.trim()}`);
+    });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

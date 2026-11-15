@@ -903,8 +903,10 @@ try {
     const pull = s300.lines.slice();
     pull.splice(marks[opening + 40].line, 0, 'Voice - mixed 512 samples from channel 0');
     const pulls = run('queue', writeLog('voice_q_pull.log', pull), '--fps', '300');
-    check('one pull line added (as if voice_showchannels 2 were set there): differs, the demand being read from the pull lines from there on, and the log having no others',
-      fails(pulls, /the rule mismatches the log|the log cannot be read as the rule asks/), show(pulls));
+    // From that line on the pulls are read and the log has no others, so a channel that ran dry is not seen to,
+    // and the next channel's wait meets a queue the tool takes to be still playing.
+    check('one pull line added (as if voice_showchannels 2 were set there): differs, the queue moving during a wait',
+      fails(pulls, /the log cannot be read as the rule asks: line \d+: the queue moved during the wait/), show(pulls));
     const second = s300.lines.slice();
     second.splice(marks[opening + 40].line + 1, 0, 'Voice - chan 1, ent 3, bufsize: 14110');
     const two = run('queue', writeLog('voice_q_second.log', second), '--fps', '300');
