@@ -337,8 +337,8 @@
   // 156 samples at 24 kHz (6.5 ms), 13312, 15360 and 24576. The game has no such figure: it is
   // the model's, for lining a render up with its source. A caller whose packets come with their
   // own arrival ticks (a demo's, W3-02g) gives D itself as zeroSamples (arrivalZero() has the
-  // reasoning). Output before sample 0 or past length
-  // is dropped. The mixer runs one sample ahead of what it plays (W3-10's upsampler read, section
+  // reasoning). Output before sample 0 is dropped, and so is output past length unless the
+  // timeline plays out (playOut, below). The mixer runs one sample ahead of what it plays (W3-10's upsampler read, section
   // 3): the first block after each start asks the channel for 513 samples, plays the first 512
   // and keeps the last; every later block plays the kept sample and then the first 511 of the
   // 512 it asks for, and keeps the last. So every sample pulled is heard, in order.
@@ -351,7 +351,8 @@
   // packets that come with their own arrival ticks, a demo's, whose zero is arrivalZero(); a
   // whole number of samples, 0 or more, and a whole number of mixer blocks; with it no
   // codecDelay may be given, and info's codecDelay is 0; it works the same with length
-  // Infinity, though no caller passes both), onOpen (W3-23b; a function or none: below).
+  // Infinity, though no caller passes both), onOpen (W3-23b; a function or none: below),
+  // playOut (W3-24; true or false, default false: below; true with length Infinity is refused).
   // Anything else is a RangeError.
   //
   // Scale: push's pcm, the gain and the output are at 1/32768 of the channel's 16-bit units
@@ -367,12 +368,38 @@
   // by every frame k with F(k) < 1323 tick, which no message to come can reach; a message pushed
   // is added in its own frame, later). finish() -> { samples, info }: the rest, so that
   // everything returned is length samples (under the frame clock it runs frames until the
-  // blocks cover the length and every message given has been added). The timeline calls no
-  // sender, codec or resampler: its caller does.
+  // blocks cover the length and every message given has been added); with playOut, length +
+  // over samples (below). The timeline calls no sender, codec or resampler: its caller does.
+  //
+  // playOut (W3-24, docs/work-orders/W3-24-render-end.md, "The rule"): the timeline plays out what
+  // its channel still holds at the end, as the game's channel does, so that the last of the source
+  // is heard. push() and advance() return as without it, never more than length samples in all.
+  // finish() first does all it does without it (what info holds then is the base), then runs the
+  // clock on (whole frames under the frame clock) until the channel holds no sample and the sample
+  // the mixer kept is not one of a sound message.
+  //   - A place of the source is a sample of a sound message whose source position pos (the source
+  //     of its pcm[0] plus its index there) has 0 <= pos < length. A silence record's zeros, the
+  //     padding of an underrun, a pre-roll before sample 0 and the zeros a sender reads after the
+  //     source's end (pos >= length) are not.
+  //   - The voice's end is one past the last output sample at which a place of the source was
+  //     heard, and over = max(0, voice's end - length). finish() returns the rest of length and then
+  //     the over samples that follow it. The padding after the pull that empties the ring, and
+  //     whatever else the clock gives past the voice's end, is left out.
+  //   - While the clock runs on, only a place of the source changes the record (a spurt's offsets,
+  //     a slot, the voice's end). An overflow not yet heard when it starts keeps the time it has
+  //     without playOut (the end of the last block the base ran) unless it is heard at a sample
+  //     before length + over, whose time it then takes.
+  //   - Where over is 0 the samples and info are those without playOut, member for member. Where
+  //     over > 0, info.over is that count and info.source has ceil((length + over) / 882) slots, a
+  //     slot past length filled as the others are (by the base's blocks, any sample of a sound
+  //     message at 0 or more; by the run-on, places only) where its centre is before length + over.
+  //   - onOpen's index past length is the next block's first sample, counted on past length (no
+  //     caller passes playOut and onOpen together); held() does not count what the play-out keeps.
   //
   // info: { timeline: 'game', fps, bufferMs, codecDelay, waitTicks, latency, packets, opens, appended,
   // gainResets, droppedSamples, drops: [{ time, ms }], spurts: [{ start, end, opened,
-  // offsetStartMs, offsetEndMs, droppedMs }], source: Int32Array }.
+  // offsetStartMs, offsetEndMs, droppedMs }], source: Int32Array }, and over (playOut, only where the
+  // timeline ran on past length).
   //   - latency: the channel's own figure, latency(bufferMs, fps), not D.
   //   - A spurt is a run of messages up to a silence record (the record is its last). start and
   //     end are source seconds (the first sound message's first sample; the last one's end).
@@ -431,6 +458,9 @@
     }
     const onOpen = o.onOpen === undefined || o.onOpen === null ? null : o.onOpen;
     if (onOpen !== null && typeof onOpen !== 'function') throw new RangeError('createTimeline\'s onOpen is a function (index) or none');
+    if (o.playOut !== undefined && o.playOut !== true && o.playOut !== false) throw new RangeError('createTimeline\'s playOut is true or false');
+    const playOut = o.playOut === true;
+    if (playOut && endless) throw new RangeError('createTimeline\'s playOut needs a whole length: a timeline with no end has no end to play out');
     const user = o.gain || null;
     let gainResets = 0;
     const UNIT = VOICE_CHANNEL.unit;
@@ -467,6 +497,12 @@
     let kept = null;                              // the sample the mixer loaded last and has not played
     let pieces = [];                              // the output of the blocks run since the last return
     let made = 0;                                 // the output samples made so far (onOpen's index)
+    // The play-out (W3-24): the output at or past length, kept apart; the voice's end, one past the
+    // last output sample at which a place of the source (0 <= pos < length) was heard; the slots
+    // past length, [slot, pos, out]; and whether finish() is running the clock on past what it
+    // runs without playOut.
+    const late = [], lateSlots = [];
+    let voiceEnd = 0, runningOn = false;
     // The frame clock: the next frame, and the messages pushed and not yet added, in the order
     // given (from waitHead on).
     let nextFrame = 0, waitHead = 0;
@@ -486,7 +522,15 @@
       return src === null || s < 0 ? { pos: -1, s: -1 } : { pos: src + idx, s };
     };
     // A sample of the source heard at output sample `out`: the spurt's offsets and the source map.
+    // With playOut every sample played comes here (padding too, at -1): a place of the source moves
+    // the voice's end, and while the clock runs on (runningOn) nothing else changes the record.
     function hear(pos, s, out) {
+      if (playOut) {
+        const place = s >= 0 && pos >= 0 && pos < length;
+        if (place && out >= voiceEnd) voiceEnd = out + 1;
+        if (runningOn && !place) return;
+        if (s >= 0 && pos >= 0 && out >= length && out % SLOT === MID) lateSlots.push((out - MID) / SLOT, pos, out);
+      }
       if (s < 0) return;
       const sp = spurts[s], off = (out - pos) / PER_MS;
       if (sp.offsetFirst === null) sp.offsetFirst = off;
@@ -531,6 +575,11 @@
       // What the engine does with it was not read.)
       const a = Math.max(0, at), b = Math.min(length, at + N);   // what falls inside 0 .. length - 1
       if (b > a) { pieces.push(samples ? samples.slice(a - at, b - at) : new Float32Array(b - a)); made += b - a; }
+      if (playOut && at + N > length) {           // the play-out: what falls at or past length, kept apart
+        const c = Math.max(length, at);
+        late.push(samples ? samples.slice(c - at) : new Float32Array(at + N - c));
+        made = at + N;
+      }
     }
 
     // Every event that starts before time t (half samples), in time order; a tick before a
@@ -661,6 +710,24 @@
         }
       }
       for (const d of unheard) d.time = (N * nextBlock - D) / VOICE_CHANNEL.rate;   // never heard: after the end
+      let over = 0;
+      if (playOut) {
+        // The play-out (W3-24): the clock runs on, whole frames under the frame clock, until the channel
+        // holds no sample and the sample the mixer kept is not one of a sound message (a freed channel's
+        // kept sample is never played). No message is left to add. Only a place of the source changes the
+        // record from here on (hear()); an overflow not yet heard keeps the time above unless the play-out
+        // hears it before the voice's end.
+        const today = unheard.map((d) => [d, d.time]);
+        runningOn = true;
+        const more = () => ch.count > 0 || (ch.playing && kept !== null && kept.s >= 0);
+        if (frames) { while (more()) runFrame(); }
+        else {
+          while (more()) { if (TICK * nextTick <= BLOCK * nextBlock) runTick(); else runBlock(); }
+        }
+        over = Math.max(0, voiceEnd - length);
+        for (const [d, t] of today) if (!(d.time * VOICE_CHANNEL.rate < length + over)) d.time = t;
+        unheard.length = 0;
+      }
       const info = {
         timeline: 'game', fps, bufferMs, codecDelay, waitTicks: ch.waitTicks, latency: lat,
         packets: pSource.length, opens: ch.opens, appended: spurts.filter((s) => !s.opened).length, gainResets,
@@ -672,6 +739,22 @@
         })),
         source: slots,
       };
+      if (over > 0) {
+        // The run-on: the over samples past length, and the source map's slots to length + over,
+        // those past length filled as the others are (a slot's centre inside the output).
+        info.over = over;
+        const run = new Float32Array(over);
+        for (let k = 0, i = 0; i < late.length && k < over; i++) {
+          const p = late[i].length <= over - k ? late[i] : late[i].subarray(0, over - k);
+          run.set(p, k);
+          k += p.length;
+        }
+        pieces.push(run);
+        const grown = new Int32Array(Math.ceil((length + over) / SLOT)).fill(-1);
+        grown.set(slots);
+        for (let i = 0; i < lateSlots.length; i += 3) if (lateSlots[i + 2] < length + over) grown[lateSlots[i]] = lateSlots[i + 1];
+        info.source = grown;
+      }
       return { samples: take(), info };
     }
 
