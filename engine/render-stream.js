@@ -12,9 +12,9 @@
   const { buildLossMask, steamArrivalPlan, steamLoser, streamLossMask } = E.network;
   const { DEFAULT_SENDER_GATE, FRAME_CODES, celtModeRate, gateThresholdDb, loadOpusModule, profileEq,
     receivedCodecInfo } = E.codec;
-  const { resolveRoom, roomModule, tailAtDevice } = E.room;
+  const { mixAtDevice, resolveRoom, roomModule, tailAtDevice } = E.room;
   const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule, steamCodecInfo,
-    steamDemoVoice, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions,
+    steamDemoVoice, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamRunOn, steamSenderOptions,
     steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
@@ -134,18 +134,25 @@
    * copies of. source = { sampleRate, length, numberOfChannels: 1 } (the
    * mono capture signal; no samples); opts are process()'s. Resolves to
    * { outputLength, maxTail, sampleRate, push(chunk), finish(), free() }:
-   *   outputLength the output's length without a room's tail (the source's
-   *                duration at the device's rate)
+   *   outputLength the output's length without a room's tail and without
+   *                the voice's run-on (the source's duration at the
+   *                device's rate)
    *   maxTail      the most a room's tail can add to it: the tail's cap
    *                (882,000 mixer samples, 20 s) at the device's rate; 0
-   *                with no room and not under water. A caller with one
-   *                buffer for the output makes it outputLength + maxTail
+   *                with no room and not under water. Off the game's voice
+   *                queue, a caller with one buffer for the output makes it
+   *                outputLength + maxTail. On the queue (W3-24) the voice
+   *                runs on by what the channel still held at the source's
+   *                end, known only at finish(), and no bound of it is
+   *                given: such a caller cannot size one buffer before
+   *                finish()
    *   push(chunk)  float PCM of the source in order, any size; resolves to
    *                the output samples that became final (maybe none); with
-   *                a room never more than outputLength in all
+   *                a room or on the queue never more than outputLength in
+   *                all
    *   finish()     after exactly `length` samples were pushed; resolves to
    *                { samples, codecInfo, realOpus }, samples the rest of
-   *                the output, a room's tail included
+   *                the output, the run-on and a room's tail included
    *   free()       releases the codec (finish() does too)
    * Concatenated, the output is process()'s samples and codecInfo is its
    * codecInfo; steamUptime is taken as process() takes it.
@@ -344,7 +351,7 @@
             steam.played = channel.finish();
             const y = channel.take();
             voiceOut += y.length;
-            if (voiceOut !== voiceLength) {
+            if (voiceOut !== voiceLength + steamRunOn(steam.played)) {
               throw new Error(`TF2Audio: the voice channel gave ${voiceOut} samples for a voice of ${voiceLength}.`);
             }
             return y;
@@ -436,20 +443,24 @@
     const output = createOutputStage({ voiceRate: codec.voiceRate, volume, deviceRate, onMixBlock: opts.onMixBlock, room });
     stages.push(output);
     // Cut, or padded with zeros, to process()'s length; as floats over 32768.
-    // With a room that length is known at the end (the tail's): until then
-    // at most outLength samples are given out, and what the device stage
-    // gives past them waits for finish(), which cuts or pads it to the tail.
+    // With a room, or with the model's sender on the game's voice queue, that
+    // length is known at the end (the room's tail; the voice's run-on, W3-24):
+    // until then at most outLength samples are given out, and what the device
+    // stage gives past them waits for finish(), which cuts or pads it to the
+    // run-on and the tail.
     let emitted = 0;
     const over = [];
     const finalSamples = (y) => { emitted += y.length; return mixToFloat(y); };
+    const runsOn = !!(steam && steam.channel);
     stages.push({
       push(y) {
         const keep = Math.max(0, Math.min(y.length, outLength - emitted));
-        if (room && keep < y.length) over.push(y.slice(keep));
+        if ((room || runsOn) && keep < y.length) over.push(y.slice(keep));
         return finalSamples(keep < y.length ? y.subarray(0, keep) : y);
       },
       flush() {
-        const rest = new Int32Array(outLength + (room ? tailAtDevice(output.mix.tail(), deviceRate) : 0) - emitted);
+        const runOn = runsOn ? mixAtDevice(steamRunOn(steam.played), deviceRate) : 0;
+        const rest = new Int32Array(outLength + runOn + (room ? tailAtDevice(output.mix.tail(), deviceRate) : 0) - emitted);
         let at = 0;
         for (const y of over) { if (at >= rest.length) break; rest.set(y.subarray(0, rest.length - at), at); at += y.length; }
         return finalSamples(rest);

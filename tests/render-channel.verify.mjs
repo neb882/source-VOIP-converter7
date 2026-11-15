@@ -65,10 +65,15 @@
 // 27. onOpen through steamChannel (W3-23b, check 8): main's indices on the even clock, the timeline's under the frame
 //     clock.
 // A render's end on the game's voice queue (W3-24, docs/work-orders/W3-24-render-end.md, "The tests"):
+// 28. A source that ends in sound: the voice and codecInfo.channel against the reference with the second model's
+//     play-out (check 9); the output's length, and its head against an engine without the play-out (check 10);
+//     the stream (check 11); the stage keys (check 13); determinism (check 17).
 // 29. A source that ends in 1 s of silence: main's WAV hashes, no over (check 12).
 // Renders use deviceRate 44100 and compare the voice at the mix point (opts.onGain).
 // TF2_DIR points the suite at a copy of the sources. Every signal is synthetic, made here.
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -244,15 +249,20 @@ function referenceGain(set) {
 // frame clock of the second model (tests/voicequeue/reference-frames.mjs), each message carrying
 // its own frame blocks to the gain when it reaches the channel; at jitter 0 each message comes on
 // its tick from the closed form (reference-arrivals.mjs), which codecInfo does not report.
+// The play-out (W3-24, docs/work-orders/W3-24-render-end.md): the channel plays out what it holds
+// at the source's end, on the second model's play-out at every frame rate (its even clock at
+// 1000/15 and above), so that the voice runs on past voice.length where the queue was still
+// playing. With onOpen on the even clock (only the opens are read) the channel is voice-channel.js's
+// timeline as before, which neither plays out nor needs to: no channel opens past the end.
 function referenceRender(src, set, onOpen = null) {
   const { messages, trip, packets, voice } = src;
   const L = trip.lookahead;
   const { gain: inner, use } = referenceGain(set);
-  const frames = frameClockRuns(set.fps);
+  const frames = frameClockRuns(set.fps), model = frames || !onOpen;
   let opened = false, returned = 0, adding = -1;
   const openedAt = [];   // under the frame clock: the index of each message that opened the channel
   const gain = onOpen ? { process: (y) => inner.process(y), reset() { opened = true; openedAt.push(adding); inner.reset(); } } : inner;
-  const tl = frames ? null : VC.createTimeline({ length: voice.length, fps: set.fps, bufferMs: set.bufferMs, codecDelay: L / 24000, gain });
+  const tl = model ? null : VC.createTimeline({ length: voice.length, fps: set.fps, bufferMs: set.bufferMs, codecDelay: L / 24000, gain });
   const out = [], kinds = { sound: 0, record: 0, empty: 0, refused: 0, lost: 0 }, queued = [];
   const lastTick = messages.reduce((m, msg) => Math.max(m, msg.tick), 0);
   const counting = set.jitterMs > 0;
@@ -265,7 +275,7 @@ function referenceRender(src, set, onOpen = null) {
       if (at === count.last) count.sameTick++;
       count.last = at;
     }
-    if (frames) { queued.push({ tick: at, pcm, source, blocks }); return; }
+    if (model) { queued.push({ tick: at, pcm, source, blocks }); return; }
     use(blocks);
     const y = tl.push({ tick: at, pcm, source });
     out.push(y);
@@ -291,8 +301,8 @@ function referenceRender(src, set, onOpen = null) {
     push(msg.tick, pcm, place, made.blocks);
     cursor = place + y16.length;
   });
-  const end = frames ? referenceFrames(queued, { fps: set.fps, bufferMs: set.bufferMs, length: voice.length, codecDelay: L / 24000, gain,
-    beforeAdd: (m, index) => { adding = index; use(m.blocks); }, createChannel: VC.createChannel }) : tl.finish();
+  const end = model ? referenceFrames(queued, { fps: set.fps, bufferMs: set.bufferMs, length: voice.length, codecDelay: L / 24000, gain,
+    beforeAdd: (m, index) => { adding = index; use(m.blocks); }, createChannel: VC.createChannel, playOut: true, even: !frames }) : tl.finish();
   if (frames && onOpen) {
     const blocksBefore = new Map(), D = VC.zero(set.bufferMs, set.fps, L / 24000);
     let blocks = 0;
@@ -2301,6 +2311,155 @@ if (runs(27)) {
     rowsF.push(`${fps} fps seed ${seed}: ${opens.length} opens${isDeepStrictEqual(opens, direct) ? '' : ' NOT the timeline\'s'}`);
   }
   check('under the frame clock (60, 30 and 10 fps): steamChannel\'s onOpen gives the timeline\'s own indices (each the output count at the frame of the open: tests/voice-channel.verify.mjs, onOpen)', frames, rowsF.join('; '));
+}
+
+/* ---------------- 28. a render's end on the game's voice queue (W3-24) ---------------- */
+
+// The suite's talk of `seconds` whose last 1.5 s are one spurt of a voice that ends with the file, with no pause and
+// no fade: a source still in the queue at its end.
+function endsInSound(seconds, rate, seed) {
+  const x = talk(seconds, rate, seed), rnd = lcg(seed + 1000), from = x.length - Math.round(1.5 * rate), f0 = 100 + 100 * rnd();
+  for (let i = from; i < x.length; i++) {
+    const time = (i - from) / rate;
+    let v = 0;
+    for (let h = 1; h <= 8; h++) v += Math.sin(2 * Math.PI * f0 * h * time) / h;
+    x[i] = 0.15 * (0.7 + 0.3 * Math.sin(2 * Math.PI * 3 * time)) * (0.6 * v + 0.1 * (rnd() * 2 - 1));
+  }
+  return x;
+}
+// The engine of a copy of the sources in which steamChannel passes no playOut (the order's check 10): main's channel
+// in this build's engine. The copy differs from the build in that one line, so the voice-channel.js the copy sets
+// as TF2VoiceChannel is the build's own.
+function enginePlayingNoOut() {
+  const { ENGINE_FILES, HANDED, PART_FILES } = require('./lib/engine.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'w3-24-no-play-out-'));
+  for (const f of [...ENGINE_FILES, ...Object.keys(HANDED)]) {
+    fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+    fs.copyFileSync(path.join(root, f), path.join(dir, f));
+  }
+  const file = path.join(dir, PART_FILES.find((f) => path.basename(f) === 'steam.js')), text = fs.readFileSync(file, 'utf8'), line = ', ...(endless ? {} : { playOut: true })';
+  if (text.split(line).length !== 2) throw new Error('enginePlayingNoOut: steamChannel\'s playOut is not where this test reads it');
+  fs.writeFileSync(file, text.replace(line, ''));
+  return { audio: loadEngine({ root: dir, codec: TF2Opus }).audio, dir };
+}
+
+if (runs(28)) {
+  console.log('\n[28] A render\'s end on the game\'s voice queue (W3-24): the voice runs on until the channel has given out the last of the source');
+  const t0 = performance.now(), rate = 24000, x = endsInSound(6, rate, 32);
+  const over = (r) => r.codecInfo.channel.over ?? 0;
+  // Check 9: the voice and codecInfo.channel against the reference, at four rates, jitter 0 and 50, loss 15% and the
+  // auto-gain off.
+  const CASES = [];
+  for (const fps of [300, 66.67, 60, 30]) {
+    for (const [name, opts] of [['jitter 0', {}], ['jitter 50 ms', { jitterMs: 50 }], ['loss 15%', { lossPct: 15 }], ['agc off', { agc: false }]]) {
+      CASES.push({ name: `${fps} fps, ${name}`, fps, opts: { ...opts, seed: 40 + CASES.length } });
+    }
+  }
+  const rows = [], ranOn = {}, none300 = [];
+  let ok = true;
+  for (const c of CASES) {
+    const src = await sourceRender(x, rate, c.opts), game = await gameRender(x, rate, { ...c.opts, fps: c.fps });
+    const ref = referenceRender(src, { ...c.opts, fps: c.fps });
+    const at = firstDiff(game.voice, ref.samples), info = game.r.codecInfo.channel;
+    const good = at === -1 && ref.used && isDeepStrictEqual(info, ref.info);
+    if (!good) ok = false;
+    if (over(game.r) > 0) ranOn[c.fps] = (ranOn[c.fps] || 0) + 1;
+    else if (c.fps === 300) none300.push(c.name);
+    c.over = over(game.r);
+    rows.push(`${c.name}: over ${over(game.r)}${good ? '' : ` NOT the reference's (first difference ${at}, info ${isDeepStrictEqual(info, ref.info) ? 'equal' : 'differs'})`}`);
+  }
+  check('a source that ends in sound, at 300, 66.67, 60 and 30 fps, jitter 0 and 50, loss 15% and the auto-gain off: the voice at the mix point and codecInfo.channel are the reference\'s with the second model\'s play-out; each rate runs on in at least one case, and 300 fps in at least one case does not',
+    ok && [300, 66.67, 60, 30].every((f) => ranOn[f] > 0) && none300.length > 0, rows.join('; '));
+
+  // Check 10: the output's length, at 44.1 and 48 kHz, with and without a room; the head of a render without a room
+  // against the same render by an engine whose channel does not play out.
+  {
+    const plain = enginePlayingNoOut(), rows10 = [];
+    let lengths = true, heads = true;
+    try {
+      for (const c of [CASES[5], CASES[9], CASES[13], CASES[0]]) {
+        for (const deviceRate of [44100, 48000]) {
+          for (const room of [null, { preset: 6 }]) {
+            const o = { ...BASE, ...c.opts, fps: c.fps, timeline: 'game', deviceRate, ...(room ? { room } : {}) };
+            const r = await A.process(buffer(x, rate), o), head = Math.round(x.length * deviceRate / rate);
+            const tail = room ? Math.round(r.codecInfo.room.tail * deviceRate / 44100) : 0, run = Math.round(over(r) * deviceRate / 44100);
+            if (r.samples.length !== head + run + tail) lengths = false;
+            let note = '';
+            if (!room) {
+              const p = await plain.audio.process(buffer(x, rate), o);
+              // At 48 kHz the device stage reads one mix sample ahead: the head's last sample is made with the run-on's
+              // first sample where the render without the play-out had a zero. Every other sample of the head is equal.
+              const at = firstDiff(r.samples.subarray(0, head), p.samples), want = deviceRate === 44100 || over(r) === 0 ? -1 : head - 1;
+              const rest = at === head - 1 ? firstDiff(r.samples.subarray(0, head - 1), p.samples.subarray(0, head - 1)) : -1;
+              if (!(p.samples.length === head && at === want && rest === -1 && !('over' in p.codecInfo.channel))) heads = false;
+              note = `, the head's first difference ${at}`;
+            }
+            rows10.push(`${c.name}, ${deviceRate / 1000} kHz${room ? ', a room' : ''}: ${r.samples.length} = ${head} + ${run} + ${tail}${note}`);
+          }
+        }
+      }
+    } finally { fs.rmSync(plain.dir, { recursive: true, force: true }); }
+    check('the output\'s length is round(source x device rate / source rate) + round(over x device rate / 44100) + the room\'s tail at the device\'s rate, at 44.1 and 48 kHz, with and without a room',
+      lengths, rows10.join('; '));
+    check('the head of a render without a room is the same render\'s by an engine whose channel does not play out: every sample at 44.1 kHz; at 48 kHz every one but the last, which the device stage makes with the run-on\'s first sample where it ran on',
+      heads, rows10.filter((r) => !r.includes('a room')).join('; '));
+  }
+
+  // Check 11: the stream, in pieces of odd sizes (and with the last pieces one sample long), with a room too: process()'s
+  // samples and codecInfo; before finish() never more than outputLength in all.
+  {
+    const rows11 = [];
+    let ok11 = true;
+    const plans = [[997], [4801, 1, 1, 1, 1, 1]];
+    // The sizes of the pieces: plan[0] each, and with a longer plan the last five samples one at a time.
+    const sized = (plan, n) => {
+      const out = [], ones = plan.length > 1 ? 5 : 0;
+      let at = 0;
+      while (at < n - ones) { const k = Math.min(plan[0], n - ones - at); out.push(k); at += k; }
+      for (; at < n; at++) out.push(1);
+      return out;
+    };
+    const streamCases = [...CASES.map((c) => ({ c, room: null, plan: plans[0] })), { c: CASES[5], room: null, plan: plans[1] }, { c: CASES[0], room: null, plan: plans[1] },
+      { c: CASES[5], room: { preset: 6 }, plan: plans[0] }, { c: CASES[0], room: { preset: 6 }, plan: plans[1] }, { c: CASES[13], room: { preset: 17 }, plan: plans[0] }];
+    for (const { c, room, plan } of streamCases) {
+      const o = { ...BASE, ...c.opts, fps: c.fps, timeline: 'game', ...(room ? { room } : {}) };
+      const whole = await A.process(buffer(x, rate), o);
+      const r = await A.createRender({ sampleRate: rate, length: x.length, numberOfChannels: 1 }, o), out = [];
+      let given = 0, at = 0;
+      for (const size of sized(plan, x.length)) { const y = await r.push(x.subarray(at, at + size)); at += size; given += y.length; out.push(y); }
+      const end = await r.finish();
+      out.push(end.samples);
+      const got = join(out), d = firstDiff(got, whole.samples);
+      const good = d === -1 && got.length === whole.samples.length && isDeepStrictEqual(end.codecInfo, whole.codecInfo) && given <= r.outputLength;
+      if (!good) ok11 = false;
+      rows11.push(`${c.name}${room ? `, room ${room.preset}` : ''}, pieces ${plan.join(', ')}: ${got.length} samples, ${given} before finish() of outputLength ${r.outputLength}, over ${over(whole)}${good ? '' : ' NOT process()\'s'}`);
+    }
+    check('the stream: createRender in pieces of 997 samples (and of 4,801 with the last five one sample long), with a room too, gives process()\'s samples and codecInfo, and before finish() never more than outputLength in all',
+      ok11, rows11.join('; '));
+  }
+
+  // Check 13: the stage keys: a render at jitter 50 after one at jitter 0 starts from B and is a fresh render.
+  {
+    const source = buffer(x, rate), hashOf = async (r) => `${sha256(new Uint8Array(await r.blob.arrayBuffer()))} ${sha256(JSON.stringify(r.codecInfo, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)))}`;
+    const stages = {}, o = { ...BASE, timeline: 'game', fps: 66.67, seed: 45 };
+    const first = await A.process(source, { ...o, stages, sourceKey: 'k' });
+    const before = JSON.parse(JSON.stringify(stages.counts));
+    const warm = await A.process(source, { ...o, jitterMs: 50, stages, sourceKey: 'k' }), fresh = await A.process(source, { ...o, jitterMs: 50 });
+    const after = stages.counts;
+    const tookB = after.b.reused === before.b.reused + 1 && after.b.kept === before.b.kept;
+    check('the stage keys: a render at jitter 50 after one at jitter 0 (66.67 fps) starts from B and gives the fresh render\'s samples, length and codecInfo',
+      tookB && await hashOf(warm) === await hashOf(fresh) && warm.samples.length === fresh.samples.length && over(fresh) !== over(first),
+      `over ${over(first)} then ${over(warm)}; ${JSON.stringify(stages.counts)}`);
+  }
+
+  // Check 17: determinism.
+  {
+    const o = { ...BASE, timeline: 'game', fps: 30, jitterMs: 50, seed: 53 };
+    const a = await A.process(buffer(x, rate), o), b = await A.process(buffer(x, rate), o);
+    check('the same render twice (30 fps, jitter 50) gives the same samples, length and codecInfo, and runs on',
+      firstDiff(a.samples, b.samples) === -1 && a.samples.length === b.samples.length && isDeepStrictEqual(a.codecInfo, b.codecInfo) && over(a) > 0, `over ${over(a)}`);
+  }
+  console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
 }
 
 /* ---------------- 29. a render's end: nothing cut, nothing changed (W3-24, check 12) ---------------- */

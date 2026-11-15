@@ -151,11 +151,13 @@
     return { preset, info, shares, water, unheld };
   }
 
-  // A tail of `mix` samples at 44100 Hz as samples at the device's rate:
-  // what it adds to the output's length.
-  const tailAtDevice = (mix, deviceRate) => Math.round(mix * deviceRate / MIX_RATE);
+  // `mix` samples at 44100 Hz as samples at the device's rate: what a room's
+  // tail, or a voice's run-on on the game's voice queue (W3-24), adds to the
+  // output's length.
+  const mixAtDevice = (mix, deviceRate) => Math.round(mix * deviceRate / MIX_RATE);
+  const tailAtDevice = mixAtDevice;
 
   E.room = Object.freeze({
-    resolveRoom, roomModule, roomPreset, tailAtDevice
+    resolveRoom, roomModule, roomPreset, mixAtDevice, tailAtDevice
   });
 })((typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : globalThis));
