@@ -76,7 +76,9 @@ they are voice lines, so they do not count towards the two other lines that begi
 and more than one channel in the part, the tool stops and lists the channel numbers, each with its count of tick
 lines. A channel can pass from one speaker to another (its tick lines name a new entity) where it was free between
 them: the first speaker's ring ran dry, the channel was freed on a tick that printed nothing, and the second's packets
-opened it again. That is a new session (`0, 0`). A change of entity with no free tick between stops the tool: one
+opened it again. That is read as an unseen free, as for one speaker (the pull, `3, -1`, then the opening; never a
+grace), so a log the tool read before W3-25 gives the same fixture; the stats count it as a new speaker too. A change
+of entity with no free tick between stops the tool: one
 whose first tick line has no packet, whose queue is not that packet's, or whose channel still waited, held more than
 4096 bytes (worked out) or was not emptied by the pulls read.
 
@@ -141,7 +143,9 @@ has a packet), and the command line adds "a log that begins while the channel pl
   bring is an opening, as without the option;
 - after two other lines in a row (a new session) the same rule makes the session's first tick line a start;
 - a line the queue cannot explain (the stop "the queue cannot go from", with the demand worked out) is not guessed
-  at: a new session is written, and the line is a start in mid-play. Such lines are counted apart;
+  at: a new session is written, and the line is a start in mid-play. Such lines are counted among the sessions and
+  the starts, and apart as well;
+- a start whose bytes are odd or over 44100 stops the tool by its line;
 - after a start the first pull may be a sample over whole blocks without counting as off them (chosen: the log may
   have begun inside the channel's wait). The unseen free, the grace and the overflow rules run on as for any playing
   channel.
@@ -153,6 +157,14 @@ counts it in neither ticks, packets nor opens. A section with no opening in it (
 holds no opening after) cannot show the wait's two faults, `wait + 1` and `wait - 1`: they mismatch nowhere there
 (shown on the synthetic 300 log's channel 1, where the ring's two and "no grace" also mismatch nowhere, for want of
 an overflow and a grace). stderr counts the starts and the lines not explained when the option is given.
+
+What a start in mid-play leaves untested:
+- in a section with no opening and no pull lines, the replay matches every playing tick line by construction: the
+  demand is worked out from the queue, so the module is held to the log only on the lines where the overflow, the
+  grace and the unseen free rules decide the demand;
+- a line the queue cannot explain need not be a line printed late: it can be a place where the log and the module
+  disagree. One in a long log may be the late line; more than one deserves a run without the option, and a look at
+  where it stops.
 
 **A line printed late.** A real server's log can print an `incoming` line after the tick line that already counts it
 (Set Q, measured: once in 13,487 tick lines). The tool does not guess at it: the packet is added on the next tick.

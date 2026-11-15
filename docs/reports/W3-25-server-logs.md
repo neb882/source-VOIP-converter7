@@ -43,7 +43,8 @@ for each, before the tick's `3, B`.
   (`otherChannelLines`) and not kept. They are voice lines, so they end a run of other lines and do not count
   towards the two other lines that begin a session. *Chosen*: counting them as "unrelated" for the session rule
   would cut a two-speaker log into a session a tick.
-- A change of entity on the channel is a new session (`0, 0`) when the step has a packet, the channel was playing,
+- A change of entity on the channel is an unseen free (corrected in fix round 2; the build first wrote a new session
+  `0, 0`) when the step has a packet, the channel was playing,
   its ring ran dry before the step (with the demand worked out: the last queue at most 4096 bytes, the bound of the
   unseen free; with it read: the pulls read at least what the ring held) and the step's queue is its packets'.
   Anything else stops with the old words, "a second channel while one is in use", now followed by "the entity changed
@@ -121,7 +122,13 @@ The 7 are the replaced checks' logs (two packet lines before a tick line, a seco
 read, stop with the new words, or stop elsewhere: "more than one channel ...", "the entity changed with no free tick
 between" (the same-channel case, whose check is unedited), and for the one pull line added to `queue`'s stand-in "the
 queue moved during the wait". Every fixture main's tool made, and every other stop, is the same: the same fixture's
-hash and the same counts.
+hash and the same counts. *Corrected in fix round 2: that held for the recorded calls only. A log main reads in which
+the channel passes to a second entity after an unseen free gave another fixture (a new session for main's unseen
+free) until fix round 2; the reviewer's case is now a check and a call of main's record. Stops that changed on logs
+main also refused: a bad voice line after a second channel now stops as "more than one channel" (the channels are
+counted before the lines are read); main's grace stop at a wait of 3 or less comes later or differently where the
+log also had main's other refusals; and a log whose packet lines name another channel than its tick lines, which main
+read, is now stopped, as the order's "matched by channel" requires.*
 
 `tests/reproduce.mjs`'s `queue` prints from the tool's counts, the fixture and the replay; with both the same for every
 log it read on main, and `replay.mjs` and `queue.mjs` unchanged in code, its printed lines for those logs are the
@@ -270,3 +277,32 @@ This report's commit changes only `docs/`, so CI starts no run for it; its tree 
 
 **Open.** The two other lines in a row of Set Q's first log now each cost one compared line with `--mid-play`; without
 it they stop the tool as before. Q2 of `tests/reproduce/queue.mjs` is left to the orchestrator, as the note says.
+
+## After the review (2026-11-15)
+
+The review's verdict was merge after fixes, nothing blocking. Fix round 2:
+
+| Finding | Done |
+| --- | --- |
+| 1. A second entity after an unseen free was written as a new session, so a log main reads gave another fixture | written as main does, `2, pull, 3, -1`, then the opening; the free tick is compared; `speakers` still counts it. The reviewer's case (the `queue` stand-in at 300, seed 0x5EED300, ent 2 from its third opening on) is a check in `reproduce`: every line main printed (473 of 473; 2 after a free; 2 sessions, with the stand-in's leading lines), and its call was made on main's tool at 363f8cb and added to `calls-main.jsonl` (76 calls, 68 distinct). The hand check of a second speaker now expects the unseen free; the synthetic channels' counts add the reuse to the frees |
+| 2. Two rules with no check | the probe: `[4, 10000, 2, 512, 3, 8976, 2, 512, 3, 7952]` mismatches nowhere under any fault (with the probe forced to 1, "sample kept" gives 2); `firstPull` at a start: the 300 log with pull lines cut inside channel 0's wait reads with `--mid-play --strict` (with `firstPull` false it stops on "a pull of 1025 samples") |
+| 3. A fixture the replay refuses, and a stat | a start of odd bytes or over 44100 stops by its line ("a start in mid-play holds 199 bytes, not whole samples within the ring's 44100"), a check for each; a line the queue cannot explain adds to `sessions` and to `midStarts` (and to `unexplained`), and checks count the fixture's `0, 0` and `4, B` pairs against them on the late line and on two other lines in a row; stderr says "N starts in mid-play ..., of which M at lines the queue could not explain" |
+| 4. The README on what a start leaves untested | added: with no opening and no pull lines the playing lines match by construction; a line not explained may be a disagreement, not only the late line |
+| 5. The report | the stops that changed on logs main refused, above; this section |
+
+Breaks, each caught: `firstPull` false at a start (the cut-in-wait check stops); no stop on a start's bad bytes (the
+199 and 44102 check); an unexplained line not counted as a session (the pairs check on the late line); a second
+entity written as a new session (the hand check, the three synthetic channel 0 counts, and `reproduce`'s new check);
+the probe forced to 1 (the "sample kept" check).
+
+| Command | Result |
+| --- | --- |
+| `node tests/voice-channel.verify.mjs --server-logs` | 64 passed, 0 failed |
+| `node tests/voice-channel.verify.mjs` (with the recorder on) | 240 checks passed |
+| `node tests/reproduce.verify.mjs` (with the recorder on) | 216 checks passed |
+| `compare-records.mjs` on the two records | "68 distinct calls on main (76 in all): 61 the same on the branch, 7 on a removed refusal, 0 different, 0 not called" |
+| `node tests/cache-number.mjs origin/main --report` | "no cached file changed; the number stays v54" |
+
+Only files under `tests/voicequeue/`, `tests/voice-channel.verify.mjs` and `tests/reproduce.verify.mjs` changed in
+code, so the whole `pnpm test` was not run again (the fix note's rule). CI's run on the head with the last code change
+is given in the reply.
