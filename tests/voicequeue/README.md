@@ -50,6 +50,7 @@ node tests/voicequeue/log-to-fixture.mjs voice_q.log --fps 294 --channel 1 > spe
 The options:
 - `--fps` is the frame rate the run had.
 - `--channel <n>` reads channel n's lines (below).
+- `--mid-play` reads a log that begins while the channel plays (below).
 - `--buffer-ms` is `voice_buffer_ms`, if it was not 100.
 - `--name` names the section (by default the marker, else `log`).
 - `--section <marker>` reads only the lines after the first line that *is* the marker (leading and trailing spaces
@@ -67,6 +68,7 @@ or a new speaker on the channel. `events` is a flat list of pairs:
 | `1, N` | a packet of N decoded samples |
 | `2, n` | the mixer wanting n samples before the next tick |
 | `3, B` | a client tick after which the channel holds B bytes; `3, -1`: after which it is free |
+| `4, B` | with `--mid-play`: a tick line of a channel already playing, which holds B bytes after it (B even, 0 to 44100); not compared |
 
 **One channel.** The tool reads one channel's lines: the one `--channel` names, or the log's only one. Packet, tick and
 pull lines name their channel, and the tool matches them by it. The other channels' lines are counted and not kept;
@@ -116,9 +118,10 @@ replay fails: start a new part.
 
 It stops with a message, never a guess, on a log that breaks the rules:
 - a packet line with no tick line after it, or whose tick line is in another session;
-- a tick line with no channel;
-- a queue that moves while a channel waits, or (with the demand worked out) that cannot come from its packets;
-- a new channel whose queue is not its packets';
+- a tick line with no channel (with `--mid-play`, a start in mid-play instead);
+- a queue that moves while a channel waits, or (with the demand worked out) that cannot come from its packets (with
+  `--mid-play`, a new session and a start in mid-play);
+- a new channel whose queue is not its packets' (with `--mid-play`, a start in mid-play when no channel is open);
 - more than one channel and no `--channel`, a `--channel` with no tick line, or a change of entity with no free tick
   between;
 - a pull of the channel while it waits, or a grace that cannot be told from a new channel;
@@ -128,13 +131,37 @@ It stops with a message, never a guess, on a log that breaks the rules:
 A byte-order mark before the first line is ignored. A last line with no line end is read as it stands, and the
 summary says so: a log cut off while it was written can end in a shortened number that still reads.
 
+**A log that begins in mid-play (`--mid-play`).** A log made on a real server starts while someone is already
+talking, so the channel's first tick line has no opening before it. Without the option the tool stops there, as
+before ("a tick line with no channel open in the log", or "a new channel holds B bytes, its packet w" when the line
+has a packet), and the command line adds "a log that begins while the channel plays: give --mid-play". With it:
+- a session's first tick line of the channel that is not an opening (no packet, or a queue that is not what its
+  packets bring) is a start in mid-play, `4, B`: the channel is taken as playing, its wait over, with the line's
+  bytes. The line's packets are counted and not written. A first tick line whose queue is exactly what its packets
+  bring is an opening, as without the option;
+- after two other lines in a row (a new session) the same rule makes the session's first tick line a start;
+- a line the queue cannot explain (the stop "the queue cannot go from", with the demand worked out) is not guessed
+  at: a new session is written, and the line is a start in mid-play. Such lines are counted apart;
+- after a start the first pull may be a sample over whole blocks without counting as off them (chosen: the log may
+  have begun inside the channel's wait). The unseen free, the grace and the overflow rules run on as for any playing
+  channel.
+
+What a start costs: one tick line that is not compared. What is not known at a start: whether the channel was still
+in its wait; the tool takes it as playing. The replay makes the start with the module's own calls (`createChannel`,
+an empty packet, one packet of the bytes, ticks until it plays), under each fault with that fault's options, and
+counts it in neither ticks, packets nor opens. A section with no opening in it (one that starts in mid-play and
+holds no opening after) cannot show the wait's two faults, `wait + 1` and `wait - 1`: they mismatch nowhere there
+(shown on the synthetic 300 log's channel 1, where the ring's two and "no grace" also mismatch nowhere, for want of
+an overflow and a grace). stderr counts the starts and the lines not explained when the option is given.
+
 **A line printed late.** A real server's log can print an `incoming` line after the tick line that already counts it
 (Set Q, measured: once in 13,487 tick lines). The tool does not guess at it: the packet is added on the next tick.
 With pull lines the replay then reports that one tick line as off, by the packet, and the next tick line is right
 again with no packet line between; a fault of the model does not right itself so. Without pull lines the demand is
 worked out from the queue: where the queue rose by more than its packets the tool stops on that tick line ("the queue
 cannot go from"), and where the pulls hid the rise the late line passes unseen, the pull worked out a little off the
-blocks.
+blocks. With `--mid-play` that line is given up instead (a new session and a start in mid-play there), and the tick
+lines after it are compared again.
 
 **Pull sizes.** A queue line off by a sample while the channel plays only moves a sample of the mixer's demand from
 one tick to the next, and the rules cannot tell that from a true one. The mixer takes whole blocks of 512 samples, and
