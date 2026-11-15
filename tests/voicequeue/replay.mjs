@@ -6,7 +6,10 @@
 // A fixture is what tests/voicequeue/log-to-fixture.mjs prints: { about, sections: [{ name,
 // fps, bufferMs, events }] }. replayFixture(fixture) returns, per section, { name, waitTicks,
 // engine, faults }: engine and each fault give { packets, ticks, opens, bad, first }, `bad`
-// being the ticks on which the channel's bytes are not the logged ones.
+// being the ticks on which the channel's bytes are not the logged ones. The events are run
+// in the order given: a tick's several packets one after the other, and a demand read from a
+// log's pull lines where the tool put it, before that tick's packets (W3-25;
+// tests/voicequeue/README.md, "The mixer's demand").
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
