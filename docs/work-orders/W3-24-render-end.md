@@ -446,3 +446,7 @@ difference; the second read: the play-out removes a difference `main` has).
 
 **Accepted as it is:** the dated note in `tests/predictions/PREDICTIONS.md`, a file the order forbade. The
 predictions' renders keep the file's own timing and do not run on; the note says so and changes no prediction.
+
+## The private run (2026-11-15)
+
+Run by the orchestrator on the merged code (`b158181`), every take at the default seed, against the run made after AC-03 (measured). 16 of 18 rows are equal to the last digit of the JSON. `net_jitter` moved in the eighth decimal and `net_combined` from 5.30 / 21.0 dB (r 0.535) to 5.37 / 21.0 (r 0.521); both are rendered with jitter 50 at 336 frames a second, where a render runs on (inferred from the build's figures; the suite's JSON does not keep `over`). The order expected a change in the last piece only. On `net_combined` every piece of the render's own line-up moved a little (its clock −941.5 to −944.6 ppm), because with loss or jitter the suite lines the whole render up (AC-01) and the render is longer. Over nine seeds both rows print as `docs/ACCURACY.md`'s table had them, except `net_combined`'s largest delay (2.427 s for 2.481). `tests/retiming.mjs` was not run: it refuses renders on the queue (AC-01) and W3-24 changes nothing on the file's own timing.
