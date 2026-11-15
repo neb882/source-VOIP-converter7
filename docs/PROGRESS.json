@@ -11,9 +11,9 @@
   "in_flight": [
     {
       "order": "W3-24",
-      "file": "docs/work-orders/W3-24-render-end.md (being planned)",
-      "stage": "planner",
-      "line": "a render on the game's voice queue runs on past its source's end until the channel has given out its last voice, so the last words are heard (the orchestrator's ruling); where nothing is cut today, nothing changes."
+      "file": "docs/work-orders/W3-24-render-end.md",
+      "stage": "planned 2026-11-15 (rulings at its end); builder next",
+      "line": "a render on the game's voice queue runs on past its source's end until the channel has given out the last of the source, so the last words are heard; no recorded hash moves (none of the nine queue cases cuts anything); at the page's default 33 of 360 short renders ending in sound cut up to 13.7 ms today (the planner's prototype)."
     }
   ],
   "next": [
@@ -164,10 +164,6 @@
     {
       "finding": "The render at jitter 0 has no look once a frame at the listener; the model with jitter has one. It moves no tick at 75 frames a second and above (the page's 300, the photographs' 295 and 336); at 66.67, 6.5% of ticks come a tick later; at 60, 1.5 ms in the mean; at 30, 10 ms; at 10, 43 ms (measured by BC-4a's second reader; REFERENCE finding 9).",
       "why": "Frame rates under 67 need ticks, pulls and looks worked out together, an order of its own; nothing the page offers by default moves."
-    },
-    {
-      "finding": "A render with jitter on the game's voice queue keeps its source's length, so the source's last tens of milliseconds are not heard: 27 ms (9 to 53) at jitter 50 and 300 frames a second, 121 ms (72 to 172) at 66.67, against 0 and 15 at jitter 0 (measured by BC-4a's second reader).",
-      "why": "Whether a render should run on past its source's end so the last words are heard is a choice about the render's length on the page, not part of BC-4."
     },
     {
       "finding": "The live chain's steamTimeline keeps an open-ended frame log, so a monitor session grows about 2 MB an hour, with or without the queue (inferred from the code by W3-02c-3's planner, 2026-11-13).",

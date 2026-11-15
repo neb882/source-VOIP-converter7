@@ -701,3 +701,7 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 
 - live.last_merge, earlier merges cut: "W3-23a (cache v51, 2026-11-14): on the game's voice queue at a listener frame rate under 1000/15, the voice channel runs a frame clock in the order W3-23r read from the owner's engine.dll (in each fra"
 - in_flight, W3-23b removed (merged)
+
+## 2026-11-15: W3-24 planned; entries replaced
+
+- deferred, a render with jitter keeps its source's length, removed (now W3-24, in_flight)
