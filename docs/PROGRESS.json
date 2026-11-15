@@ -60,7 +60,7 @@
     "Not urgent, new 2026-11-14: type fps_max in the game's console and say what it prints, and whether it was the same when Set C was recorded. The record has 300 (Set G's logs); Set C's jitter photograph shows about 336 frames a second, over a cap of 300; the variable's start value in engine.dll is 400 (W3-23r). The page's default stays 300 until this is known."
   ],
   "open_questions": [
-    "Steam's sender: the 8-step (250 ms) pattern of chunk ends, which createClock lacks (Set D's demo, Set L).",
+    "Steam's sender: the 8-step (250 ms) pattern of chunk ends, which createClock lacks (Set D's demo, Set L; and on another PC's Steam client, Set Q 2026-11-15: one place in 8 holds 15.8 to 16.1% of chunk ends against 12.5%, 3.4 to 4.9 standard deviations, measured). Its cause is not read; an order of its own once it is.",
     "The device stage's last unit: a single-precision read position and a loss of up to one unit toward zero before the last rounding (the retake R1-3). Cheaper than a read of the XAudio2 module: the same take at volume 1 with a voice that stays off the clamp.",
     "Speex beyond the game's setting: only engine quality 3 (20-byte frames) was read and run with care; the other qualities use other codebooks and quantisers. The lost-frame and sub-mode 0 paths draw noise from the C runtime's rand() of the game's thread and cannot be reproduced from packets.",
     "Set D, PC A with set_d_street: measured again 2026-11-14 on the stretches both pick, with the take lined up on the render's timeline, over nine seeds of the room: at 68.02 ms the render 0.0279 to 0.0300 against the take's 0.0257 (scatter 0.0024), 9 to 17% high, 0.9 to 1.8 scatters; 120.04 ms 0.0115 to 0.0138 against 0.0141; 308.02 ms 0.0071 to 0.0098 against 0.0056. The 36% of W3-17c's run came from each file's own stretches. What is left at 68 ms is within 2 scatters and not looked into further.",
@@ -172,6 +172,14 @@
     {
       "finding": "AC-03's review: the rule's 0.1 s limit has no lower guard in a committed test (at 0.01 s the committed recordings' line-up changes and every suite passes); removing the envelope's 0.5 floor, or 'every' to 'some' in the tonal test, passes everything; and the suite's check of the beeps rests on a fragile case (with a dither of another seed main passes it too).",
       "why": "None changes a result on any input at hand. A committed check of the recordings' line-up would be an order of its own."
+    },
+    {
+      "finding": "tests/voicequeue/log-to-fixture.mjs refuses a log with two packets before one tick line, but a real server gives that (Set Q: 25 ticks with two and 1 with three in 202 s), and W3-23r read that one call drains every waiting packet. Allowed in a scratch copy, the replay gives the logged queue on every line (Set Q).",
+      "why": "A small change to the tool and its README; no render moves. Do it with the next order that touches tests/voicequeue/."
+    },
+    {
+      "finding": "At 30 frames a second the game's mixer takes 4 blocks then 2 in most frames where an exact frame takes 3 and 3 (Set Q, measured): its lead follows a smoothed frame duration (W3-23r), which the frame clock as built does not vary.",
+      "why": "The blocks' phase is chosen in W3-23a; the lead's variation moves when a block is painted by a frame, not what is heard in the mean. Worth a look if a take at 30 frames a second is ever lined up against a render."
     }
   ],
   "ideas_not_started": [

@@ -705,3 +705,7 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-15: W3-24 planned; entries replaced
 
 - deferred, a render with jitter keeps its source's length, removed (now W3-24, in_flight)
+
+## 2026-11-15: Set Q; entries replaced
+
+- open_questions, the 8-step pattern replaced: "Steam's sender: the 8-step (250 ms) pattern of chunk ends, which createClock lacks (Set D's demo, Set L)."
