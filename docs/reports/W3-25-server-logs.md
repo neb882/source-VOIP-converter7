@@ -195,3 +195,78 @@ The browser suite was not run locally; it ran on CI. No file the site loads chan
 - A log that switches back to `voice_showchannels 1` inside a part reads its pulls as none from there; the README
   says to start a new part.
 - The record's dated line under Set Q is left to the orchestrator, as the order says.
+
+## After the private run on the branch (2026-11-15)
+
+The orchestrator's private run of 300ee98 stopped on three of Set Q's four parts: a log made on a real server begins
+while the channel already plays, so its first tick line has no opening before it. Fix round 1 adds `--mid-play`.
+
+| File | Change |
+| --- | --- |
+| `tests/voicequeue/log-to-fixture.mjs` | `--mid-play` (`opts.midPlay`): starts in mid-play, the pair `4, B`, the counts `midStarts` and `unexplained`, a stderr line with the option, the hint on the two stops without it; the byte-order mark's `\u` escapes back, byte for byte as on main |
+| `tests/voicequeue/replay.mjs` | `4, B`: a channel already playing with B bytes, not compared; `validFixture` takes kind 4, B even, 0 to 44100 |
+| `tests/voice-channel.verify.mjs` | the checks below, in `serverLogChecks` |
+| `tests/reproduce.verify.mjs` | "one pull line added" expects its one reason, "the queue moved during the wait" |
+| `tests/voicequeue/README.md`, `tests/README.md` | the option, the pair, what a start costs and what is not known at it, the faults it cannot show |
+
+`docs/REPRODUCE.md` is unchanged: the check `queue` does not take the option, and no sentence there became untrue.
+`synthetic-log.mjs` is unchanged: the cut logs are made in the checks from the writer's lines and marks.
+
+**The rule.** With `--mid-play`:
+- a session's first tick line of the channel that is not an opening (no packet, or a queue that is not what its
+  packets bring) is a start in mid-play: `4, B`, the channel taken as playing (its wait over) with the line's bytes,
+  its packets counted and not written. A first tick line whose queue is exactly its packets' is an opening, as now;
+- after two other lines in a row the new session's first tick line is a start by the same rule; a packet line pending
+  at the break still stops the tool;
+- a line the queue cannot explain (the stop "the queue cannot go from", demand worked out) is not guessed at: `0, 0`
+  and a start there, counted as `unexplained`;
+- after a start the first pull may be a sample over whole blocks without counting off them (chosen). Not known at a
+  start: whether the channel was still in its wait.
+
+Without the option the tool is as before: the thrown messages are unchanged, and the command line adds "; a log that
+begins while the channel plays: give --mid-play" to "a tick line with no channel open" and "a new channel holds".
+A fixture with a `4, B` pair has its `about` text name it; one without keeps its text.
+
+**The replay of `4, B`.** A fresh channel with the section's options and the fault's: an empty packet opens it, one
+packet brings B / 2 samples (one more than that unless a probe shows the fault keeps a packet's first sample), and
+ticks run until it plays. The line is not compared and counts in neither ticks, packets nor opens.
+
+**The checks** (`node tests/voice-channel.verify.mjs --server-logs`: 61 passed, 0 failed):
+- `4, B` worked by hand at 0, 10000 and 44100 bytes, then pulled, added to and ticked: every compared tick right,
+  ticks 2, 1 and 2, no open counted; the ring's two faults start with their own ring and mismatch twice at 44100;
+- `validFixture` refuses B of 1, -2 and 44102;
+- each synthetic server log (300 without and with pull lines, 30 with them) cut to begin on a tick line of channel 0
+  with no packet, and on a packet line and its tick line: without the option the stop as before; with it one start,
+  every compared tick line matching, and the tick lines less the start compared (328 of 328, 325, 282, 280);
+- two other lines in a row in play: one more start, one compared line fewer, all matching;
+- the late line on the 300 log without pull lines: one line not explained, a new session and a start there, every
+  other tick line matching (379 replayed);
+- channel 1 of the 300 log cut in mid-play, with no opening after: the replay matches, and `wait + 1`, `wait - 1`
+  (and the ring's two and "no grace") mismatch nowhere; "sample kept" on 194;
+- the tool on its own: the hint without the option, the stderr counts with it.
+
+**Breaks**, each made in a copy of the branch and run with `--server-logs`:
+
+| Break | What failed |
+| --- | --- |
+| the start's packets written as events | the cut logs begun on a packet line (7, 7 and 70 tick lines off) and the two-other-lines case |
+| the start compared (replay) | the hand-worked `4, B` check and every count of compared lines (one more than the tick lines less the starts) |
+| the wait not taken as over at a start | every mid-play part stops ("the queue moved during the wait") |
+| an unexplained line read on without a new session | the late line with `--mid-play` (4 tick lines off) |
+
+**What did not move.** The record made during the whole `pnpm test` of this round, compared with main's:
+"67 distinct calls on main (75 in all): 60 the same on the branch, 7 on a removed refusal, 0 different, 0 not
+called", the same 7 as before. No call on main used the option, so every one of them runs without it. `queue` does
+not take the option and its lines follow from the same counts and fixtures; the replay of kinds 0 to 3 is unchanged
+in code. Cache: "cache number against origin/main (363f8cb): no cached file changed; the number stays v54".
+
+| Command | Result |
+| --- | --- |
+| `node tests/voice-channel.verify.mjs --server-logs` | 61 passed, 0 failed |
+| `flock /tmp/tf2ve-heavy.lock pnpm test` (with the recorder on) | 27 of 27 suites passed, 1672.4 s; `voice-channel` 204.4 s, `reproduce` 101.1 s |
+| CI, `tests` workflow on 2ad1386 | `verify` success |
+
+This report's commit changes only `docs/`, so CI starts no run for it; its tree outside `docs/` is 2ad1386's.
+
+**Open.** The two other lines in a row of Set Q's first log now each cost one compared line with `--mid-play`; without
+it they stop the tool as before. Q2 of `tests/reproduce/queue.mjs` is left to the orchestrator, as the note says.
