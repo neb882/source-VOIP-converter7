@@ -6,7 +6,11 @@
 // A fixture is what tests/voicequeue/log-to-fixture.mjs prints: { about, sections: [{ name,
 // fps, bufferMs, events }] }. replayFixture(fixture) returns, per section, { name, waitTicks,
 // engine, faults }: engine and each fault give { packets, ticks, opens, bad, first }, `bad`
-// being the ticks on which the channel's bytes are not the logged ones.
+// being the ticks on which the channel's bytes are not the logged ones. The events are run
+// in the order given: a tick's several packets one after the other, and a demand read from a
+// log's pull lines where the tool put it, before that tick's packets (W3-25;
+// tests/voicequeue/README.md, "The mixer's demand"). A pair 4, B (a start in mid-play, W3-25's
+// fix round 1) replaces the channel by one already playing with B bytes.
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -33,24 +37,44 @@ export function validFixture(f) {
     if (!Array.isArray(ev) || ev.length % 2) throw new Error(`${where}: events must be a flat list of pairs`);
     for (let k = 0; k < ev.length; k += 2) {
       const kind = ev[k], v = ev[k + 1];
-      if (!Number.isInteger(kind) || kind < 0 || kind > 3 || !Number.isInteger(v)) throw new Error(`${where}: event pair ${k / 2} is not kind 0 to 3 and a whole number`);
+      if (!Number.isInteger(kind) || kind < 0 || kind > 4 || !Number.isInteger(v)) throw new Error(`${where}: event pair ${k / 2} is not kind 0 to 4 and a whole number`);
       // A packet is at most 11264 samples (Steam's decoder writes into 22528 bytes, W3-03 §3);
       // a million bounds packets and pulls far above any log.
-      if ((kind === 0 && v !== 0) || ((kind === 1 || kind === 2) && (v < 0 || v > 1e6)) || (kind === 3 && v < -1)) throw new Error(`${where}: event pair ${k / 2} has an impossible value`);
+      // A start in mid-play holds whole samples, at most the ring's 44100 bytes.
+      if ((kind === 0 && v !== 0) || ((kind === 1 || kind === 2) && (v < 0 || v > 1e6)) || (kind === 3 && v < -1)
+        || (kind === 4 && (v < 0 || v > 44100 || v % 2 !== 0))) throw new Error(`${where}: event pair ${k / 2} has an impossible value`);
     }
   }
   return f;
 }
 
+// A channel already playing that holds `bytes` (a start in mid-play, the pair 4, B), made by the
+// module's own calls with the section's options and the fault's: an empty packet opens it, one
+// packet brings the samples (as many more as the channel drops of a packet: a probe says, so
+// that the fault that keeps a packet's first sample starts with the same count), and ticks run
+// its wait out. Its own open is not counted.
+function playingChannel(opts, bytes) {
+  const probe = createChannel(opts);
+  probe.add(new Float32Array(1));
+  const dropsFirst = 1 - probe.count;
+  const ch = createChannel(opts);
+  ch.add(new Float32Array(0));
+  if (bytes > 0) ch.add(new Float32Array(bytes / 2 + dropsFirst));
+  for (let i = 0; !ch.playing && i < 100000; i++) ch.tick();
+  return ch;
+}
+
 // One section through createChannel: packets of zeros, the mixer's demand, ticks; after each
-// tick the channel's bytes (-1 when free) against the log's.
+// tick the channel's bytes (-1 when free) against the log's. A start in mid-play (4, B) is not
+// compared, and counts in neither ticks, packets nor opens.
 export function replay(section, test) {
   const opts = { fps: section.fps, bufferMs: section.bufferMs, test };
   const ev = section.events;
-  let ch = createChannel(opts), opens = 0, packets = 0, ticks = 0, bad = 0, first = null;
+  let ch = createChannel(opts), opens = 0, packets = 0, ticks = 0, bad = 0, first = null, made = 0;
   for (let k = 0; k < ev.length; k += 2) {
     const kind = ev[k], v = ev[k + 1];
-    if (kind === 0) { opens += ch.opens; ch = createChannel(opts); }
+    if (kind === 0) { opens += ch.opens - made; made = 0; ch = createChannel(opts); }
+    else if (kind === 4) { opens += ch.opens - made; ch = playingChannel(opts, v); made = ch.opens; }
     else if (kind === 1) { ch.add(new Float32Array(v)); packets++; }
     else if (kind === 2) { if (v > 0) ch.pull(v); }      // a demand of 0: the mixer did not ask
     else {
@@ -59,7 +83,7 @@ export function replay(section, test) {
       if (got !== v) { bad++; if (!first) first = { pair: k / 2, tick: ticks, logged: v, model: got }; }
     }
   }
-  return { packets, ticks, opens: opens + ch.opens, bad, first };
+  return { packets, ticks, opens: opens + ch.opens - made, bad, first };
 }
 
 export function replayFixture(fixture) {

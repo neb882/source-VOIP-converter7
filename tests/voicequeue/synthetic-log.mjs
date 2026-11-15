@@ -126,3 +126,152 @@ export function synthesize({ fps, seed }, makeChannel) {
   truth.dropped += ch.dropped;
   return { lines, marks, truth };
 }
+
+// A real server's console log in the game's format (W3-25), from seeded runs of several
+// speakers' channels on the frame clock. synthesizeServer({ fps, seed, pulls, speakers },
+// makeChannel) runs one channel a slot (makeChannel({ fps }) makes each) and prints what the
+// game prints with voice_showincoming 1 and voice_showchannels 1, or 2 with pulls: true.
+//
+// The clock is the frame clock of W3-23a at every frame rate (frame k at 88200 k / fps half
+// samples, a tick every 1323, a block of the mixer every 1024), and a frame's order is the one
+// W3-23r read: the packets of every tick due in the frame first (each prints its incoming line
+// as it is added), then the ticks due (each channel in use prints its tick line, in the
+// channels' order), then the blocks due (each playing channel is pulled 512 samples, 513 on its
+// first block after it starts, and prints a pull line with pulls: true). A packet from a
+// speaker with no channel in use takes the lowest free one, so a channel freed by one speaker
+// can be taken by another.
+//
+// speakers: [{ ent, script }], a script being spurts in order as in SCRIPT, each starting
+// when its condition holds (tick, below, dry, freed, after as in SCRIPT; freedOf: { ent, ticks }
+// that many ticks after that speaker's last spurt and its channel's free), plus burst: [sizes] (those packets on
+// one tick, at the spurt's packet burstAt) and unrelatedAt. The mixer is the clock's own, not
+// drawn. Returns { lines, marks, truth }: marks one per tick line ({ line, chan, ent, b,
+// packets, opened, playedBefore, tick, frame }), truth what the channels did, per channel number.
+export const SERVER_SCRIPT = [
+  { ent: 1, script: [
+    { start: { tick: 5 }, later: 30, burstAt: 4, burst: [2646, 0, 1764], unrelatedAt: 6 },   // opens; three packets on a tick, one empty
+    { start: { below: 6000 }, later: 6, burstAt: 1, burst: [7938, 7938, 7938] },             // appended; a burst that overflows the ring
+    { start: { dry: true }, later: 8 },                                                      // the grace
+    { start: { freed: 12 }, later: 10, burstAt: 3, burst: [2646, 1764] },                    // a new channel after a free nobody printed
+  ] },
+  { ent: 2, script: [
+    { start: { tick: 20 }, later: 60, burstAt: 10, burst: [1764, 0] },                       // a second channel in use at once
+  ] },
+  { ent: 3, script: [
+    { start: { freedOf: { ent: 1, ticks: 6 } }, later: 12 },                                 // channel 0 taken by a second speaker after the first's last free
+  ] },
+];
+
+export function synthesizeServer({ fps, seed, pulls = false, speakers = SERVER_SCRIPT }, makeChannel) {
+  const rand = mulberry32(seed);
+  const pick = (table) => { const u = rand(); for (const [v, p] of table) if (u < p) return v; return table[table.length - 1][0]; };
+  const OPENING = [[7056, 0.77], [5292, 0.92], [6174, 0.96], [7938, 1]];
+  const SIZES = [[2646, 0.65], [1764, 0.79], [3528, 0.90], [882, 1]];
+  const GAPS = [[3, 0.41], [4, 0.90], [5, 1]];
+  const RECORD = [[2756, 0.85], [1378, 1]];
+  const TICK = 1323, BLOCK = 1024;
+  const slots = [];                     // { ch, ent, first, lastEnt }
+  const people = speakers.map((s) => ({ ent: s.ent, script: s.script, si: 0, schedule: null, last: -1, freedAt: -1, first: false }));
+  const lines = [], marks = [];
+  const truth = { packets: 0, ticks: 0, opens: 0, opensAfterFree: 0, graces: 0, emptyPackets: 0, severalPackets: 0, dropped: 0, reuses: 0, pullLines: 0, perChannel: [] };
+  const per = (c) => (truth.perChannel[c] ||= { packets: 0, ticks: 0, opens: 0, opensAfterFree: 0, graces: 0, emptyPackets: 0, severalPackets: 0, reuses: 0, pullLines: 0, speakers: [] });
+  const slotOf = (ent) => slots.findIndex((s) => s.ch.inUse && s.ent === ent);
+  const at = (k) => (88200 * k) / fps;
+  let tick = 0, block = 0;
+  const done = () => people.every((p) => p.si === p.script.length && !p.schedule) && slots.every((s) => !s.ch.inUse);
+  for (let k = 0; ; k++) {
+    if (k > 200000) throw new Error('the synthetic server script did not finish');
+    const t = at(k);
+    // 1. The packets of every tick due in this frame, in tick order.
+    const due = [];
+    while (TICK * (tick + due.length) <= t) due.push(tick + due.length);
+    const added = new Map();             // slot -> packets this frame, for the marks
+    for (const i of due) {
+      for (const p of people) {
+        const sl = slotOf(p.ent), ch = sl >= 0 ? slots[sl].ch : null;
+        if (!p.schedule && p.si < p.script.length) {
+          const c = p.script[p.si].start;
+          let go;
+          if (c.tick !== undefined) go = i >= c.tick;
+          else if (c.below !== undefined) go = !!ch && ch.playing && !ch.starved && ch.count > 0 && ch.count < c.below;
+          else if (c.dry) go = !!ch && ch.starved;
+          else if (c.freed !== undefined) go = p.freedAt > p.last && i >= p.freedAt + c.freed;
+          else if (c.freedOf) {
+            const o = people.find((q) => q.ent === c.freedOf.ent);
+            go = o.si === o.script.length && !o.schedule && o.freedAt > o.last && i >= o.freedAt + c.freedOf.ticks;
+          }
+          else go = i >= p.last + c.after;
+          if (go) {
+            const sp = p.script[p.si++];
+            const sched = new Map();
+            let a = i;
+            const put = (tk, sizes) => sched.set(tk, sizes);
+            put(a, [pick(OPENING)]);
+            for (let j = 0; j < sp.later; j++) { a += pick(GAPS); put(a, j + 1 === sp.burstAt ? sp.burst.slice() : [pick(SIZES)]); }
+            a += pick(GAPS); put(a, [pick(RECORD)]);
+            sched.last = a;
+            sched.unrelated = sp.unrelatedAt === undefined ? -1 : [...sched.keys()][sp.unrelatedAt];
+            p.schedule = sched; p.first = true;
+          }
+        }
+        if (p.schedule && p.schedule.has(i)) {
+          const sizes = p.schedule.get(i);
+          for (const n of sizes) {
+            let s = slotOf(p.ent);
+            let opened = false;
+            if (s < 0) {
+              s = slots.findIndex((x) => !x.ch.inUse);
+              if (s < 0) { s = slots.length; slots.push({ ch: makeChannel({ fps }), ent: -1, lastEnt: -1, firstBlock: true, freedSeen: false }); }
+              const x = slots[s];
+              opened = true;
+              truth.opens++; per(s).opens++;
+              if (x.lastEnt !== -1) { if (x.lastEnt === p.ent) { truth.opensAfterFree++; per(s).opensAfterFree++; } else { truth.reuses++; per(s).reuses++; } }
+              if (!per(s).speakers.includes(p.ent)) per(s).speakers.push(p.ent);
+              x.ent = p.ent; x.lastEnt = p.ent;
+            } else if (slots[s].ch.starved) { truth.graces++; per(s).graces++; }
+            if (n === 0) { truth.emptyPackets++; per(s).emptyPackets++; }
+            lines.push(`Voice - ${n} incoming samples added to channel ${s}`);
+            slots[s].ch.add(new Float32Array(n));
+            truth.packets++; per(s).packets++;
+            const list = added.get(s) || { packets: [], opened: false };
+            list.packets.push(n); list.opened ||= opened;
+            added.set(s, list);
+          }
+          if (sizes.length > 1) { truth.severalPackets++; per(slotOf(p.ent)).severalPackets++; }
+          if (p.schedule.unrelated === i) lines.push(UNRELATED);
+          if (i === p.schedule.last) { p.last = i; p.schedule = null; }
+        }
+      }
+    }
+    // 2. The ticks due: each channel's pass, then its line.
+    for (const i of due) {
+      slots.forEach((x, c) => {
+        const was = x.ch.inUse, playedBefore = x.ch.playing;
+        x.ch.tick();
+        if (was && !x.ch.inUse) { const p = people.find((q) => q.ent === x.ent); if (p) p.freedAt = i; }
+        if (x.ch.inUse) {
+          const a = added.get(c);
+          marks.push({ line: lines.length, chan: c, ent: x.ent, b: 2 * x.ch.count, packets: a ? a.packets : [], opened: a ? a.opened : false, playedBefore, tick: i, frame: k });
+          lines.push(`Voice - chan ${c}, ent ${x.ent}, bufsize: ${2 * x.ch.count}`);
+          truth.ticks++; per(c).ticks++;
+        }
+        added.delete(c);
+      });
+      tick++;
+    }
+    // 3. The blocks due: each playing channel pulled.
+    while (BLOCK * block <= t) {
+      slots.forEach((x, c) => {
+        if (!x.ch.playing) { x.firstBlock = true; return; }
+        const n = x.firstBlock ? VOICE_CHANNEL.firstBlock : VOICE_CHANNEL.mixBlock;
+        x.ch.pull(n);
+        x.firstBlock = false;
+        if (pulls) { lines.push(`Voice - mixed ${n} samples from channel ${c}`); truth.pullLines++; per(c).pullLines++; }
+      });
+      block++;
+    }
+    if (done()) break;
+  }
+  for (const x of slots) truth.dropped += x.ch.dropped;
+  return { lines, marks, truth };
+}

@@ -474,8 +474,8 @@ information, and a 0 there is not a failure.
    con_logfile voice_q1.log; echo MARK100; voice_loopback 1; voice_showincoming 1; voice_showchannels 1; cl_showfps 1; fps_max 100
    ```
 
-   `echo MARK100` marks where this run starts in the log. `voice_showchannels` is 1, not 2: 2 adds a line for each
-   pull of the mixer, which the script refuses.
+   `echo MARK100` marks where this run starts in the log. `voice_showchannels` is 1: 2 adds a line for each pull of
+   the mixer, which the check does not need.
 3. Type `+voicerecord` and press Enter. Speak a few phrases with pauses for 30 s, or let Steam play the 24 kHz clip
    as in `gate`. Type `-voicerecord` and press Enter. Read the frame rate off the counter while it runs. One speaker
    only.
@@ -536,8 +536,9 @@ log that are not whole blocks of 512 samples.
 
 **What the script refuses.** A log with fewer than 100 tick lines (a choice of this check), or in which no channel's
 queue ever fell (no channel played), cannot show the rule: "differs", with the reason. A log with marked parts needs
-`--section`. Pull lines, a second speaker, two packets before one tick line and a line that begins as a voice line
-and does not read as one stop the reading with the line's number.
+`--section`. A second channel stops the reading, listing the channels by number with their tick lines. A change of
+speaker on the channel with no free tick between and a line that begins as a voice line and does not read as one stop
+it with the line's number.
 
 **A different result.** A failing Q1 names the first tick that mismatches and asks for the frame rate to be checked:
 a PC that did not hold its `fps_max`, or one frame of 0.1 s or more during a wait, ends a wait early (read, finding
@@ -927,7 +928,7 @@ The last line gives the reason. Look for these, in order:
    everywhere. For `ceiling` and `clock`: an effect or a volume under 100% in the system, a lossy recording, a voice
    too quiet or with no game sound under it, a recording too short. For `gate`: `@voice_spew_activity_check 1` not
    set, a press too short, a clip other than the one `mic_inputfile` played, a second press with no `loaded` line.
-   For `queue`: `voice_showchannels 2`, a second speaker, `--fps` not the counter's number, a frame rate the PC did
+   For `queue`: a second speaker, `--fps` not the counter's number, a frame rate the PC did
    not hold, a log with marked parts and no `--section`.
 2. **The build differs.** Compare the game's `version` line in the console with the record's runs: Set O ran TF2
    build 11191711 (measured). The files the findings were read from are to be listed with their builds and
