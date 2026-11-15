@@ -7,6 +7,8 @@
 //   node tests/voice-channel.verify.mjs --frames            the frame clock's checks alone (W3-23a),
 //                                                           and onOpen's (W3-23b), each run even
 //                                                           after one fails
+//   node tests/voice-channel.verify.mjs --play-out          the play-out's checks alone (W3-24),
+//                                                           each run even after one fails
 //
 // The public checks write a console log in the game's format from a seeded run of the
 // channel itself under a mixer of their own, turn it into a fixture with
@@ -23,6 +25,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import vm from 'node:vm';
+import { isDeepStrictEqual } from 'node:util';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { logToFixture } from './voicequeue/log-to-fixture.mjs';
@@ -853,6 +856,7 @@ function publicChecks() {
   frameClockChecks();
   endlessChecks();
   onOpenChecks();
+  playOutChecks();
   arrivalZeroChecks();
   console.log(`\n${passed} voice channel checks passed`);
 }
@@ -881,35 +885,67 @@ const OPUS_DELAY = 156 / 24000;
 // tests/voicequeue/reference-frames.mjs, written again from the order's text.
 // evenTimeline is the clock of even ticks and blocks at any frame rate (a timeline with no end
 // kept it under 1000/15 until W3-23b; since then it has the frame clock there too).
-function referenceTimeline(messages, { fps, bufferMs, fadeTime, length }) {
+// With playOut (W3-24, docs/work-orders/W3-24-render-end.md, "The rule", written again here from the order's text) the
+// clock goes on past the length until every message is added, the channel holds nothing and the sample the mixer
+// keeps is not one of a sound message; the output then runs on to one past the last sample at which a place of the
+// source was heard (a sample of a sound message at 0 <= pos < length, pos its message's source + 1 + its index
+// among what the message put in the ring), and the run-on is .over.
+function referenceTimeline(messages, { fps, bufferMs, fadeTime, length, playOut = false }) {
   if (frameClockRuns(fps)) {
-    const r = referenceFrames(messages, { fps, bufferMs, fadeTime, length, createChannel });
+    const r = referenceFrames(messages, { fps, bufferMs, fadeTime, length, createChannel, playOut });
     r.samples.spurtDropped = r.spurtDropped;
+    r.samples.over = r.over;
     return r.samples;
   }
-  return evenTimeline(messages, { fps, bufferMs, fadeTime, length });
+  return evenTimeline(messages, { fps, bufferMs, fadeTime, length, playOut });
 }
-function evenTimeline(messages, { fps, bufferMs, fadeTime, length }) {
+function evenTimeline(messages, { fps, bufferMs, fadeTime, length, playOut = false }) {
   const ch = createChannel({ fps, bufferMs, fadeTime });
   const D = zeroOf(bufferMs, fps);
-  const out = new Float32Array(length);
-  let k = 0, m = 0, fresh = false, held = 0;
-  for (let b = 0; 512 * b - D < length; b++) {
+  const out = new Float32Array(length), past = [];
+  // What has left the ring of each message (pulled or dropped, in order), and the channel's drops counted so far.
+  const left = new Array(messages.length).fill(0);
+  let counted = 0;
+  const leave = (tag) => {             // [is a sample of a sound message, is a place of the source]
+    if (tag < 0) return [false, false];
+    const msg = messages[tag], pos = msg.source + 1 + left[tag]++;
+    return msg.source === -1 ? [false, false] : [true, pos >= 0 && pos < length];
+  };
+  let k = 0, m = 0, fresh = false, held = 0, heldSound = false, heldPlace = false, lastPlace = -1;
+  const going = (b) => 512 * b - D < length || (playOut && (m < messages.length || ch.count > 0 || heldSound));
+  for (let b = 0; going(b); b++) {
     while (1323 * k <= 1024 * b) {
       while (m < messages.length && messages[m].tick === k) {
         const opens = ch.opens;
         ch.add(Float64Array.from(messages[m].pcm, (v) => v * 32768), m);   // into 16-bit units
         if (ch.opens > opens) fresh = true;
+        const list = ch.drops;
+        for (; counted < list.length; counted++) if (list[counted].tag >= 0) left[list[counted].tag] += list[counted].count;
         m++;
       }
       ch.tick(); k++;
     }
-    let s;
-    if (!ch.playing) s = ch.pull(512).samples;          // zeros
-    else if (fresh) { const p = ch.pull(513).samples; s = p.subarray(0, 512); held = p[512]; fresh = false; }
-    else { const p = ch.pull(512).samples; s = new Float32Array(512); s[0] = held; s.set(p.subarray(0, 511), 1); held = p[511]; }
-    for (let j = 0; j < 512; j++) { const o = 512 * b - D + j; if (o >= 0 && o < length) out[o] = s[j] / 32768; }
+    const s = new Float32Array(512), place = new Array(512).fill(false);
+    if (!ch.playing) heldSound = false;
+    else {
+      const n = fresh ? 513 : 512, p = ch.pull(n);
+      const kinds = Array.from(p.tags, (t) => leave(t));
+      let j = 0;
+      if (!fresh) { s[0] = held; place[0] = heldPlace; j = 1; }
+      for (let i = 0; i < n - 1; i++, j++) { s[j] = p.samples[i]; place[j] = kinds[i][1]; }
+      held = p.samples[n - 1]; [heldSound, heldPlace] = kinds[n - 1];
+      fresh = false;
+    }
+    for (let j = 0; j < 512; j++) {
+      const o = 512 * b - D + j;
+      if (o >= 0 && o < length) out[o] = s[j] / 32768;
+      else if (playOut && o >= length) past[o - length] = s[j] / 32768;
+      if (place[j]) lastPlace = o;
+    }
   }
+  const over = playOut ? Math.max(0, lastPlace + 1 - length) : 0;
+  const all = over > 0 ? new Float32Array(length + over) : out;
+  if (over > 0) { all.set(out); for (let i = 0; i < over; i++) all[length + i] = past[i]; }
   const spurtOf = [], dropped = [];
   let open = false;
   for (const msg of messages) {
@@ -917,8 +953,9 @@ function evenTimeline(messages, { fps, bufferMs, fadeTime, length }) {
     else { spurtOf.push(open ? dropped.length - 1 : -1); open = false; }
   }
   for (const d of ch.drops) if (d.tag >= 0 && spurtOf[d.tag] >= 0) dropped[spurtOf[d.tag]] += d.count;
-  out.spurtDropped = dropped;
-  return out;
+  all.spurtDropped = dropped;
+  all.over = over;
+  return all;
 }
 
 // Seeded made-up traffic: messages of noise, sometimes two on a tick, sometimes an empty one
@@ -1952,15 +1989,271 @@ function arrivalZeroChecks() {
 }
 
 // ---------------------------------------------------------------------------------------
+// The play-out (W3-24, docs/work-orders/W3-24-render-end.md, "The rule" and "The tests", checks 1 to 8):
+// createTimeline with playOut plays out what the channel still holds at the end, to one past the last
+// output sample at which a place of the source was heard; only such a place changes the record while the
+// clock runs on. The second models: referenceFrames with playOut (the frame clock, and the even clock with
+// `even`, both with the record) and the suite's own referenceTimeline (samples and over only).
+
+const PLAY_RATES = [10, 30, 60, 66.67, 300, 1000];
+// The second model with the record, on the clock the rate runs.
+const playModel = (messages, opts) => referenceFrames(messages, { ...opts, createChannel, playOut: true, even: !frameClockRuns(opts.fps) });
+// advance() at odd ticks between two pushes.
+const oddTicks = (last, next) => { const t = []; for (let x = last + 1; x < next; x += 2) if (x % 2 === 1) t.push(x); return t; };
+// Steady made-up traffic as a sender gives it, but played `late` samples later than its source says: each
+// message carries the samples since the one before, one in twelve split in two on the same tick, with pauses
+// closed by a silence record. So at the output's end the channel still holds about `late` samples of the
+// source, and the last sound message lies across the end when `length` is set inside it.
+function lateTraffic(seed, ticks, late) {
+  const rand = mulberry32(seed * 7919 + 3);
+  const messages = [];
+  let tick = 4 + Math.floor(rand() * 10), last = tick - 2, pos = Math.round(661.5 * last) - late;
+  while (tick < ticks) {
+    if (rand() < 0.05) {                          // a pause: a silence record, then 0.3 to 0.8 s later the sound again
+      messages.push({ tick, pcm: new Float32Array(441), source: -1 });
+      const gap = 20 + Math.floor(rand() * 34);
+      pos += Math.round(661.5 * (tick + gap - last));
+      last = tick + gap; tick += gap;
+      continue;
+    }
+    const n = Math.round(661.5 * tick) - late - pos;
+    const pcm = Float32Array.from({ length: n }, () => (rand() * 2 - 1) * 0.5);
+    if (rand() < 1 / 12) {                        // two messages on one tick
+      const k = Math.floor(n / 3);
+      messages.push({ tick, pcm: pcm.slice(0, k), source: pos }, { tick, pcm: pcm.slice(k), source: pos + k });
+    } else messages.push({ tick, pcm, source: pos });
+    pos += n; last = tick;
+    tick += 1 + Math.floor(rand() * 4);
+  }
+  return messages;
+}
+// The last sound message of a list with more than two samples.
+const lastSound = (messages) => { for (let i = messages.length - 1; i >= 0; i--) if (messages[i].source !== -1 && messages[i].pcm.length > 2) return messages[i]; return null; };
+// The tick at which a timeline's block that starts at output sample `out` runs (rounded down).
+const tickOfOut = (out, bufferMs, fps) => Math.floor(1024 * ((out + zeroOf(bufferMs, fps)) / 512) / 1323);
+// The same samples, bit for bit, or where they first differ.
+const sameSamples = (a, b) => (a.length !== b.length ? `${a.length} samples against ${b.length}`
+  : (() => { const at = a.findIndex((v, i) => !Object.is(v, b[i])); return at < 0 ? null : `sample ${at}`; })());
+
+function playOutChecks() {
+  console.log('The play-out: a timeline that plays out what its channel holds at the end (W3-24)');
+  {
+    // Check 1: the option off is main.
+    let all = 0, same = 0, first = '';
+    for (const fps of PLAY_RATES) {
+      for (let seed = 1; seed <= 3; seed++) {
+        const messages = madeUpMessages(seed + 90, 900), length = 44100 * 14 + seed * 37;
+        for (const between of [() => [], oddTicks]) {
+          all++;
+          const a = framesRun(messages, { fps, length }, between), b = framesRun(messages, { fps, length, playOut: false }, between);
+          const d = sameSamples(a.samples, b.samples) || (infoText(a.info) === infoText(b.info) ? null : 'the info differs');
+          if (!d) same++; else if (!first) first = `${fps} fps, seed ${seed}: ${d}`;
+        }
+      }
+    }
+    check('playOut false and no playOut: the same samples and the same info, member for member (made-up traffic at 10, 30, 60, 66.67, 300 and 1000 fps, three streams each, pushed whole and with advance() at odd ticks)',
+      same === all, first || `${all} runs`);
+  }
+  {
+    // Checks 2 and 4: traffic whose last sound message lies across the end, against both second models.
+    let all = 0, same = 0, refSame = 0, ranOn = 0, head = 0, longer = 0, held = 0, first = '', overs = [];
+    for (const fps of PLAY_RATES) {
+      for (let seed = 1; seed <= 4; seed++) {
+        const messages = lateTraffic(seed, 500 + 37 * seed, 22050 + 4410 * seed), m = lastSound(messages);
+        const length = m.source + Math.floor(m.pcm.length / 2);
+        const opts = { fps, length, bufferMs: seed === 4 ? 50 : 100 };
+        const model = playModel(messages, opts), ref = referenceTimeline(messages, { ...opts, playOut: true });
+        const plain = framesRun(messages, { ...opts, playOut: false });
+        const more = framesRun(messages, { ...opts, length: length + 220500 });
+        for (const between of [() => [], oddTicks]) {
+          all++;
+          const run = framesRun(messages, { ...opts, playOut: true }, between);
+          const d = sameAsModel(run, model) || ((run.info.over ?? 0) === model.over ? null : `over ${run.info.over} against ${model.over}`);
+          if (!d) same++; else if (!first) first = `${fps} fps, seed ${seed}: ${d}`;
+          if (!sameSamples(run.samples, ref) && ref.over === (run.info.over ?? 0)) refSame++;
+          if (run.info.over > 0) ranOn++;
+          if (!sameSamples(run.samples.subarray(0, length), plain.samples)) head++;
+          if (!sameSamples(run.samples, more.samples.subarray(0, run.samples.length))) longer++;
+          if (run.returns.length > 1 && run.returns[run.returns.length - 1][1] <= length) held++;
+          if (between.length === 0) overs.push(run.info.over ?? 0);
+        }
+      }
+    }
+    check('the play-out against the second models: made-up traffic whose last sound message lies across the end, at 10, 30, 60, 66.67, 300 and 1000 fps, pushed whole and with advance() at odd ticks: samples, over and info equal the model\'s with the record (frame clock and even clock), samples and over the suite\'s own reading\'s, and every run runs on',
+      same === all && refSame === all && ranOn === all, first || `${all} runs, ${ranOn} ran on; over ${overs.join(", ")} samples`);
+    check('the head is unchanged: the first length samples are those of playOut false; push() and advance() return no more than length in all; the whole output is the first length + over samples of a timeline of the same traffic 5 s longer without playOut',
+      head === all && held === all && longer === all, `${head}, ${held} and ${longer} of ${all}`);
+  }
+  {
+    // Check 2's edge: the last place of the source is the sample the mixer kept from the block before
+    // (the pull that emptied the ring took its last sample whole, and no tick freed the channel before the
+    // next block). One message at each rate, the length set so that this sample is the first past it.
+    const rows = [];
+    let ok = true;
+    for (const fps of PLAY_RATES) {
+      let found = null;
+      for (let t0 = 40; t0 < 400 && !found; t0++) {
+        for (const n of [2050, 2562, 3074]) {
+          const messages = [{ tick: t0, pcm: new Float32Array(n).fill(0.25), source: 0 }];
+          const probe = playModel(messages, { fps, length: 44100 * 12 });
+          if (probe.endsOnKept && probe.voiceEnd - 1 > n) { found = { messages, length: probe.voiceEnd - 1, t0, n }; break; }
+        }
+      }
+      if (!found) { ok = false; rows.push(`${fps} fps: no case found`); continue; }
+      const opts = { fps, length: found.length }, model = playModel(found.messages, opts), run = framesRun(found.messages, { ...opts, playOut: true });
+      const d = sameAsModel(run, model);
+      if (d || run.info.over !== 1 || !model.endsOnKept) ok = false;
+      rows.push(`${fps} fps: ${found.n} samples on tick ${found.t0}, over ${run.info.over}${d ? `; ${d}` : ''}`);
+    }
+    check('the kept sample: where the last place of the source is the sample the mixer kept, the play-out runs on to it (over 1, the model\'s samples and info) at each rate', ok, rows.join('; '));
+  }
+  {
+    // Check 3: nothing cut, nothing changed.
+    let all = 0, same = 0, first = '';
+    for (const fps of PLAY_RATES) {
+      for (let seed = 1; seed <= 3; seed++) {
+        const messages = madeUpMessages(seed + 70, 600), length = 44100 * 13;
+        all++;
+        const a = framesRun(messages, { fps, length, playOut: true }, oddTicks), b = framesRun(messages, { fps, length }, oddTicks);
+        const d = sameSamples(a.samples, b.samples) || (infoText(a.info) === infoText(b.info) ? null : 'the info differs')
+          || (isDeepStrictEqual(Object.keys(a.info), Object.keys(b.info)) ? null : 'the info has other members');
+        if (!d) same++; else if (!first) first = `${fps} fps, seed ${seed}: ${d}`;
+      }
+    }
+    check('nothing cut, nothing changed: traffic heard whole before the end gives with playOut the samples and info of playOut false, and info has no over (the same members)', same === all, first || `${all} runs`);
+  }
+  {
+    // Check 5: what is not a place of the source. At 300 and 30 fps: (a) the queue holds only a silence record's
+    // zeros at the end; (b) only a message whose source is at or past length; (c) only the padding of an underrun
+    // (the length set at the voice's end, inside the block that underran); each runs on by nothing. (d) A sound
+    // message that straddles length, its samples counting up its place: the run-on ends at the sample whose
+    // place is length - 1.
+    const rows = [];
+    let ok = true;
+    const one = (fps, messages, length, want) => {
+      const opts = { fps, length }, run = framesRun(messages, { ...opts, playOut: true }), plain = framesRun(messages, opts), model = playModel(messages, opts);
+      const d = sameAsModel(run, model);
+      const good = !d && (want === 0 ? !('over' in run.info) && !sameSamples(run.samples, plain.samples) && infoText(run.info) === infoText(plain.info) : want(run));
+      if (!good) ok = false;
+      return `${run.info.over ?? 0}${d ? ` (${d})` : ''}`;
+    };
+    for (const fps of [300, 30]) {
+      const sound = { tick: 60, pcm: new Float32Array(4410).fill(0.5), source: 0 };
+      const endOf = (messages) => playModel(messages, { fps, length: 44100 * 12 }).voiceEnd;
+      // (a) a silence record of 0.3 s right behind the sound.
+      const a = [sound, { tick: 61, pcm: new Float32Array(13230), source: -1 }];
+      // (b) two messages at or past the length's own place, right behind the sound, the second 1 s further on in
+      // the source than the first (so its offset differs: a record changed by it would show).
+      const eb = endOf([sound]) + 100, b = [sound, { tick: 61, pcm: new Float32Array(2000).fill(0.5), source: eb },
+        { tick: 61, pcm: new Float32Array(13230).fill(0.5), source: eb + 44100 }];
+      // (c) a lone message whose last pull underruns: the length at the voice's end, the padding past it.
+      const c = [{ tick: 60, pcm: new Float32Array(3000).fill(0.5), source: 0 }], ec = endOf(c);
+      const padded = framesRun(c, { fps, length: ec + 44100 }).samples.subarray(ec, ec + 256).some((v) => v !== 0);
+      // (d) 20,000 samples counting up (the k-th written is k), the length 8,001 places in: heard long after it.
+      const up = { tick: 300, pcm: Float32Array.from({ length: 20000 }, (_, i) => i / 32768), source: 0 };
+      const rd = one(fps, [up], 8001, (run) => {
+        const e = 8001 + run.info.over;
+        return run.info.over > 0 && run.samples[e - 1] * 32768 === 7999 && run.samples[e - 2] * 32768 === 7998
+          && framesRun([up], { fps, length: e + 44100 }).samples[e] * 32768 === 8000;
+      });
+      if (!padded) ok = false;
+      rows.push(`${fps} fps: over (a) ${one(fps, a, endOf([sound]) + 100, 0)}, (b) ${one(fps, b, eb, 0)}, (c) ${one(fps, c, ec, 0)} with${padded ? '' : ' NO'} padding past the end, (d) ${rd}`);
+    }
+    check('what is not a place of the source: a silence record\'s zeros, a message at or past length and the padding of an underrun run on by nothing (playOut false\'s samples and info); a message across the end runs on to the sample whose place is length - 1, and no further',
+      ok, rows.join('; '));
+  }
+  {
+    // Check 6: a channel still waiting at the end. voice_buffer_ms 1000 at 300 fps: a message opens the channel
+    // two ticks before the end, and the run-on holds its wait (300 ticks) and then its sound. voice_buffer_ms 5000 at
+    // 1000 fps: a wait of 5000 ticks (75 s), and finish() still ends.
+    const rows = [];
+    let ok = true;
+    for (const [fps, bufferMs] of [[300, 1000], [1000, 5000], [30, 1000], [10, 1000], [30, 5000]]) {
+      const length = 44100 * 4, T = tickOfOut(length, bufferMs, fps) - 2;
+      const messages = [{ tick: T, pcm: Float32Array.from({ length: 2000 }, (_, i) => 0.25 + 0.1 * Math.sin(i / 7)), source: length - 3000 }];
+      const opts = { fps, bufferMs, length }, run = framesRun(messages, { ...opts, playOut: true }), model = playModel(messages, opts);
+      const ref = referenceTimeline(messages, { ...opts, playOut: true });
+      const d = sameAsModel(run, model) || sameSamples(run.samples, ref);
+      const wait = waitTicks(bufferMs, fps), sound = soundFrom(run.samples, length);
+      // The channel plays on tick T + wait - 1, the wait's last; its first block starts at or after it.
+      const playsAt = Math.ceil(1323 * (T + wait - 1) / 1024) * 512 - zeroOf(bufferMs, fps);
+      // Under the frame clock (fix 5, 2026-11-15) the wait ends in the frame at or after its last tick, and the run-on
+      // runs whole frames: the samples and info are the second model's, and the sound comes in the run-on.
+      const good = frameClockRuns(fps)
+        ? !d && run.info.over === model.over && model.over > 0 && sound > length && run.samples.length === sound + 1999
+        : !d && run.info.over === model.over && sound === playsAt && run.samples.length === playsAt + 1999;
+      if (!good) ok = false;
+      rows.push(`${fps} fps, voice_buffer_ms ${bufferMs}: wait ${wait} ticks, over ${run.info.over} (${(run.info.over / 44.1).toFixed(1)} ms), sound from ${sound} (${playsAt} by the clock)${d ? `; ${d}` : ''}`);
+    }
+    check('a channel still waiting at the end: the run-on holds the wait and then the sound, to its last place; at voice_buffer_ms 5000 and 1000 fps finish() ends, and over is the models\'; under the frame clock (30 and 10 fps) the second model\'s samples and info', ok, rows.join('; '));
+  }
+  {
+    // Check 7: the refusals.
+    const refused = (o) => { try { createTimeline(o); return false; } catch (e) { return e instanceof RangeError; } };
+    const bad = [{ length: 1000, playOut: 1 }, { length: 1000, playOut: 'yes' }, { length: 1000, playOut: null }, { length: Infinity, playOut: true }].filter(refused).length;
+    const fine = [{ length: 1000, playOut: true }, { length: 1000, playOut: false }, { length: Infinity, playOut: false }, { length: 1000, playOut: undefined }].every((o) => !refused(o));
+    check('createTimeline\'s playOut: a RangeError for 1, \'yes\' and null, and for true with length Infinity (4 of 4); true, false and undefined taken', bad === 4 && fine, `${bad} of 4`);
+  }
+  {
+    // Check 8: an overflow in the run-on. voice_buffer_ms 1000 at 300 fps: 40 messages of 30 ms reach a waiting
+    // channel in its last 100 ticks before the end and overflow its ring; it plays in the run-on, and the skip
+    // is heard there, before (length + over) / 44100. The same traffic with every source at or past length runs on
+    // by nothing, and the skip keeps the time it has without playOut.
+    const length = 44100 * 4, T = tickOfOut(length, 1000, 300) - 100, opts = { fps: 300, bufferMs: 1000, length };
+    const traffic = (from) => Array.from({ length: 40 }, (_, k) => ({ tick: T + 2 * k, pcm: new Float32Array(1323).fill(0.25), source: from + 1323 * k }));
+    const heard = traffic(length - 50000), past = traffic(length);
+    const run = framesRun(heard, { ...opts, playOut: true }), model = playModel(heard, opts), plain = framesRun(heard, opts);
+    const runPast = framesRun(past, { ...opts, playOut: true }), plainPast = framesRun(past, opts);
+    const t = run.info.drops.map((d) => d.time), end = (length + (run.info.over || 0)) / 44100;
+    const good = !sameAsModel(run, model) && run.info.over > 0 && t.length > 0 && t.every((x) => x >= length / 44100 && x < end)
+      && plain.info.drops.every((d) => d.time < length / 44100 + 0.02)
+      && !('over' in runPast.info) && infoText(runPast.info) === infoText(plainPast.info) && runPast.info.drops.length > 0;
+    check('an overflow in the run-on has its time in info.drops before (length + over) / 44100 (the model\'s info); with nothing of the source left to play, the time it has without playOut',
+      good, `over ${run.info.over}; drops at ${t.map((x) => x.toFixed(4)).join(', ')} s, the end ${end.toFixed(4)} s; without playOut ${plain.info.drops.map((d) => d.time.toFixed(4)).join(', ')} s`);
+  }  {
+    // Fix 3 (2026-11-15): an overflow heard at exactly length + over keeps the base's time, by whole samples. At 300
+    // fps, a steady stream of places plays to the end; on the tick between the last block before the length and the
+    // first at it, a message of 30,000 samples at the length's own place (none of it a place) overflows the ring. The
+    // run-on's first block plays the kept sample, the last place (over 1), and the skip is heard right after it, at
+    // length + 1 = length + over: not before, so the time is the base's, length / 44100. The block is chosen where
+    // (h / 44100) x 44100 is less than h in double precision, so a comparison of the time in seconds would let it
+    // take the run-on's.
+    const D = zeroOf(100, 300);
+    let found = null;
+    for (let b = 300; b < 2000 && !found; b++) {
+      const length = 512 * b - D, h = length + 1, T = Math.floor(1024 * b / 1323);
+      if (!(1323 * T > 1024 * (b - 1) && 1323 * T <= 1024 * b && (h / 44100) * 44100 < h && T > 80)) continue;
+      found = { length, T };
+    }
+    const { length, T } = found;
+    const messages = [];
+    for (let t = 20, k = 0; t < T; t += 2, k++) messages.push({ tick: t, pcm: new Float32Array(1323).fill(0.25), source: 1323 * k % (length - 2000) });
+    messages.push({ tick: T, pcm: new Float32Array(30000).fill(0.25), source: length });
+    const opts = { fps: 300, length }, run = framesRun(messages, { ...opts, playOut: true }), model = playModel(messages, opts);
+    const d = sameAsModel(run, model), times = run.info.drops.map((x) => x.time);
+    check('an overflow heard at exactly length + over keeps the base\'s time, compared in whole samples (the model\'s info, over 1, the time length / 44100)',
+      !d && run.info.over === 1 && times.length > 0 && times.every((x) => x === length / 44100), `${d || ''} length ${length}, over ${run.info.over}, drops at ${times.map((x) => x * 44100).join(', ')} samples`);
+  }
+
+}
+
+// ---------------------------------------------------------------------------------------
 
 const argv = process.argv.slice(2);
-let fixtureFile = null, framesOnly = false;
+let fixtureFile = null, framesOnly = false, playOnly = false;
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--fixture' && i + 1 < argv.length) fixtureFile = argv[++i];
   else if (argv[i] === '--frames') framesOnly = true;
-  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>] [--frames]'); process.exit(2); }
+  else if (argv[i] === '--play-out') playOnly = true;
+  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>] [--frames] [--play-out]'); process.exit(2); }
 }
-if (framesOnly) {
+if (playOnly) {
+  keepGoing = true;
+  playOutChecks();
+  console.log(`\n${passed} voice channel checks passed, ${failed} failed (the play-out's alone)`);
+  if (failed) process.exitCode = 1;
+}
+else if (framesOnly) {
   keepGoing = true;
   frameClockChecks();
   onOpenChecks();

@@ -261,6 +261,12 @@
   // packets (voice-channel.js arrivalZero()), handed to createTimeline in
   // place of the codec's look-ahead, which is then not read; zero is then
   // zeroSamples.
+  //   With a whole length and no zeroSamples (a render of the model's sender)
+  // the timeline plays out (W3-24, createTimeline's playOut): finish() gives
+  // what the channel still held at the end, the voice's run-on, and its info
+  // has `over` where it ran on, so take() can then give more than length.
+  // With onOpen too, an open's index is its place in the played-out stream,
+  // which can be at or past length + over (createTimeline's header).
   //   onOpen(index) (null: none): handed to createTimeline (W3-23b), which
   // calls it once for each open, where the channel resets the gain; index is
   // the count of samples the timeline has made by then, returned or to be
@@ -332,8 +338,10 @@
       }
     };
     const demo = zeroSamples !== undefined;
+    // W3-24: a render of the model's sender (a whole length, no zeroSamples) plays out what the
+    // channel holds at its end (createTimeline's playOut); a demo's packets and the live chain do not.
     const timeline = createTimeline(demo ? { length, fps, bufferMs, zeroSamples, gain, onOpen }
-      : { length, fps, bufferMs, codecDelay: lookahead / STEAM_RATE, gain, onOpen });
+      : { length, fps, bufferMs, codecDelay: lookahead / STEAM_RATE, gain, onOpen, ...(endless ? {} : { playOut: true }) });
     let pieces = [], lastMessage = null;
     const keep = (y) => { pieces.push(y); };
     return {
@@ -368,6 +376,11 @@
       }
     };
   }
+
+  // The voice's run-on on the game's timeline (W3-24): the samples at 44.1 kHz
+  // the channel gave past the voice's length (its info's `over`), 0 where it
+  // gave none or there is no channel's info.
+  const steamRunOn = (info) => (info && info.over) || 0;
 
   // codecInfo of a render on the game's timeline (W3-02c-2), from the
   // source's (steamCodecInfo's) and the channel's info: frameLog and
@@ -810,7 +823,7 @@
 
   E.steam = Object.freeze({
     STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
-    steamCodecInfo, steamDemoVoice, steamFits, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamSenderOptions,
-    steamTimeline
+    steamCodecInfo, steamDemoVoice, steamFits, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamRunOn,
+    steamSenderOptions, steamTimeline
   });
 })((typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : globalThis));

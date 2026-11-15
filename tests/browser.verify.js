@@ -1026,11 +1026,14 @@ async function verifySourceDuringRender(page) {
   });
   await page.waitForFunction(() => state.sourceName === 'short.wav', null, { timeout: 60000 });
   await waitRendered(page);
+  // W3-24: the tone ends in sound, so on the game's queue its render can run on past the file's end by the queue's
+  // run-on (codecInfo.channel.over, 44.1 kHz samples).
   const after = await page.evaluate(() => ({ renders: state.renderId, seconds: state.processedBuffer.length / state.processedRate, download: !els.dl.disabled,
-    process: !els.process.disabled, status: els.status.textContent, log: document.getElementById('console-out').textContent }));
-  check(after.renders === before + 1 && Math.abs(after.seconds - 1) < .01 && after.download && after.process && after.status.startsWith('short.wav')
+    process: !els.process.disabled, status: els.status.textContent, log: document.getElementById('console-out').textContent,
+    over: ((state.lastCodecInfo.channel && state.lastCodecInfo.channel.over) || 0) / 44100 }));
+  check(after.renders === before + 1 && Math.abs(after.seconds - 1 - after.over) < .01 && after.download && after.process && after.status.startsWith('short.wav')
     && /render of the previous source stopped/.test(after.log) && !/the source changed during the render/.test(after.log),
-    'a source dropped during a render stops that render, and renders as itself', `${after.seconds.toFixed(3)} s; ${after.renders - before} render shown; ${after.status}`);
+    'a source dropped during a render stops that render, and renders as itself', `${after.seconds.toFixed(3)} s (run-on ${after.over.toFixed(3)} s); ${after.renders - before} render shown; ${after.status}`);
   // Presets reset every receiver setting, Phrase timing and voice_buffer_ms
   // included, and leave the listener's frame rate, a property of the
   // listener's PC (W3-02d-1).
@@ -1995,6 +1998,8 @@ async function verifySettingsWords(page) {
     && t.timeline[0] === 'Phrase timing' && JSON.stringify(words.options.timeline) === '["The game\'s voice queue","The file\'s own timing"]'
     && t.timeline[1] === 'The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. '
       + 'At 300 frames a second a sound that opens the queue loses short pieces in its first seconds. '
+      // W3-24: the render's end.
+      + 'A sound still in the queue when the file ends plays out, so the render can be a little longer than the file. '
       + 'Which phrases move depends on the sender\'s clock, which no recording shows. The file\'s own timing keeps every sound where the source has it. The live monitor keeps the file\'s own timing unless its own switch for the queue is on.'
     && t.fps[0] === 'Listener\'s frame rate fps_max' && t.fps[1] === 'How many frames a second the listener\'s game draws. A new phrase waits before it plays, longer at a higher rate: about 0.09 s at 67 and 0.44 s at 300. '
       // W3-23a: the default's standing (W3-23r read 400 as the engine's start value) and the frame clock's sentence.
@@ -2544,6 +2549,74 @@ async function verifyPageTimeline(browser, base) {
         && (await receiverCell(page)).includes('queue at 300 fps'),
         'the console gives the queue\'s frame rate, its wait in ticks and ms, the phrases that opened the channel and joined one, and the overflow; the chain strip says "queue at 300 fps"', queueLine);
 
+      // W3-24 (docs/work-orders/W3-24-render-end.md, check 16): the speech fixture ends in sound. At 66.67 frames a
+      // second and jitter 50 (the page's own seed) the queue still holds some of it at the file's end, and the render
+      // plays it out: the status line's seconds, the player's duration and the downloaded WAV's length are the
+      // render's, which is longer than the source by the run-on; the console says by how much. At 300 and jitter 0 a
+      // source that ends in a second of silence keeps its length, with no such line.
+      {
+        const mark = 'test: the render\'s end';
+        await page.evaluate((m) => logLine(m, 'sys'), mark);
+        await renderAfter(page, 'fps_max 66.67; net_fakejitter 50');
+        const runOn = async () => {
+          const got = await page.evaluate(async () => {
+            const a = els.audio;
+            if (!(a.duration > 0)) await new Promise((r) => a.addEventListener('loadedmetadata', r, { once: true }));
+            return { length: state.processedBuffer.length, rate: state.processedRate, over: state.lastCodecInfo.channel.over ?? 0,
+              source: Math.round(state.decodedSource.length * state.processedRate / state.decodedSource.sampleRate),
+              duration: a.duration, status: els.renderStatus.textContent, seconds: secondsText(state.processedBuffer.length / state.processedRate),
+              wav: state.lastWav.size };
+          });
+          const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#download').click()]);
+          got.saved = fs.readFileSync(await download.path()).length;
+          const since = await linesSince(page, mark);
+          got.lines = since.filter((t) => t.startsWith('S_Voice: the queue was still playing'));
+          got.long = since.filter((t) => t.startsWith('S_Voice: the render runs on'));
+          return got;
+        };
+        const long = await runOn();
+        const ms = Math.round(1000 * long.over / 44100);
+        check(long.over > 0 && long.length === long.source + Math.ceil(long.over * long.rate / 44100) && long.status.includes(` · ${long.seconds} of sound at `)
+          && Math.abs(long.duration - long.length / long.rate) < 0.01 && long.saved === 44 + 2 * long.length && long.wav === long.saved
+          && long.lines.length === 1 && long.lines[0] === `S_Voice: the queue was still playing at the file's end: the render runs ${ms} ms longer`
+          && long.long.length === 0,
+          'a source that ends in sound at 66.67 fps and jitter 50: the render runs on past the file\'s end; the status line\'s seconds, the player\'s duration and the downloaded WAV are the render\'s length, and the console says by how much, with no line for a run-on over 10 s',
+          JSON.stringify({ over: long.over, length: long.length, source: long.source, duration: long.duration, saved: long.saved, line: long.lines[0] }));
+        // A run-on over 10 s (the orchestrator's ruling 3, W3-24's fix 6): 3 s of the speech fixture at
+        // voice_buffer_ms 1000 and fps_max 1000, where a new phrase waits 1,000 ticks before it plays, runs on about
+        // 12 s, and the console names the wait. Its sound overflows the ring while it waits, and the skip is heard in
+        // the run-on: the lane counts it (fix 7: laneSkips ends at the source's end plus the run-on).
+        await page.evaluate((m) => logLine(`${m}, a long wait`, 'sys'), mark);
+        await page.evaluate(() => { execCommand('net_fakejitter 0'); execCommand('voice_buffer_ms 1000'); execCommand('fps_max 1000'); });
+        await chooseFile(page, { name: 'long-wait.wav', mimeType: 'audio/wav', buffer: wavSpeech(3) });
+        await settled(page);
+        const wait = await page.evaluate(() => {
+          const info = state.lastCodecInfo, ch = info.channel, end = state.renderedSource.duration;
+          return { end, over: ch.over || 0, waitTicks: ch.waitTicks, fps: ch.fps, bufferMs: ch.bufferMs, skips: laneSkips(info).map((d) => d.time),
+            inRunOn: ch.drops.filter((d) => d.time >= end && d.time < end + (ch.over || 0) / 44100).length };
+        });
+        const waitLines = (await linesSince(page, `${mark}, a long wait`)).filter((t) => t.startsWith('S_Voice: the render runs on'));
+        const wantLine = `S_Voice: the render runs on ${(wait.over / 44100).toFixed(1)} s past the file's end because at voice_buffer_ms 1000 and fps_max 1000 a new phrase waits 1000 ticks (15.0 s) before it plays`;
+        check(wait.over > 10 * 44100 && wait.waitTicks === 1000 && waitLines.length === 1 && waitLines[0] === wantLine && wait.inRunOn > 0
+          && wait.skips.filter((t) => t >= wait.end).length === wait.inRunOn,
+          'a run-on over 10 s (3 s of speech at voice_buffer_ms 1000 and fps_max 1000) gets one line that says how long and names the wait; its skip in the run-on is one the lane counts',
+          JSON.stringify({ over: wait.over, line: waitLines[0], skips: wait.skips, inRunOn: wait.inRunOn }));
+        await page.evaluate(() => { execCommand('voice_buffer_ms 100'); });
+        const quiet = Buffer.from(wavSpeech(5));
+        quiet.fill(0, 44 + 2 * 4 * 48000);
+        await page.evaluate((m) => logLine(`${m}, silence`, 'sys'), mark);
+        await page.evaluate(() => { execCommand('fps_max 300'); execCommand('net_fakejitter 0'); });
+        await chooseFile(page, { name: 'quiet-end.wav', mimeType: 'audio/wav', buffer: quiet });
+        await settled(page);
+        const still = await page.evaluate(() => ({ length: state.processedBuffer.length, over: 'over' in state.lastCodecInfo.channel, fps: state.lastCodecInfo.channel.fps,
+          source: Math.round(state.decodedSource.length * state.processedRate / state.decodedSource.sampleRate) }));
+        const quietLines = (await linesSince(page, `${mark}, silence`)).filter((t) => t.startsWith('S_Voice: the queue was still playing'));
+        check(!still.over && still.fps === 300 && still.length === still.source && quietLines.length === 0,
+          'a source that ends in a second of silence at 300 fps and jitter 0 keeps the source\'s length, with no line for a run-on', JSON.stringify(still));
+        await page.evaluate(() => { execCommand('fps_max 300'); execCommand('net_fakejitter 0'); });
+        await chooseFile(page, { name: 'timeline.wav', mimeType: 'audio/wav', buffer: wavSpeech(4) });
+      }
+
       // fps_max 67 and voice_buffer_ms 200: the render is the engine's with those two numbers.
       await renderAfter(page, 'fps_max 67; voice_buffer_ms 200');
       const at67 = await renderIs(page, { ...gameOpts, fps: 67, bufferMs: 200 });
@@ -3073,7 +3146,8 @@ async function verifyLaneAndTake(browser, base) {
     await page.locator('#viz-wave').click();
     const white = await page.evaluate(() => LANE_SKIP_COLOR).then(rgbOf);
     const queue = await page.evaluate(() => {
-      const info = state.lastCodecInfo, ch = info.channel, end = state.renderedSource.duration;
+      // W3-24 (fix 7): a skip is heard up to the voice's end, the source's end and the queue's run-on.
+      const info = state.lastCodecInfo, ch = info.channel, end = state.renderedSource.duration + (ch.over || 0) / 44100;
       return { opts: (({ timeline, fps, bufferMs }) => ({ timeline, fps, bufferMs }))(renderOptions()), onQueue: laneOnQueue(info),
         frames: info.frames, sampleRate: info.sampleRate, frameSamples: info.frameSamples, lookahead: info.lookahead, colors: FRAME_STYLE.map((s) => s.color),
         spurts: ch.spurts, heard: ch.drops.filter((d) => d.time < end), unheard: ch.drops.filter((d) => d.time >= end).length };
@@ -3375,8 +3449,9 @@ async function verifyLaneAndTake(browser, base) {
     await page.evaluate(() => { execCommand('voice_timeline game'); execCommand('dsp_room 6'); });
     await chooseFile(page, { name: 'tone-1s.wav', mimeType: 'audio/wav', buffer: wavTone(1) }, 120000);
     const tone = await page.evaluate(() => {
-      const info = state.lastCodecInfo, end = state.renderedSource.duration;
-      return { end, render: state.processedBuffer.length / state.processedRate, room: !!info.room, onQueue: laneOnQueue(info),
+      // W3-24 (fix 7): the voice's end is the source's end and the queue's run-on.
+      const info = state.lastCodecInfo, end = state.renderedSource.duration + (info.channel.over || 0) / 44100;
+      return { end, over: info.channel.over || 0, render: state.processedBuffer.length / state.processedRate, room: !!info.room, onQueue: laneOnQueue(info),
         heard: info.channel.drops.filter((d) => d.time < end), past: info.channel.drops.filter((d) => d.time >= end) };
     });
     const toneLane = await laneRow(page, null), toneMarks = marksMatch(toneLane, tone.heard, white);
@@ -3385,8 +3460,8 @@ async function verifyLaneAndTake(browser, base) {
     check(tone.room && tone.onQueue && tone.render > tone.end + 0.5 && tone.past.length >= 1
       && pastPixels.every((x) => x < toneLane.row.length && toneLane.row[x] !== white) && toneMarks.stray.length === 0 && toneMarks.missing.length === 0
       && (tone.heard.length ? toneSkip && toneSkip.text.startsWith(`skips ${tone.heard.length} · `) : !toneSkip),
-      'a skip past the source\'s end (a 1 s tone, with a room, so the render runs on) gets no mark and is left out of the legend\'s count',
-      `past the end: ${tone.past.map((d) => `${d.time.toFixed(4)} s, ${d.ms.toFixed(1)} ms`).join('; ')}; heard ${tone.heard.length}; render ${tone.render.toFixed(2)} s`);
+      'a skip past the voice\'s end (a 1 s tone, with a room, so the render runs on; the end is the source\'s plus the queue\'s run-on) gets no mark and is left out of the legend\'s count',
+      `past the end: ${tone.past.map((d) => `${d.time.toFixed(4)} s, ${d.ms.toFixed(1)} ms`).join('; ')}; heard ${tone.heard.length}; run-on ${tone.over} samples; render ${tone.render.toFixed(2)} s`);
     check(errors.length === 0, 'the lane and the panel on the game\'s voice queue: no page errors', errors.join('; '));
   } finally { await context.close(); }
 }

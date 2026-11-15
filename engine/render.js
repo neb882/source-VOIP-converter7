@@ -11,9 +11,9 @@
   const { createMixStage, createOutStage, deviceRateOf, joinInts } = E.mix;
   const { buildLossMask, steamArrivalPlan, steamLoser } = E.network;
   const { DEFAULT_SENDER_GATE, celtModeRate, gateThresholdDb, loadOpusModule, profileEq, receivedCodecInfo } = E.codec;
-  const { resolveRoom, roomPreset, tailAtDevice } = E.room;
+  const { runOnAtDevice, resolveRoom, roomPreset, tailAtDevice } = E.room;
   const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
-    steamCodecInfo, steamDemoVoice, steamGameTimeline, steamModules, steamPlayedInfo, steamSenderOptions, steamTimeline } = E.steam;
+    steamCodecInfo, steamDemoVoice, steamGameTimeline, steamModules, steamPlayedInfo, steamRunOn, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
   /* The stages a render keeps (W4-01b)                                 */
@@ -691,14 +691,16 @@
       // The arrival of every tick through the render's last, as createRender's
       // last bound has it (every sample given to the sender, every message
       // made), asked as createRender asks it; then the channel's output: what
-      // every push gave and what finish() gives, in order, voiceLength samples.
+      // every push gave and what finish() gives, in order, voiceLength samples
+      // and the run-on (W3-24: the channel's info has `over` where the queue
+      // was still playing at the source's end).
       if (channel) {
         const last = messages.length ? messages[messages.length - 1].tick : -1;
         channel.ask(steamBoundTick(steamModules().sender.STEAM_SENDER, last, codecLength));
       }
       const played = channel ? channel.finish() : null;
       steamVoice = channel ? channel.take() : timeline.take(voiceLength);
-      if (channel && steamVoice.length !== voiceLength) {
+      if (channel && steamVoice.length !== voiceLength + steamRunOn(played)) {
         throw new Error(`TF2Audio: the voice channel gave ${steamVoice.length} samples for a voice of ${voiceLength}.`);
       }
       codecInfo = { ...steamCodecInfo(codec, trip, timeline, sender, settings, resampler, bitrate, lossSet), framesPerPacket };
@@ -803,11 +805,12 @@
     /* ---- 6) mixOut, the device's rate, the output's length ---- */
     // The blocks, the clip, volume and the 16-bit rounding, then the device
     // stage. The output keeps the source's duration at the device's rate,
-    // cut or padded with zeros, plus the room's tail at that rate.
+    // cut or padded with zeros, plus the voice's run-on on the game's queue
+    // (W3-24) and the room's tail, each at that rate.
     const { volume, deviceRate } = r;
     const playbackLength = Math.round(b.sourceLength * deviceRate / srcRate);
     const atDevice = whole(createOutStage(volume, deviceRate, o.onMixBlock), mix);
-    const outLength = playbackLength + tailAtDevice(tail, deviceRate);
+    const outLength = playbackLength + runOnAtDevice(steamRunOn(codecInfo.channel), deviceRate) + tailAtDevice(tail, deviceRate);
     samples = new Float32Array(outLength);
     for (let i = 0, n = Math.min(outLength, atDevice.length); i < n; i++) samples[i] = atDevice[i] / 32768;
 

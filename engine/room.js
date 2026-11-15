@@ -154,8 +154,13 @@
   // A tail of `mix` samples at 44100 Hz as samples at the device's rate:
   // what it adds to the output's length.
   const tailAtDevice = (mix, deviceRate) => Math.round(mix * deviceRate / MIX_RATE);
+  // A voice's run-on of `mix` samples at 44100 Hz on the game's voice queue
+  // (W3-24) as samples at the device's rate, rounded up in whole numbers, so
+  // that an output sample that still reads the run-on's last sample is not
+  // cut (W3-24's fix 2).
+  const runOnAtDevice = (mix, deviceRate) => Math.floor((mix * deviceRate + MIX_RATE - 1) / MIX_RATE);
 
   E.room = Object.freeze({
-    resolveRoom, roomModule, roomPreset, tailAtDevice
+    resolveRoom, roomModule, roomPreset, runOnAtDevice, tailAtDevice
   });
 })((typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : globalThis));

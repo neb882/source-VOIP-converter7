@@ -299,7 +299,7 @@
               <option value="game" selected>The game's voice queue</option>
               <option value="source">The file's own timing</option>
             </select>
-            <p id="timeline-help" class="control-help">The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. At 300 frames a second a sound that opens the queue loses short pieces in its first seconds. Which phrases move depends on the sender's clock, which no recording shows. The file's own timing keeps every sound where the source has it. The live monitor keeps the file's own timing unless its own switch for the queue is on.</p>
+            <p id="timeline-help" class="control-help">The game queues each voice, so a phrase after a short pause can start early. It can come early by up to about the wait, and the sound runs 0.04% fast. At 300 frames a second a sound that opens the queue loses short pieces in its first seconds. A sound still in the queue when the file ends plays out, so the render can be a little longer than the file. Which phrases move depends on the sender's clock, which no recording shows. The file's own timing keeps every sound where the source has it. The live monitor keeps the file's own timing unless its own switch for the queue is on.</p>
             <p id="timeline-note" class="control-help" hidden></p>
           </div>
           <div class="control">
