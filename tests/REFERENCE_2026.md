@@ -857,10 +857,57 @@ The bursts one by one: the odd bursts (1, 3, 5, 7) open a channel and lose sound
 
 **What a render with jitter does** (added 2026-11-13; the second reader of BC-4a, measured on the model: renders at jitter 50 against jitter 0). The packets' mean delay above the least (69.5 ms at 300 frames a second, above) is not what a listener hears:
 
-- At 300 frames a second a phrase starts 60 ms later (20 to 103) and sits 39 ms later after 5.5 s, because each skip takes lateness out. The source's last 27 ms (9 to 53) are not heard, where at jitter 0 none is lost.
-- At 66.67 frames a second the voice is 101 to 106 ms later at its start and at its end. Each phrase is late by its first packet's own delay (35 to 194 ms), so the pauses between phrases move. The last 121 ms (72 to 172) are not heard, against 15 at jitter 0.
-- At jitter 100 the end loses 82 ms at 300 frames a second and 234 at 66.67.
+- At 300 frames a second a phrase starts 60 ms later (20 to 103) and sits 39 ms later after 5.5 s, because each skip takes lateness out. The source's last 27 ms (9 to 53) are not heard, where at jitter 0 none is lost. (Marked 2026-11-15: since W3-24 the render plays them out; "The render plays out what the queue holds at the source's end" below.)
+- At 66.67 frames a second the voice is 101 to 106 ms later at its start and at its end. Each phrase is late by its first packet's own delay (35 to 194 ms), so the pauses between phrases move. The last 121 ms (72 to 172) are not heard, against 15 at jitter 0. (Marked 2026-11-15: since W3-24 the render plays them out; below.)
+- At jitter 100 the end loses 82 ms at 300 frames a second and 234 at 66.67. (Marked 2026-11-15: since W3-24 the render plays them out; below.)
 - On 60 s of the stand-in signal at 300 frames a second, unbroken sound skips 138 ms a minute against 98 at jitter 0 and talk 1,897 against 1,557, with no more channel restarts. At 66.67 nothing is skipped at any jitter, and the share of the mixer's blocks played with under 100 ms queued, where the level dips, rises from 4.0% to 10.5%.
+
+**The render plays out what the queue holds at the source's end** (added 2026-11-15, W3-24, `docs/work-orders/W3-24-render-end.md`). Since W3-24 a render of Steam voice on the game's voice queue runs on past the source's end until the channel has given out the last place of the source it holds (the orchestrator's ruling of 2026-11-14: in the game the channel plays out what it holds), so the ends the three lines above mark are heard. The voice's samples up to the source's length are those without the run-on; a render whose source has nothing in the queue at its end is unchanged to the last sample. The run-on, `codecInfo.channel.over`, in milliseconds, the mean and the range over seeds 1 to 10, `voice_buffer_ms` 100, the suites' `speechLike` at -20 dB, 48 kHz (measured on the build, the model; no recording of a file's end through the queue exists):
+
+| Source | Frames a second | Run-on at jitter 0 | Run-on at jitter 50 |
+| --- | ---: | ---: | ---: |
+| One phrase of 6.13 s that ends with the file | 300 | 0.0 (0.0 to 0.0) | 16.5 (0.0 to 41.2) |
+|  | 66.67 | 6.6 (0.0 to 26.1) | 81.3 (0.0 to 142.2) |
+|  | 60 | 0.3 (0.0 to 2.9) | 83.6 (0.0 to 150.9) |
+|  | 30 | 4.2 (0.0 to 24.4) | 95.7 (40.7 to 130.6) |
+| Four phrases in 8.4 s, the last ending with the file | 300 | 0.0 (0.0 to 0.0) | 0.0 (0.0 to 0.0) |
+|  | 66.67 | 9.9 (0.0 to 41.5) | 79.1 (0.0 to 165.4) |
+|  | 60 | 3.2 (0.0 to 14.5) | 89.5 (0.0 to 130.6) |
+|  | 30 | 9.2 (0.0 to 41.5) | 102.8 (33.7 to 153.8) |
+| The first with 1 s of silence after it | 300 | 0.0 (0.0 to 0.0) | 0.0 (0.0 to 0.0) |
+|  | 66.67 | 0.0 (0.0 to 0.0) | 0.0 (0.0 to 0.0) |
+|  | 60 | 0.0 (0.0 to 0.0) | 0.0 (0.0 to 0.0) |
+|  | 30 | 0.0 (0.0 to 0.0) | 0.0 (0.0 to 0.0) |
+
+The two test signals, seeds 1 to 3 (measured on the build):
+
+| Source | Frames a second | Run-on at jitter 0 | Run-on at jitter 50 |
+| --- | ---: | ---: | ---: |
+| `tf2_voice_nettest_v1` (58.2 s) | 300 | 0.0 (0.0 to 0.0) | 18.9 (11.9 to 23.5) |
+|  | 66.67 | 0.0 (0.0 to 0.0) | 88.3 (56.1 to 117.9) |
+|  | 60 | 0.0 (0.0 to 0.0) | 96.0 (67.7 to 117.9) |
+|  | 30 | 0.0 (0.0 to 0.0) | 84.4 (56.1 to 106.3) |
+| `tf2_voice_testsignal_v1` (142.9 s) | 300 | 0.0 (0.0 to 0.0) | 13.2 (0.0 to 39.5) |
+|  | 66.67 | 0.0 (0.0 to 0.0) | 93.0 (44.1 to 136.6) |
+|  | 60 | 0.0 (0.0 to 0.0) | 77.6 (67.3 to 86.8) |
+|  | 30 | 0.0 (0.0 to 0.0) | 55.1 (0.0 to 86.8) |
+
+These equal, figure for figure, what the order's planner measured on a prototype. The second reader's 27 and 121 ms above were of the network test signal over seeds and a count not in the record; the build gives 18.9 and 88.3 ms at jitter 50 over seeds 1 to 3, and none at jitter 0. At jitter 0 the page's default is not always free of a run-on. 360 short renders at each rate, a phrase or a 440 Hz tone that ends with the file, six lengths from 1.0 to 3.3 s, seeds 1 to 30 (measured on the build):
+
+| Frames a second | Renders that run on (of 360) | Mean run-on | Largest |
+| ---: | ---: | ---: | ---: |
+| 1000 | 73 | 3.5 ms | 86.8 ms |
+| 400 | 44 | 0.6 ms | 13.7 ms |
+| 300 | 33 | 0.4 ms | 13.7 ms |
+| 235 | 15 | 0.1 ms | 5.4 ms |
+| 144 | 96 | 3.1 ms | 27.6 ms |
+| 100 | 170 | 5.3 ms | 39.2 ms |
+| 66.67 | 170 | 6.5 ms | 39.2 ms |
+| 60 | 56 | 1.3 ms | 27.6 ms |
+| 30 | 204 | 6.9 ms | 27.0 ms |
+| 10 | 94 | 2.0 ms | 15.4 ms |
+
+So at the page's default (300 frames a second, jitter 0) about one render in eleven of a file that ends in sound runs on, by 13.7 ms at most here; a file that ends in a second of silence runs on at no setting tried. A long wait makes a long run-on: a 2 s phrase (seed 1) runs on 2.02 s at `voice_buffer_ms` 1000 and 300 frames a second, and 72.5 s at 5000 and 1000 frames a second, where the wait is 5000 ticks (measured on the build; arithmetic from `waitTicks`).
 
 **The look at jitter 0 is built** (added 2026-11-14, W3-23a, `docs/work-orders/W3-23-low-frame-rates.md`). On Steam voice on the game's voice queue at jitter 0, under 1000/15 frames a second, each message reaches the voice channel at the listener's first look after the server's relay tick: the message of tick p is in the listener's list from 15 (p + 1) ms, leaves at the first look r = k × 1000 / fps with r − 15 (p + 1) > 0, and reaches the channel on ceil(r / 15) − 2 (`engine/network.js`, `steamArrivals` at jitter 0). That is the model with jitter as its jitter goes to 0 (chosen: the orchestrator's ruling 2 keeps one rule for both), and it gives the ticks of jitter 0.000001, tick for tick over 40,000 ticks, at 10, 20, 24, 30, 40, 50, 59.94, 60 and 66 frames a second and at 1000/15, 66.67, 75 and 300 (measured on the build, `tests/render-channel.verify.mjs` section 22). What it moves by itself, over 40,000 ticks (measured on the build):
 

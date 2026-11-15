@@ -89,7 +89,7 @@ These stages are the game's as read (`engine/mix.js`; [FINDINGS.md, entry 8](FIN
 3. The sum is clipped at ±32767, multiplied by `volume` and rounded to 16 bits. The page's `volume` is 1 by default, the game's default; the recordings were made at 0.15.
 4. The listener's PC converts 44100 Hz to the device's rate by linear interpolation (measured at 48000 Hz, not read). The page offers 48000 Hz, the default, and 44100 Hz, where nothing is converted (inferred).
 
-The file is as long as the source, plus the room's tail where a room is on. The app plays the voice alone: the game's other sound, and its ducking under a voice, are not part of a render.
+The file is as long as the source, plus the room's tail where a room is on. On the game's voice queue a sound that is still in the queue when the source ends plays out, as the game's channel plays out what it holds, so the file is longer by that run-on too (W3-24): tens of milliseconds at 300 frames a second with jitter, about a tenth of a second at 66.67, and nothing where the source ends in a second of silence (measured on the model; `tests/REFERENCE_2026.md`, finding 9). At a long `voice_buffer_ms` and a high frame rate a phrase near the end waits that long first: at 5000 and 1000 frames a second the run-on is over a minute, and the console says why. The voice's samples up to the source's length are those without the run-on; at 48 kHz the device's conversion reads one sample ahead, so the output's last sample before the source's length is made with the run-on's first (measured on the build). The app plays the voice alone: the game's other sound, and its ducking under a voice, are not part of a render.
 
 ## Codecs
 

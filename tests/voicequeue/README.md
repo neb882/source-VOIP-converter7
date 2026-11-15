@@ -147,4 +147,8 @@ The suites compare the modules with models written again from the orders' words,
 - `reference-frames.mjs`: the frame clock of W3-23a, a timeline under 1000/15 frames a second that takes the messages
   whose tick has come, runs the ticks due and runs the blocks due, once a frame; both suites hold `createTimeline`
   and the renders on the game's voice queue to it. It shares with the module only the definition of a frame's time,
-  `(88200 k) / fps` half samples.
+  `(88200 k) / fps` half samples. With `playOut` (W3-24, written again from `docs/work-orders/W3-24-render-end.md`,
+  "The rule") the clock runs on past the length until the channel holds nothing and the mixer's kept sample is not one
+  of a sound message, and the output runs on to one past the last place of the source heard; with `even` it runs the
+  clock of even ticks and blocks (1000/15 frames a second and above) instead, so that the play-out's record has a
+  second model at every frame rate. Neither shares a line with `createTimeline`'s play-out.

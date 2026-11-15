@@ -69,7 +69,9 @@ replaces one of the same source keeps the player's place, whether it plays, and 
 by itself; after the first render the player takes the focus, so Space plays.
 
 The line under the render says how long it took, the length and rate of the sound, the codec, and how many seconds
-the voice gate did not send. For a demo it gives the seconds with no voice packets, and for a recorded live session
+the voice gate did not send. On the game's voice queue the sound can be a little longer than the file: a sound still in
+the queue when the file ends plays out (W3-24), and the console says by how many milliseconds; a run-on over 10 s gets
+a second line that names the wait behind it. For a demo it gives the seconds with no voice packets, and for a recorded live session
 it says "Recorded live". A render is in the player as soon as it is made; the meter's numbers for it follow a moment
 later.
 
