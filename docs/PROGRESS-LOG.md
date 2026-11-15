@@ -709,3 +709,11 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-15: Set Q; entries replaced
 
 - open_questions, the 8-step pattern replaced: "Steam's sender: the 8-step (250 ms) pattern of chunk ends, which createClock lacks (Set D's demo, Set L)."
+
+## 2026-11-15: after Set Q was read against the open items; entries replaced
+
+- waiting_on_the_owner, removed (answered by Set Q: the owner's fps_max is 300, the default 400): "Not urgent, new 2026-11-14: type fps_max in the game's console and say what it prints, and whether it was the same when Set C was recorded. The record has 300 (Set G's logs); Set C's jitter photograph shows about 336 frames a second, over a cap of 300; the variable's start value in engine.dll is 400 (W3-23r). The page's default stays 300 until this is known."
+- waiting_on_the_owner, the low frame rates replaced: "Not urgent, new 2026-11-14: in the same session as the run sheet's queue block, two short stretches at fps_max 30 and 20 with voice_showchannels 2 (docs/owner-runs.md, 'The queue at low frame rates'), for W3-23's check against the game."
+- waiting_on_the_owner, the steady take: a sentence added, nothing replaced.
+- in_flight, W3-24's stage replaced: "planned 2026-11-15 (rulings at its end); builder next"
+- finish_line: a dated sentence added. open_questions: one entry added (a real server's arrivals against the default render's).

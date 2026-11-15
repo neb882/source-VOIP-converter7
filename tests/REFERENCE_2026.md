@@ -347,6 +347,13 @@ and the orchestrator's first count is corrected in its place.
   its wait, and about 141 ms in play after it (inferred from the log's own pulls). *The orchestrator's first count,
   63, took every packet that would pass 44,100 bytes over the last tick line and missed the mixer's pulls between
   tick lines.*
+- **The drain inside one phrase** (measured by the orchestrator; added later on 2026-11-15; one stretch): over the
+  76.5 s at `fps_max 67` the music's channel had no opening, overflow or underrun. 3,373,650 samples came in 1,391
+  packets, 3,372,259 were queued (one fewer a packet), and the mixer pulled 3,373,568. The queue fell from 39,374 to
+  36,756 bytes: 1,309 samples, 29.7 ms, 0.39 ms a second, against 0.41 for one sample a packet at 18.18 packets a
+  second (the rule under "The queue, not recorded"). The fade and the underrun were not reached: the queue never
+  held under 25,428 bytes (288 ms). Lost sound lowers the queue faster than the drain: in the first log its median
+  stood at 451 ms after the restart and at 182 ms after the second stall (measured, the second reader).
 - **At 30 frames a second** (measured, `voice_showchannels 2`): tick lines come in runs of two and three (1,659 and
   488 in 2,150 frames, 29.92 a second; the arithmetic of a 33.3 ms frame gives 1,659 and 491), the mixer's pulls in
   runs of two to four (2, 3 and 4 in 27, 58 and 15%), and 1,276 of 1,297 packet lines come after a frame's pulls and
@@ -1793,6 +1800,7 @@ Six settings no recording of the game's output covers yet are predicted in advan
   *Corrected by W3-02d-1 (2026-11-13): the page's render on Steam voice now runs the game's voice queue by default (Phrase timing, `voice_timeline game`, at `fps_max` 300 and `voice_buffer_ms` 100); the file's own timing is one setting away (`voice_timeline source`), and a demo's voice, a video and the live monitor keep it. The page no longer offers the flat rule; `voice_retime` is an old name for `voice_timeline`.*
   *Corrected by W3-02f (2026-11-13): the flat rule is no longer in the engine; `tests/retiming.mjs` keeps a copy for scoring.*
 - **The queue, not recorded.** The fade and the underrun padding in sound; a listener under 67 frames a second; the queue under the engine codecs. By the rule a long transmission drains the queue, since nothing refills it inside a spurt: after 20 minutes from a full ring, with a gap in continuous sound when it runs out. No take is long enough to show it.
+  *Added 2026-11-15 (Set Q, measured): the drain itself is seen on a real server, 29.7 ms in 76.5 s of unbroken music at `fps_max 67`, one sample a packet. The fade and the underrun in sound are still not recorded.*
 - **The sender's hold and clock.** Settled on 2026-11-10: the gate's rule on every chunk of Set J; the hold's arithmetic (read); what the float clock does to it (measured at a step of 1/8 s); that Steam reads 48 to 64 ms apart and never late (Set J). The earlier puzzle, why the demo has the 7th chunk so often where a steady clock gives the 8th, is answered in part: by the reads as measured, and by the float if that Steam had run for a week (finding 28). Still open:
   - **The sender's Steam uptime.** The hold's real length follows it. Set D's ends single out a Steam of 6.1 to 12.1 days (W3-16's second read); the app's default is the middle of that range, and another sender's Steam may differ. That the clock counts from Steam's start is read in the public build of Valve's timer library; the owner's own copy was not read.
   - **The last 10 ms of the spurt's tail.** Before W3-16 the app's tails ran 20 ms longer than Steam's in the demo (482 against 462 ms). The hold as read, with the reads as measured, closes about half of that in W3-16's simulation (473 ms). With either uptime the model's ends are still about 13 ms late, and it gives ends the demo never has. The hold is read, so what is left is in how a read's time sits against the capture's steps (W3-16's order).
