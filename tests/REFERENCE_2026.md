@@ -245,6 +245,8 @@ The owner ran a local game with the Steam codec, `voice_loopback 1`, `voice_show
 
 In all: 2,375 packets and 9,808 ticks. The first run's frame rate was not noted when it was made; the owner's `fps_max` is 300.
 
+*Corrected 2026-11-15: 300 frames a second is the owner's cap, not the game's default. The console prints `fps_max` "300" with its default "400" (Set Q), and W3-23r read the start value 400 in `engine.dll`.*
+
 ### Set H: the CELT codecs with a file as the microphone
 
 The owner set `sv_voicecodec vaudio_celt`, then `vaudio_celt_high`. The game took a file as its microphone (`voice_inputfromfile 1`: 16-bit mono at 22050 Hz) and recorded its own decoded voice (`voice_recordtofile 1`), with `voice_maxgain 1` and again with 10 (finding 27). No recorder and no cable is in the chain.
@@ -313,6 +315,50 @@ lengths and checksums.
 The same night as Set L: Steam newly started, a real microphone, the first chunk 1500 samples and loud, and the
 game's first packets logged (finding 16). Not recorded here: the settings beyond these, and the files' formats,
 lengths and checksums.
+
+### Set Q: a real server (2026-11-15)
+
+The owner on a public TF2 server while another player played music over voice, with `voice_showincoming 1` and
+`voice_showchannels 1` logged by `con_logfile` (the console printed `fps_max` 300, its default 400, and
+`voice_buffer_ms` 100; `net_graph` showed 294 frames a second and the owner's ping at 52 ms). A first log of 202.3 s
+at 294 frames a second, then a second of 76.5 s at `fps_max 67` and 71.9 s at `fps_max 30` with `voice_showchannels 2`
+(the mixer's pulls). The logs hold other players' names and stay private; only the figures below are here. Read twice,
+by the orchestrator and independently by a second reader; where the two differed, the second reader's count is given
+and the orchestrator's first count is corrected in its place.
+
+- **The module gives the game's queue on a real server** (measured, the second reader): the log's packets replayed
+  through `voice-channel.js` with the mixer's demand from the log give the logged bufsize on 13,486 of 13,487 tick
+  lines of the music's channel (the one other: an `incoming` line printed after the tick line that already counts it),
+  151 of 151 for a second speaker, 5,099 of 5,099 and 1,034 of 1,034 at 67, and 4,790 of 4,790 at 30 with the logged
+  pulls. Several packets on one tick were allowed in a scratch copy of `tests/voicequeue/log-to-fixture.mjs`, which
+  refuses them (its rule of one packet a tick comes from local logs; W3-23r read that one call drains every waiting
+  packet).
+- **Packets** (measured): 3,655 in 202.3 s, 18.07 a second, of whole 882-sample frames (2646 most often), with a few
+  of 6 to 10 frames and silence records of 2756, 1378 and 1379 samples.
+- **Arrivals** (measured): gaps of 0 to 7 ticks between messages (0.7, 1.6, 11.4, 29.8, 34.2, 18.3, 2.7 and 1.0%);
+  on the same tick as the previous message 0.74% at 294 frames a second, 0.86% at 67, 1.23% at 30. Two stalls of 22
+  tick lines each, in which 212 and 259 ms of sound never came, each ending in a burst with a packet of 0 samples
+  (finding 29's refused message, inferred); which leg lost them cannot be told.
+- **The wait at an opening** (measured): one restart in the first log, after the first stall emptied the queue: no
+  drain on 30 tick lines, `ceil(0.1 × fps)` for a rate of 290 to 300 (the log alone gives 29 or 30); ten openings at
+  `fps_max 67`, each with no drain on exactly 7, `ceil(0.1 × 67)`.
+- **The ring** (measured): the music's queue held 398 ms in the median (5th and 95th percentiles 189 and 457) and
+  reached the ring's 44,100 bytes. 15 adds overflowed, all after the restart: 872 samples (19.8 ms) at the end of
+  its wait, and about 141 ms in play after it (inferred from the log's own pulls). *The orchestrator's first count,
+  63, took every packet that would pass 44,100 bytes over the last tick line and missed the mixer's pulls between
+  tick lines.*
+- **The drain inside one phrase** (measured by the orchestrator; added later on 2026-11-15; one stretch): over the
+  76.5 s at `fps_max 67` the music's channel had no opening, overflow or underrun. 3,373,650 samples came in 1,391
+  packets, 3,372,259 were queued (one fewer a packet), and the mixer pulled 3,373,568. The queue fell from 39,374 to
+  36,756 bytes: 1,309 samples, 29.7 ms, 0.39 ms a second, against 0.41 for one sample a packet at 18.18 packets a
+  second (the rule under "The queue, not recorded"). The fade and the underrun were not reached: the queue never
+  held under 25,428 bytes (288 ms). Lost sound lowers the queue faster than the drain: in the first log its median
+  stood at 451 ms after the restart and at 182 ms after the second stall (measured, the second reader).
+- **At 30 frames a second** (measured, `voice_showchannels 2`): tick lines come in runs of two and three (1,659 and
+  488 in 2,150 frames, 29.92 a second; the arithmetic of a 33.3 ms frame gives 1,659 and 491), the mixer's pulls in
+  runs of two to four (2, 3 and 4 in 27, 58 and 15%), and 1,276 of 1,297 packet lines come after a frame's pulls and
+  before its ticks, 5 between two tick lines of one frame (read by the frame's second tick), 16 after another packet
+  line. A frame's order is packets, ticks, mixer, as W3-23r read and W3-23a built.
 
 ### The file-input runs, measured again (2026-11-13)
 
@@ -928,6 +974,8 @@ So at the page's default (300 frames a second, jitter 0) about one render in ele
 - A render does not report it as `codecInfo.arrivals`: no jitter is on. The live monitor's chain keeps every message on its own tick at jitter 0 until W3-23b (not built yet). *Corrected 2026-11-14 (W3-23b): built. The arrival model with no end, the live monitor's chain's, takes the same rule at jitter 0 under 1000/15, holds nothing for it, and the chain does not report it either (`tests/render-channel.verify.mjs` sections 10 and 22).*
 - *Added 2026-11-14 (W3-23a's fix round, after the second read).* "The listener's first look after the relay tick" is true in ticks. In what is heard, from 34 to 66 frames a second the two ticks taken off put the message in the first frame at or after its own tick (100% of messages a frame earlier than the whole look at 50, 60 and 64 to 66); the whole look is in the delay only at 30 and under (0% earlier there; measured, the second reader of W3-23a). That is why the offsets of finding 22's table do not fall in step with the frame rate. The looks are the frame clock's frames, (88200 k) / fps half samples: at a look exactly on a tick the clock's double decides, at 61 of the 567 one-decimal rates from 10.0 to 66.6, and jitter 0.000001 decides it by its own milliseconds at 60; elsewhere both are the rule worked in whole numbers (measured on the build, `tests/render-channel.verify.mjs` section 22).
 
+*Added 2026-11-15 (Set Q, measured): on a real server the gaps between a speaker's messages run 0 to 7 ticks, against 3 to 5 for the module's sender without jitter, and the share on one tick is 0.74% at 294 frames a second. Two stalls of about 0.2 s ended in a burst with a packet of 0 samples. A server's relay once a tick is not contradicted; from a listener's log it cannot be told.*
+
 ### 10. The receiver re-times talk spurts
 
 The delay from source to output changes from one talk spurt to the next. In the baseline, alternate noise bursts came out about 240 ms apart in delay (2.02 s against 1.74–1.81 s), so the receiver shortens some silences between spurts and restores others. Findings 19, 21 and 22 say how.
@@ -1281,6 +1329,8 @@ At 300 frames a second, TF2's default cap, a spurt opens with 160 ms at once (fi
 
 *Added 2026-11-14 (W3-23a).* By the same rule the wait is 3 ticks at 30 frames a second, 2 at 20 and 1 at 10 (arithmetic on the read rule; nothing under 66 frames a second is logged). Under 1000/15 a render counts it from the first tick of the frame that takes the packet (finding 22's added lines), so at 10 frames a second a new phrase plays from the first block of its packet's frame. With `sv_cheats` 0 the game sets `fps_max` back to 30 when it is set under 30 (read, W3-23r): a log at 20 needs `sv_cheats 1`, and a player's game runs under 30 only on a machine that cannot draw faster.
 
+*Added 2026-11-15 (Set Q, measured): on a real server the wait at an opening is 30 tick lines at 294 frames a second (29 or 30 from the log alone) and exactly 7 at `fps_max 67`, ten times.*
+
 ### 24. One sample is dropped from every packet
 
 The engine copies a decoded packet into the ring through an interpolator that writes one sample fewer than it was given: the packet's first sample is in effect left out (read, W3-03). The engines of Source SDK Base 2006 and 2007 have the same rule, at a step of exactly 1.0: read, and run, where ten packets of 360 samples put 3,590 samples in the buffer (added 2026-11-11, W3-20b). In the logs every packet of N samples that neither overflows nor meets a pull raises the queue by exactly 2 × (N − 1) bytes (measured, Set G; a replay that keeps the sample fails).
@@ -1417,6 +1467,8 @@ Since W3-11b the live chain for `steam` runs this sender too, timed on the sampl
 
   At the ten changes of `sender_A` around its 420 and 440 ms pauses the counts by change are 2, 2, 8, 8, 23, 6, 6, 22, 15 and 15 of 30 before and 14, 14, 8, 8, 15, 13, 13, 11, 9 and 9 after: 107 of 300 against 114. With the source held at the demo's own 318 samples on the earlier sender the same ten gave 121 of 300 (measured in the investigation). So the capture's phase moves which of those changes a render gets right and closes little of the gap there: after a pause of 420 to 440 ms the render still has the take's kind in about four seeds of ten. That is open (not explained). At pauses of 240 ms the render was already close and is closer.
 
+*Added 2026-11-15 (Set Q, measured by the second reader): another PC's Steam client follows the same chunk rule. One starting remainder fits 2,366 packets in a row, and all 1,391 and 1,297 of the two later sections; the chance of that for one packet is 64%. Chunks of 1, 2 and 3 steps came at 27 to 28, 68 to 69 and 4%, against `createClock`'s 23.3, 74.7 and 2.0. Packets of 1 to 5 frames came at 12.3, 15.5, 59.5, 9.6 and 2.8%, against the module's 10.2, 13.1, 65.3, 10.0 and 1.4. **The 8-step (250 ms) pattern of chunk ends is there too:** one place in 8 holds 15.8, 16.1 and 15.7% of the chunk ends in the three parts, against 12.5% (3.4 to 4.9 standard deviations). `createClock` has none.*
+
 ### 29. Steam's decoder: 16 bits, at most 10 concealed frames, and FFmpeg's resampler once per packet
 
 Read from Steam's client (W3-09), with the resampler run from its public source. Checked sample for sample on Set J (W3-14). The decoder's buffers were read afterwards (W3-16 read).
@@ -1484,6 +1536,8 @@ Since W3-10 (2026-11-10) the app runs these stages as read: the voice entered at
 - **The "extra update"** paints with `snd_mixahead` alone (read, `0x18002b350`). Its 90 ms are counted from the last paint of either kind (read: its timer at `0x1804a75e0` is also written by `S_Update` at `0x18003133b`). In play it is reached only from the client module's drawing of the view (read; see finding 22's added lines).
 
 *Added 2026-11-14 (W3-23a).* Under 1000/15 frames a second a render on the game's voice queue pulls a frame's blocks at once, after the frame's packets and ticks (finding 22's added lines). It does not hold the lead of 10 to 13 blocks above: at a steady rate that lead delays every sound alike, and the render's zero is left as it was. *Corrected in W3-23a's fix round (2026-11-14): "delays every sound alike" and so moves no sample only for a lead of whole blocks; the read lead is not whole blocks, and the model's block phase is chosen (finding 22's added lines).* At 66.67 and above the render pulls one block every 512 samples (chosen).
+
+*Added 2026-11-15 (Set Q, measured): the game's log at 30 frames a second shows a frame's order as packets, ticks, mixer (Set Q's section). The mixer takes 4 blocks then 2 in 294 of its 316 frames of four where an exact 33.3 ms frame takes 3 and 3: its lead follows the smoothed frame duration (W3-23r), and the frame clock as built does not vary it. The ticks a frame runs agree with the arithmetic.*
 
 ### 31. The engine codecs, read and matched
 
@@ -1793,6 +1847,7 @@ Six settings no recording of the game's output covers yet are predicted in advan
   *Corrected by W3-02d-1 (2026-11-13): the page's render on Steam voice now runs the game's voice queue by default (Phrase timing, `voice_timeline game`, at `fps_max` 300 and `voice_buffer_ms` 100); the file's own timing is one setting away (`voice_timeline source`), and a demo's voice, a video and the live monitor keep it. The page no longer offers the flat rule; `voice_retime` is an old name for `voice_timeline`.*
   *Corrected by W3-02f (2026-11-13): the flat rule is no longer in the engine; `tests/retiming.mjs` keeps a copy for scoring.*
 - **The queue, not recorded.** The fade and the underrun padding in sound; a listener under 67 frames a second; the queue under the engine codecs. By the rule a long transmission drains the queue, since nothing refills it inside a spurt: after 20 minutes from a full ring, with a gap in continuous sound when it runs out. No take is long enough to show it.
+  *Added 2026-11-15 (Set Q, measured): the drain itself is seen on a real server, 29.7 ms in 76.5 s of unbroken music at `fps_max 67`, one sample a packet. The fade and the underrun in sound are still not recorded.*
 - **The sender's hold and clock.** Settled on 2026-11-10: the gate's rule on every chunk of Set J; the hold's arithmetic (read); what the float clock does to it (measured at a step of 1/8 s); that Steam reads 48 to 64 ms apart and never late (Set J). The earlier puzzle, why the demo has the 7th chunk so often where a steady clock gives the 8th, is answered in part: by the reads as measured, and by the float if that Steam had run for a week (finding 28). Still open:
   - **The sender's Steam uptime.** The hold's real length follows it. Set D's ends single out a Steam of 6.1 to 12.1 days (W3-16's second read); the app's default is the middle of that range, and another sender's Steam may differ. That the clock counts from Steam's start is read in the public build of Valve's timer library; the owner's own copy was not read.
   - **The last 10 ms of the spurt's tail.** Before W3-16 the app's tails ran 20 ms longer than Steam's in the demo (482 against 462 ms). The hold as read, with the reads as measured, closes about half of that in W3-16's simulation (473 ms). With either uptime the model's ends are still about 13 ms late, and it gives ends the demo never has. The hold is read, so what is left is in how a read's time sits against the capture's steps (W3-16's order).
