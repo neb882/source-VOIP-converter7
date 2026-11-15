@@ -1026,11 +1026,14 @@ async function verifySourceDuringRender(page) {
   });
   await page.waitForFunction(() => state.sourceName === 'short.wav', null, { timeout: 60000 });
   await waitRendered(page);
+  // W3-24: the tone ends in sound, so on the game's queue its render can run on past the file's end by the queue's
+  // run-on (codecInfo.channel.over, 44.1 kHz samples).
   const after = await page.evaluate(() => ({ renders: state.renderId, seconds: state.processedBuffer.length / state.processedRate, download: !els.dl.disabled,
-    process: !els.process.disabled, status: els.status.textContent, log: document.getElementById('console-out').textContent }));
-  check(after.renders === before + 1 && Math.abs(after.seconds - 1) < .01 && after.download && after.process && after.status.startsWith('short.wav')
+    process: !els.process.disabled, status: els.status.textContent, log: document.getElementById('console-out').textContent,
+    over: ((state.lastCodecInfo.channel && state.lastCodecInfo.channel.over) || 0) / 44100 }));
+  check(after.renders === before + 1 && Math.abs(after.seconds - 1 - after.over) < .01 && after.download && after.process && after.status.startsWith('short.wav')
     && /render of the previous source stopped/.test(after.log) && !/the source changed during the render/.test(after.log),
-    'a source dropped during a render stops that render, and renders as itself', `${after.seconds.toFixed(3)} s; ${after.renders - before} render shown; ${after.status}`);
+    'a source dropped during a render stops that render, and renders as itself', `${after.seconds.toFixed(3)} s (run-on ${after.over.toFixed(3)} s); ${after.renders - before} render shown; ${after.status}`);
   // Presets reset every receiver setting, Phrase timing and voice_buffer_ms
   // included, and leave the listener's frame rate, a property of the
   // listener's PC (W3-02d-1).
