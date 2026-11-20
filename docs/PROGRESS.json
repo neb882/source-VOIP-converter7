@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-15",
+  "updated": "2026-11-20",
   "about": "Where the TF2 Voice Emulator stands. Read CLAUDE.md first, then this. The orchestrating session keeps this file; builders do not edit it. Since 2026-11-12 it holds where things stand now. What it no longer carries (each stand's history, the decisions no longer in force, the list of merges) is in docs/PROGRESS-LOG.md, dated and appended to, never edited; docs/README.md indexes every order with its state.",
   "live": {
     "url": "https://neb882.github.io/source-VOIP-converter7/",
@@ -52,7 +52,7 @@
     "Not urgent, new 2026-11-14, amended 2026-11-15: fps_max 30 with voice_showchannels 2 was logged on a real server (Set Q, measured; the frame's order is as W3-23 built it). Still wanted, in the same session as the run sheet's queue block: one short stretch at fps_max 20 with sv_cheats 1 on a local server (docs/owner-runs.md, 'The queue at low frame rates'); without sv_cheats the game resets a cap under 30 to 30 (read)."
   ],
   "open_questions": [
-    "Steam's sender: the 8-step (250 ms) pattern of chunk ends, which createClock lacks (Set D's demo, Set L; and on another PC's Steam client, Set Q 2026-11-15: one place in 8 holds 15.8 to 16.1% of chunk ends against 12.5%, 3.4 to 4.9 standard deviations, measured). Its cause is not read; an order of its own once it is.",
+    "Steam's sender: the 8-step (250 ms) pattern of chunk ends, which createClock lacks (Set D's demo, Set L; and on another PC's Steam client, Set Q 2026-11-15: one place in 8 holds 15.8 to 16.1% of chunk ends against 12.5%, 3.4 to 4.9 standard deviations, measured). Its cause is not read; an order of its own once it is. Ruled out 2026-11-20 (read once and measured on Set Q; tests/REFERENCE_2026.md, finding 28): the capture buffer's wrap, which comes every 32 steps while the pattern's chunk ends are spread evenly over its four places in 32. Not followed yet: what sets when Steam's voice code runs.",
     "The device stage's last unit: a single-precision read position and a loss of up to one unit toward zero before the last rounding (the retake R1-3). Cheaper than a read of the XAudio2 module: the same take at volume 1 with a voice that stays off the clamp.",
     "Speex beyond the game's setting: only engine quality 3 (20-byte frames) was read and run with care; the other qualities use other codebooks and quantisers. The lost-frame and sub-mode 0 paths draw noise from the C runtime's rand() of the game's thread and cannot be reproduced from packets.",
     "Set D, PC A with set_d_street: measured again 2026-11-14 on the stretches both pick, with the take lined up on the render's timeline, over nine seeds of the room: at 68.02 ms the render 0.0279 to 0.0300 against the take's 0.0257 (scatter 0.0024), 9 to 17% high, 0.9 to 1.8 scatters; 120.04 ms 0.0115 to 0.0138 against 0.0141; 308.02 ms 0.0071 to 0.0098 against 0.0056. The 36% of W3-17c's run came from each file's own stretches. What is left at 68 ms is within 2 scatters and not looked into further.",
