@@ -746,3 +746,7 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-20: the owner's list for the evening
 
 - waiting_on_the_owner: one entry added first (files to copy; a real server's log). Nothing replaced.
+
+## 2026-11-20: the evening's list amended; entry replaced
+
+- waiting_on_the_owner, the evening's entry replaced: "For the evening of 2026-11-20 (about 18:00, the owner's time), in docs/owner-runs.md, 'For the evening of 2026-11-20': (A) copies of dsound.dll, AudioEng.dll and AudioSes.dll from C:\Windows\System32, and of tier0_s64.dll, vstdlib_s64.dll and steam.exe from the Steam folder, with the Windows build number winver shows; (B) a real server's log, voice_server3.log, with a channel that opens at fps_max 67 and runs unbroken five minutes, for the queue's fade and underrun."

@@ -48,7 +48,7 @@ For the one measurement the finish line still lacks, the queue's fade and underr
 `fps_max 67` and runs unbroken for three minutes or more. Each line is pasted whole into the console.
 
 1. When the speaker is playing:
-   `con_logfile voice_server3.log; echo MARK300; fps_max; voice_buffer_ms; voice_showincoming 1; voice_showchannels 1`
+   `con_logfile voice_server3.log; echo MARK300; fps_max; voice_buffer_ms; snd_mixahead; voice_showincoming 1; voice_showchannels 1`
    Leave it about two minutes.
 2. `echo MARK67; fps_max 67; voice_showchannels 2; voice_modenable 0`
    Count to five.
@@ -59,6 +59,10 @@ For the one measurement the finish line still lacks, the queue's fade and underr
 Step 2 turns voice off so that step 3 opens the speaker's channel afresh at 67 frames a second. Whether
 `voice_modenable` does that is not tested: if the sound does not stop at step 2, mute the speaker on the scoreboard
 for five seconds instead, then unmute.
+
+Amended later on 2026-11-20: `snd_mixahead` joins step 1, so the log holds its value. A private reading of the
+same day infers the owner's is 0.05 where the record has 0.1 (not read a second time yet); the line the console
+prints settles it.
 
 What comes back: `voice_server3.log` from the `tf` folder, a screenshot with `net_graph 1` up during the part at 67,
 and the speaker's ping. A recording of the desktop's sound over the same minutes is welcome and not needed.
