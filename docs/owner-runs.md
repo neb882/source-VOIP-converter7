@@ -11,7 +11,7 @@ sender's hold depends on it (finding 28), and the `volume` and voice settings us
 
 | Run | State | What it would settle |
 | --- | --- | --- |
-| For the evening of 2026-11-20: files to copy, and a real server's log | asked 2026-11-20; not done | where the 31.25 ms capture step comes from, Windows's capture resampler, the owner's own copy of Steam's timer library, and the queue's fade and underrun |
+| For the evening of 2026-11-20: files to copy, a real server's log, and what Steam captured | asked 2026-11-20; the first files received, the rest not done | where the 31.25 ms capture step comes from, Windows's capture resampler (by its files, and sample by sample by Steam's own file of what it captured), the owner's own copy of Steam's timer library, and the queue's fade and underrun |
 | The re-check after a Steam update | to run after each Steam update | whether Steam's voice path is still the one the app runs |
 | The key, for W3-11c | not run; W3-11c waits for it | how Steam's push-to-talk key starts and ends a phrase |
 | `vaudio_miles` in an engine of 2006 or 2007 | run once, on 2026-11-13, in Source SDK Base 2006, with a file as the microphone and with speech; not run: the 2007 engine, a second player, a lost packet | whether the `miles` profile (not in TF2) is what such an engine does |
@@ -24,10 +24,10 @@ speakers and Sound quality), given privately; its blocks are named in `docs/PROG
 `waiting_on_the_owner`, and in [reports/bad-connections-plan.md](reports/bad-connections-plan.md), "The
 recordings".
 
-## For the evening of 2026-11-20: files to copy, and a real server's log
+## For the evening of 2026-11-20: files to copy, a real server's log, and what Steam captured
 
 Asked 2026-11-20. Part A takes a few minutes and needs no game. Part B needs a server where someone is playing
-music or talking without pause.
+music or talking without pause. Part C needs the virtual cable and the test signal, and no server.
 
 ### A. Files to copy
 
@@ -85,6 +85,39 @@ prints settles it.
 What comes back: `voice_server3.log` from the `tf` folder, a screenshot with `net_graph 1` up during the part at 67,
 and the speaker's ping. A recording of the desktop's sound over the same minutes is welcome and not needed.
 The log holds other players' names in its other lines: it stays private, and only numbers are taken from it.
+
+### C. What Steam captured (added late on 2026-11-20)
+
+The one take that would show Windows's conversion of the microphone to 24 kHz sample by sample: Steam writes every
+sample it reads from the capture to a file, before its gate and its encoder. No game file or Windows file can
+replace it. It needs the virtual cable and the test signal
+([tests/testsignal/](../tests/testsignal/README.md), `tf2_voice_testsignal_v1.wav`, 142.9 s), and no server.
+
+1. Make an empty folder with a short path, for example `C:\tf2voice`.
+2. In **Steam's** console (`steam://open/console` from a browser or the Run box), two lines, one at a time:
+   `mic_outputfile C:\tf2voice\mic_out.wav`
+   `@voice_spew_activity_check 1`
+3. In the game's console, before the map:
+   `con_logfile voice_micout.log; voice_loopback 1; voice_maxgain 1; voice_recordtofile 1; voice_showincoming 1; map itemtest`
+4. Once the map has loaded, hold the voice key, play the test signal through the cable once from start to end, wait
+   two seconds, and let the key go. One press for the whole signal.
+5. About a second after letting go, copy `voice_decompressed.wav` out of the game's `tf` folder (the next press
+   overwrites it).
+6. Quit Steam completely (Steam, Exit). The file is only whole once Steam has closed.
+7. After starting Steam again, type `mic_outputfile` in its console. If it still shows the path, clear it with
+   `mic_outputfile ""`, or Steam goes on writing the microphone to that file every time voice is used.
+
+What comes back: `mic_out.wav`, `voice_decompressed.wav`, `voice_micout.log` from the `tf` folder, the text of
+Steam's console (or `logs\console_log.txt` from the Steam folder), and the microphone's and the cable's format as
+Windows shows them (part A's last paragraph).
+
+What is read and what is not (the current client, 2026-11-20, read once): the file is opened at the first read of
+the microphone after the variable is set, a 44-byte header with empty lengths is written, and each read's samples
+follow as they were read (`steamclient64.dll` `0x1380d6785` to `0x1380d69a1`); Steam's own message says "close
+Steam before using". Not tested: that Steam's console lets the variable be set (`mic_inputfile`, registered beside
+it, could be: Set J), and whether the folder must exist. `voice_decompressed.wav` beside it makes the take a second
+one of Set J's kind, with a real capture in place of a file: the game's decode of sound whose input is known to the
+sample.
 
 ## The queue at low frame rates, for W3-23 (added 2026-11-14)
 

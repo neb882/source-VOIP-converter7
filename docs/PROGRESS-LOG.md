@@ -764,3 +764,7 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-20: files received, more asked; entry replaced
 
 - waiting_on_the_owner, the evening's entry replaced: "For the evening of 2026-11-20 (about 18:00, the owner's time), in docs/owner-runs.md, 'For the evening of 2026-11-20': (A) copies of dsound.dll, AudioEng.dll and AudioSes.dll from C:\Windows\System32, and of tier0_s64.dll, vstdlib_s64.dll and steam.exe from the Steam folder, with the Windows build number winver shows; (B) a real server's log, voice_server3.log, with a channel that opens at fps_max 67 and runs unbroken five minutes, for the queue's fade and underrun; its first line also prints snd_mixahead (amended the same day)."
+
+## 2026-11-20, late: the captured-sound take added; entry replaced
+
+- waiting_on_the_owner, the evening's entry replaced: "For the evening of 2026-11-20, in docs/owner-runs.md, 'For the evening of 2026-11-20'. Received: dsound.dll, AudioEng.dll, AudioSes.dll, resampledmo.dll, tier0_s64.dll, vstdlib_s64.dll, steam.exe and the current steamclient64.dll. Still wanted: (A) from C:\Windows\System32: winmm.dll, winmmbase.dll, wdmaud.drv, msacm32.drv, msacm32.dll, audiosrv.dll, audiodg.exe, AudioKSE.dll; steamui.dll from the Steam folder (optional); and the microphone's format as Windows shows it (sample rate and bit depth); (B) a real server's log, voice_server3.log, with a channel that opens at fps_max 67 and runs unbroken five minutes, for the queue's fade and underrun; its first line also prints snd_mixahead."
