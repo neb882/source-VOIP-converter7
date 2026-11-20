@@ -750,3 +750,7 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-20: the evening's list amended; entry replaced
 
 - waiting_on_the_owner, the evening's entry replaced: "For the evening of 2026-11-20 (about 18:00, the owner's time), in docs/owner-runs.md, 'For the evening of 2026-11-20': (A) copies of dsound.dll, AudioEng.dll and AudioSes.dll from C:\Windows\System32, and of tier0_s64.dll, vstdlib_s64.dll and steam.exe from the Steam folder, with the Windows build number winver shows; (B) a real server's log, voice_server3.log, with a channel that opens at fps_max 67 and runs unbroken five minutes, for the queue's fade and underrun."
+
+## 2026-11-20: what times Steam's read, read twice; entry replaced
+
+- open_questions, Steam's sender replaced: "Steam's sender: the 8-step (250 ms) pattern of chunk ends, which createClock lacks (Set D's demo, Set L; and on another PC's Steam client, Set Q 2026-11-15: one place in 8 holds 15.8 to 16.1% of chunk ends against 12.5%, 3.4 to 4.9 standard deviations, measured). Its cause is not read; an order of its own once it is. Ruled out 2026-11-20 (read once and measured on Set Q; tests/REFERENCE_2026.md, finding 28): the capture buffer's wrap, which comes every 32 steps while the pattern's chunk ends are spread evenly over its four places in 32. Not followed yet: what sets when Steam's voice code runs."
