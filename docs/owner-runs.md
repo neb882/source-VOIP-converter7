@@ -53,7 +53,7 @@ down (read once, being read a second time).
 | --- | --- | --- |
 | `winmm.dll`, `winmmbase.dll`, `wdmaud.drv` | `C:\Windows\System32\` | when a capture step is handed back, which is where the 10 ms grid behind the 250 ms pattern should be |
 | `msacm32.drv`, `msacm32.dll` | `C:\Windows\System32\` | the wave mapper and its converter, one candidate for the conversion to 24 kHz |
-| `audiosrv.dll`, `audiodg.exe`, `AudioKSE.dll` | `C:\Windows\System32\` | which converter a capture stream gets, at which quality, with or without dither |
+| `audiosrv.dll`, `audiodg.exe`, `AudioKSE.dll`, `MMDevAPI.dll` | `C:\Windows\System32\` | which converter a capture stream gets, at which quality, with or without dither (`MMDevAPI.dll` added after the resampler's second read) |
 | `steamui.dll` | the Steam folder | which process starts the loop that reads the microphone (optional) |
 
 And one setting, no file: the microphone's format as Windows shows it (Settings, System, Sound, the input device,
