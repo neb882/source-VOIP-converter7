@@ -42,6 +42,24 @@ files are (CLAUDE.md, the hard rules).
 
 With them: the Windows build number that `winver` shows, and when Steam was last started.
 
+**Received 2026-11-20:** all six, with `resampledmo.dll` (asked the same evening) and the current
+`steamclient64.dll` (Steam had updated since the copy of 2026-11-10). The Windows build is in the files: 26100.
+
+**Asked later the same evening**, after the first read of `dsound.dll`: DirectSound's capture hands the work to the
+older wave input interface, so the timing of the capture's steps and the conversion to 24 kHz are in files further
+down (read once, being read a second time).
+
+| File | Where | What it would settle |
+| --- | --- | --- |
+| `winmm.dll`, `winmmbase.dll`, `wdmaud.drv` | `C:\Windows\System32\` | when a capture step is handed back, which is where the 10 ms grid behind the 250 ms pattern should be |
+| `msacm32.drv`, `msacm32.dll` | `C:\Windows\System32\` | the wave mapper and its converter, one candidate for the conversion to 24 kHz |
+| `audiosrv.dll`, `audiodg.exe`, `AudioKSE.dll` | `C:\Windows\System32\` | which converter a capture stream gets, at which quality, with or without dither |
+| `steamui.dll` | the Steam folder | which process starts the loop that reads the microphone (optional) |
+
+And one setting, no file: the microphone's format as Windows shows it (Settings, System, Sound, the input device,
+"Format": the sample rate and bit depth, and the same for the virtual cable if the takes used one). The conversion
+depends on the rate it starts from.
+
 ### B. A real server's log
 
 For the one measurement the finish line still lacks, the queue's fade and underrun in sound: a phrase that opens at
