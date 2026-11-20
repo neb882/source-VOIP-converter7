@@ -11,6 +11,7 @@ sender's hold depends on it (finding 28), and the `volume` and voice settings us
 
 | Run | State | What it would settle |
 | --- | --- | --- |
+| For the evening of 2026-11-20: files to copy, and a real server's log | asked 2026-11-20; not done | where the 31.25 ms capture step comes from, Windows's capture resampler, the owner's own copy of Steam's timer library, and the queue's fade and underrun |
 | The re-check after a Steam update | to run after each Steam update | whether Steam's voice path is still the one the app runs |
 | The key, for W3-11c | not run; W3-11c waits for it | how Steam's push-to-talk key starts and ends a phrase |
 | `vaudio_miles` in an engine of 2006 or 2007 | run once, on 2026-11-13, in Source SDK Base 2006, with a file as the microphone and with speech; not run: the 2007 engine, a second player, a lost packet | whether the `miles` profile (not in TF2) is what such an engine does |
@@ -22,6 +23,46 @@ The owner also holds the run sheet of 2026-11-11 (bad connections on one PC and 
 speakers and Sound quality), given privately; its blocks are named in `docs/PROGRESS.json`,
 `waiting_on_the_owner`, and in [reports/bad-connections-plan.md](reports/bad-connections-plan.md), "The
 recordings".
+
+## For the evening of 2026-11-20: files to copy, and a real server's log
+
+Asked 2026-11-20. Part A takes a few minutes and needs no game. Part B needs a server where someone is playing
+music or talking without pause.
+
+### A. Files to copy
+
+Copies only; nothing is changed on the PC. They are read as data and kept out of every repository, as the game's
+files are (CLAUDE.md, the hard rules).
+
+| File | Where | What it would settle |
+| --- | --- | --- |
+| `dsound.dll` | `C:\Windows\System32\` | where the 31.25 ms capture step comes from, and when the notice at the capture buffer's end is set. Steam only asks Windows for the read position (finding 28, the paragraph of 2026-11-20) |
+| `AudioEng.dll`, `AudioSes.dll` | `C:\Windows\System32\` | Windows's own conversion of the microphone to 24 kHz, which the app imitates with a filter fitted to one measurement |
+| `tier0_s64.dll`, `vstdlib_s64.dll`, `steam.exe` | the Steam folder (where `steamclient64.dll` is) | the clock of Steam's hold was read in Valve's public copy; that the owner's copy is the same is inferred. `steam.exe` helps say which process captures |
+
+With them: the Windows build number that `winver` shows, and when Steam was last started.
+
+### B. A real server's log
+
+For the one measurement the finish line still lacks, the queue's fade and underrun in sound: a phrase that opens at
+`fps_max 67` and runs unbroken for three minutes or more. Each line is pasted whole into the console.
+
+1. When the speaker is playing:
+   `con_logfile voice_server3.log; echo MARK300; fps_max; voice_buffer_ms; voice_showincoming 1; voice_showchannels 1`
+   Leave it about two minutes.
+2. `echo MARK67; fps_max 67; voice_showchannels 2; voice_modenable 0`
+   Count to five.
+3. `echo REOPEN; voice_modenable 1`
+   Leave it five minutes.
+4. `echo END; voice_showincoming 0; voice_showchannels 0; fps_max 300; con_logfile ""`
+
+Step 2 turns voice off so that step 3 opens the speaker's channel afresh at 67 frames a second. Whether
+`voice_modenable` does that is not tested: if the sound does not stop at step 2, mute the speaker on the scoreboard
+for five seconds instead, then unmute.
+
+What comes back: `voice_server3.log` from the `tf` folder, a screenshot with `net_graph 1` up during the part at 67,
+and the speaker's ping. A recording of the desktop's sound over the same minutes is welcome and not needed.
+The log holds other players' names in its other lines: it stays private, and only numbers are taken from it.
 
 ## The queue at low frame rates, for W3-23 (added 2026-11-14)
 

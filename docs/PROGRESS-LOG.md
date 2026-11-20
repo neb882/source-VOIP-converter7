@@ -742,3 +742,7 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-20: the Steam client's capture buffer read; entry replaced
 
 - open_questions, the 8-step pattern replaced: "Steam's sender: the 8-step (250 ms) pattern of chunk ends, which createClock lacks (Set D's demo, Set L; and on another PC's Steam client, Set Q 2026-11-15: one place in 8 holds 15.8 to 16.1% of chunk ends against 12.5%, 3.4 to 4.9 standard deviations, measured). Its cause is not read; an order of its own once it is."
+
+## 2026-11-20: the owner's list for the evening
+
+- waiting_on_the_owner: one entry added first (files to copy; a real server's log). Nothing replaced.
