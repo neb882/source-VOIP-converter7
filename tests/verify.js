@@ -172,31 +172,37 @@ async function main() {
     check('resampler round-trip reconstructs an in-band tone', diffRms(roundTrip.subarray(500, -500), src.subarray(500, -500)) < 1e-3);
   }
 
-  console.log('\n[2] Profile calibration FIR, and the steam profile\'s capture (W3-26b)');
+  console.log('\n[2] Profile calibration FIR, and the steam profile\'s capture (W3-26b, W3-28)');
   {
     // libopus 1.1.5 reproduces Steam's decoded spectrum. Since W3-26b the capture's band edge is
     // Windows's converter as read (finding 28; capture-converter.js and its own suite), not a fitted
-    // filter: the profile names the converter and nothing else reads a capture filter.
+    // filter: the profile names the converter and nothing else reads a capture filter. Since W3-28 the
+    // member names the dithered step to 16 bits too (dither: true, engine/steam.js createSteamCapture).
     const P = engine.CODEC_PROFILES;
     check('steam has no decoder EQ', P.steam.decoderEq == null);
     // A capture filter would be a member whose name starts with 'capture' other than capture itself (the
     // fitted filter's member, removed by W3-26b, was one).
     const filterMembers = (p) => Object.keys(p).filter((k) => k.startsWith('capture') && k !== 'capture');
-    check('steam has no capture filter (no member named capture-something but capture), and has capture { converter: \'windows\', quality: 30 } with those two members alone',
-      filterMembers(P.steam).length === 0 && isDeepStrictEqual(P.steam.capture, { converter: 'windows', quality: 30 }),
+    check('steam has no capture filter (no member named capture-something but capture), and has capture { converter: \'windows\', quality: 30, dither: true } with those three members alone',
+      filterMembers(P.steam).length === 0 && isDeepStrictEqual(P.steam.capture, { converter: 'windows', quality: 30, dither: true }),
       `${JSON.stringify(P.steam.capture)}${filterMembers(P.steam).length ? `; also ${filterMembers(P.steam).join(', ')}` : ''}`);
     const others = Object.keys(P).filter((k) => k !== 'steam' && ('capture' in P[k] || filterMembers(P[k]).length));
     check('no other profile has capture, nor a capture filter', others.length === 0 && Object.keys(P).length >= 6,
       others.join(', ') || `${Object.keys(P).length - 1} other profiles`);
     // A test's copies of the profile with a capture the engine does not build: process() rejects, with
     // an error that names the member and the value given (another converter, another quality, null, a
-    // member more), or the member and the profile's rate (a capture on a profile not at 24000 Hz).
+    // member more, a dither that is not a boolean), or the member and the profile's rate (a capture on
+    // a profile not at 24000 Hz).
     // With the codec off the member is not read: the capture is the app's resampler there.
     const bad = {
       'another converter': [{ ...P.steam, capture: { converter: 'linear', quality: 30 } }, /capture.*"converter":"linear"/],
       'another quality': [{ ...P.steam, capture: { converter: 'windows', quality: 15 } }, /capture.*"quality":15/],
       'null': [{ ...P.steam, capture: null }, /capture.*not null/],
       'a member more': [{ ...P.steam, capture: { converter: 'windows', quality: 30, cutoff: 0.9 } }, /capture.*"cutoff":0\.9/],
+      'a member more beside dither': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: true, cutoff: 0.9 } }, /capture.*"cutoff":0\.9/],
+      'a dither of 1': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: 1 } }, /capture dither is true or false, not 1/],
+      'a dither of "yes"': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: 'yes' } }, /capture dither is true or false, not yes/],
+      'a dither of null': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: null } }, /capture dither is true or false, not null/],
       'a profile at 48000 Hz': [{ ...P.steam_48, capture: { converter: 'windows', quality: 30 } }, /capture.*codecRate is 48000/]
     };
     const x = tone(1000, 0.3, 48000, 0.25), rows = [];
@@ -208,7 +214,7 @@ async function main() {
       if (!named.test(message) || !(off.samples.length > 0)) rows.push(`${name}: ${message || 'not refused'}`);
     }
     delete P.test_capture;
-    check('a profile whose capture names another converter or quality, null or a member more, or sits on a profile not at 24000 Hz, makes process() reject with an error that names it; with the codec off it renders',
+    check('a profile whose capture names another converter or quality, null, a member more or a dither that is not a boolean, or sits on a profile not at 24000 Hz, makes process() reject with an error that names it; with the codec off it renders',
       rows.length === 0 && !('test_capture' in P), rows.join('; ') || Object.keys(bad).join(', '));
     // The filter design and the zero-phase run, on a filter the test makes.
     const taps = TF2Audio.firwin2(255, [0, 11000, 12000], [0, 0, -8.5], 24000);

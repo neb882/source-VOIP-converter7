@@ -8,7 +8,7 @@
   'use strict';
   const E = root.TF2Engine;
   const { FRAME_CODES, gateThresholdDb } = E.codec;
-  const { INT16_FULL_SCALE, clamp, joinSamples, roundEven } = E.dsp;
+  const { INT16_FULL_SCALE, clamp, joinSamples, mulberry32, roundEven } = E.dsp;
   const { createGain } = E.gain;
 
   /* ------------------------------------------------------------------ */
@@ -82,10 +82,12 @@
   // profile's `capture` in one place for the render, the stream and the live
   // chain: TF2CaptureConverter (capture-converter.js, Windows's converter as
   // read, finding 28) when capture is { converter: 'windows', quality: 30 },
-  // and null when the profile has none (absent or undefined: a test's copy of
-  // a profile can carry capture: undefined), where the caller runs the app's
-  // own resampler. Any other value is an Error that names the member (null,
-  // another converter or quality, a member more), never a capture run some
+  // with or without dither (a boolean: Windows's dithered step to 16 bits,
+  // W3-28, steamCaptureStep), and null when the profile has none (absent or
+  // undefined: a test's copy of a profile can carry capture: undefined),
+  // where the caller runs the app's own resampler. Any other value is an
+  // Error that names the member (null, another converter or quality, a
+  // dither that is not a boolean, a member more), never a capture run some
   // other way; so is a capture on a profile whose codecRate is not 24000, the
   // converter's one output rate; and a profile with the member where
   // capture-converter.js is not loaded is an Error that names the file.
@@ -95,8 +97,11 @@
     let text;
     try { text = JSON.stringify(capture) ?? String(capture); } catch (e) { text = `a ${typeof capture}`; }
     const keys = capture && typeof capture === 'object' && !Array.isArray(capture) ? Object.keys(capture).sort().join() : '';
-    if (keys !== 'converter,quality' || capture.converter !== 'windows' || capture.quality !== 30) {
-      throw new Error(`TF2Audio: a profile's capture is { converter: 'windows', quality: 30 } (Windows's converter at quality 30, the one built) or absent, not ${text}.`);
+    if ((keys !== 'converter,quality' && keys !== 'converter,dither,quality') || capture.converter !== 'windows' || capture.quality !== 30) {
+      throw new Error(`TF2Audio: a profile's capture is { converter: 'windows', quality: 30 } (Windows's converter at quality 30, the one built), with dither true or false or without it, or absent, not ${text}.`);
+    }
+    if ('dither' in capture && typeof capture.dither !== 'boolean') {
+      throw new Error(`TF2Audio: a profile's capture dither is true or false, not ${String(capture.dither)} (${text}).`);
     }
     if (codec.codecRate !== STEAM_RATE) {
       throw new Error(`TF2Audio: a profile's capture ${text} converts to ${STEAM_RATE} Hz, and this profile's codecRate is ${codec.codecRate}.`);
@@ -584,6 +589,110 @@
     return q;
   }
 
+  // Windows's step from float to 16 bits, dithered (W3-28; tests/REFERENCE_2026.md, finding 28,
+  // "From the device to Steam's 16-bit samples"; docs/work-orders/W3-28-capture-dither.md, "The
+  // rule"). To each sample a value of a table of 4,096 is added in 32-bit float, the sum is
+  // clipped to -1 and 32767/32768, multiplied by 32768 and rounded to nearest (read twice); ties
+  // go to even, and one table value serves one sample, the index running on modulo 4,096 (read
+  // once). There is no clamp after the rounding: the largest result is 32,767. With a table of
+  // zeros the step is steamCapture's on every 32-bit float input (computed).
+  //   - The table (DITHER_TABLE): Windows's own values are not in this repository. Its
+  //     description was measured on the private copy: a spectrum exactly flat, every bin of
+  //     magnitude 4096 / sqrt(6 x 4095), the constant part 0, phases random; an rms of
+  //     1/sqrt(6) of a step. The app's table has that spectrum with phases drawn from
+  //     mulberry32(0x28D17E5) (chosen; bin 2,048 is +M, chosen), made by a radix-2 inverse
+  //     transform in double precision, each value rounded to 8 decimals and then to a 32-bit
+  //     float of steps / 32768. It is made once, at the first dithered capture, and nothing
+  //     writes to it; its SHA-256 is pinned by tests/steam.verify.js ([5e]).
+  //   - The index belongs to one capture, so a capture fed in pieces gives the samples of the
+  //     whole. Its start is drawn from the render's seed by a draw of its own,
+  //     floor(4096 x the first draw of mulberry32((seed ^ 0x5D17E412) >>> 0)) (chosen: the
+  //     stream is set up some time before the sound, and nothing read says how long), so it
+  //     moves no other draw.
+  const DITHER_LENGTH = 4096, DITHER_SEED = 0x28D17E5, DITHER_MIX = 0x5D17E412;
+  const CAPTURE_TOP = 32767 / 32768;
+  let DITHER_TABLE = null;
+  function ditherTable() {
+    if (DITHER_TABLE) return DITHER_TABLE;
+    const N = DITHER_LENGTH, half = N / 2, M = N / Math.sqrt(6 * (N - 1));
+    const rnd = mulberry32(DITHER_SEED);
+    const re = new Float64Array(N), im = new Float64Array(N);
+    re[half] = M;
+    for (let k = 1; k < half; k++) {
+      const phase = 2 * Math.PI * rnd();
+      re[k] = M * Math.cos(phase); im[k] = M * Math.sin(phase);
+      re[N - k] = re[k]; im[N - k] = -im[k];
+    }
+    // The inverse transform, radix 2, in place: bit reversal, then the butterflies with
+    // e^(+2 pi i j / len), then the factor 1/N.
+    for (let i = 1, j = 0; i < N; i++) {
+      let bit = N >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) {
+        let t = re[i]; re[i] = re[j]; re[j] = t;
+        t = im[i]; im[i] = im[j]; im[j] = t;
+      }
+    }
+    for (let len = 2; len <= N; len <<= 1) {
+      const step = 2 * Math.PI / len, h = len >> 1;
+      for (let j = 0; j < h; j++) {
+        const wr = Math.cos(step * j), wi = Math.sin(step * j);
+        for (let i = j; i < N; i += len) {
+          const xr = re[i + h], xi = im[i + h];
+          const vr = xr * wr - xi * wi, vi = xr * wi + xi * wr;
+          re[i + h] = re[i] - vr; im[i + h] = im[i] - vi;
+          re[i] += vr; im[i] += vi;
+        }
+      }
+    }
+    const T = new Float32Array(N);
+    for (let n = 0; n < N; n++) T[n] = Math.round((re[n] / N) * 1e8) / 1e8 / 32768;
+    DITHER_TABLE = T;
+    return T;
+  }
+  // The index's start for a seed (an unsigned 32-bit whole number).
+  const ditherStart = (seed) => Math.floor(DITHER_LENGTH * mulberry32(((seed >>> 0) ^ DITHER_MIX) >>> 0)());
+
+  // One capture's step to 16 bits: createSteamCapture({ dither, seed }) -> { push(x) -> Int16Array,
+  // start }. dither false (the default): steamCapture, and start null. dither true: the dithered
+  // step with its own index, from ditherStart(seed); start is that index. Anything but a boolean
+  // dither is a TypeError.
+  function createSteamCapture({ dither = false, seed = 0xC0FFEE } = {}) {
+    if (typeof dither !== 'boolean') throw new TypeError(`createSteamCapture: dither is true or false, not ${String(dither)}.`);
+    if (!dither) return { push: steamCapture, start: null };
+    const T = ditherTable(), start = ditherStart(seed), f32 = Math.fround;
+    let i = start;
+    return {
+      start,
+      push(x) {
+        const q = new Int16Array(x.length);
+        for (let k = 0; k < x.length; k++) {
+          let s = f32(f32(x[k]) + T[i]);
+          i = (i + 1) & (DITHER_LENGTH - 1);
+          if (s > CAPTURE_TOP) s = CAPTURE_TOP; else if (s < -1) s = -1;
+          q[k] = roundEven(s * 32768);
+        }
+        return q;
+      }
+    };
+  }
+
+  // The capture step a render, its stream or the live chain makes for one capture: dithered
+  // where the profile's capture has dither true and its converter converts the source (a rate
+  // that rounds to anything but 24000 Hz), with the render's seed; plain everywhere else (a
+  // profile with no capture, dither false or absent, a source at 24000 Hz, which the converter
+  // passes as it is: W3-26's first ruling). Called only where Steam's sender runs (the steam
+  // rule with the codec on, the sender's own sound); on a frame-gate copy of the profile there
+  // is no 16-bit step and the member is not read here.
+  function steamCaptureStep(codec, rate, seed) {
+    const conv = captureConverter(codec);
+    const dither = !!conv && codec.capture.dither === true && Math.round(rate) !== conv.OUT_RATE;
+    return createSteamCapture({ dither, seed });
+  }
+  // A copy of the dither table, for the suite (the table itself stays the module's).
+  const steamDitherTable = () => Float32Array.from(ditherTable());
+
   // The sender's settings from process()'s options. opts.gateThresholdDb
   // as gateThresholdDb() reads it: the profile's own is Steam's own gate
   // exactly (no meanMin passed: 327.67, 1% of full scale); a typed number is
@@ -851,8 +960,8 @@
   }
 
   E.steam = Object.freeze({
-    STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, captureConverter, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
-    steamCodecInfo, steamDemoVoice, steamFits, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamRunOn,
-    steamSenderOptions, steamTimeline
+    STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, captureConverter, createSteamCapture, steamArriveAt, steamBoundTick, steamCapture,
+    steamCaptureStep, steamChannel, steamChannelModule, steamCodecInfo, steamDemoVoice, steamDitherTable, steamFits, steamGameTimeline,
+    steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamRunOn, steamSenderOptions, steamTimeline
   });
 })((typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : globalThis));
