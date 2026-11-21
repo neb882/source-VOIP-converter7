@@ -69,7 +69,7 @@ and the codec's lookahead. That is a fixed figure for a frame rate and a `voice_
 
 The chain's holds are W3-26b's, 4.6 ms under those before it (the converter's wait in place of the app's resampler's
 and the capture filter's; computed), with the queue's zero of W3-27b: since then the time the model gives an opening
-packet to arrive is 42.0 ms where it was 50.5 (measured on the model; finding 28), so the zero is a block of 512
+packet to arrive is 42.5 ms where it was 50.5 (42.0 ms in W3-27b's first build) (measured on the model; finding 28), so the zero is a block of 512
 samples less at 300, 60, 20 and 10 frames a second, and the hold 11.6 ms less there (computed; it was 357.0, 113.2,
 90.0 and 124.8 ms more than with the switch off). The panel's figures were measured before W3-26b; at 300 frames a
 second it would read about 11.6 ms less since W3-27b (computed, not measured).
