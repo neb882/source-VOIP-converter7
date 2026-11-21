@@ -89,13 +89,18 @@
   // sample of it that was captured (the sender's `start`, at 44.1 kHz), before any codec. It
   // is the time the opening packet takes to arrive after its last sample was captured, the
   // model's figure, not the game's. A caller whose sources are earlier than that by a codec's
-  // delay says so with createTimeline's codecDelay, which is added to it. Measured (W3-02c-1,
-  // docs/reports/W3-02c1-channel-as-read.md): offsetStartMs of every opened spurt of the
-  // suite's layouts P and Q (tests/voice-channel.verify.mjs: 2 s spurts after 300, 500 and
-  // 1200 ms, and after 900, 600 and 1200 ms), seeds 1 to 50, at 300 and 66.67 fps, with only
-  // latency() taken out: 455 spurts, mean 50.5 ms (50.9 at 300 fps, 50.2 at 66.67; 8.5 to 88.7,
-  // sd 14.1; means of ten seeds at a time 45.7 to 58.0).
-  const ARRIVAL_SECONDS = 0.0505;
+  // delay says so with createTimeline's codecDelay, which is added to it. Measured on
+  // 2026-11-21 (W3-27b, docs/work-orders/W3-27-sender-clock.md, "The arrival constant" and
+  // "After the plan review"), on the sender's clock as read: offsetStartMs plus
+  // (D - 44100 x latency) / 44.1 of every opened spurt of the suite's layouts P and Q
+  // (tests/voice-channel.verify.mjs: 2 s spurts after 300, 500 and 1200 ms, and after 900, 600
+  // and 1200 ms), seeds 1 to 800, at 300 and 66.67 fps, no codecDelay, pooled: 7,319 spurts,
+  // mean 42.144 ms (43.10 at 300 fps over 3,319, 41.35 at 66.67 over 4,000; a standard error of
+  // 0.20 ms taken by seed), taken to the half millisecond. About 5 ms of it is a convention and
+  // not the sender's timing: the clock's capture begins 0 to 10 ms after the render's start
+  // (5 ms in the mean), and every sound is counted from the render's start. On the clock of
+  // W3-16 it was 50.5 ms (seeds 1 to 50, W3-02c-1).
+  const ARRIVAL_SECONDS = 0.042;
 
   const finiteOr = (x, d) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
   const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
@@ -121,8 +126,8 @@
   // there): the delay at which a restarted spurt plays, latency(bufferMs, fps), plus the mean
   // time its opening packet takes to arrive after its last sample (ARRIVAL_SECONDS) plus
   // codecDelay (seconds, default 0; a finite number >= 0, else a RangeError), on whole mixer
-  // blocks. With no codecDelay, 13312 samples at 66.67 fps, 15360 at 100, 24064 at 300; with
-  // the Opus codec's 156 samples at 24 kHz, 13312, 15360 and 24576. A caller with no end (the
+  // blocks. With no codecDelay, 12800 samples at 66.67 fps, 14848 at 100, 24064 at 300; with
+  // the Opus codec's 156 samples at 24 kHz, 13312, 15360 and 24064. A caller with no end (the
   // live monitor's chain) holds its sound back by it.
   function zero(bufferMs, fps, codecDelay) {
     const delay = codecDelay === undefined ? 0 : codecDelay;
@@ -333,8 +338,8 @@
   // packet takes to arrive after its last sample (ARRIVAL_SECONDS) plus what the caller took
   // off each source for its codec (codecDelay), on whole blocks so that the channel's blocks
   // are the mixer's: D = 512 x round(44100 x (latency + arrival + codecDelay) / 512). With no
-  // codecDelay, 13312 samples at 66.67 fps, 15360 at 100, 24064 at 300; with the Opus codec's
-  // 156 samples at 24 kHz (6.5 ms), 13312, 15360 and 24576. The game has no such figure: it is
+  // codecDelay, 12800 samples at 66.67 fps, 14848 at 100, 24064 at 300; with the Opus codec's
+  // 156 samples at 24 kHz (6.5 ms), 13312, 15360 and 24064. The game has no such figure: it is
   // the model's, for lining a render up with its source. A caller whose packets come with their
   // own arrival ticks (a demo's, W3-02g) gives D itself as zeroSamples (arrivalZero() has the
   // reasoning). Output before sample 0 is dropped, and so is output past length unless the

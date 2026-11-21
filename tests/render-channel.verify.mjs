@@ -667,8 +667,9 @@ if (runs(6)) {
 /* ---------------- 7. the stream ---------------- */
 
 // D, the delay the channel takes out, with the Opus codec's 156 samples at 24 kHz
-// (pinned by tests/voice-channel.verify.mjs).
-const D = { 300: 24576, 66.67: 13312 };
+// (pinned by tests/voice-channel.verify.mjs). W3-27b: 24064 at 300 fps with the arrival at
+// 42.0 ms (24576 at 50.5); 13312 at 66.67 either way.
+const D = { 300: 24064, 66.67: 13312 };
 if (runs(7)) {
   console.log('\n[7] The stream: createRender under \'game\' gives process()\'s render, and gives out its samples as the source comes');
   const t0 = performance.now(), rate = 24000, x = talk(6, rate, 21), opts = { ...BASE, timeline: 'game', seed: 1, gate: false };
@@ -784,7 +785,9 @@ if (runs(9)) {
 // rates with the Opus codec's 156 samples, pinned by tests/voice-channel.verify.mjs; the full reach and
 // the codec's look-ahead the chain holds back on the file's own timing, 4,650 and 156 samples at 24 kHz
 // (read: engine/steam.js steamReach from the sender's constants, and the codec's look-ahead).
-const LIVE_D = { 10: 9728, 20: 10240, 30: 10752, 50: 12288, 60: 12800, 66.67: 13312, 100: 15360, 300: 24576 };
+// W3-27b: with the arrival at 42.0 ms D is a block less at 10, 20, 50, 60 and 300 fps (it was
+// 9728, 10240, 12288, 12800 and 24576 at 50.5 ms) and the same at 30, 66.67 and 100.
+const LIVE_D = { 10: 9216, 20: 9728, 30: 10752, 50: 11776, 60: 12288, 66.67: 13312, 100: 15360, 300: 24064 };
 // W3-23b (the plan review's edit 11): what the chain holds back at its mix point, D and, under 1000/15, the blocks
 // of a frame, ceil(88200 / (1024 fps)): 9 at 10 fps, 5 at 20, 3 at 30, 2 at 50 and 60, none at 66.67 and above
 // (arithmetic, written again here from the order).
@@ -1746,8 +1749,8 @@ if (runs(21)) {
   {
     const { steamChannel } = engine.parts.steam, settings = { length: 1000, fps: 300, bufferMs: 100, autoGain: true, avgGain: 0.5, maxGain: 10, voiceScale: 1 };
     const given = steamChannel({ ...settings, zeroSamples: 14848 }), model = steamChannel({ ...settings, lookahead: 156 });
-    check('steamChannel with zeroSamples 14,848: its zero is 14,848 and its timeline\'s codecDelay 0; without it, the model\'s 24,576 with the codec\'s 156 samples',
-      given.zero === 14848 && given.counts().codecDelay === 0 && model.zero === 24576 && model.zero === VC.zero(100, 300, 156 / 24000), `${given.zero}, ${model.zero}`);
+    check('steamChannel with zeroSamples 14,848: its zero is 14,848 and its timeline\'s codecDelay 0; without it, the model\'s 24,064 with the codec\'s 156 samples (24,576 before W3-27b)',
+      given.zero === 14848 && given.counts().codecDelay === 0 && model.zero === 24064 && model.zero === VC.zero(100, 300, 156 / 24000), `${given.zero}, ${model.zero}`);
   }
   // The render is the reference's, at four frame rates, the auto-gain on and off (at 30 fps on the frame clock,
   // W3-23a: the reference on the second model's).

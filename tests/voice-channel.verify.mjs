@@ -12,6 +12,10 @@
 //   node tests/voice-channel.verify.mjs --server-logs       the log tool's checks on a real server's
 //                                                           log alone (W3-25), each run even after
 //                                                           one fails
+//   node tests/voice-channel.verify.mjs --arrival           the arrival constant measured again over
+//                                                           seeds 1 to 800 (W3-27b), about four
+//                                                           minutes, each check run even after one
+//                                                           fails
 //
 // The public checks write a console log in the game's format from a seeded run of the
 // channel itself under a mixer of their own, turn it into a fixture with
@@ -1165,9 +1169,17 @@ function serverLogChecks() {
 // The game's timeline (createTimeline, W3-02b): the channel on the clock of "The model".
 
 // The zero (W3-02c-1, item 3): latency plus the mean arrival time of a spurt's opening packet,
-// 50.5 ms as measured over this suite's layouts P and Q (docs/reports/W3-02c1-channel-as-read.md),
 // on whole 512-sample blocks (item 2). Read again here from the order, not from the module.
-const ARRIVAL_MS = 50.5;
+// W3-27b (docs/work-orders/W3-27-sender-clock.md, "The arrival constant", "After the plan
+// review" and check 6): on the sender's clock as read the arrival is the mean of offsetStartMs
+// + (D - 44100 x latency) / 44.1 over every opened spurt of this suite's layouts P and Q, seeds
+// 1 to 800, at 300 and 66.67 fps, both layouts pooled, with no codecDelay. ARRIVAL_MEASURED is
+// that measurement as recorded from the build (2026-11-21); the constant is its mean to the half
+// millisecond. `--arrival` measures it again (about four minutes) and holds it to these figures
+// and to the constant. Until W3-27b the constant was 50.5 ms (seeds 1 to 50 on W3-16's clock,
+// docs/reports/W3-02c1-channel-as-read.md).
+const ARRIVAL_MEASURED = Object.freeze({ mean: 42.14422499883053, spurts: 7319, at300: 43.101117116526304, n300: 3319, at67: 41.35024376417234, n67: 4000 });
+const ARRIVAL_MS = 42.0;
 // codecDelay: seconds the caller took off each source for its codec (createTimeline's option).
 const zeroOf = (bufferMs, fps, codecDelay = 0) => 512 * Math.round(44100 * (latency(bufferMs, fps) + ARRIVAL_MS / 1000 + codecDelay) / 512);
 // The Opus codec's look-ahead, 156 samples at 24 kHz: what W3-02c-2 takes off each source.
@@ -1441,14 +1453,17 @@ function timelineChecks() {
       }
       return { ok, seen: seen.join('; ') };
     };
-    const plain = gridRun(undefined, { 66.67: 13312, 100: 15360, 300: 24064 });
-    check('every block\'s first output sample is a multiple of 512 from the output\'s start at 67, 100 and 300 fps: D is 13312, 15360 and 24064 samples', plain.ok, plain.seen);
-    // At 66.67 fps latency + arrival + codecDelay is 307.0 ms, 0.6 ms under the edge where D
-    // becomes 13568 (307.66 ms): a re-measured arrival could move that D by a block.
-    const opus = gridRun(OPUS_DELAY, { 66.67: 13312, 100: 15360, 300: 24576 });
+    // W3-27b: with the arrival at 42.0 ms (50.5 before), D with no codecDelay is 12800, 14848
+    // and 24064 (13312, 15360 and 24064 before), and with the codec's look-ahead 13312, 15360
+    // and 24064 (13312, 15360 and 24576 before).
+    const plain = gridRun(undefined, { 66.67: 12800, 100: 14848, 300: 24064 });
+    check('every block\'s first output sample is a multiple of 512 from the output\'s start at 67, 100 and 300 fps: D is 12800, 14848 and 24064 samples', plain.ok, plain.seen);
+    // At 66.67 fps latency + arrival + codecDelay is 298.5 ms, 2.4 ms over the edge where D
+    // becomes 12800 (296.05 ms).
+    const opus = gridRun(OPUS_DELAY, { 66.67: 13312, 100: 15360, 300: 24064 });
     let refused = 0;
     for (const bad of [-0.001, NaN, Infinity, '0.0065', null]) { try { createTimeline({ length: 10, codecDelay: bad }); } catch (e) { if (e instanceof RangeError) refused++; } }
-    check('with codecDelay 156 / 24000 (the codec\'s look-ahead) D is 13312, 15360 and 24576 samples, still on the grid; info.codecDelay says it; a codecDelay below 0 or not a finite number is refused',
+    check('with codecDelay 156 / 24000 (the codec\'s look-ahead) D is 13312, 15360 and 24064 samples, still on the grid; info.codecDelay says it; a codecDelay below 0 or not a finite number is refused',
       opus.ok && refused === 5, `${opus.seen}; ${refused} of 5 refused`);
   }
   {
@@ -1627,9 +1642,11 @@ function timelineChecks() {
     // same run, measured by the order's second reader; 1.404 ms as printed below, from each
     // seed's mean over its spurts). Measured
     // 2026-11-13 over seeds 1 to 400 by block of seeds (1-200, 51-200, 201-400), the mean with
-    // the grid out lies between +0.4 and +3.6 ms, at lead 0 and with the lead alike (seeds 1 to
-    // 50: +0.02 at lead 0, -0.30 with the lead); the lead moves it by -0.3 to -0.75 ms, paired
-    // by seed (docs/reports/W3-21-capture-phase.md).
+    // the grid out lay between +0.4 and +3.6 ms, at lead 0 and with the lead alike (seeds 1 to
+    // 50: +0.02 at lead 0, -0.30 with the lead); the lead moved it by -0.3 to -0.75 ms, paired
+    // by seed (docs/reports/W3-21-capture-phase.md). That was W3-16's clock with its constant
+    // of 50.5 ms; on the clock as read (W3-27b) the constant is measured over seeds 1 to 800
+    // (ARRIVAL_MEASURED, above; --arrival), and these 50 seeds are a part of that measurement.
     // The count opened at 300 fps was 205 before W3-21, 206 with the seeded runs' phase, and is
     // 204 on the clock of W3-27b.
     const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length;
@@ -1648,7 +1665,7 @@ function timelineChecks() {
       return mean(v);
     });
     const seedLead = bySeed(undefined), seedZero = bySeed(0);
-    check(`an opened spurt's offsetStartMs averages within 5.8 ms of 0 at 300 and at 67 fps (layouts P and Q, seeds 1 to 50), and with the block grid taken out (measured ${pooled.toFixed(3)} ms) to within 3 standard errors of these 50 seeds, the standard error taken by spurt (${bound.toFixed(2)} ms; by seed it is larger, as the spurts of a seed are not independent); on seeds 1 to 400 the mean lies between +0.4 and +3.6 ms by block of seeds (1-200, 51-200, 201-400; measured 2026-11-13)`,
+    check(`an opened spurt's offsetStartMs averages within 5.8 ms of 0 at 300 and at 67 fps (layouts P and Q, seeds 1 to 50), and with the block grid taken out (measured ${pooled.toFixed(3)} ms) to within 3 standard errors of these 50 seeds, the standard error taken by spurt (${bound.toFixed(2)} ms; by seed it is larger, as the spurts of a seed are not independent); over seeds 1 to 800 the arrival is the constant to within 0.3 ms (below, and --arrival)`,
       opened[300].length === 204 && opened[66.67].length === 250 && Math.abs(m300) <= 5.8 && Math.abs(m67) <= 5.8 && Math.abs(pooled) <= bound,
       `300 fps ${m300.toFixed(2)} ms over ${opened[300].length}, 67 fps ${m67.toFixed(2)} ms over ${opened[66.67].length}; the grid moves them ${grid(300).toFixed(2)} and ${grid(66.67).toFixed(2)}; both, grid out: ${pooled.toFixed(3)} ms, 3 standard errors ${(3 * se(both)).toFixed(3)} ms by spurt; by seed the standard error is ${se(seedLead).toFixed(3)} ms`);
     // W3-21, paired: on the same seeds, the zero with the capture's lead less the zero at lead 0,
@@ -1680,6 +1697,11 @@ function timelineChecks() {
     check(`with sources earlier by the codec's 156 samples and codecDelay 156 / 24000, the same spurts average within 5.8 ms of 0 at 300 and 67 fps, and with the grid taken out (measured ${pooledC.toFixed(3)} ms) to within 3 standard errors of these 50 seeds (${boundC.toFixed(2)} ms), as above`,
       inFrame[300].length === 204 && inFrame[66.67].length === 250 && Math.abs(c300) <= 5.8 && Math.abs(c67) <= 5.8 && Math.abs(pooledC) <= boundC,
       `300 fps ${c300.toFixed(2)} ms, 67 fps ${c67.toFixed(2)} ms; the grid moves them ${gridC(300).toFixed(2)} and ${gridC(66.67).toFixed(2)}; both, grid out: ${pooledC.toFixed(3)} ms, 3 standard errors ${(3 * se(bothC)).toFixed(3)} ms`);
+    // W3-27b, check 6: the constant is the recorded measurement over seeds 1 to 800, taken to the
+    // half millisecond, and within 0.3 ms of it (--arrival measures it again).
+    check(`the arrival constant, ${ARRIVAL_MS} ms, is the mean recorded over seeds 1 to 800 of both layouts at 300 and 66.67 fps (${ARRIVAL_MEASURED.mean.toFixed(3)} ms over ${ARRIVAL_MEASURED.spurts} opened spurts) to the half millisecond, and within 0.3 ms of it; these 50 seeds' mean with only latency() out is within 3 standard errors of it`,
+      ARRIVAL_MS === Math.round(2 * ARRIVAL_MEASURED.mean) / 2 && Math.abs(ARRIVAL_MEASURED.mean - ARRIVAL_MS) <= 0.3 && Math.abs(pooled + ARRIVAL_MS - ARRIVAL_MEASURED.mean) <= bound,
+      `these 50 seeds: ${(pooled + ARRIVAL_MS).toFixed(3)} ms`);
   }
   console.log('The timeline: the 400 ppm (one 60 s spurt, seeds 1 to 10)');
   {
@@ -1933,8 +1955,12 @@ function frameClockChecks() {
     // What moves, item 4 (with the plan review's edit 6): the threshold. 66.67 and 1000/15 give the
     // same timeline (the clock of even ticks and blocks, the suite's own reading of it, and main's
     // samples and info by hashes recorded on main 91d37c6 before W3-23a); 66.6 and the first double
-    // below 1000/15 do not, and give the second model's.
-    const MAIN = ['03861aa5723e05b21f9ec3ad4a67eb3d3b0d113f129dc7e83ab6621660eaa981', '0a5b49c7adea7965218e550cee6794cd44c6b68eeaf792f77b218eb1d977de24'];
+    // below 1000/15 do not, and give the second model's. W3-27b recorded the hashes again: these
+    // made-up messages run no sender, and the case moves through the model's zero only (D at
+    // 66.67 fps with no codecDelay is 12800 with the arrival at 42.0 ms, 13312 at 50.5). Before:
+    // 03861aa5723e05b21f9ec3ad4a67eb3d3b0d113f129dc7e83ab6621660eaa981 and
+    // 0a5b49c7adea7965218e550cee6794cd44c6b68eeaf792f77b218eb1d977de24.
+    const MAIN = ['a9815b875bc8461a583a8dabef61797b687a5be1ae498df6f4e4002d5ef0c6b4', 'e7b68f27a72e040e9098e31751e8f29e161969d6fbeb217cda4207c1923af81f'];
     const below = new Float64Array([1000 / 15]);
     new BigInt64Array(below.buffer)[0] -= 1n;
     const messages = madeUpMessages(5, 900), length = 44100 * 14 + 5 * 37;
@@ -2090,8 +2116,8 @@ function endlessChecks() {
     const z = [66.67, 100, 300].map((fps) => zero(100, fps, OPUS_DELAY));
     let refused = 0;
     for (const bad of [-0.001, NaN, Infinity, '0.0065', null]) { try { zero(100, 300, bad); } catch (e) { if (e instanceof RangeError) refused++; } }
-    check('the exported zero: 13,312, 15,360 and 24,576 samples at 66.67, 100 and 300 fps with the codec\'s 156 samples, 24,064 at 300 with none; the suite\'s own reading; a codecDelay that is not a finite number of 0 or more refused',
-      z.join() === '13312,15360,24576' && zero(100, 300) === 24064 && zero(100, 300, 0) === 24064 && [66.67, 100, 300].every((fps) => zero(100, fps, OPUS_DELAY) === zeroOf(100, fps, OPUS_DELAY))
+    check('the exported zero: 13,312, 15,360 and 24,064 samples at 66.67, 100 and 300 fps with the codec\'s 156 samples, 24,064 at 300 with none; the suite\'s own reading; a codecDelay that is not a finite number of 0 or more refused',
+      z.join() === '13312,15360,24064' && zero(100, 300) === 24064 && zero(100, 300, 0) === 24064 && [66.67, 100, 300].every((fps) => zero(100, fps, OPUS_DELAY) === zeroOf(100, fps, OPUS_DELAY))
       && zero(undefined, undefined) === zeroOf(100, 300) && refused === 5, `${z.join(', ')}; ${zero(100, 300)}`);
   }
 }
@@ -2543,17 +2569,64 @@ function playOutChecks() {
 }
 
 // ---------------------------------------------------------------------------------------
+// The arrival constant measured again (W3-27b, docs/work-orders/W3-27-sender-clock.md, check 6,
+// and "After the plan review"): offsetStartMs + (D - 44100 x latency) / 44.1, D the zero the
+// timeline ran with, over every opened spurt of seeds 1 to 800 of layouts P and Q at 300 and
+// 66.67 fps, pooled, with no codecDelay. It does not depend on the constant (D is added back).
+// About four minutes, so it runs only with --arrival.
+function arrivalChecks() {
+  console.log('The arrival constant over seeds 1 to 800 (W3-27b, check 6)');
+  const layout = (silences) => {
+    const loud = [];
+    let t = 0.5;
+    for (let k = 0; k <= silences.length; k++) { loud.push([t, t + 2]); t += 2 + (k < silences.length ? silences[k] : 0); }
+    return { loud, seconds: t + 1.5 };
+  };
+  const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length;
+  const at = { 300: [], 66.67: [] }, bySeed = new Map();
+  for (const fps of [300, 66.67]) {
+    const D = zero(100, fps), add = (D - 44100 * latency(100, fps)) / 44.1;
+    for (const lay of [layout([0.3, 0.5, 1.2]), layout([0.9, 0.6, 1.2])]) {
+      for (let seed = 1; seed <= 800; seed++) {
+        for (const x of engineRun({ ...lay, fps, seed }).info.spurts) {
+          if (!x.opened) continue;
+          at[fps].push(x.offsetStartMs + add);
+          if (!bySeed.has(seed)) bySeed.set(seed, []);
+          bySeed.get(seed).push(x.offsetStartMs + add);
+        }
+      }
+    }
+  }
+  const all = [...at[300], ...at[66.67]], m = mean(all);
+  const seeds = [...bySeed.values()].map(mean), sm = mean(seeds);
+  const seSeed = Math.sqrt(seeds.reduce((a, x) => a + (x - sm) ** 2, 0) / (seeds.length - 1) / seeds.length);
+  check(`the pooled mean, ${m.toFixed(3)} ms over ${all.length} opened spurts (${mean(at[300]).toFixed(2)} ms at 300 fps over ${at[300].length}, ${mean(at[66.67]).toFixed(2)} at 66.67 over ${at[66.67].length}; a standard error of ${seSeed.toFixed(2)} ms by seed), is within 0.3 ms of the constant, ${ARRIVAL_MS} ms`,
+    Math.abs(m - ARRIVAL_MS) <= 0.3, `${(m - ARRIVAL_MS).toFixed(3)} ms from it`);
+  check('it is the measurement recorded in ARRIVAL_MEASURED, spurt for spurt and to 1e-9 ms in each mean',
+    all.length === ARRIVAL_MEASURED.spurts && at[300].length === ARRIVAL_MEASURED.n300 && at[66.67].length === ARRIVAL_MEASURED.n67
+    && Math.abs(m - ARRIVAL_MEASURED.mean) < 1e-9 && Math.abs(mean(at[300]) - ARRIVAL_MEASURED.at300) < 1e-9 && Math.abs(mean(at[66.67]) - ARRIVAL_MEASURED.at67) < 1e-9,
+    `${all.length} spurts, ${m}, ${mean(at[300])}, ${mean(at[66.67])}`);
+}
+
+// ---------------------------------------------------------------------------------------
 
 const argv = process.argv.slice(2);
-let fixtureFile = null, framesOnly = false, playOnly = false, serverOnly = false;
+let fixtureFile = null, framesOnly = false, playOnly = false, serverOnly = false, arrivalOnly = false;
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--fixture' && i + 1 < argv.length) fixtureFile = argv[++i];
   else if (argv[i] === '--server-logs') serverOnly = true;
   else if (argv[i] === '--frames') framesOnly = true;
   else if (argv[i] === '--play-out') playOnly = true;
-  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>] [--frames] [--play-out] [--server-logs]'); process.exit(2); }
+  else if (argv[i] === '--arrival') arrivalOnly = true;
+  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>] [--frames] [--play-out] [--server-logs] [--arrival]'); process.exit(2); }
 }
-if (serverOnly) {
+if (arrivalOnly) {
+  keepGoing = true;
+  arrivalChecks();
+  console.log(`\n${passed} voice channel checks passed, ${failed} failed (the arrival constant's alone)`);
+  if (failed) process.exitCode = 1;
+}
+else if (serverOnly) {
   keepGoing = true;
   serverLogChecks();
   console.log(`\n${passed} voice channel checks passed, ${failed} failed (the server logs' alone)`);
