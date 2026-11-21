@@ -599,6 +599,10 @@ add('demo voice on the game\'s timeline at 66.67 fps, auto-gain off', 24000, () 
 // bypassed' (the app's resampler, as before); 'steam, empty source'; 'steam,
 // silent but for a quarter frame of sine at the end' (gated whole either
 // way); and the four renders of a demo's voice, on either timeline.
+// W3-26b's fix round 1 gave the 16,000 Hz case of test 3 a source that sounds
+// to its last sample (with the talk's quiet end a flush to the floored length
+// passed it) and recorded that case's WAV, codecInfo and GAIN_GOLDEN hashes
+// again, in a commit of its own. No other hash moved.
 const GOLDEN = {
   // W3-02g: a demo's own packets on the game's timeline, recorded once from the run in which every
   // other check of this suite passed (every recorded hash above and below unmoved, and these two
@@ -636,7 +640,7 @@ const GOLDEN = {
   "steam, 1,000,003 samples (a prime) at 48 kHz": ["cf5a9ee2e1ebb45b26f89b752131981b7e75a6b9f5e01e464e6959d0b33e73ae", "32c48c2556973bdeac4ca24a5bd99793e82968620ebc81a390c04e086083336a"],
   // W3-26b, test 3: the steam capture's converter streamed from 44,056, 16,000 and 96,000 Hz, recorded with the moved hashes.
   "steam, the capture converter from 44,056 Hz (not rated)": ["b4733e5aa6b4adaaac168d60a0ed99c0417c18d9860ed9104ab9fa0e1065d72d", "556982718261a10cf070f08c63186a525165953974f3eb7431789089b35e4ddc"],
-  "steam, the capture converter from 16,000 Hz (below 24 kHz)": ["e481efd904d7b0427ed89d5c084ff6f375716fb1d831b3cb630761ad67f55b28", "08fea3efb99a54daffc0ce7de8f87990fe401c3edf2d83e427624e3e86e2924c"],
+  "steam, the capture converter from 16,000 Hz (below 24 kHz)": ["048d393e5c7aa5d2ad08b087ec5ef0e5d01085f22ad30d64ae81cdf223ea4227", "935726db53fb142d9954e9b3fa4d4e2294a4b0ac07981bbded4d256a2c805907"],
   "steam, the capture converter from 96,000 Hz, 8 s": ["d3527e4dea93b429c8cd6a2bd6207b8617124378bd4d436f2844498146f6d9c7", "8567c48efcf5f53f53c02af49594e01d65f5612e00d71d4068413606d80b9755"],
   "demo voice as received": ["cedfd94434a7e342b7f3a3cc78c1c88c023f8e04facb0471ef16e7a58527a03c", "ffd2b8850430d49b04e086cbf71d8b281e5018468b93980e8c903882e86857bd"],
   "steam, 1 s pushed a sample at a time": ["18f23e36b1275782be263b38048792801539b3041f591a4971d07af8a88d952d", "ed8c97839a1604fe00f07090cad7a694b19d0d8d05db615b45a2a1786704740d"],
@@ -739,7 +743,7 @@ const GAIN_GOLDEN = {
   "steam, 1,000,003 samples (a prime) at 48 kHz": "0ccf2890472465cb66c689026b959c24134934cda35ac7776051d404386381da",
   // W3-26b, test 3: the steam capture's converter streamed from 44,056, 16,000 and 96,000 Hz, recorded with the moved hashes.
   "steam, the capture converter from 44,056 Hz (not rated)": "a575bd61cee4339a3343d8b4751784d544124e6ad23f8270dcb150a806a1faa3",
-  "steam, the capture converter from 16,000 Hz (below 24 kHz)": "60c4e2d65a5e85d4d959df4da892d8bd51252199ac92d129295325e77c5dccca",
+  "steam, the capture converter from 16,000 Hz (below 24 kHz)": "c3a81bd1d0ee8b06b9809c92482bfc1e19fedb6825aa35a2aa7f40536e5033ea",
   "steam, the capture converter from 96,000 Hz, 8 s": "31376e257de51ee8d2f8a4a8e51924265c745967fbf0ea2ce0509b0efeb89868",
   "demo voice as received": "2c27d598935f09f2b919fabd94146d19b2479f080cea0ade3821b5e374383102",
   "steam, 1 s pushed a sample at a time": "40e727f4f5607d90c540751cc5fde176d0d94c9735966f4aa35e27dc61ac8b93",
