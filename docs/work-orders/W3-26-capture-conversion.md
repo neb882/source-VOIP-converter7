@@ -745,3 +745,37 @@ loads changed). The report is [W3-26a-capture-converter.md](../reports/W3-26a-ca
   of a stored design is a copy; `push` or `end` after `end` throws; a stream's counters are exact for about 90
   days at 47,999 Hz and 80 years at 44,100 Hz (computed, reviewer); the first second from an odd rate above about
   65 kHz costs one pass over the table to find the scale (0.32 s of the 0.56 s measured at 191,999 Hz).
+
+## W3-26b as built (2026-11-21)
+
+Merged 2026-11-21 with the cache number at v56. Report:
+[docs/reports/W3-26b-capture-wiring.md](../reports/W3-26b-capture-wiring.md). A reviewer and a second reader
+read the build apart; both found the code right, and one round of fixes followed, in words and in one test.
+
+- The `steam` profile has `capture: { converter: 'windows', quality: 30 }` and no `captureEq`. The render, a render
+  fed in pieces and both paths of the live chain run `capture-converter.js` for the source's own rate, after the
+  app's gain and clip; with the codec off, for received voice, for a caller's packets and on every other profile
+  the bytes are those of before (the suites, and both readers' own counts against the base).
+- **What moved:** exactly the order's 50 cases of `render-stream`, in all three of their hashes; its 35 others did
+  not; 3 cases were added (counted by the builder and again by the reviewer from the two lists beside the report).
+  In the fix round the 16,000 Hz case was given a source that sounds to its last sample, so that it catches a
+  flush that rounds down, and its hashes were recorded again.
+- **Latency of the live monitor:** 206.875 to 202.232 ms at 44,100 Hz and 206.898 to 202.252 ms at 48,000 Hz, the
+  order's table. The sound's place on the timeline did not move by a sample (the second reader's tone burst).
+- **A second port:** the second reader wrote the capture from "The rule" and the module's interface alone; it
+  equals the built capture bit for bit at nine rates, and its own sender gives the same messages.
+- **Sources below 24,000 Hz change most** (the rule as read; no take has such a device): a 16,000 Hz source is
+  -4.1 dB at 7.65 kHz and -8.0 dB at 7.8 kHz where the stages before gave -2.3 and -3.6 (the builder's tones on
+  the model; the second reader's own figures for the stages before were -1.9 and -2.6, not reproduced).
+- **Standings overtaken while it was built:** the record's paragraph of 2026-11-21 on the wave input road has the
+  quality read twice and the 16-bit step's dither read twice. The branch's words were corrected in the fix round,
+  and the module's header at the merge.
+- **The private runs** (the orchestrator, measured once; `tests/REFERENCE_2026.md`, finding 28, "The built chain
+  on the private takes"): Set D's band edge 0.20 dB rms off Steam's against 0.32 before; the sweep's spurt 721 to
+  724 frames against Steam's 721, where it was 726 to 730; the accuracy suite's level figures a little better in
+  the mean; the band from 11 to 12 kHz 0.1 to 0.34 dB further from the recorded output on the test signal's rows.
+  The retiming run was not repeated: the capture's timing did not move by a sample.
+- **Left:** the 11,025 Hz case of `render-stream` also ends quietly and would not catch a flush that rounds down;
+  the 16,000 Hz, 44,056 Hz, 96,000 Hz, 37,800 Hz and prime-length cases do. The step to 16 bits is still plain
+  rounding: order W3-28.
+

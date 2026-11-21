@@ -798,3 +798,11 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 
 - live.last_merge: W3-27a put first; the earlier text follows it unchanged after "Before it:". live.cache v54 became v55.
 - in_flight, W3-27 replaced: "W3-27, the sender's clock on the rule as read (docs/work-orders/W3-27-sender-clock.md): planned 2026-11-21, the rulings given. W3-27a (the clock added to steam-sender.js beside the one that runs, with its reference and suite; no render moves; the cache number rises) is being built on claude/w3-27a-read-clock while a plan reviewer reads the order. W3-27b (the switch, the queue's arrival constant measured again, every seeded steam render moves) waits for W3-26b's merge."
+
+## 2026-11-21: W3-26b merged
+
+- live.last_merge: W3-26b put first; the earlier text follows it unchanged after "Before it:". live.cache v55 became v56.
+- in_flight, W3-26b removed: "W3-26b, the wiring of the capture converter (docs/work-orders/W3-26-capture-conversion.md): the steam profile's capture runs capture-converter.js in the render, the stream and the live chain, and captureEq goes. Every steam render with the codec on moves; the cache number rises once. Being built on claude/w3-26b-capture-wiring (2026-11-21), then reviewed and read a second time; the orchestrator's private runs (the accuracy suite, Set D's band edge and sweep through the built chain) come before its merge."
+- in_flight, W3-28 replaced: "W3-28, the capture's step to 16 bits, dithered as Windows's is (docs/work-orders/W3-28-capture-dither.md): written 2026-11-21 after the two private reads of the wave input road (tests/REFERENCE_2026.md, finding 28, 'From the device to Steam's 16-bit samples'); not built, waits for W3-26b's merge. Every steam render with the codec on moves by a noise of about 0.4 of one 16-bit step; the cache number rises once."
+- in_flight, W3-27b: "waits for W3-26b's merge and W3-28's" became "waits for W3-28's merge".
+- open_questions: one entry added (the band from 11 to 12 kHz after the packets).
