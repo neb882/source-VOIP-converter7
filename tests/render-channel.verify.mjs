@@ -811,11 +811,12 @@ const REACH_AND_LOOKAHEAD = 4806;
 // seed 0x28D17E6) recorded the same three rows again, in a commit of its own; the celt_22 row did not move.
 // W3-27b (Steam's sender's clock on the rule as read) recorded the three steam rows again, in a commit of its own,
 // from the run in which every other check passed; the celt_22 row did not move. Its fix round 1 (the seeded sender's
-// warm-up of 1.5 s) recorded the three steam rows again, in a commit of its own; the celt_22 row did not move.
+// warm-up of 1.5 s) recorded the three steam rows again, in a commit of its own; the celt_22 row did not move. Its
+// fix round 2 (the warm-up of 4.5 s) recorded them again, in a commit of its own; the celt_22 row did not move.
 const LIVE_MAIN = {
-  'the defaults': ['fe23b5a030fd5eab2af72cd4bce061b2bd1c3a87a90efe8f73d21ae7e8d03f57', 'b6c44933dd62c0d798fb8f4f2e871518fa0f4af90eddf6ec1a6e4b7572e20285'],
-  'loss 15%, jitter 50 ms, seed 3': ['f6c06361d618c922813cecb7170683b265774a1eaec25fb47c31f92677985712', '51675ed3f25f4aff607ea2d6d89f4e01d09230a7277b1509b3913460714f9082'],
-  'the gate off, agc off, voiceScale 2, low latency': ['37dbeb0b87f298d06106f5235e020ef9da774aa545537d4173a174b676c9396f', 'b5f71fd5a1fd2d192e5176a013e996ad8a4b496a89447b3cce45dbe795be91cb'],
+  'the defaults': ['79c93f5c59806ce2e0dda40ae5d1ea0cf59188f9353b5ad27b1c77b208a92b19', 'ad884f3b379ea182e0f4bc4233ca113805c93312ffc3fbb4a75e3942a989327c'],
+  'loss 15%, jitter 50 ms, seed 3': ['22d216a4109da24fec4003d183255f9c782668062bb82929e8f74040b6de6ea2', 'dd625b716556b9a9f5d3637ec5906d2fe76e751571d1532290d41089bf65341c'],
+  'the gate off, agc off, voiceScale 2, low latency': ['f65f30a9c2f18af86687cf490720c1a2cd3a40d87266ead039a9743e389b121f', 'ea348f0835716bfa7666739205d67ccb3ab2b8d2d4bf364ebe89c0cc7f8616ed'],
   'celt_22, loss 15%, seed 5': ['ae240a8399c4e6abfd470959f7b1e85db244ebd05a6d36c37fe03f0c3ede4f0a', '1d30d0f8b40a265b63c1f1c5e7d9637f9ce32b75ac005bebe82244a6d2991e92']
 };
 const LIVE_MAIN_OPTS = {
@@ -2225,9 +2226,9 @@ if (runs(24)) {
   // main (91d37c6) before W3-23a. Recorded again by W3-26b (the steam capture runs Windows's converter as read), in a
   // commit of its own, from the run in which every other check passed. Recorded again by W3-27b (Steam's sender's
   // clock on the rule as read; at 66.67 fps D is the same with the arrival at 42.0 ms), in a commit of its own, from
-  // the run in which every other check passed, and by its fix round 1 (the seeded sender's warm-up), in a commit of
-  // its own.
-  const MAIN = '12086111c6f9c867091871e0aac264a84d3d11d40d4108c3f995ee7007000bfb 892e122b9d21861297a485f03f5698d3b95a32f36d231c19caf948e93f95f289';
+  // the run in which every other check passed, and by its fix rounds 1 and 2 (the seeded sender's warm-up of 1.5 s,
+  // then 4.5 s; D at 66.67 is the same with the arrival at 42.5 ms), each in a commit of its own.
+  const MAIN = '7b83e61addca339f76d45d117c675a8445064058e4300aa69cdff312043de4a4 eb61b55c5f123551747c9e8e4439fca005a9ef2569ae8b3e806161f96356d441';
   const hashOf = async (r) => `${sha256(new Uint8Array(await r.blob.arrayBuffer()))} ${sha256(JSON.stringify(r.codecInfo, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)))}`;
   const below = new Float64Array([1000 / 15]);
   new BigInt64Array(below.buffer)[0] -= 1n;
@@ -2525,16 +2526,17 @@ if (runs(28)) {
 // capture runs Windows's converter as read) recorded all eight again, in a commit of its own, from the run in which
 // every other check passed. W3-27b (Steam's sender's clock on the rule as read, and the arrival at 42.0 ms) recorded
 // all eight again, in a commit of its own, from the run in which every other check passed, and its fix round 1 (the
-// seeded sender's warm-up of 1.5 s) all eight again, in a commit of its own.
+// seeded sender's warm-up of 1.5 s) all eight again, in a commit of its own, and its fix round 2 (the warm-up of
+// 4.5 s) all eight again, in a commit of its own.
 const ENDS_IN_SILENCE_MAIN = {
-  '300 0': 'b36c9caeda807ccfcb18632ebf5bc574ce95110614337394f36b8c779ad6c334',
-  '300 50': 'af8a29c168f91bbb561cf01944f1035d3ae74cd04fc811c55a5562fbc1fd3267',
-  '66.67 0': '5797844cdc4f9bb60076c77d3d06d4ab14bda00e788f4dac43c2613107df9786',
-  '66.67 50': 'bf9bc1a485f3843f946930b1044cb0468d2c4396f09bf3925e2fe9a312da65f5',
-  '60 0': '3bdf0773c7f9309a2c29bed3a1936df9b313bbf8cbefa5faa3b1bc34c5de2fee',
-  '60 50': '8f1caafd2cd046454f6aee08bdb1bf5f7019c1c30e1f746c904b104ca9b73711',
-  '30 0': '00a4a704928694ce81731caebf70745788e5331bad00dded8830128acdafd0bf',
-  '30 50': '499611b6fe850f85b6663eac91be5870b804e03e23154e5d105cee418f6123c3'
+  '300 0': 'f607028bb6e8481b269314698a77f82d2e615b6b5f6d0daa6aa2e757b46dbfea',
+  '300 50': 'bfa7c68e82f025c5ddb6bfdf3e2e74aa1f72dfad9bddec50a2048e8d1ea0cd9a',
+  '66.67 0': 'acadaeac279048436747a9c71436dd32bb87a8c8ff775d87fe89fa4a1af46aed',
+  '66.67 50': 'ece245372a2b84841175595a4a2bf37cb723f33251aea57ee163ab30e24ea692',
+  '60 0': 'acadaeac279048436747a9c71436dd32bb87a8c8ff775d87fe89fa4a1af46aed',
+  '60 50': 'b6e784b5e02599129984e7a0c39bd5bf8413ac606e3b0652f9fbc4f47e320976',
+  '30 0': 'acadaeac279048436747a9c71436dd32bb87a8c8ff775d87fe89fa4a1af46aed',
+  '30 50': 'be1d3e488c29fa041fccdb7c995e303a596a7f5c371d09d52da1c5b60683067e'
 };
 if (runs(29)) {
   console.log('\n[29] A render\'s end (W3-24, check 12): a source that ends in 1 s of silence renders as main did, WAV hash for WAV hash, with no over');
