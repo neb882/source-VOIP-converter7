@@ -1176,9 +1176,11 @@ function serverLogChecks() {
 // 1 to 800, at 300 and 66.67 fps, both layouts pooled, with no codecDelay. ARRIVAL_MEASURED is
 // that measurement as recorded from the build (2026-11-21); the constant is its mean to the half
 // millisecond. `--arrival` measures it again (about four minutes) and holds it to these figures
-// and to the constant. Until W3-27b the constant was 50.5 ms (seeds 1 to 50 on W3-16's clock,
-// docs/reports/W3-02c1-channel-as-read.md).
-const ARRIVAL_MEASURED = Object.freeze({ mean: 42.14422499883053, spurts: 7319, at300: 43.101117116526304, n300: 3319, at67: 41.35024376417234, n67: 4000 });
+// and to the constant. Recorded again with the sender's warm-up (the order's ruling of
+// 2026-11-21, W3-27b's fix round): with none it was 42.144 ms over 7,319 spurts (43.10 at 300
+// fps over 3,319, 41.35 at 66.67 over 4,000), the same constant. Until W3-27b the constant was
+// 50.5 ms (seeds 1 to 50 on W3-16's clock, docs/reports/W3-02c1-channel-as-read.md).
+const ARRIVAL_MEASURED = Object.freeze({ mean: 41.956180703983456, spurts: 7314, at300: 42.732070498688294, n300: 3314, at67: 41.31335600907027, n67: 4000 });
 const ARRIVAL_MS = 42.0;
 // codecDelay: seconds the caller took off each source for its codec (createTimeline's option).
 const zeroOf = (bufferMs, fps, codecDelay = 0) => 512 * Math.round(44100 * (latency(bufferMs, fps) + ARRIVAL_MS / 1000 + codecDelay) / 512);
@@ -1707,8 +1709,27 @@ function timelineChecks() {
   {
     const drift = (fps) => Array.from({ length: 10 }, (_, k) => { const s = engineRun({ loud: [[0.5, 60.5]], seconds: 62, fps, seed: k + 1 }).info.spurts[0]; return s.offsetEndMs - s.offsetStartMs; });
     const d150 = drift(150), d300 = drift(300);
-    check('150 fps: offsetEndMs - offsetStartMs between -26 and -22 ms (one sample for each of 17.90 messages a second)', d150.every((d) => d >= -26 && d <= -22), `${range(d150)} ms`);
+    // About one sample for each message: 18.01 messages a second on the sender's clock as read
+    // (tests/steam-sender.verify.mjs, the statistics through the sender; 17.90 on W3-16's clock).
+    check('150 fps: offsetEndMs - offsetStartMs between -26 and -22 ms (one sample for each of 18.01 messages a second)', d150.every((d) => d >= -26 && d <= -22), `${range(d150)} ms`);
     check('300 fps: that or lower', d300.every((d) => d <= -22), `${range(d300)} ms`);
+  }
+  // The W3-27 order's ruling of 2026-11-21 (W3-27b's fix round, item 6): a render begins in
+  // mid-stream, so sound at the source's start is sent as sound anywhere else is. A 0.5 s burst
+  // that begins 0, 30 or 60 ms into the source starts on the game's timeline (its spurt's
+  // offsetStartMs, the zero taken out) within 6 ms of where the same burst beginning at 2 s
+  // starts, in the mean of seeds 1 to 200 (the order's band). The order's second reader had
+  // +0.4, +1.5 and +2.6 ms at 66.67 fps with the warm-up made from outside; with none the
+  // bursts started 29.0, 67.4 and 53.2 ms before their source (400 seeds).
+  console.log('The timeline: a burst at the source\'s start against the same burst 2 s in (the W3-27 order\'s ruling of 2026-11-21; seeds 1 to 200)');
+  {
+    const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length;
+    const startsAt = (t, fps) => mean(Array.from({ length: 200 }, (_, k) => engineRun({ loud: [[t, t + 0.5]], seconds: 4, fps, seed: k + 1 }).info.spurts[0].offsetStartMs));
+    for (const fps of [66.67, 300]) {
+      const two = startsAt(2, fps), d = [0, 0.03, 0.06].map((t) => startsAt(t, fps) - two);
+      check(`${fps} fps: a burst at 0, 30 and 60 ms starts within 6 ms of the same burst at 2 s, in the mean`, d.every((x) => Math.abs(x) <= 6),
+        `${d.map((x) => (x >= 0 ? '+' : '') + x.toFixed(1)).join(', ')} ms; at 2 s ${two.toFixed(1)} ms`);
+    }
   }
   console.log('tests/retiming.mjs --engine on the stand-in results');
   {

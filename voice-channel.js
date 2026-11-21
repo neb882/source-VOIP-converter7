@@ -94,12 +94,13 @@
   // "After the plan review"), on the sender's clock as read: offsetStartMs plus
   // (D - 44100 x latency) / 44.1 of every opened spurt of the suite's layouts P and Q
   // (tests/voice-channel.verify.mjs: 2 s spurts after 300, 500 and 1200 ms, and after 900, 600
-  // and 1200 ms), seeds 1 to 800, at 300 and 66.67 fps, no codecDelay, pooled: 7,319 spurts,
-  // mean 42.144 ms (43.10 at 300 fps over 3,319, 41.35 at 66.67 over 4,000; a standard error of
-  // 0.20 ms taken by seed), taken to the half millisecond. About 5 ms of it is a convention and
-  // not the sender's timing: the clock's capture begins 0 to 10 ms after the render's start
-  // (5 ms in the mean), and every sound is counted from the render's start. On the clock of
-  // W3-16 it was 50.5 ms (seeds 1 to 50, W3-02c-1).
+  // and 1200 ms), seeds 1 to 800, at 300 and 66.67 fps, no codecDelay, pooled, and measured again
+  // with the sender's warm-up (the order's ruling of 2026-11-21, W3-27b's fix round): 7,314
+  // spurts, mean 41.956 ms (42.73 at 300 fps over 3,314, 41.31 at 66.67 over 4,000; a standard
+  // error of 0.20 ms taken by seed), taken to the half millisecond. With no warm-up it was 42.144
+  // over 7,319 spurts, the same constant. About 5 ms of it is a convention and not the sender's
+  // timing: the capture's packets begin 0 to 10 ms after the time the sound is counted from
+  // (5 ms in the mean). On the clock of W3-16 it was 50.5 ms (seeds 1 to 50, W3-02c-1).
   const ARRIVAL_SECONDS = 0.042;
 
   const finiteOr = (x, d) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
