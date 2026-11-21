@@ -794,3 +794,66 @@ On the planner's questions:
 
 The reference generator and its vector (`tests/steam-sender/gen.mjs`, `vector-seed1.json`) reach the repository
 with W3-27a's branch, as the orchestrator's commit made before the builder's first.
+
+## After the plan review (2026-11-21)
+
+A reviewer who had not seen the plan being made read the order against the code and wrote a port of the clock from
+"The rule" alone. Its port gave the reference's reads to the last bit (the time, the steps and `by`) over 50,000
+reads at each of seeds 1, 2, 9 and the default, at eleven settings between the ends of the ranges, and on the
+committed vector; no step of the rule read two ways (measured once, by the reviewer). What it found is below.
+Where a line here and a line above differ, this section is the one the builders work from.
+
+### W3-27a
+
+- **Check 5, the phase.** `time − since` is the seventh draw to the last bit only at a clock's early reads: over
+  1,000 reads 3 of 200 seeds stay exact, and the worst miss is 3.6e-15 (measured once). The check is
+  `time === phase + since` at every read, with `phase` the suite's own seventh draw.
+- **Check 2 and "Precision", the settings.** They are nine, not eight: seeds 1, 2 and the default at the default
+  options, and six option settings (packets of 20 ms; a lateness of 20 ms; 30, 60 and 144 frames a second; a tick
+  of 30 ms), each of the six at seed 1.
+- **Check 3, the four settings** are those of check 6: the defaults, 20 ms packets, a lateness of 0, and 30
+  frames a second with 20 ms packets and a lateness of 31.25 ms.
+- **The limit of three steps, at the ends of the ranges.** The limit binds far more often there than at the
+  defaults: in 2,000,000 reads, 5,693 times at 10 frames a second with a tick of 100 ms, 20 ms packets and a
+  lateness of 31.25 ms; 4,595 at 30 frames a second with the same packets and lateness; 39 with 10 ms packets
+  and a lateness of 31.25 ms (measured once). What is left over is always one step, and it is never carried
+  twice. The module's comment and the suite say both; the suite checks the second at the first of those settings.
+- **The invariant's margin.** "By at least 1.6 samples" is the margin of an empty first read. On reads that
+  bring a chunk the least is 2.7 samples at the defaults and 1.63 at a lateness of 0; at the ends of the ranges
+  above it is 24.8 or more (measured once).
+- **The slip's standing.** The table's "measured once" for 1.3 ms is wrong: the record's paragraph of
+  2026-11-21 has 1.3 ms among the numbers fitted on Set J's reads, and 1.5 ms as the spread measured. The
+  comment on `STEAM_SENDER.clock` says fitted, with the measured 1.5 ms beside it.
+
+### W3-27b
+
+- **The pins that move, found by setting the constant** (the reviewer's scratch run with its port and
+  `ARRIVAL_SECONDS` 0.042; neither planner prototype had the constant set):
+  - `tests/voicequeue/reference-frames.mjs` keeps its own copy of the constant (line 62). It joins "May touch",
+    and takes the measured value. Without it `voice-channel` stops at its first check.
+  - `voice-channel`: with that file changed, eight checks still move: the pinned values of `D`, the exported
+    zero, and "the threshold: 66.67 and 1000/15", a recorded hash of made-up messages on the game's timeline.
+    That hash does not run the seeded sender and moves all the same, through the model's zero. The stop rule
+    ("a hash of a case that does not run Steam's seeded sender, if it moves, is a reason to stop") therefore has
+    one exception: a case on the game's timeline that takes the model's zero. Each such case is named in the
+    report with the reason.
+  - `render-channel`: 24 checks move, more than the three sets of hashes and seed 8 listed: the live chain's 13
+    checks of "D …, the hold …" (`LIVE_D`, `D`, the 24,576), the hold's arithmetic, `queueCostMs` and
+    `spurtStart`. The builder runs every suite with the constant set before recording anything, and lists every
+    pin that moved with its old and new value.
+- **"The mean" is the pooled one.** `ARRIVAL_SECONDS` is the mean of
+  `offsetStartMs + (D − 44100 × latency) / 44.1` over every opened spurt of seeds 1 to 800 at 300 and at 66.67
+  frames a second, both layouts, pooled, with no `codecDelay`. The reviewer's port gives 42.144 ms that way
+  (42.0 to the half millisecond); the mean of the four layout-and-rate cells gives 42.258, which rounds to 42.5
+  and fails check 6 by 0.356 ms (measured once). The measurement is 3,200 runs and took the reviewer 3.5 minutes:
+  if it runs in `voice-channel`, the suite's time about doubles, so it runs as a slow check behind a flag or in a
+  tool of its own, and the suite pins its result. The builder says which in the report.
+- **"What must not move" loses "a render with `arriveAt`".** That render runs the seeded sender
+  (`engine/render.js`, the sender's two call sites) and its `D` moves. A render with a caller's packets stays on
+  the list.
+- **Check 7's break** is the packet rounding rounded down, which makes a step up to 8.75 ms early. Leaving the
+  rounding out never makes one early.
+- **Check 2.** The reference has no `place` and no limit of three: the suite recomputes the steps from the
+  reference's times with check 4's ten lines.
+- **Checks 6 and 8** take their expected values from the built constant: the report gives each. Check 8's band of
+  0.03 is a share of chunk ends (three points of a hundred).
