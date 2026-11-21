@@ -104,8 +104,9 @@ from the stage the lists say.
 
 Measured once on the model (`process()` on `a822707` and on the branch, render-stream's speech-like signal and its
 page options; the capture difference from the converter's output through each step, 48 kHz unless named). The level
-of the difference between the two capture signals is -95.1 dBFS on talk (a third of the samples move, each by one
-step) and -97.0 dBFS on silence (the first build's table gave the same to 0.05 dB). That is above the table's own level, -98.1 dBFS (1/sqrt(6) of a step, computed),
+of the difference between the two capture signals is -95.1 dBFS on talk (a third of the samples move: on the 20 s case
+154,267 of 480,000 by one step and 852 by two, measured once) and -97.0 dBFS on silence (the first build's table
+gave the same to 0.05 dB). That is above the table's own level, -98.1 dBFS (1/sqrt(6) of a step, computed),
 because the difference of two roundings is not the table itself; on silence it is exactly the rms of the table
 rounded to steps.
 
@@ -134,6 +135,20 @@ The list of spurts (start, frames, pre-roll) is the same before and after in eve
 0.7% on talk and rise by 21% (153 bytes) on silence with the gate off. The frames of 2 bytes or less move by one in
 one case. The output samples differ in 56 to 93% of places on talk. (The first build's table: bytes within 1.3% on
 talk, the same 21% on silence, frames of 2 bytes or less moved by one in two cases.)
+
+The 0.7% is the cases above, talk with the suite's own pauses and the gate on. On 6 s of the same talk followed by
+6 s of silence, the gate on, seeds 1 to 8, the bytes move by -0.30 to +0.23% (measured once, fix round 2). The second
+reader measured +1.1 to +2.8% on talk followed by silence over 8 seeds (measured once on the model, their own case);
+the two cases differ, and the figure is not settled beyond "a few percent at most on talk".
+
+**The floor on silence** (12 s at 48 kHz, measured once in fix round 2): with the gate off the decoded 16-bit floor
+rises from -109.4 to -97.3 dBFS and the output at volume 1 from -91.0 to -78.5 dBFS (the second reader: about -110
+to -96 to -98, and -91 to -77 to -79, measured once on the model); with the gate on silence still sends nothing (0
+bytes before and after).
+
+**The live chain with the key up:** the zeros it feeds while the push-to-talk key is up go through the step as the
+microphone's sound, so with the gate off that stretch carries the dither. The gate still closes on it: a mean of
+plus or minus one step is far under the gate's 327.67.
 
 **The accuracy suite's public rows** were not run: every row of `tests/accuracy.takes.json` needs the owner's takes,
 and the published recordings (`tests/recordings/files/`) are CELT and Speex files, which the step does not touch.
@@ -193,6 +208,9 @@ pieces of 1, 777, 4,097 and 30, and the live chain in blocks of 441, decoding th
 - Fix round 1, `flock /tmp/tf2ve-heavy.lock pnpm test render-stream render-channel stages steam verify harness` after
   the hashes' commit: "6 of 6 suites passed. 1037.8 s summed". The site suite passed too. CI on the round's head
   is read in the hand-back.
+- Fix round 1's head `47ba87f`: CI run 44885293748, `verify` success (all five jobs success).
+- Fix round 2, `flock /tmp/tf2ve-heavy.lock pnpm test harness verify steam render-stream site`: "5 of 5 suites
+  passed. 498.2 s summed". No recorded hash moved. CI on the round's head is read in the hand-back.
 - The 24,000 Hz break against `render-stream`: the two 24,000 Hz cases fail, in their WAV and codecInfo and their
   gain hashes (4 failed, 632 passed), and nothing else.
 
@@ -231,6 +249,28 @@ The six breaks of the first build were made again on the fix round's code, and e
 `render-stream` (`GOLDEN` and `GAIN_GOLDEN` of the same 50 cases) are the first build's set exactly. Every one of
 them moved again against the first build's values. In `render-channel`, LIVE_MAIN's three steam rows moved again and
 its `celt_22` row did not. `docs/reports/W3-28/hashes-after.txt` is made again.
+
+## Fix round 2
+
+The reviewer's and the second reader's findings; none moves a render, and no recorded hash moved.
+
+- **"The table is made once"** could not fail: it compared two times. The module now counts the tables it has made
+  (`steamDitherTable.made()`, for the suite; the table stays private), and [5e] asserts 0 after a fresh load, 0
+  after a plain capture and 1 after two dithered captures (it reads 0, 0, 1). Breaks in scratch copies: the cache
+  removed (the table made at every dithered capture) reads 0, 0, 2 and fails; the table made at load reads 1, 1, 1
+  and fails. The old-seed break of round 1 still fails six checks on the new code.
+- **The refusals** name the value with its type (`"false" (a string)`, `1 (a number)`, `null (a null)`), in
+  `captureConverter` and `createSteamCapture`. `tests/verify.js` [2] and a new [5e] check hold the strings
+  `'true'` and `'false'` to messages that say "a string".
+- **`docs/VOICE-PATH.md`, "16 bits":** "never as a run of zeros" was wrong. 0 is 78.3% of the table's rounded
+  values (3,209 of 4,096) and the longest run of zeros through the table, round its end, is 58 samples (computed,
+  by the module's table; the reviewer's count by the plain sum is the same). The paragraph says "never a long stretch
+  of zeros". "One step at most" was wrong too: 852 of 480,000 samples move by two steps on the suites' talk (measured
+  once; the second reader: 866 of 480,000 on talk at -6 dBFS). The paragraph also names the hand-set filters between
+  the conversion and the step (chosen), keeps the sender's own zeros as chosen, and gives the floor on silence and the
+  key-up stretch of the live monitor.
+- **The report:** the histogram lines, the capture difference's line, the bytes on talk with pauses, the floor on
+  silence and the live chain with the key up (above).
 
 ## Scanned
 
