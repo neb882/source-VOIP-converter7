@@ -1735,11 +1735,13 @@ async function verifyRoomsPage(page) {
     agc: document.querySelector('#agc option[value="1"]').textContent }));
   check(labels5.avg === 'Gain target: mean (0) to peak (1) voice_avggain' && labels5.agc === 'On (the game\'s rule)',
     'the labels: "Gain target: mean (0) to peak (1)" with voice_avggain; the auto-gain "On (the game\'s rule)"', `${labels5.avg}; ${labels5.agc}`);
-  // A render with each group's first entry plays and downloads with its tail. The tone is one whose render on the
-  // game's voice queue at the page's seed does not run on past the source's end (W3-24), so that the tail is the
-  // room's alone: since W3-27b (the sender's clock as read, the arrival at 42.0 ms) the 0.5 s tone of before runs on
-  // by 326 samples at 48 kHz, and 0.6 s runs on by none, as it did before (measured on the model).
-  await page.locator('#file').setInputFiles({ name: 'room-tone.wav', mimeType: 'audio/wav', buffer: wavTone(0.6) });
+  // A render with each group's first entry plays and downloads with its tail. On the game's voice queue a render may
+  // run on past the source's end (W3-24: the queue still playing), so the length expected is the source's, the
+  // voice's run-on the render reports (codecInfo.channel.over, at 44.1 kHz) at the device's rate as the engine
+  // takes it (rounded up, engine/room.js), and the room's tail. (W3-27b's first build moved this 0.5 s tone to a run-on
+  // of 326 samples at 48 kHz and put a 0.6 s tone in its place; the fix round put it back and made the check read
+  // the run-on.)
+  await page.locator('#file').setInputFiles({ name: 'room-tone.wav', mimeType: 'audio/wav', buffer: wavTone(0.5) });
   await page.waitForFunction(() => state.sourceName === 'room-tone.wav' && !els.process.disabled);
   for (const [key, setup] of [['open'], ['auto_set_c_room'], ['auto_closet'], ['place_2fort_spawn_room'], ['room_2'], ['manual', 'dsp_room 1']]) {
     await page.evaluate(([k, cmd]) => { execCommand('exec preset_modern'); execCommand(`listener_position ${k}`); if (cmd) execCommand(cmd); }, [key, setup]);
@@ -1749,20 +1751,21 @@ async function verifyRoomsPage(page) {
       if (!(a.duration > 0)) await new Promise((r) => a.addEventListener('loadedmetadata', r, { once: true }));
       a.muted = true; await a.play(); await new Promise((r) => setTimeout(r, 150));
       const played = a.currentTime; a.pause(); a.currentTime = 0; a.muted = false;
-      const info = state.lastCodecInfo.room || null;
+      const info = state.lastCodecInfo.room || null, channel = state.lastCodecInfo.channel || null;
       return { length: state.processedBuffer.length, rate: state.processedRate, source: Math.round(state.decodedSource.length * state.processedRate / state.decodedSource.sampleRate),
-        duration: a.duration, played, room: info && { shares: info.shares, tail: info.tail, auto: info.auto, preset: info.preset } };
+        duration: a.duration, played, room: info && { shares: info.shares, tail: info.tail, auto: info.auto, preset: info.preset },
+        queue: !!channel, over: (channel && channel.over) || 0 };
     });
     const wav = await readRenderedWav(page);
     const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#download').click()]);
     const saved = fs.readFileSync(await download.path());
-    const tail = got.length - got.source;
+    const runOn = Math.floor((got.over * got.rate + 44099) / 44100), tail = got.length - got.source - runOn;
     const roomed = key !== 'open';
     check(wav.frames === got.length && saved.length === 44 + 2 * got.length && saved.equals(Buffer.from(await page.evaluate(async () => [...new Uint8Array(await state.lastWav.arrayBuffer())])))
-      && Math.abs(got.duration - got.length / got.rate) < 0.01 && got.played > 0
+      && Math.abs(got.duration - got.length / got.rate) < 0.01 && got.played > 0 && got.queue
       && (roomed ? got.room && got.room.tail > 0 && tail === Math.round(got.room.tail * got.rate / 44100) : !got.room && tail === 0),
-      `${key}${setup ? ` (${setup})` : ''}: the render plays, and it and its download carry ${roomed ? 'the room\'s tail' : 'no tail'}`,
-      `${got.length} samples, ${tail} of them tail${got.room ? `, ${got.room.shares.room}/${got.room.shares.direct}` : ''}`);
+      `${key}${setup ? ` (${setup})` : ''}: the render plays, and it and its download carry, past the source and the voice's run-on as the render reports it, ${roomed ? 'the room\'s tail' : 'no tail'}`,
+      `${got.length} samples, ${runOn} of them run-on, ${tail} tail${got.room ? `, ${got.room.shares.room}/${got.room.shares.direct}` : ''}`);
   }
   await page.evaluate(() => execCommand('exec preset_modern'));
 }
@@ -5244,8 +5247,10 @@ async function main() {
       const src = await page.evaluate(() => ({ rate: state.decodedSource.sampleRate, length: state.decodedSource.length }));
       await renderNow(page);
       const at44 = await readRenderedWav(page);
-      check(at44.rate === 44100 && at44.frames === Math.round(src.length * 44100 / src.rate) && await page.evaluate(() => state.processedRate === 44100),
-        'with the device at 44100 Hz the render and its download are at 44100 Hz, the source\'s duration at that rate', `${at44.rate} Hz, ${at44.frames} frames`);
+      // With the voice's run-on on the game's voice queue (W3-24) as the render reports it, at 44.1 kHz its own length.
+      const over44 = await page.evaluate(() => (state.lastCodecInfo.channel && state.lastCodecInfo.channel.over) || 0);
+      check(at44.rate === 44100 && at44.frames === Math.round(src.length * 44100 / src.rate) + over44 && await page.evaluate(() => state.processedRate === 44100),
+        'with the device at 44100 Hz the render and its download are at 44100 Hz, the source\'s duration at that rate and the voice\'s run-on as the render reports it', `${at44.rate} Hz, ${at44.frames} frames, ${over44} of them run-on`);
       await page.locator('#device_rate').selectOption('48000');
     }
     // The live monitor's worker runs no steam render before W3-11b, so only its
