@@ -186,3 +186,22 @@ differ, this section is the one the builder works from.
   value are chosen. The mix value collides with none in use (the reviewer's count over seeds 0 to 100,000).
 - **Kept place A** needs no change: the step sits behind A, and the seed is already in the key of the place
   behind it (the reviewer's reading; the builder confirms it in the report).
+
+## A ruling after the build (2026-11-21): the table's seed
+
+This holds over "The rule" and "After the plan review" above where they name the seed and the hash.
+
+- **What was found.** The table built from `mulberry32(0x28D17E5)` has one value beyond 1.5 steps (+1.51486488;
+  measured once by the orchestrator on the built branch). A silent input then gives a sample of 2 once in every
+  4,096 samples. Windows's table stays inside 1.5 steps (extremes -1.47 and +1.49, measured on the private
+  copy), so a silent input through it gives only -1, 0 and +1 (computed from those extremes). The description
+  the order copied named the extremes and did not make them a condition.
+- **The ruling (chosen).** The seed is `0x28D17E6`: the first seed after `0x28D17E5` whose table has every value
+  inside 1.5 steps. Nothing else of the rule changes. Its table by the plain sum of "The rule": extremes
+  -1.38477267 and +1.34817641 steps, rms 1/sqrt(6) to nine places, 887 of 4,096 values beyond half a step, and
+  the SHA-256 of its 4,096 float32 values, least byte first,
+  `a2befc20946bdd05889adb16f5dc87cf6a5d8a1bda05079fa2bfdc2537a45195` (measured once by the orchestrator; the
+  same script gives the first seed's pinned hash).
+- **The checks gain two.** No value of the table reaches 1.5 steps in size; and a silent input through the
+  dithered step, 8,192 samples from any start, gives only -1, 0 and +1, with each of the three present.
+- **What moves.** Every hash the first build moved moves again, and no other.
