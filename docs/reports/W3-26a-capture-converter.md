@@ -3,7 +3,7 @@
 The build report for W3-26a of `docs/work-orders/W3-26-capture-conversion.md`, branch
 `claude/w3-26a-capture-converter` (from `main` `0cff71e`, the orchestrator's commit `fc8e99b` first). Nothing loads
 the module and no render changes. `node tests/cache-number.mjs origin/main --report`: "cache number against
-origin/main (e7d4249): no cached file changed; the number stays v54".
+origin/main (ef43a36): no cached file changed; the number stays v54".
 
 ## What changed
 
