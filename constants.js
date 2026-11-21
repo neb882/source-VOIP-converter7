@@ -266,8 +266,12 @@ const PRESET_ALIASES = { sewers: 'underwater' };
  *                 dtx. Without it: libopus 1.6.1, complexity 10, CBR, no DTX
  *                 (`steam` runs the library's own 16-bit decoder too: see
  *                 senderGate.rule)
- *   captureEq   : optional FIR (linear gains interpolated between points)
- *                 applied at codecRate before the gate and encoder
+ *   capture     : optional, how the capture is brought to codecRate before
+ *                 the gate and encoder: { converter: 'windows', quality: 30 }
+ *                 is Windows's rate converter as read (capture-converter.js;
+ *                 `steam` only, at 24000 Hz). Without it the app's own
+ *                 resampler. Any other value is refused (engine/steam.js,
+ *                 captureConverter)
  *   decoderEq   : optional FIR applied to decoded audio at codecRate
  *   senderGate  : Steam's sender voice gate. With rule 'steam' (the `steam`
  *                 profile) a render runs Steam's own sender, read from its
@@ -303,12 +307,18 @@ const CODEC_PROFILES = {
     // packets (19,428 frames).
     codecRate: 24000, bitrate: 32000, application: 'voip', signal: 'voice',
     encoder: { runtime: '1.1.5', complexity: 9, vbr: true, dtx: true },
-    // Steam's capture resampler rolls the band edge off from 11.1 kHz.
-    captureEq: {
-      taps: 255,
-      freqs:   [0, 11000, 11150, 11250, 11350, 11450, 11550, 11650, 11750, 11850, 12000],
-      gainsDb: [0, 0,     -0.1,  -0.35, -0.9,  -2.2,  -3.4,  -4.8,  -6.6,  -7.8,  -8.5]
-    },
+    // Steam opens its microphone at 24000 Hz and Windows converts the
+    // device's sound to that rate (finding 28). The capture runs Windows's
+    // converter at quality 30 as read twice (capture-converter.js): a
+    // Kaiser-windowed sinc with its cutoff at 0.96634 of 12 kHz, 11,596 Hz.
+    // That a capture stream gets this converter at this quality is read
+    // twice too (finding 28, the wave input road, 2026-11-21), and one take
+    // made through a virtual cable fits it (measured once); it is not checked
+    // sample for sample. A source already at 24000 Hz passes as it is
+    // (chosen). With the codec off, and for a demo's received voice, the
+    // capture is the app's own resampler. Windows dithers the step to 16 bits
+    // (read twice); the app rounds with no dither (not built yet, W3-28).
+    capture: { converter: 'windows', quality: 30 },
     // rule 'steam': a render sends as Steam's client does (steam-sender.js,
     // findings 5, 12 and 28) and decodes as its decoder does (finding 29). The
     // three numbers are the 20 ms frame model of finding 12, a fit: a frame

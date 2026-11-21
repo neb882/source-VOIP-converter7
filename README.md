@@ -101,7 +101,8 @@ The same document says what rests on one PC and what others had published before
 
 - **Equal to the game's own recordings:** Steam's sender rule (every verdict and message of the checked runs), the codec with the decoder and its resampler (all but 2 of 524,288 samples), and the receiver's gain (every sample, checked under `vaudio_celt`).
 - **Read from the game's files, not yet seen in a recording:** the fade at the end of the queue (in the page's render on the game's voice queue) and the voice's level with two speakers in place of headphones.
-- **Fitted to recordings, with no rule read:** the capture's roll-off above 11 kHz and the times of Steam's reads.
+- **Read from Windows's files, fitting one take:** the capture's conversion to 24 kHz, Windows's own converter at quality 30, which lowers the top of the band from about 11 kHz and folds a 12.5 kHz tone back to 11.5 kHz at −44 dB and a 13 kHz one at about −100 dB, where the app's resampler before it folded them at −15 and −23 dB (computed). That Steam's capture gets this converter at this quality is read from Windows's files too, and one take fits it (Steam's band edge on its pink noise within 0.14 dB rms, measured once); Steam's own file of what it captured would test it sample for sample, and it was not made yet (finding 28). Windows dithers the step to 16 bits (read); the app rounds with no dither (not built yet).
+- **Fitted to recordings, with no rule read:** the times of Steam's reads.
 - **Read, with two of its timings chosen:** jitter on the game's voice queue. The game's lists are read; how often the server and the listener look at them is chosen, and the lag is taken as twice the jitter (finding 9).
 - **Not built yet:** Steam's own push-to-talk rules.
 
@@ -167,6 +168,7 @@ The suites hold each stage to the rule as read and to numbers taken from the rec
 | `engine/render-stream.js` | `createRender`: the same render a piece at a time |
 | `engine/live-chain.js` | `createLiveChain`: the live monitor's chain |
 | `steam-sender.js` | Steam's sender: chunks, the level rule, the hold |
+| `capture-converter.js` | Windows's conversion of the capture to 24 kHz as read, the steam profile's capture |
 | `voice-channel.js` | the game's voice channel as read; a render runs it when `opts.timeline` is `'game'`, as the page's render does on Steam voice by default |
 | `opus-codec.mjs` | packets and decoders for every codec profile |
 | `room-dsp.js`, `room-presets.js` | the game's room arithmetic and its presets as numbers |

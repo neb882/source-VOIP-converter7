@@ -12,8 +12,10 @@
 // 4. to 6. A load's codec module is its own, the engine takes a new one at
 //    its next render and the old one again once it is set back, and a load
 //    without the room module stops a render with a room as the page would.
+//    6b. (W3-26b) A load without the capture converter renders celt_22 and
+//    refuses a steam render with an error that names capture-converter.js.
 // 7. A load leaves no engine name on Node's global object but the three it is
-//    known to leave.
+//    known to leave; the files handed in by name are not left there.
 // 8. An engine file that uses one of Node's globals does not load.
 // 9. to 14., run after 3 and before 4: the engine's own files (PART_FILES,
 //    under engine/), whose code was moved out of audio.js unedited (S3-02).
@@ -368,6 +370,33 @@ console.log('\n[6] A load without the room module stops a render with a room');
   check('with the default, it renders', r.samples.length > x.length && r.codecInfo.room != null, `${r.samples.length} samples`);
 }
 
+// W3-26b, test 6. The engine without capture-converter.js, as a page that did
+// not load it: the file is handed in by name (tests/lib/engine.cjs, HANDED),
+// so null hands the engine nothing under TF2CaptureConverter, which shadows
+// any global of that name. The steam profile's capture needs it with the
+// codec on, in process(), createRender and the live chain alike; the engine
+// codecs, and steam with the codec off (the app's resampler), do not.
+console.log('\n[6b] A load without the capture converter renders celt_22 and refuses a steam render, naming the file');
+{
+  const x = toneOf(.3), named = /capture-converter\.js/;
+  const bare = loadEngine({ root, codec: opus, TF2CaptureConverter: null });
+  const celt = await bare.audio.process(buffer(x), { codec: 'celt_22' });
+  check('with TF2CaptureConverter null, celt_22 renders', celt.samples.length > 0 && celt.codecInfo.backend === 'celt', `${celt.samples.length} samples`);
+  const off = await bare.audio.process(buffer(x), { codec: 'steam', enableWarble: false });
+  check('and steam with the codec off renders (its capture is the app\'s resampler)', off.samples.length > 0 && off.codecInfo.backend === 'bypass');
+  const refused = async (run) => { try { await run(); return ''; } catch (e) { return e.message; } };
+  const messages = [
+    await refused(() => bare.audio.process(buffer(x), { codec: 'steam' })),
+    await refused(() => bare.audio.createRender({ sampleRate: rate, length: x.length, numberOfChannels: 1 }, { codec: 'steam' })),
+    await refused(async () => (await bare.audio.createLiveChain({ codec: 'steam' }, rate)).free())
+  ];
+  check('a steam render is refused with the error that names capture-converter.js, in process(), createRender and the live chain',
+    messages.every((m) => named.test(m)), messages.map((m) => m || 'not refused').join(' | '));
+  const full = loadEngine({ root, codec: opus });
+  const r = await full.audio.process(buffer(x), { codec: 'steam' });
+  check('with the default, a steam render runs', r.samples.length > 0 && r.codecInfo.backend === 'libopus', `${r.samples.length} samples`);
+}
+
 console.log('\n[7] What a load leaves on Node\'s global object');
 {
   loadEngine({ root });
@@ -376,6 +405,8 @@ console.log('\n[7] What a load leaves on Node\'s global object');
   check('TF2SteamSender, TF2VoiceChannel and TF2Swresample are (they attach themselves, as on the page)',
     typeof globalThis.TF2SteamSender === 'object' && typeof globalThis.TF2VoiceChannel === 'object'
     && typeof globalThis.TF2Swresample === 'object');
+  check('the files handed in by name are not: TF2CaptureConverter, TF2Room and TF2_ROOM_PRESETS (W3-26b: the converter is handed, so that a load can be without it)',
+    Object.values(HANDED).every((name) => !(name in globalThis)) && Object.values(HANDED).includes('TF2CaptureConverter'), Object.values(HANDED).join(', '));
 }
 
 console.log('\n[8] An engine file that uses one of Node\'s globals does not load');

@@ -44,11 +44,13 @@ queue in it, and its frame rate and `voice_buffer_ms` are the last chain's.
 
 ## Latency
 
-On `steam` the monitor takes about 0.3 s from microphone to speaker. The chain itself holds back about 207 ms
-(206.9 ms at 44.1 and 48 kHz, by the browser suite's note). Most of that is how Steam sends: the 100 ms before a phrase
+On `steam` the monitor takes about 0.3 s from microphone to speaker. The chain itself holds back about 202 ms
+(202.2 ms at 44.1 and 48 kHz, by the browser suite's note; 206.9 ms before W3-26b). Most of that is how Steam sends: the 100 ms before a phrase
 go with it (the pre-roll, read), and a chunk of the microphone goes out only once it has been read, so the chain
 waits for the longest chunk, 93.75 ms on the owner's PC (measured; finding 28 of
-[tests/REFERENCE_2026.md](../tests/REFERENCE_2026.md)). The rest is the capture filter, the codec's lookahead and the resamplers.
+[tests/REFERENCE_2026.md](../tests/REFERENCE_2026.md)). The rest is the capture converter's wait (1.3 ms: it holds
+back the 63 or 58 source samples each output reads past its own instant, computed), the codec's lookahead and the
+resamplers. Since W3-26b there is no capture filter, whose 5.3 ms the chain held back before.
 Around the chain come half a 20 ms capture block, a 40 ms playback buffer and the sound device's own buffers.
 The panel shows the total while it runs.
 
@@ -57,13 +59,16 @@ and the codec's lookahead. That is a fixed figure for a frame rate and a `voice_
 
 | Frame rate (`fps_max`) | More than with the switch off (and low latency off) | The chain's hold at a 48 kHz device | The panel at 48 kHz | Standing |
 | ---: | ---: | ---: | ---: | --- |
-| 66.67 | 101.6 ms | 308.5 ms | about 405 ms | read; the panel measured at `fps_max` 67, which waits the same 7 ticks |
-| 100 | 148.0 ms | 354.9 ms | not measured | read |
-| 300 (the default) | 357.0 ms | 563.9 ms | about 660 ms | read; the panel measured |
-| 60 | 113.2 ms | 320.1 ms | not measured | read and arithmetic |
-| 30 | 78.4 ms | 285.3 ms | not measured | read and arithmetic |
-| 20 | 90.0 ms | 296.9 ms | not measured | read and arithmetic |
-| 10 | 124.8 ms | 331.7 ms | not measured | read and arithmetic |
+| 66.67 | 101.6 ms | 303.9 ms | about 405 ms | read; the panel measured at `fps_max` 67, which waits the same 7 ticks |
+| 100 | 148.0 ms | 350.3 ms | not measured | read |
+| 300 (the default) | 357.0 ms | 559.3 ms | about 660 ms | read; the panel measured |
+| 60 | 113.2 ms | 315.5 ms | not measured | read and arithmetic |
+| 30 | 78.4 ms | 280.6 ms | not measured | read and arithmetic |
+| 20 | 90.0 ms | 292.3 ms | not measured | read and arithmetic |
+| 10 | 124.8 ms | 327.1 ms | not measured | read and arithmetic |
+
+The chain's holds are W3-26b's, 4.6 ms under those before it (the converter's wait in place of the app's resampler's
+and the capture filter's; computed). The panel's figures were measured before W3-26b.
 
 Under 67 frames a second the queue takes packets, counts down and mixes once a frame (read, W3-23r), and the monitor
 does the same since W3-23b. Moved on to a tick, the queue has then mixed only the blocks of the frames before it, so

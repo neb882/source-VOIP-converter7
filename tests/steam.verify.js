@@ -32,22 +32,22 @@ function check(name, cond, detail) {
 // The `steam` render sends as Steam's client does and decodes as its decoder
 // does (docs/work-orders/W3-11-steam-gate.md, part a). Sources are made at
 // 24 kHz, so no resampler stands between a test and the gate: the capture is
-// the source, clipped, through the profile's capture roll-off, rounded to 16
-// bits, as process() makes it.
+// the source, clipped and rounded to 16 bits, as process() makes it (since
+// W3-26b the capture converter passes a 24 kHz source as it is, and there is
+// no capture filter).
 async function steamSection() {
   console.log('\n[5c] The steam profile: Steam\'s sender and decoder (W3-11a)');
   const R = 24000, VR = 44100, opus = engine.codec;
   // The test's own copies, in this realm (the sender takes only this realm's Int16Array).
   const Sender = require(path.join(root, 'steam-sender.js')), Swr = require(path.join(root, 'vendor/swresample/swresample.js'));
   const PROFILES = engine.CODEC_PROFILES, steam = PROFILES.steam;
-  const eqTaps = TF2Audio.firwin2(steam.captureEq.taps, steam.captureEq.freqs, steam.captureEq.gainsDb, R);
   const round16 = (y) => Int16Array.from(y, (v) => {
     const s = v * 32768;
     let r = Math.round(s);
     if (r - s === 0.5 && (r & 1)) r -= 1;
     return Math.max(-32768, Math.min(32767, r));
   });
-  const captured = (x) => round16(TF2Audio.applyFirZeroPhase(TF2Audio.hardClip(x, 32767 / 32768), eqTaps));
+  const captured = (x) => round16(TF2Audio.hardClip(x, 32767 / 32768));
   const senderOf = (x, opts = {}) => {
     const s = Sender.createSender(opts), msgs = s.push(captured(x));
     for (const m of s.finish()) msgs.push(m);
@@ -74,23 +74,25 @@ async function steamSection() {
   };
   const same = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
   const sine = (f, seconds, peak) => Float32Array.from({ length: Math.round(seconds * R) }, (_, i) => peak * Math.sin(2 * Math.PI * f * i / R));
-  // Seeded speech-like talk: voiced syllables on a noise floor, with pauses.
-  const talk = (seconds, seed, level = 0.2) => {
-    const rnd = TF2Audio.mulberry32(seed), n = Math.round(seconds * R), x = new Float32Array(n);
+  // Seeded speech-like talk: voiced syllables on a noise floor, with pauses;
+  // at 24 kHz unless a rate is given (talkAt, W3-26b's test 1).
+  const talkAt = (seconds, rate, seed, level = 0.2) => {
+    const rnd = TF2Audio.mulberry32(seed), n = Math.round(seconds * rate), x = new Float32Array(n);
     for (let i = 0; i < n; i++) x[i] = 3e-4 * (rnd() * 2 - 1);
-    let t = Math.round(0.3 * R);
+    let t = Math.round(0.3 * rate);
     while (t < n) {
-      const len = Math.round((0.4 + 1.2 * rnd()) * R), f0 = 100 + 80 * rnd(), amp = level * (0.3 + 0.7 * rnd());
+      const len = Math.round((0.4 + 1.2 * rnd()) * rate), f0 = 100 + 80 * rnd(), amp = level * (0.3 + 0.7 * rnd());
       for (let i = 0; i < len && t + i < n; i++) {
-        const time = i / R, env = Math.sin(Math.PI * i / len) * Math.abs(Math.sin(Math.PI * 3.3 * time)) ** 0.7;
+        const time = i / rate, env = Math.sin(Math.PI * i / len) * Math.abs(Math.sin(Math.PI * 3.3 * time)) ** 0.7;
         let v = 0;
         for (let h = 1; h <= 8; h++) v += Math.sin(2 * Math.PI * f0 * h * time) / h;
         x[t + i] += amp * env * (0.7 * v + 0.2 * (rnd() * 2 - 1));
       }
-      t += len + Math.round((0.3 + 1.2 * rnd()) * R);
+      t += len + Math.round((0.3 + 1.2 * rnd()) * rate);
     }
     return x;
   };
+  const talk = (seconds, seed, level = 0.2) => talkAt(seconds, R, seed, level);
   // A source of loud bursts (speech-like) at the given seconds, each `length`
   // long, over a uniform noise floor at `floorDb` dBFS RMS.
   const bursts = (seconds, starts, length, floorDb, seed = 5) => {
@@ -116,6 +118,44 @@ async function steamSection() {
       && r.codecInfo.sender.gate === true && r.codecInfo.sender.meanMin === 327.67 && r.codecInfo.gate === -40
       && r.codecInfo.prerollFrames === 0 && r.codecInfo.holdFrames === 0 && r.codecInfo.spurts === want.length,
       `${want.length} spurts from ${want.map((s) => s.start).join(', ')}`);
+  }
+  // W3-26b, test 1: the render's capture is the module's. Sources at 48,000 and
+  // 44,100 Hz, with micGain 2 so that the clip acts: the 16-bit samples of every
+  // message the render decodes (onDecoded) are those of the test's own chain,
+  // written out here: the gain, the clip, the test's own copy of
+  // capture-converter.js (a fresh instance of the module, not the one the engine
+  // was handed), the 16 bits, the test's own sender and the codec module's
+  // steamRoundTrip at the profile's settings. The module's own samples are held
+  // to the readers' converters by tests/capture-converter.verify.mjs.
+  {
+    const file = require.resolve(path.join(root, 'capture-converter.js')), held = require.cache[file];
+    delete require.cache[file];
+    let Conv;
+    try { Conv = require(file); } finally { if (held) require.cache[file] = held; else delete require.cache[file]; }
+    const L = 32767 / 32768, rows = [];
+    let ok = Conv !== held?.exports;
+    for (const rate of [48000, 44100]) {
+      const x = talkAt(6, rate, 41, 1), seed = 5, h = hooked();
+      await TF2Audio.process(mkBuffer(x, rate), { codec: 'steam', volume: 1, micGain: 2, seed, ...h.opts });
+      const clipped = Float32Array.from(x, (v) => Math.max(-L, Math.min(L, v * 2)));
+      const acted = x.filter((v) => Math.abs(v * 2) > L).length;
+      // The converter's overshoot past full scale, which the 16 bits clamp (not a clip before them).
+      const converted = Conv.convert(clipped, rate), over = converted.filter((v) => v * 32768 > 32767.5 || v * 32768 < -32768.5).length;
+      const s = Sender.createSender({ seed }), msgs = s.push(round16(converted));
+      for (const m of s.finish()) msgs.push(m);
+      const trip = await opus.steamRoundTrip(msgs, steam.bitrate, { application: steam.application, signal: steam.signal,
+        runtime: steam.encoder.runtime, complexity: steam.encoder.complexity, vbr: steam.encoder.vbr, dtx: steam.encoder.dtx });
+      const want = trip.results.filter((m) => m.pcm.length).map((m) => m.pcm);
+      let first = -1;
+      for (let k = 0; k < Math.max(want.length, h.decoded.length) && first < 0; k++) {
+        if (!want[k] || !h.decoded[k] || !same(Array.from(want[k]), Array.from(h.decoded[k].pcm))) first = k;
+      }
+      const sound = h.decoded.filter((d) => d.msg.silence === undefined).length;
+      if (first >= 0 || acted < 100 || over < 1 || sound < 20) ok = false;
+      rows.push(`${rate} Hz: ${h.decoded.length} decoded messages (${sound} of sound), ${want.length} in the test's chain, first difference ${first}; the clip acted on ${acted} samples, the 16 bits on ${over}`);
+    }
+    check('the render\'s capture is capture-converter.js\'s: at 48 and 44.1 kHz with micGain 2, every decoded message\'s 16 bits are the test\'s own chain\'s (the gain, the clip, the module, the 16 bits, the sender, steamRoundTrip)',
+      ok, rows.join('; '));
   }
   // A typed threshold is the mean a chunk must reach: 32767 x 10^(dB/20).
   {
@@ -986,9 +1026,6 @@ async function liveSteamSection() {
   console.log('\n[10b] Live chain, steam: the render\'s own stages (W3-11b)');
   const Sender = require(path.join(root, 'steam-sender.js'));
   const S = Sender.STEAM_SENDER, VR = 44100;
-  const PROFILES = engine.CODEC_PROFILES, steam = PROFILES.steam;
-  const eqTaps = TF2Audio.firwin2(steam.captureEq.taps, steam.captureEq.freqs, steam.captureEq.gainsDb, 24000);
-  const eqDelay = (steam.captureEq.taps - 1) / 2;
   const fullReach = 3 * S.grid + S.preroll, lowReach = 3 * S.grid + S.frame - 1;
   const WAIT = 10 * S.frame * VR / S.rate;            // ten frames at the voice rate (the order)
   const join = (parts) => {
@@ -1002,9 +1039,10 @@ async function liveSteamSection() {
     if (r - s === 0.5 && (r & 1)) r -= 1;
     return Math.max(-32768, Math.min(32767, r));
   });
-  // What the sender is given from a 24 kHz source: the clip, the capture
-  // roll-off, the 16 bits (W3-11a's capture), in this realm.
-  const captured = (x) => round16(TF2Audio.applyFirZeroPhase(TF2Audio.hardClip(x, 32767 / 32768), eqTaps));
+  // What the sender is given from a 24 kHz source: the clip and the 16 bits
+  // (W3-11a's capture; since W3-26b the converter passes 24 kHz as it is and
+  // there is no capture filter), in this realm.
+  const captured = (x) => round16(TF2Audio.hardClip(x, 32767 / 32768));
   // Seeded speech-like talk at any rate: voiced syllables on a noise floor, with pauses.
   const talk = (seconds, rate, seed, level = 0.2) => {
     const rnd = TF2Audio.mulberry32(seed), n = Math.round(seconds * rate), x = new Float32Array(n);
@@ -1063,9 +1101,10 @@ async function liveSteamSection() {
   // Block plans: fixed sizes, a seeded uneven plan, single samples, the whole
   // source, and (24 kHz sources only) blocks that end exactly on each chunk's
   // last sample, or one sample before: a call to process() that ends on one
-  // has pushed exactly that sample to the sender, which trails the input by
-  // the capture roll-off's dropped delay (eqDelay samples). The chunk ends
-  // are the sender's clock's, from a dry run with the same seed.
+  // has pushed exactly that sample to the sender (at 24 kHz the capture
+  // passes each sample on as it comes; until W3-26b the sender trailed the
+  // input by the capture filter's dropped delay). The chunk ends are the
+  // sender's clock's, from a dry run with the same seed.
   const fixed = (n, size) => Array.from({ length: Math.ceil(n / size) }, (_, k) => Math.min(size, n - k * size));
   const uneven = (n) => {
     const rnd = TF2Audio.mulberry32(77), out = [];
@@ -1077,7 +1116,7 @@ async function liveSteamSection() {
     let last = 0;
     for (let at = 0; ;) {
       at += clock.next().samples;
-      const end = at + eqDelay - (before ? 1 : 0);
+      const end = at - (before ? 1 : 0);
       if (end >= n) break;
       if (end > last) { out.push(end - last); last = end; }
     }
@@ -1091,7 +1130,7 @@ async function liveSteamSection() {
   // pushed when it came back (pushed one at a time, as the order defines P).
   const dryMessages = (x, opts) => {
     const q = captured(x), s = Sender.createSender(opts), out = [];
-    const one = new Int16Array(1), total = x.length - eqDelay;
+    const one = new Int16Array(1), total = x.length;
     for (let P = 1; P <= total; P++) { one[0] = q[P - 1]; for (const m of s.push(one)) out.push({ P, m }); }
     return { events: out, info: s.info(), total };
   };
@@ -1193,7 +1232,7 @@ async function liveSteamSection() {
       let spurts = '';
       if (rate === 24000) {
         const s = Sender.createSender({ seed });
-        s.push(captured(x).subarray(0, x.length - eqDelay));
+        s.push(captured(x));
         spurts = s.info().spurts.length;
       }
       check(`the live chain is the render (${rate / 1000} kHz, blocks of ${name}): the laid signal at the mix point, sample for sample, the resampler's packets and the slots' codes over what it gave out`,
@@ -1524,22 +1563,27 @@ async function liveSteamSection() {
       Math.abs(holdMs - swrMs - shortMs) < 0.15 && holdMs > 1000 * (fullReach + ren.info.lookahead) / S.rate,
       `hold-back ${holdMs.toFixed(3)} ms; the output ${shortMs.toFixed(3)} ms short`);
     // latencyMs pinned from its terms (the check above allows 0.15 ms): the
-    // context's sinc resampler to 24 kHz (16 zero crossings a side, so
-    // 16 x max(up, down) / up inputs at the context's rate: 16 at 24 kHz
-    // from 48 and from 44.1 kHz), the capture roll-off's dropped delay, the
-    // reach, the encoder's lookahead, Steam's resampler's 16 inputs, and the
-    // device stage's wait for the next mix sample: one 44100 Hz sample above
-    // 44.1 kHz, none at 44.1 kHz (W3-10). Dropping that wait (0.023 ms) or
-    // keeping the old sinc resampler's to 48 kHz fails it.
-    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
-    const sincWait = (from, to) => { const g = gcd(from, to), up = to / g, down = from / g; return 16 * Math.max(up, down) / up / from; };
-    const wantMs = (rate) => 1000 * (sincWait(rate, S.rate) + (eqDelay + fullReach + ren.info.lookahead + 16) / S.rate + (rate > VR ? 1 / VR : 0));
+    // capture converter's wait (W3-26b), H inputs at the context's rate, with
+    // H from the order's table "The source rates" (63 at 48 kHz, 58 at
+    // 44.1 kHz; computed from the rule, not asked of the module), the reach,
+    // the encoder's lookahead, Steam's resampler's 16 inputs, and the device
+    // stage's wait for the next mix sample: one 44100 Hz sample above
+    // 44.1 kHz, none at 44.1 kHz (W3-10). Nothing for a capture filter: there
+    // is none since W3-26b. Dropping the device stage's wait (0.023 ms),
+    // keeping the app's resampler's wait to 24 kHz (0.667 ms) or counting the
+    // converter's wait in contentDelay fails it. Until W3-26b: 206.898 and
+    // 206.875 ms (the app's resampler's wait and the fitted filter's 127
+    // samples in place of the converter's).
+    const H = { 48000: 63, 44100: 58 }, wait = (rate) => H[rate] / rate;
+    const wantMs = (rate) => 1000 * (wait(rate) + (fullReach + ren.info.lookahead + 16) / S.rate + (rate > VR ? 1 / VR : 0));
     const c44 = await TF2Audio.createLiveChain({ codec: 'steam', volume: 1 }, 44100), lat44 = c44.stats.latencyMs;
+    const d44 = c44.contentDelay;
     c44.free();
     const lat48 = live.stats.latencyMs;
-    check('latencyMs is its terms\' sum exactly, with the device stage\'s one 44100 Hz sample at 48 kHz and none at 44.1 kHz: 206.898 and 206.875 ms',
-      Math.abs(lat48 - wantMs(48000)) < 1e-6 && Math.abs(lat44 - wantMs(44100)) < 1e-6 && lat48.toFixed(3) === '206.898' && lat44.toFixed(3) === '206.875',
-      `48 kHz ${lat48.toFixed(6)} (terms ${wantMs(48000).toFixed(6)}); 44.1 kHz ${lat44.toFixed(6)} (terms ${wantMs(44100).toFixed(6)})`);
+    check('latencyMs is its terms\' sum exactly, with the converter\'s wait and the device stage\'s one 44100 Hz sample at 48 kHz and none at 44.1 kHz: 202.252 and 202.232 ms, contentDelay 0',
+      Math.abs(lat48 - wantMs(48000)) < 1e-6 && Math.abs(lat44 - wantMs(44100)) < 1e-6 && lat48.toFixed(3) === '202.252' && lat44.toFixed(3) === '202.232'
+      && d0 === 0 && d44 === 0,
+      `48 kHz ${lat48.toFixed(6)} (terms ${wantMs(48000).toFixed(6)}); 44.1 kHz ${lat44.toFixed(6)} (terms ${wantMs(44100).toFixed(6)}); contentDelay ${d0} and ${d44}`);
   }
   // Push-to-talk, the app's stand-in: the key up twice inside speech is the
   // render of the same source with those blocks zeroed.
@@ -1578,6 +1622,82 @@ async function liveSteamSection() {
     const ok = chain.realOpus === false && chain.stats.droppedLate === undefined && chain.slotOffsetSeconds === undefined;
     chain.free();
     check('steam with the codec bypassed keeps the frame path, not the render\'s stages', ok);
+  }
+  // W3-26b ("After the plan review", W3-26b, 3): the live chain's two paths honour a profile's
+  // capture, and keep the app's resampler where it has none. The test's own copies of the profile:
+  // test_no_capture is steam with capture undefined (the render's stages, with the fallback);
+  // test_frame_capture and test_frame_plain are steam on the 20 ms frame gate (no rule 'steam', so
+  // createLiveChain's own path), with steam's capture and with none. On the second path the frames
+  // the codec is given are read through the codec module's createVoiceStream; with the gate off
+  // every frame is encoded, in order, so they are the capture's output from its first sample.
+  {
+    const P = engine.CODEC_PROFILES, frameGate = { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 };
+    P.test_no_capture = { ...P.steam, capture: undefined };
+    P.test_frame_capture = { ...P.steam, senderGate: frameGate };
+    P.test_frame_plain = { ...P.steam, senderGate: frameGate, capture: undefined };
+    try {
+      // The first path's fallback: the live chain is the render, and neither is steam's own.
+      const x48f = talk(8, 48000, 3);
+      const ren = await renderRun(x48f, 48000, { seed, codec: 'test_no_capture' }), own = await renderRun(x48f, 48000, { seed });
+      const live = await liveRun(x48f, 48000, { seed, codec: 'test_no_capture' }, fixed(x48f.length, 480));
+      const eq = equalsRender(live, ren), apart = firstDiff(ren.laid, own.laid, Math.min(ren.laid.length, own.laid.length));
+      // What the fallback holds back: the app's resampler's wait (16 inputs at 24 kHz from 48 kHz).
+      const fallbackMs = 1000 * (16 / 24000 + (fullReach + ren.info.lookahead + 16) / S.rate + 1 / VR);
+      check('a copy of steam with capture undefined: its live chain is its render at the mix point (the app\'s resampler in both, as the fallback), which is not steam\'s own, and holds back the resampler\'s wait',
+        eq.diff === -1 && eq.n > 0.9 * ren.laid.length && eq.packets && apart >= 0 && Math.abs(live.stats.latencyMs - fallbackMs) < 1e-6,
+        `${eq.n} samples, first difference ${eq.diff}; against steam's own render from ${apart}; latencyMs ${live.stats.latencyMs.toFixed(3)} (the terms ${fallbackMs.toFixed(3)})`);
+      // The second path: the codec's input.
+      const file = require.resolve(path.join(root, 'capture-converter.js')), held = require.cache[file];
+      delete require.cache[file];
+      let Conv;
+      try { Conv = require(file); } finally { if (held) require.cache[file] = held; else delete require.cache[file]; }
+      const fed = async (codec, rate, x, size) => {
+        const real = engine.codec, frames = [];
+        engine.codec = { ...real, createVoiceStream: async (...a) => {
+          const s = await real.createVoiceStream(...a);
+          return { ...s, encode: (f) => { frames.push(Float32Array.from(f)); return s.encode(f); } };
+        } };
+        try {
+          const chain = await TF2Audio.createLiveChain({ codec, volume: 1, gate: false }, rate);
+          try { for (let o = 0; o < x.length; o += size) await chain.process(x.subarray(o, o + size)); } finally { chain.free(); }
+        } finally { engine.codec = real; }
+        return join(frames);
+      };
+      const rows = [];
+      let ok = true;
+      for (const rate of [48000, 44100]) {
+        const x = talk(3, rate, 9), clipped = TF2Audio.hardClip(x, 32767 / 32768);
+        const conv = await fed('test_frame_capture', rate, x, 441), plain = await fed('test_frame_plain', rate, x, 441);
+        const wantConv = Conv.convert(clipped, rate).subarray(0, conv.length);
+        const sinc = TF2Audio.streamResampleSinc(rate, 24000), wantPlain = sinc(clipped).subarray(0, plain.length);
+        const a = firstDiff(conv, wantConv, conv.length), b = firstDiff(plain, wantPlain, plain.length), c = firstDiff(conv, wantPlain, conv.length);
+        if (!(a === -1 && b === -1 && c >= 0 && conv.length > 0.9 * x.length * 24000 / rate && plain.length === conv.length)) ok = false;
+        rows.push(`${rate} Hz: ${conv.length} samples encoded, first difference from the module's ${a}, without capture from the app's resampler ${b}; the two apart from ${c}`);
+      }
+      check('createLiveChain\'s own path honours capture: a copy of steam on the frame gate with capture feeds its codec the test\'s own copy of capture-converter.js\'s output, bit for bit; with capture undefined the app\'s streaming resampler\'s (48 and 44.1 kHz, the gate off)',
+        ok, rows.join('; '));
+    } finally {
+      delete P.test_no_capture; delete P.test_frame_capture; delete P.test_frame_plain;
+    }
+  }
+  // W3-26b, the edges the order names: a source of one sample, and an empty one, from 48 and 44.1 kHz:
+  // process() and createRender give the same samples, the source's length at the device's rate.
+  {
+    const rows = [];
+    let ok = true;
+    for (const rate of [48000, 44100]) {
+      for (const n of [0, 1, 2]) {
+        const x = Float32Array.from({ length: n }, (_, i) => 0.5 * (i + 1));
+        const whole = await TF2Audio.process(mkBuffer(x, rate), { codec: 'steam', volume: 1, seed });
+        const r = await TF2Audio.createRender({ sampleRate: rate, length: n, numberOfChannels: 1 }, { codec: 'steam', volume: 1, seed });
+        const parts = n ? [await r.push(x)] : [];
+        parts.push((await r.finish()).samples);
+        const streamed = join(parts), want = Math.round(n * 48000 / rate);
+        if (!(whole.samples.length === want && streamed.length === want && firstDiff(streamed, whole.samples, want) === -1)) ok = false;
+        rows.push(`${n} at ${rate}: ${whole.samples.length} and ${streamed.length}`);
+      }
+    }
+    check('a source of 0, 1 or 2 samples from 48 and 44.1 kHz: process() and createRender give the same samples, the source\'s length at 48 kHz', ok, rows.join('; '));
   }
   // null, undefined and '' are the profile's own threshold in all three
   // readers; '-46' is -46.

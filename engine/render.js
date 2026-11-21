@@ -12,7 +12,7 @@
   const { buildLossMask, steamArrivalPlan, steamLoser } = E.network;
   const { DEFAULT_SENDER_GATE, celtModeRate, gateThresholdDb, loadOpusModule, profileEq, receivedCodecInfo } = E.codec;
   const { runOnAtDevice, resolveRoom, roomPreset, tailAtDevice } = E.room;
-  const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
+  const { STEAM_RATE, STEAM_VOICE_RATE, captureConverter, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
     steamCodecInfo, steamDemoVoice, steamGameTimeline, steamModules, steamPlayedInfo, steamRunOn, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
@@ -559,16 +559,18 @@
         report(0.05);
         await pause();
 
-        /* ---- 2) Resample to the codec rate; optional capture filters ---- */
+        /* ---- 2) To the codec rate; optional capture filters ---- */
+        // The profile's capture converter (captureConverter: Windows's on
+        // `steam`, W3-26b) with the codec on and for the sender's own sound;
+        // otherwise the app's own resampler.
         const { hp, lp } = r;
-        samples = resampleSinc(samples, srcRate, codecRate);
+        const conv = enableCodec && !received ? captureConverter(codec) : null;
+        samples = conv ? conv.convert(samples, srcRate) : resampleSinc(samples, srcRate, codecRate);
         if (hp > 10 && !received) samples = applyBiquad(samples, biquadCoefs('highpass', codecRate, hp, 0.707));
         if (lp < codecRate * 0.45 && !received) {
           samples = applyBiquad(samples, biquadCoefs('lowpass', codecRate, lp, 0.707));
           samples = applyBiquad(samples, biquadCoefs('lowpass', codecRate, lp, 0.707));
         }
-        const captureEq = enableCodec && !received ? profileEq(codec, 'captureEq') : null;
-        if (captureEq) samples = applyFirZeroPhase(samples, captureEq);
         // KEPT PLACE A (W4-01b): the capture signal at the codec's rate and
         // the source's length. Every option used above is in A's key, as it
         // is used (readOptions, `used`): none of them may be put on

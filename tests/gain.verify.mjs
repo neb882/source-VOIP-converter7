@@ -256,15 +256,17 @@ console.log('\n[3] createGain: a reset, read with state()');
 console.log('\n[4] The gate\'s silences: process(), the frame gate');
 // A test-only profile since W3-11a: `steam` with its senderGate without the
 // rule 'steam', that is main's `steam` path before W3-11a (the 20 ms frame
-// gate, the float decode and the app's resampler at 24 kHz, with the capture
-// EQ). It is the frame-gate path that steam_48, the CELT profiles and Speex
-// still take with the gate on, at the geometry the checks below were written
+// gate, the float decode and the app's resampler at 24 kHz; until W3-26b with
+// the capture EQ, and since then with no capture member: the app's resampler
+// alone, as the checks here are of the gain). It is the frame-gate path that
+// steam_48, the CELT profiles and Speex still take with the gate on, at the
+// geometry the checks below were written
 // for (the edge check needs the 24 kHz codec's ringing). The `steam` profile
 // runs Steam's own sender and decoder now, and its gain is fed the decoded
 // packets with no hold (held in tests/verify.js, [5c]). The equality with the
 // rebuild is checked once more on steam_48 itself, after this section.
 CODEC_PROFILES.test_frame_gate = { ...CODEC_PROFILES.steam, displayName: 'test only: steam on the 20 ms frame gate',
-  senderGate: { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 } };
+  senderGate: { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 }, capture: undefined };
 {
   // Two noise bursts 2 s apart over a noise floor under the gate's
   // threshold. The floor makes the gain visible on each side of the gap:
@@ -295,8 +297,7 @@ CODEC_PROFILES.test_frame_gate = { ...CODEC_PROFILES.steam, displayName: 'test o
 
   // The same decoded signal, made as process() makes it, at the voice rate.
   const steam = CODEC_PROFILES.test_frame_gate, codecRate = steam.codecRate, voiceRate = steam.voiceRate;
-  let c = A.resampleSinc(A.hardClip(x, 32767 / 32768), rate, codecRate);
-  c = A.applyFirZeroPhase(c, A.firwin2(steam.captureEq.taps, steam.captureEq.freqs, steam.captureEq.gainsDb, codecRate));
+  const c = A.resampleSinc(A.hardClip(x, 32767 / 32768), rate, codecRate);
   const trip = await TF2Opus.roundTrip(c, codecRate, steam.bitrate, {
     gate: { thresholdDb: opts.gateThresholdDb, prerollFrames: Math.round(steam.senderGate.prerollMs / 20), holdFrames: Math.round(steam.senderGate.holdMs / 20) },
     makeLossMask: () => null, application: steam.application, signal: steam.signal,

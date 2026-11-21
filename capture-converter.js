@@ -4,9 +4,10 @@
  * Steam opens its microphone at 24,000 Hz (read) and Windows converts the device's sound to
  * that rate. The converter's design was read twice from Windows's files (tests/REFERENCE_2026.md,
  * finding 28); the rule as this file runs it is docs/work-orders/W3-26-capture-conversion.md,
- * "The rule", steps 1 to 12. That a capture stream gets this converter at quality 30 is not
- * read: it fits one take made through a virtual cable (measured once). The port is held bit for
- * bit to the first reader's converter on the vectors of tests/capture-converter/.
+ * "The rule", steps 1 to 12. That a capture stream gets this converter at quality 30 is read
+ * twice (finding 28, 2026-11-21: the wave driver's stream flags), and one take made through a
+ * virtual cable fits it (measured once). The port is held bit for bit to the first reader's
+ * converter on the vectors of tests/capture-converter/.
  *
  *   - The phases: L = 24000 / gcd, M = rate / gcd. Output k is centred on the input instant
  *     k M / L, so output 0 sits on the source's first sample and nothing is delayed.
