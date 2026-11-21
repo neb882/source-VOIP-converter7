@@ -3451,10 +3451,14 @@ async function verifyLaneAndTake(browser, base) {
     check(ownText.out.every((o) => o.got === o.want), 'on the file\'s own timing the lane\'s hover is main\'s text, character for character',
       ownText.out.map((o) => o.got).join(' | '));
 
-    // 2: a skip past the source's end draws nothing. A 1 s tone ends in sound;
-    // with a room the render runs past the source.
+    // 2: a skip past the source's end draws nothing. A 1.3 s tone ends in sound;
+    // with a room the render runs past the source. The tone was 1 s until W3-27b's
+    // second fix round: with the sender's warm-up of 4.5 s the queue drops nothing
+    // past the 1 s tone's end, and 1.3 s is the first tenth of a second from 1 s
+    // whose render has a skip past its end (one of 4.4 ms; measured on the model).
+    // The page has no seed, so the premise takes another tone.
     await page.evaluate(() => { execCommand('voice_timeline game'); execCommand('dsp_room 6'); });
-    await chooseFile(page, { name: 'tone-1s.wav', mimeType: 'audio/wav', buffer: wavTone(1) }, 120000);
+    await chooseFile(page, { name: 'tone-1.3s.wav', mimeType: 'audio/wav', buffer: wavTone(1.3) }, 120000);
     const tone = await page.evaluate(() => {
       // W3-24 (fix 7): the voice's end is the source's end and the queue's run-on.
       const info = state.lastCodecInfo, end = state.renderedSource.duration + (info.channel.over || 0) / 44100;
@@ -3467,7 +3471,7 @@ async function verifyLaneAndTake(browser, base) {
     check(tone.room && tone.onQueue && tone.render > tone.end + 0.5 && tone.past.length >= 1
       && pastPixels.every((x) => x < toneLane.row.length && toneLane.row[x] !== white) && toneMarks.stray.length === 0 && toneMarks.missing.length === 0
       && (tone.heard.length ? toneSkip && toneSkip.text.startsWith(`skips ${tone.heard.length} · `) : !toneSkip),
-      'a skip past the voice\'s end (a 1 s tone, with a room, so the render runs on; the end is the source\'s plus the queue\'s run-on) gets no mark and is left out of the legend\'s count',
+      'a skip past the voice\'s end (a 1.3 s tone, with a room, so the render runs on; the end is the source\'s plus the queue\'s run-on) gets no mark and is left out of the legend\'s count',
       `past the end: ${tone.past.map((d) => `${d.time.toFixed(4)} s, ${d.ms.toFixed(1)} ms`).join('; ')}; heard ${tone.heard.length}; run-on ${tone.over} samples; render ${tone.render.toFixed(2)} s`);
     check(errors.length === 0, 'the lane and the panel on the game\'s voice queue: no page errors', errors.join('; '));
   } finally { await context.close(); }
