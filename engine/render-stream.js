@@ -13,7 +13,7 @@
   const { DEFAULT_SENDER_GATE, FRAME_CODES, celtModeRate, gateThresholdDb, loadOpusModule, profileEq,
     receivedCodecInfo } = E.codec;
   const { runOnAtDevice, resolveRoom, roomModule, tailAtDevice } = E.room;
-  const { STEAM_RATE, STEAM_VOICE_RATE, captureConverter, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
+  const { STEAM_RATE, STEAM_VOICE_RATE, captureConverter, steamArriveAt, steamBoundTick, steamCaptureStep, steamChannel, steamChannelModule,
     steamCodecInfo, steamDemoVoice, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamRunOn, steamSenderOptions,
     steamTimeline } = E.steam;
 
@@ -293,6 +293,9 @@
       bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
       const settings = steamSenderOptions(opts, gateOn, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
       const sender = SteamSender.createSender(settings.sender);
+      // process()'s step to 16 bits (steamCaptureStep, W3-28): one for the
+      // capture, its dither's index running on from piece to piece.
+      const step = steamCaptureStep(codec, srcRate, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
       voice = await opus.createSteamStream(bitrate, { application: codec.application, signal: codec.signal,
         runtime: codec.encoder?.runtime, complexity: codec.encoder?.complexity, vbr: codec.encoder?.vbr, dtx: codec.encoder?.dtx });
       const stream = voice;
@@ -337,7 +340,7 @@
       stages.push({
         async push(x) {
           given += x.length;
-          await feed(sender.push(steamCapture(x)));
+          await feed(sender.push(step.push(x)));
           if (channel) {
             channel.advance(bound());
             const y = channel.take();

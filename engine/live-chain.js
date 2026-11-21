@@ -11,7 +11,7 @@
   const { MIX_BLOCK, MIX_RATE, createOutputStage, mixToFloat } = E.mix;
   const { steamArrivalPlan, steamLoser, streamLossMask } = E.network;
   const { DEFAULT_SENDER_GATE, FRAME_CODES, celtModeRate, gateThresholdDb, loadOpusModule, profileEq } = E.codec;
-  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, captureConverter, steamBoundTick, steamCapture, steamChannel, steamGameTimeline,
+  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, captureConverter, steamBoundTick, steamCaptureStep, steamChannel, steamGameTimeline,
     steamGiveOut, steamModules, steamReach, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
@@ -137,6 +137,10 @@
     const conv = captureConverter(codec);
     const toCodec = conv ? conv.createStream(ioRate).push : streamResampleSinc(ioRate, STEAM_RATE);
     const captureWait = conv ? conv.wait(ioRate) : sincWait(ioRate, STEAM_RATE);
+    // The step to 16 bits, as createRender makes it (steamCaptureStep,
+    // W3-28): one for the chain, so its dither's index runs on from block to
+    // block; a rebuilt chain is a new capture and starts it again.
+    const step = steamCaptureStep(codec, ioRate, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
     const filters = [];
     if (hp > 10) filters.push(streamBiquad(biquadCoefs('highpass', STEAM_RATE, hp, 0.707)));
     if (lp < STEAM_RATE * 0.45) {
@@ -284,7 +288,7 @@
       if (!talking) x.fill(0);
       let y = toCodec(x);
       for (const f of filters) y = f(y);
-      const q = steamCapture(y);
+      const q = step.push(y);
       for (let i = 0; i < q.length; i++) {
         one[0] = q[i];
         const messages = sender.push(one);

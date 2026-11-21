@@ -12,7 +12,7 @@
   const { buildLossMask, steamArrivalPlan, steamLoser } = E.network;
   const { DEFAULT_SENDER_GATE, celtModeRate, gateThresholdDb, loadOpusModule, profileEq, receivedCodecInfo } = E.codec;
   const { runOnAtDevice, resolveRoom, roomPreset, tailAtDevice } = E.room;
-  const { STEAM_RATE, STEAM_VOICE_RATE, captureConverter, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
+  const { STEAM_RATE, STEAM_VOICE_RATE, captureConverter, steamArriveAt, steamBoundTick, steamCaptureStep, steamChannel, steamChannelModule,
     steamCodecInfo, steamDemoVoice, steamGameTimeline, steamModules, steamPlayedInfo, steamRunOn, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
@@ -597,7 +597,10 @@
         const bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
         const settings = steamSenderOptions(o, gateOn, seed);
         const sender = SteamSender.createSender(settings.sender);
-        const messages = sender.push(steamCapture(samples));
+        // The capture's step to 16 bits (steamCaptureStep: Windows's
+        // dithered step from the seed where the converter converts the
+        // source, W3-28; plain rounding otherwise), behind A.
+        const messages = sender.push(steamCaptureStep(codec, srcRate, seed).push(samples));
         for (const m of sender.finish()) messages.push(m);
         // Loss takes whole messages (BC-1), one draw each. Jitter draws no
         // late frame here (BC-4): on the game's timeline it is when messages

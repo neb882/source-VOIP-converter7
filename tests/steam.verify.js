@@ -27,6 +27,56 @@ function check(name, cond, detail) {
   else      { fail++; console.error(`  FAIL  ${name}${detail ? '   [' + detail + ']' : ''}`); }
 }
 
+/* ---------------- the capture's step to 16 bits, as the order writes it (W3-28) ---------------- */
+
+// The test's own dither table and step, written from docs/work-orders/W3-28-capture-dither.md, "The
+// rule", and not a call of the module: the table by the plain sum of its step 3 (the module uses a
+// radix-2 transform), the index's start by the test's own mulberry32, the rounding by the test's own
+// floor and its own tie rule (the module uses roundEven). `t8` is the table in steps, rounded to 8
+// decimals, before the step to 32-bit floats. The seed 0x28D17E6 is the order's ruling after the build
+// (the first after 0x28D17E5 whose table keeps every value inside 1.5 steps).
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let ditherRefTable = null;
+function ditherRef() {
+  if (ditherRefTable) return ditherRefTable;
+  const N = 4096, M = 4096 / Math.sqrt(6 * 4095), rnd = mulberry32(0x28D17E6), phase = new Float64Array(2048);
+  for (let k = 1; k <= 2047; k++) phase[k] = 2 * Math.PI * rnd();
+  const t8 = new Float64Array(N), T = new Float32Array(N);
+  for (let n = 0; n < N; n++) {
+    let sum = 0;
+    for (let k = 1; k <= 2047; k++) sum += Math.cos(2 * Math.PI * k * n / 4096 + phase[k]);
+    const t = (1 / 4096) * (M * (n % 2 ? -1 : 1) + 2 * M * sum);
+    t8[n] = Math.round(t * 1e8) / 1e8;
+    T[n] = Math.fround(t8[n] / 32768);
+  }
+  ditherRefTable = { N, M, t8, T };
+  return ditherRefTable;
+}
+const ditherRefStart = (seed) => Math.floor(4096 * mulberry32(((seed >>> 0) ^ 0x5D17E412) >>> 0)());
+// The step on x from index `start`: the sum in 32-bit float, the clip to -1 and 32767/32768, x 32768,
+// to nearest with ties to even.
+function ditherRefStep(x, start) {
+  const { T } = ditherRef(), top = 32767 / 32768, q = new Int16Array(x.length);
+  let i = start;
+  for (let k = 0; k < x.length; k++) {
+    let s = Math.fround(Math.fround(x[k]) + T[i]);
+    i = (i + 1) % 4096;
+    if (s > top) s = top;
+    if (s < -1) s = -1;
+    const y = s * 32768, f = Math.floor(y), d = y - f;
+    q[k] = d > 0.5 || (d === 0.5 && f % 2 !== 0) ? f + 1 : f;
+  }
+  return q;
+}
+
 /* ---------------- the steam profile (W3-11a) ---------------- */
 
 // The `steam` render sends as Steam's client does and decodes as its decoder
@@ -124,8 +174,9 @@ async function steamSection() {
   // message the render decodes (onDecoded) are those of the test's own chain,
   // written out here: the gain, the clip, the test's own copy of
   // capture-converter.js (a fresh instance of the module, not the one the engine
-  // was handed), the 16 bits, the test's own sender and the codec module's
-  // steamRoundTrip at the profile's settings. The module's own samples are held
+  // was handed), the 16 bits (since W3-28 the dithered step, the test's own
+  // ditherRefStep from the render's seed), the test's own sender and the codec
+  // module's steamRoundTrip at the profile's settings. The module's own samples are held
   // to the readers' converters by tests/capture-converter.verify.mjs.
   {
     const file = require.resolve(path.join(root, 'capture-converter.js')), held = require.cache[file];
@@ -141,7 +192,7 @@ async function steamSection() {
       const acted = x.filter((v) => Math.abs(v * 2) > L).length;
       // The converter's overshoot past full scale, which the 16 bits clamp (not a clip before them).
       const converted = Conv.convert(clipped, rate), over = converted.filter((v) => v * 32768 > 32767.5 || v * 32768 < -32768.5).length;
-      const s = Sender.createSender({ seed }), msgs = s.push(round16(converted));
+      const s = Sender.createSender({ seed }), msgs = s.push(ditherRefStep(converted, ditherRefStart(seed)));
       for (const m of s.finish()) msgs.push(m);
       const trip = await opus.steamRoundTrip(msgs, steam.bitrate, { application: steam.application, signal: steam.signal,
         runtime: steam.encoder.runtime, complexity: steam.encoder.complexity, vbr: steam.encoder.vbr, dtx: steam.encoder.dtx });
@@ -154,7 +205,7 @@ async function steamSection() {
       if (first >= 0 || acted < 100 || over < 1 || sound < 20) ok = false;
       rows.push(`${rate} Hz: ${h.decoded.length} decoded messages (${sound} of sound), ${want.length} in the test's chain, first difference ${first}; the clip acted on ${acted} samples, the 16 bits on ${over}`);
     }
-    check('the render\'s capture is capture-converter.js\'s: at 48 and 44.1 kHz with micGain 2, every decoded message\'s 16 bits are the test\'s own chain\'s (the gain, the clip, the module, the 16 bits, the sender, steamRoundTrip)',
+    check('the render\'s capture is capture-converter.js\'s: at 48 and 44.1 kHz with micGain 2, every decoded message\'s 16 bits are the test\'s own chain\'s (the gain, the clip, the module, the dithered 16 bits from the seed, the sender, steamRoundTrip)',
       ok, rows.join('; '));
   }
   // A typed threshold is the mean a chunk must reach: 32767 x 10^(dB/20).
@@ -1781,10 +1832,331 @@ async function liveSteamSection() {
   }
 }
 
+/* ---------------- the capture's step to 16 bits, dithered (W3-28) ---------------- */
+
+// Windows's step from float to 16 bits, dithered (docs/work-orders/W3-28-capture-dither.md; finding 28,
+// "From the device to Steam's 16-bit samples"): the module's table and step against the test's own
+// (ditherRef, ditherRefStep above), one index for one capture in the render, its stream and the live
+// chain, and the step's absence where it does not run.
+async function ditherSection() {
+  console.log('\n[5e] The capture\'s step to 16 bits, dithered as Windows\'s is (W3-28)');
+  const crypto = require('crypto');
+  const St = engine.parts.steam, P = engine.CODEC_PROFILES;
+  const ref = ditherRef(), N = 4096;
+  const sameInts = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  const firstDiff = (a, b) => {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) return i;
+    return -1;
+  };
+  const join = (parts) => {
+    const out = new (parts[0]?.constructor || Float32Array)(parts.reduce((n, p) => n + p.length, 0));
+    parts.reduce((o, p) => { out.set(p, o); return o + p.length; }, 0);
+    return out;
+  };
+  const pushAll = (step, x, sizes) => {
+    const parts = [];
+    for (let o = 0, b = 0; o < x.length; b++) { const n = sizes[b % sizes.length]; parts.push(step.push(x.subarray(o, o + n))); o += n; }
+    return join(parts);
+  };
+  const noise = (n, level, seed) => { const rnd = mulberry32(seed); return Float32Array.from({ length: n }, () => level * (rnd() + rnd() + rnd() - 1.5)); };
+
+  // The table: the module's copy, its length, mean, rms, spectrum and hash.
+  {
+    const T = St.steamDitherTable(), steps = Array.from(T, (v) => v * 32768);
+    const mean = steps.reduce((a, v) => a + v, 0) / N, rms = Math.sqrt(steps.reduce((a, v) => a + v * v, 0) / N);
+    const hash = crypto.createHash('sha256').update(Buffer.from(T.buffer, T.byteOffset, T.byteLength)).digest('hex');
+    const same = T.length === N && T.every((v, i) => Object.is(v, ref.T[i]));
+    // Every bin of the forward transform of the 8-decimal values (the test's own radix-2 transform).
+    const re = Float64Array.from(ref.t8), im = new Float64Array(N);
+    for (let i = 1, j = 0; i < N; i++) {
+      let bit = N >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+    }
+    for (let len = 2; len <= N; len <<= 1) {
+      for (let i = 0; i < N; i += len) {
+        for (let k = 0; k < len / 2; k++) {
+          const wr = Math.cos(-2 * Math.PI * k / len), wi = Math.sin(-2 * Math.PI * k / len), a = i + k, b = a + len / 2;
+          const vr = re[b] * wr - im[b] * wi, vi = re[b] * wi + im[b] * wr;
+          re[b] = re[a] - vr; im[b] = im[a] - vi; re[a] += vr; im[a] += vi;
+        }
+      }
+    }
+    let worst = 0;
+    for (let k = 1; k < N; k++) worst = Math.max(worst, Math.abs(Math.hypot(re[k], im[k]) - ref.M));
+    const dc = Math.hypot(re[0], im[0]);
+    // The copy is a copy: writing into it leaves the next one as it was.
+    T.fill(0);
+    const again = St.steamDitherTable();
+    check('the dither table: 4,096 values, the test\'s own (the plain sum of the rule), mean under 1e-9 and rms within 1e-6 of 1/sqrt(6) of a step, every bin of its 8-decimal values\' transform of magnitude 4096/sqrt(6 x 4095) within 1e-6 and the constant part under 1e-6, its SHA-256 the order\'s; the module hands out a copy',
+      same && Math.abs(mean) < 1e-9 && Math.abs(rms - 1 / Math.sqrt(6)) < 1e-6 && worst < 1e-6 && dc < 1e-6
+      && hash === 'a2befc20946bdd05889adb16f5dc87cf6a5d8a1bda05079fa2bfdc2537a45195' && again.some((v) => v !== 0),
+      `mean ${mean.toExponential(2)}, rms - 1/sqrt(6) ${(rms - 1 / Math.sqrt(6)).toExponential(2)}, extremes ${Math.min(...steps).toFixed(4)} and +${Math.max(...steps).toFixed(4)} steps, worst bin ${worst.toExponential(2)} off, constant part ${dc.toExponential(2)}, hash ${hash.slice(0, 12)}`);
+  }
+  // The table is made at the first dithered capture, once, in a fresh engine (a load of its own): the
+  // module's count of tables made (steamDitherTable.made) is 0 after the load and after a plain capture, and
+  // 1 after two dithered captures. A plain capture is a TypeError for a dither that is not a boolean, which
+  // names the value with its type.
+  {
+    const fresh = loadEngine({ root }).parts.steam, counts = [fresh.steamDitherTable.made()];
+    fresh.createSteamCapture({ dither: false, seed: 1 }).push(new Float32Array(100));
+    counts.push(fresh.steamDitherTable.made());
+    const t0 = process.hrtime.bigint();
+    fresh.createSteamCapture({ dither: true, seed: 1 });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    fresh.createSteamCapture({ dither: true, seed: 2 }).push(new Float32Array(100));
+    counts.push(fresh.steamDitherTable.made());
+    check('the table is made once, at the first dithered capture: none after the load and after a plain capture, one after two dithered captures',
+      JSON.stringify(counts) === '[0,0,1]', `made ${counts.join(', ')}; the first dithered capture ${ms.toFixed(2)} ms`);
+    const rows = [];
+    let ok = true;
+    for (const [v, want] of [['false', /not "false" \(a string\)/], ['true', /not "true" \(a string\)/], [1, /not 1 \(a number\)/], [null, /not null \(a null\)/]]) {
+      let message = '';
+      try { fresh.createSteamCapture({ dither: v }); } catch (e) { message = e instanceof TypeError ? e.message : `not a TypeError: ${e.message}`; }
+      if (!want.test(message)) ok = false;
+      rows.push(message || `${JSON.stringify(v)} taken`);
+    }
+    check('createSteamCapture refuses a dither that is not a boolean with a TypeError that names the value and its type (the string \'false\' is not the boolean)',
+      ok, rows.join(' | '));
+  }
+  // The order's ruling after the build: no value of the table reaches 1.5 steps in size (Windows's stays
+  // inside them, measured on the private copy), so silence through the step gives only -1, 0 and +1.
+  {
+    const steps = Array.from(St.steamDitherTable(), (v) => v * 32768), worst = Math.max(...steps.map(Math.abs));
+    check('no value of the dither table reaches 1.5 steps in size', steps.length === N && worst < 1.5,
+      `the largest ${worst.toFixed(8)} steps; extremes ${Math.min(...steps).toFixed(8)} and +${Math.max(...steps).toFixed(8)}`);
+    const rows = [];
+    let ok = true;
+    for (const seed of [0, 1, 7, 11, 0xC0FFEE, 123456789]) {
+      const q = St.createSteamCapture({ dither: true, seed }).push(new Float32Array(8192)), hist = {};
+      for (const v of q) hist[v] = (hist[v] || 0) + 1;
+      const keys = Object.keys(hist).map(Number).sort((a, b) => a - b);
+      if (JSON.stringify(keys) !== '[-1,0,1]') ok = false;
+      rows.push(`seed ${seed} (start ${ditherRefStart(seed)}): ${keys.map((v) => `${v}: ${hist[v]}`).join(', ')}`);
+    }
+    check('silence through the dithered step, 8,192 samples from six starts (six seeds): only -1, 0 and +1, each of the three present',
+      ok, rows.join('; '));
+  }
+  // The step against the test's own, from the seed's start: noise, a sine past full scale at both ends,
+  // silence, exact ties.
+  {
+    const seed = 7, start = ditherRefStart(seed), rows = [];
+    let ok = St.createSteamCapture({ dither: true, seed }).start === start && St.createSteamCapture({ dither: false, seed }).start === null;
+    const sine = Float32Array.from({ length: 24000 }, (_, i) => 1.3 * Math.sin(2 * Math.PI * 101 * i / 24000));
+    for (const [name, x] of [['noise', noise(30000, 0.3, 3)], ['quiet noise', noise(30000, 4 / 32768, 4)], ['a sine at 1.3', sine], ['silence', new Float32Array(9000)]]) {
+      const got = St.createSteamCapture({ dither: true, seed }).push(x), want = ditherRefStep(x, start);
+      const d = firstDiff(got, want);
+      let hi = 0, lo = 0;
+      for (const v of got) { if (v === 32767) hi++; if (v === -32768) lo++; }
+      if (d !== -1 || (name === 'a sine at 1.3' && !(hi > 1000 && lo > 1000))) ok = false;
+      rows.push(`${name}: first difference ${d}${name === 'a sine at 1.3' ? `, ${hi} at 32767 and ${lo} at -32768` : ''}`);
+    }
+    // Ties: x = fround((k + 0.5) / 32768 - T[i]) at the index i each sample meets, kept where the sum is
+    // exactly k + 0.5 steps.
+    const x = new Float32Array(N), tie = new Uint8Array(N);
+    let ties = 0, even = 0, odd = 0;
+    for (let j = 0; j < N; j++) {
+      const i = (start + j) % N, k = ((j * 7919) % 60001) - 30000;
+      x[j] = Math.fround((k + 0.5) / 32768 - ref.T[i]);
+      if (Math.fround(x[j] + ref.T[i]) * 32768 === k + 0.5) { tie[j] = 1; ties++; if (k % 2 === 0) even++; else odd++; }
+    }
+    const got = St.createSteamCapture({ dither: true, seed }).push(x), want = ditherRefStep(x, start);
+    let bad = 0;
+    for (let j = 0; j < N; j++) {
+      if (!tie[j]) continue;
+      const k = Math.fround(x[j] + ref.T[(start + j) % N]) * 32768 - 0.5;
+      if (got[j] !== (k % 2 === 0 ? k : k + 1) || got[j] !== want[j]) bad++;
+    }
+    if (bad || ties < 1000 || !even || !odd) ok = false;
+    rows.push(`${ties} exact ties (${even} from an even k, ${odd} from an odd), ${bad} not to even`);
+    check('the step is the rule\'s (the test\'s own table, start and rounding): noise, quiet noise, a sine at 1.3 that clips at 32767 and -32768, silence, and exact ties to even; the start is the seed\'s draw',
+      ok, rows.join('; '));
+  }
+  // Silence in: never all 0, with the rms of the table rounded.
+  {
+    const q = St.createSteamCapture({ dither: true, seed: 11 }).push(new Float32Array(3 * N));
+    const rounded = Array.from(ref.T, (v) => engine.parts.dsp.roundEven(v * 32768));
+    const rmsOf = (a) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / a.length);
+    const hist = {};
+    for (const v of q) hist[v] = (hist[v] || 0) + 1;
+    check('silence in: every value from -1 to +1, not all 0, and the rms of the table rounded to steps',
+      q.every((v) => v >= -1 && v <= 1) && q.some((v) => v !== 0) && rmsOf(Array.from(q)) === rmsOf(rounded),
+      `${Object.keys(hist).sort((a, b) => a - b).map((v) => `${v}: ${hist[v]}`).join(', ')}; rms ${rmsOf(Array.from(q)).toFixed(4)} steps`);
+  }
+  // Pieces equal the whole, and the index does not restart at a push.
+  {
+    const x = noise(40000, 3 / 32768, 5), seed = 3;
+    const whole = St.createSteamCapture({ dither: true, seed }).push(x), rows = [];
+    let ok = true;
+    for (const sizes of [[1], [7], [240], [750], [4097], [1, 7, 240, 750, 4097]]) {
+      const d = firstDiff(pushAll(St.createSteamCapture({ dither: true, seed }), x, sizes), whole);
+      if (d !== -1) ok = false;
+      rows.push(`${sizes.join(', ')}: ${d}`);
+    }
+    check('pieces equal the whole: one capture pushed in pieces of 1, 7, 240, 750, 4,097 samples, and of those in turn, equals one push', ok, rows.join('; '));
+    const zeros = new Float32Array(8192), one = St.createSteamCapture({ dither: true, seed }).push(zeros);
+    const two = pushAll(St.createSteamCapture({ dither: true, seed }), zeros, [1000, 7192]);
+    const restarted = join([St.createSteamCapture({ dither: true, seed }).push(zeros.subarray(0, 1000)),
+      St.createSteamCapture({ dither: true, seed }).push(zeros.subarray(1000))]);
+    check('the index does not restart: 8,192 samples of silence pushed as 1,000 and 7,192 equal one push, and differ from a step restarted at the second push',
+      sameInts(two, one) && firstDiff(restarted, one) >= 1000, `restarted apart from ${firstDiff(restarted, one)}`);
+  }
+  // Where the step runs: steamCaptureStep's start, and renders of the profile against a test's copy with
+  // dither false (the plain step, main's bytes) where it does not.
+  {
+    const steps = [[48000, 'steam'], [44100, 'steam'], [16000, 'steam'], [24000, 'steam'], [24000.4, 'steam'], [48000, 'plain'], [48000, 'none']];
+    const plain = { ...P.steam, capture: { converter: 'windows', quality: 30, dither: false } };
+    const none = { ...P.steam, capture: { converter: 'windows', quality: 30 } };
+    const starts = steps.map(([rate, which]) => St.steamCaptureStep(which === 'steam' ? P.steam : which === 'plain' ? plain : none, rate, 9).start);
+    const want = [ditherRefStart(9), ditherRefStart(9), ditherRefStart(9), null, null, null, null];
+    check('steamCaptureStep dithers where the converter converts and the profile says dither true: from 48, 44.1 and 16 kHz, not from 24 kHz (nor 24000.4 Hz, which the converter rounds to it), not with dither false or absent',
+      JSON.stringify(starts) === JSON.stringify(want), steps.map(([r, w], i) => `${w} at ${r}: ${starts[i]}`).join('; '));
+  }
+  {
+    P.test_plain = { ...P.steam, capture: { converter: 'windows', quality: 30, dither: false } };
+    const R = 24000, rows = [];
+    let ok = true;
+    const talkAt = (seconds, rate, seed, level) => {
+      const rnd = mulberry32(seed), n = Math.round(seconds * rate), x = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const t = i / rate, env = Math.max(0, Math.sin(2 * Math.PI * 0.7 * t));
+        x[i] = 3e-4 * (rnd() * 2 - 1) + level * env * (Math.sin(2 * Math.PI * 150 * t) + 0.4 * Math.sin(2 * Math.PI * 450 * t) + 0.2 * (rnd() * 2 - 1));
+      }
+      return x;
+    };
+    // A demo's received voice (frames of 480, zeros between its spurts) and its own packets (one phrase).
+    const recv = (() => {
+      const x = talkAt(3, R, 21, 0.2), frameLog = [], frameBytes = [];
+      for (let f = 0; f < x.length / 480; f++) {
+        const quiet = f % 50 >= 35;
+        if (quiet) x.fill(0, f * 480, (f + 1) * 480);
+        frameLog.push(quiet ? 0 : 2); frameBytes.push(quiet ? 0 : 60 + (f % 23));
+      }
+      return { x, received: { frameLog, frameBytes, frameMs: 20, spurts: 3 } };
+    })();
+    const packets = (() => {
+      let s = 12345;
+      const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+      const frameLog = new Array(150).fill(0), frameBytes = new Array(150).fill(0), list = [];
+      let tick = 20, seq = 0, at = 0;
+      for (let m = 0; m < 10; m++) {
+        const frames = [];
+        for (let k = 0; k < (m ? 3 : 8); k++, seq++, at += 480) {
+          const data = new Uint8Array(30 + Math.floor(rnd() * 60));
+          data[0] = 13 << 3;
+          for (let i = 1; i < data.length; i++) data[i] = Math.floor(rnd() * 256);
+          frames.push({ seq, data });
+          frameLog[at / 480] = 2; frameBytes[at / 480] = data.length;
+        }
+        if (m === 9) frames.push({ end: true });
+        list.push({ tick, rate: R, at: at - frames.filter((f) => !f.end).length * 480, records: [{ frames }] });
+        tick += 4;
+      }
+      return { x: talkAt(3, R, 22, 0.2), received: { frameLog, frameBytes, frameMs: 20, spurts: 1, packets: list, firstTick: 20, tickSeconds: 0.015 } };
+    })();
+    const cases = [
+      ['a 24 kHz source', talkAt(4, R, 23, 0.1), R, {}],
+      ['a 24 kHz source, the gate off, loss 20%', talkAt(4, R, 24, 0.1), R, { gate: false, lossPct: 20 }],
+      ['the codec off at 48 kHz', talkAt(3, 48000, 25, 0.1), 48000, { enableWarble: false }],
+      ['received voice at 24 kHz', recv.x, R, { received: recv.received }],
+      ['received voice at 48 kHz', Float32Array.from({ length: 2 * recv.x.length }, (_, i) => recv.x[i >> 1]), 48000, { received: recv.received }],
+      ['a demo\'s packets on the game\'s timeline', packets.x, R, { received: packets.received, timeline: 'game' }]
+    ];
+    // The samples and codecInfo but its own codec's name.
+    const hashOf = (r) => crypto.createHash('sha256').update(Buffer.from(r.samples.buffer, r.samples.byteOffset, r.samples.byteLength))
+      .update(JSON.stringify({ ...r.codecInfo, codec: undefined })).digest('hex');
+    for (const [name, x, rate, opts] of cases) {
+      const a = await TF2Audio.process(mkBuffer(x, rate), { codec: 'steam', volume: 1, seed: 5, ...opts });
+      const b = await TF2Audio.process(mkBuffer(x, rate), { codec: 'test_plain', volume: 1, seed: 5, ...opts });
+      const ha = hashOf(a), hb = hashOf(b);
+      if (ha !== hb || !(peakAbs(a.samples) > 0.01)) ok = false;
+      rows.push(`${name}: ${ha === hb ? 'the same' : 'apart'}`);
+    }
+    // The stream render and the live chain from a 24 kHz source.
+    {
+      const x = talkAt(4, R, 26, 0.1), out = [];
+      for (const codec of ['steam', 'test_plain']) {
+        const r = await TF2Audio.createRender({ sampleRate: R, length: x.length, numberOfChannels: 1 }, { codec, volume: 1, seed: 5 });
+        const parts = [];
+        for (let o = 0; o < x.length; o += 1013) parts.push(await r.push(x.subarray(o, o + 1013)));
+        parts.push((await r.finish()).samples);
+        const chain = await TF2Audio.createLiveChain({ codec, volume: 1, seed: 5 }, R), live = [];
+        try { for (let o = 0; o < x.length; o += 480) live.push(await chain.process(x.subarray(o, o + 480))); } finally { chain.free(); }
+        out.push([join(parts), join(live)]);
+      }
+      const s = firstDiff(out[0][0], out[1][0]), l = firstDiff(out[0][1], out[1][1]);
+      if (s !== -1 || l !== -1 || !(peakAbs(out[0][1]) > 0.01)) ok = false;
+      rows.push(`the stream render at 24 kHz: ${s}; the live chain at 24 kHz: ${l}`);
+    }
+    // And the step does run on the profile from 48 kHz.
+    {
+      const x = talkAt(3, 48000, 27, 0.1);
+      const a = await TF2Audio.process(mkBuffer(x, 48000), { codec: 'steam', volume: 1, seed: 5 });
+      const b = await TF2Audio.process(mkBuffer(x, 48000), { codec: 'test_plain', volume: 1, seed: 5 });
+      const d = firstDiff(a.samples, b.samples);
+      if (d < 0) ok = false;
+      rows.push(`from 48 kHz with the codec on: apart from ${d}`);
+    }
+    delete P.test_plain;
+    check('where the step does not run the render is the plain step\'s (a copy of the profile with dither false), samples and codecInfo: a 24 kHz source (the gate on; off with loss), the codec off, received voice at 24 and 48 kHz, a demo\'s packets on the game\'s timeline, the stream and the live chain at 24 kHz; from 48 kHz with the codec on it differs',
+      ok, rows.join('; '));
+  }
+  // Two seeds: the index's start differs, and nothing else of the sender's draws (the clock's reads, the
+  // capture's lead, the loss): each seed's messages, lost and kept, are those of the plain step's render.
+  {
+    P.test_plain = { ...P.steam, capture: { converter: 'windows', quality: 30, dither: false } };
+    const x = noise(4 * 48000, 0.05, 31), rows = [], seen = {};
+    let ok = ditherRefStart(1) !== ditherRefStart(2);
+    for (const seed of [1, 2]) {
+      for (const codec of ['steam', 'test_plain']) {
+        const meta = [];
+        const r = await TF2Audio.process(mkBuffer(x, 48000), { codec, volume: 1, seed, gate: false, lossPct: 20,
+          onDecoded: (p, m) => meta.push(JSON.stringify({ ...m, pcm: undefined })) });
+        seen[`${seed} ${codec}`] = JSON.stringify([meta, r.codecInfo.network, r.codecInfo.sender]);
+      }
+      if (seen[`${seed} steam`] !== seen[`${seed} test_plain`]) ok = false;
+      rows.push(`seed ${seed}: start ${ditherRefStart(seed)}, the messages ${seen[`${seed} steam`] === seen[`${seed} test_plain`] ? 'the same as' : 'apart from'} the plain step's`);
+    }
+    if (seen['1 steam'] === seen['2 steam']) ok = false;
+    delete P.test_plain;
+    check('two seeds differ in the index\'s start and in nothing else of the sender\'s draws: at each seed, with the gate off and loss 20%, the messages (their ticks, places, loss) and the sender\'s and network\'s counts are the plain step\'s',
+      ok, rows.join('; '));
+  }
+  // One capture, one index: from 48 kHz the render, the stream render in pieces and the live chain
+  // decode the same messages, those of the test's own chain (ditherRefStep from the seed).
+  {
+    const L = 32767 / 32768, rate = 48000, seed = 9, x = noise(5 * rate, 0.004, 41);
+    const Conv = require(path.join(root, 'capture-converter.js'));
+    const Sender = require(path.join(root, 'steam-sender.js'));
+    const s = Sender.createSender({ seed, gate: false }), msgs = s.push(ditherRefStep(Conv.convert(TF2Audio.hardClip(x, L), rate), ditherRefStart(seed)));
+    for (const m of s.finish()) msgs.push(m);
+    const st = P.steam;
+    const trip = await engine.codec.steamRoundTrip(msgs, st.bitrate, { application: st.application, signal: st.signal,
+      runtime: st.encoder.runtime, complexity: st.encoder.complexity, vbr: st.encoder.vbr, dtx: st.encoder.dtx });
+    const want = trip.results.filter((m) => m.pcm.length).map((m) => Array.from(m.pcm).join());
+    const take = (list) => (p) => { if (p.length) list.push(Array.from(p).join()); };
+    const whole = [], piece = [], live = [];
+    await TF2Audio.process(mkBuffer(x, rate), { codec: 'steam', volume: 1, seed, gate: false, onDecoded: take(whole) });
+    const r = await TF2Audio.createRender({ sampleRate: rate, length: x.length, numberOfChannels: 1 }, { codec: 'steam', volume: 1, seed, gate: false, onDecoded: take(piece) });
+    for (let o = 0, k = 0; o < x.length; k++) { const n = [1, 777, 4097, 30][k % 4]; await r.push(x.subarray(o, o + n)); o += n; }
+    await r.finish();
+    const chain = await TF2Audio.createLiveChain({ codec: 'steam', volume: 1, seed, gate: false, onDecoded: take(live) }, rate);
+    try { for (let o = 0; o < x.length; o += 441) await chain.process(x.subarray(o, o + 441)); } finally { chain.free(); }
+    const prefix = (a, b) => a.length <= b.length && a.every((v, i) => v === b[i]);
+    check('one capture, one index: from 48 kHz with the gate off, process(), createRender fed in pieces of 1, 777, 4,097 and 30 and the live chain in blocks of 441 decode the test\'s own chain\'s messages (the live chain its first ones: it never flushes)',
+      whole.length > 50 && JSON.stringify(whole) === JSON.stringify(want) && JSON.stringify(piece) === JSON.stringify(want)
+      && live.length > 0.9 * want.length && prefix(live, want),
+      `${want.length} messages in the test's chain; ${whole.length}, ${piece.length} and ${live.length} decoded`);
+  }
+}
+
 async function main() {
   engine.codec = await import(require('url').pathToFileURL(path.join(root, 'opus-codec.mjs')).href);
 
   await steamSection();
+
+  await ditherSection();
 
   await liveSteamSection();
 

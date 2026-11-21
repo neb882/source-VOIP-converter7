@@ -794,11 +794,14 @@ const REACH_AND_LOOKAHEAD = 4806;
 // The live chain's samples on main before W3-02c-3a (0617875), with no timeline and with 'source': the
 // SHA-256 of its output and of the voice at its mix point, for talk(4, 48000, 51) in blocks of 480.
 // W3-26b (the steam capture runs Windows's converter as read) recorded the three steam rows again, in a commit
-// of its own, from the run in which every other check passed; the celt_22 row did not move.
+// of its own, from the run in which every other check passed; the celt_22 row did not move. W3-28 (the steam
+// capture's step to 16 bits dithered, from 48 kHz here) recorded the three steam rows again, in a commit of its
+// own, from the run in which every other check passed; the celt_22 row did not move. Its fix round 1 (the table's
+// seed 0x28D17E6) recorded the same three rows again, in a commit of its own; the celt_22 row did not move.
 const LIVE_MAIN = {
-  'the defaults': ['3c59bf467f63c352d5a68e28d431c2b4fd082eb30b4599d991f50c7842c64b79', '9c4db788a0fa67210cad063070c55827d800cd6fb601b84760fb2e5486442f22'],
-  'loss 15%, jitter 50 ms, seed 3': ['81a86ec712cc0dd84c19d4999e64fdf7db3bbf8699db970017773bb0da1ced9b', 'f90f8cb938088a5cc1da0516ac0c7c92fb7d24f66c9b7ece9b7a5c3252b58af8'],
-  'the gate off, agc off, voiceScale 2, low latency': ['5ca63ff88be4302e792ae5003e2a54877d67cb0be439c4809bff28b94b7c56c7', 'f335b4ef2d4b418b672fbe7f9eef0285c702cf7306a5adf82ddc277f5f1a0370'],
+  'the defaults': ['f9b683d41b0b63b1cf27f4dc05c2b8b93c4fb364c57adf3f030f1751cb225685', '058fac1978322537a6323fd93baf7d41eaa52157a34866027ced6a037b40fbe2'],
+  'loss 15%, jitter 50 ms, seed 3': ['d6984b3cf02b96377c52f9b6272df89d96c0f8c41b30114847c7316574b81698', '4f212973ce23e3e620529f078b7e7c6503466611f43c53869bd6d23c8ec25768'],
+  'the gate off, agc off, voiceScale 2, low latency': ['e3db672792357ff696ac413525e78dbdf3e9052f5a96c99e65e8e1c8b69acd1b', '4bc76f3cff1279cb76b8e29857ec58316bd8bdc37985cfb05892f2e1813facf0'],
   'celt_22, loss 15%, seed 5': ['ae240a8399c4e6abfd470959f7b1e85db244ebd05a6d36c37fe03f0c3ede4f0a', '1d30d0f8b40a265b63c1f1c5e7d9637f9ce32b75ac005bebe82244a6d2991e92']
 };
 const LIVE_MAIN_OPTS = {
