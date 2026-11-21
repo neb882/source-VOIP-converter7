@@ -9,7 +9,15 @@
 // A second model of the orders' text, written with plain arrays (plainClock and plainSender
 // below), runs beside the module: the two must agree read for read and message for message,
 // and it gives what the module does not show (which read made which message).
+//
+// W3-27a (docs/work-orders/W3-27-sender-clock.md): the read clock on the rule as read
+// (createReadClock), which nothing calls yet, against the study's generator in
+// tests/steam-sender/gen.mjs, run in this process: its reads to the last bit, three steps at
+// most, the capture's place, the draws, the reads never ahead of the capture, its statistics
+// against the order's bands, the old clock through the same counting, 20 ms packets, the other
+// senders, the refusals. These sections come last.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -19,6 +27,9 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const M = require('../steam-sender.js');
 const { STEAM_SENDER, createClock, createSender } = M;
+const { createReadClock } = M;
+const GEN = fileURLToPath(new URL('./steam-sender/gen.mjs', import.meta.url));
+const { createReadClock: genClock } = await import('./steam-sender/gen.mjs');
 
 let passed = 0;
 function check(name, ok, detail = '') { assert.ok(ok, `${name} ${detail}`); passed++; console.log(`  ok    ${name}${detail ? `   [${detail}]` : ''}`); }
@@ -216,8 +227,8 @@ console.log('The module');
   const page = vm.createContext({}), worker = vm.createContext({ self: {} });
   vm.runInContext(src, page); vm.runInContext(src, worker);
   check('it loads as a page script and in a worker as TF2SteamSender, with no imports',
-    ['STEAM_SENDER', 'createClock', 'createSender'].every((k) => k in page.TF2SteamSender && k in worker.self.TF2SteamSender)
-    && Object.keys(M).join() === 'STEAM_SENDER,createClock,createSender' && !/\bimport\b|\brequire\(/.test(src));
+    ['STEAM_SENDER', 'createClock', 'createSender', 'createReadClock'].every((k) => k in page.TF2SteamSender && k in worker.self.TF2SteamSender)
+    && Object.keys(M).join() === 'STEAM_SENDER,createClock,createSender,createReadClock' && !/\bimport\b|\brequire\(/.test(src));
   check('it draws only from its seed: no Math.random, no clock, no date', !/Math\.random|Date\b|performance\.now|process\.hrtime/.test(src));
   const S = STEAM_SENDER;
   check('its constants are frozen and the orders\'', Object.isFrozen(S) && S.rate === 24000 && S.frame === 480 && S.grid === 750 && S.preroll === 2400
@@ -994,6 +1005,300 @@ console.log('Refusals');
   check('uptime -1, 4,000,001, NaN, Infinity, \'7\' and null are refused with a RangeError naming uptime; 0 and 4,000,000 are taken', ups.length === 0
     && createSender({ uptime: 0 }).info().uptime === 0 && createSender({ uptime: 4000000 }).info().uptime === 4000000 && createSender().info().uptime === 777600,
     ups.map(String).join(', '));
+}
+
+// ---------------------------------------------------------------------------------------
+// W3-27a: the read clock on the rule as read (createReadClock), beside the clock that runs.
+// docs/work-orders/W3-27-sender-clock.md, "W3-27a: the suite", checks 1 to 12. The
+// reference is the study's generator, tests/steam-sender/gen.mjs, run in this process
+// (genClock), so that Math.log and Math.cos are the same on both sides. Times of the
+// reference are in ms; the port's since and time are in seconds.
+
+const SIDE = { seed: 0xC0FFEE };
+// The port's reads at place 0 against the reference's, read for read: since is the
+// reference's time / 1000 bit for bit, samples and by equal. Returns '' or where they part.
+function againstGen(opts, reads) {
+  const a = createReadClock({ ...opts, place: 0 }), b = genClock(opts);
+  for (let i = 0; i < reads; i++) {
+    const x = a.next(), y = b.next();
+    if (!Object.is(x.since, y.time / 1000) || x.samples !== y.samples || x.by !== y.by) return `${JSON.stringify(opts)} read ${i}: ${x.since * 1000} ${x.samples} ${x.by} for ${y.time} ${y.samples} ${y.by}`;
+  }
+  return '';
+}
+// The suite's own draws of the phases: the seven of the order's list, in its order.
+function phasesOf(seed, packet = 10) {
+  const P = mulberry32((seed ^ 0x1F123BB5) >>> 0), d = Array.from({ length: 7 }, () => P());
+  return { capPhase: packet * d[2], place: Math.floor((packet === 10 ? 8 : 16) * d[4]), lead: Math.floor(750 * d[5]), phase: 0.25 * d[6] };
+}
+// The counting of the statistics (check 7). reads: the clock's reads in order; place: the
+// clock's place; cycle: the places counted (8, or 16). The place of a chunk's end is its
+// running count of steps plus the clock's place, modulo the cycle. The window is the fullest
+// stretch of 4.5 ms of since modulo 15 ms, in bins of 0.25 ms, found for each clock.
+function tally(acc, reads, place, cycle = 8) {
+  const ms = reads.map((r) => r.since * 1000), N = ms.length;
+  acc.series.push(ms.slice(1).map((t, i) => t - ms[i]));
+  acc.reads += N - 1; acc.span += reads[N - 1].since - reads[0].since;
+  const bins = new Array(60).fill(0);
+  const binOf = (t) => Math.floor((t % 15) / 0.25);
+  for (const t of ms) bins[binOf(t)]++;
+  let best = -1, from = 0;
+  for (let b = 0; b < 60; b++) { let s = 0; for (let j = 0; j < 18; j++) s += bins[(b + j) % 60]; if (s > best) { best = s; from = b; } }
+  const inside = ms.map((t) => (binOf(t) - from + 60) % 60 < 18);
+  acc.inWindow += best; acc.all += N;
+  let lastOff = -1;
+  for (let i = 0; i < N; i++) {
+    if (i > 0) { if (inside[i - 1]) { acc.on++; acc.offAfterOn += !inside[i]; } else { acc.off++; acc.offAfterOff += !inside[i]; } }
+    if (!inside[i]) {
+      if (lastOff >= 0) { const d = ms[i] - ms[lastOff]; if (d < 200) { acc.offPairs++; acc.offNear += d >= 107 && d <= 111; } }
+      lastOff = i;
+    }
+  }
+  let k = 0, before = 0;
+  for (const r of reads) {
+    if (!r.samples) { acc.empty += k > 0; continue; }
+    const n = r.samples / 750;
+    k += n;
+    const p = (k + place) % cycle;
+    acc.chunks++; acc.size[n]++; acc.at[p]++; acc.bySize[n][p]++;
+    if (before) { acc.pairs++; acc.pair[`${before}-${n}`] = (acc.pair[`${before}-${n}`] || 0) + 1; }
+    before = n;
+  }
+}
+function statsOf(make, { seeds = 20, reads = 20000, cycle = 8 } = {}) {
+  const acc = { series: [], reads: 0, span: 0, inWindow: 0, all: 0, on: 0, off: 0, offAfterOn: 0, offAfterOff: 0, offPairs: 0, offNear: 0, empty: 0,
+    chunks: 0, size: [0, 0, 0, 0], at: new Array(cycle).fill(0), bySize: [0, 1, 2, 3].map(() => new Array(cycle).fill(0)), pairs: 0, pair: {} };
+  for (let seed = 1; seed <= seeds; seed++) {
+    const c = make(seed);
+    tally(acc, Array.from({ length: reads }, () => c.next()), c.place ?? 0, cycle);
+  }
+  const all = acc.series.flat(), mean = all.reduce((a, b) => a + b, 0) / all.length;
+  const v = all.reduce((a, d) => a + (d - mean) ** 2, 0);
+  const lag = (L) => acc.series.reduce((a, s) => { for (let i = L; i < s.length; i++) a += (s[i] - mean) * (s[i - L] - mean); return a; }, 0) / v;
+  const pct = (a, b) => (100 * a) / b;
+  const sizeSum = (n) => acc.bySize[n].reduce((a, b) => a + b, 0);
+  return {
+    mean, lo: all.reduce((a, b) => Math.min(a, b), Infinity), hi: all.reduce((a, b) => Math.max(a, b), -Infinity), under49: pct(all.filter((d) => d < 49).length, all.length),
+    window: pct(acc.inWindow, acc.all), offAfterOn: pct(acc.offAfterOn, acc.on), offAfterOff: pct(acc.offAfterOff, acc.off), near: pct(acc.offNear, acc.offPairs),
+    lag2: lag(2), lag4: lag(4), sizes: [1, 2, 3].map((n) => pct(acc.size[n], acc.chunks)), at: acc.at.map((x) => pct(x, acc.chunks)),
+    sizeAt: (n, p) => pct(acc.bySize[n][p], sizeSum(n)), pair: (key) => pct(acc.pair[key] || 0, acc.pairs), perSecond: acc.reads / acc.span, empty: acc.empty,
+  };
+}
+const within = (x, lo, hi) => x >= lo && x <= hi;
+const f2 = (x) => x.toFixed(2);
+
+console.log('The read clock: the reference is the study\'s (W3-27a, check 1)');
+{
+  const out = execFileSync(process.execPath, [GEN, '300', 'seed=1']);
+  const want = fs.readFileSync(fileURLToPath(new URL('./steam-sender/vector-seed1.json', import.meta.url)));
+  const sha = crypto.createHash('sha256').update(want).digest('hex');
+  check('gen.mjs run as its own program for 300 reads at seed 1 prints vector-seed1.json byte for byte, whose SHA-256 begins a64fc17735f4dc63',
+    Buffer.compare(out, want) === 0 && sha.startsWith('a64fc17735f4dc63'), `${out.length} bytes; ${sha.slice(0, 16)}`);
+}
+
+console.log('The read clock is the reference, to the last bit (check 2; place 0)');
+{
+  let where = '';
+  for (let seed = 1; seed <= 400 && !where; seed++) where = againstGen({ seed }, 2000);
+  check('seeds 1 to 400, 2,000 reads each: since is the reference\'s time / 1000 bit for bit, samples and by equal', !where, where);
+  const settings = [{ seed: 1 }, { seed: 2 }, SIDE, { ...SIDE, packet: 20 }, { ...SIDE, late: 20 }, { ...SIDE, fps: 30 }, { ...SIDE, fps: 60 }, { ...SIDE, fps: 144 }, { ...SIDE, tick: 30 }];
+  const parted = settings.map((s) => againstGen(s, 200000)).filter(Boolean);
+  check('200,000 reads at each setting of "Precision" (seeds 1, 2 and the default; 20 ms packets; a lateness of 20 ms; 30, 60 and 144 frames a second; a tick of 30 ms): the same, bit for bit',
+    parted.length === 0, parted[0] || '');
+}
+
+// The four settings of checks 3 and 6.
+const EDGES = [['the defaults', {}], ['20 ms packets', { packet: 20 }], ['a lateness of 0', { late: 0 }], ['30 frames a second, 20 ms packets, a lateness of 31.25 ms', { fps: 30, packet: 20, late: 31.25 }]];
+
+console.log('The read clock: three steps at most (check 3)');
+{
+  const opts = { seed: 9, fps: 144, late: 20, packet: 20 };
+  const a = createReadClock({ ...opts, place: 0 }), b = genClock(opts);
+  const differ = [];
+  let timesEqual = true, sumA = 0, sumB = 0;
+  for (let i = 0; i < 20000; i++) {
+    const x = a.next(), y = b.next();
+    sumA += x.samples; sumB += y.samples;
+    if (!Object.is(x.since, y.time / 1000) || x.by !== y.by) timesEqual = false;
+    if (x.samples !== y.samples) differ.push([i, x.samples / 750, y.samples / 750]);
+  }
+  check('seed 9, 144 frames a second, 20 ms packets, a lateness of 20 ms: the reference\'s read 9,858 brings four steps, the port\'s three and its next one more; every other read is the reference\'s',
+    timesEqual && differ.length === 2 && differ[0].join() === '9858,3,4' && differ[1][0] === 9859 && differ[1][1] === differ[1][2] + 1 && sumA === sumB,
+    differ.map((d) => `read ${d[0]}: ${d[1]} for ${d[2]}`).join('; '));
+}
+
+console.log('The read clock: the reads never run ahead of the capture (checks 3 and 6; 300 seeds of 20,000 reads at four settings)');
+{
+  const bad = [], over = [];
+  let least = Infinity;
+  for (const [label, opts] of EDGES) {
+    for (let seed = 1; seed <= 300; seed++) {
+      const c = createReadClock({ seed, ...opts });
+      let taken = 0, last = -Infinity;
+      for (let i = 0; i < 20000; i++) {
+        const r = c.next();
+        if (r.samples > 2250 || r.samples % 750 || r.samples < 0) { over.push(`${label}, seed ${seed}, read ${i}: ${r.samples}`); break; }
+        taken += r.samples;
+        const ahead = r.since * 24000 - taken;
+        if (taken > 0 && ahead < least) least = ahead;
+        if (ahead < 0 || r.time < last) { bad.push(`${label}, seed ${seed}, read ${i}`); break; }
+        last = r.time;
+      }
+    }
+  }
+  check('no read brings more than 2250 samples or samples off whole steps', over.length === 0, over[0] || '');
+  check('at every read since x 24000 is at least the samples taken so far, and time never falls', bad.length === 0, bad[0] || `since x 24000 at least ${least.toFixed(2)} samples above them`);
+}
+
+console.log('The read clock: the place turns the pattern and nothing else (check 4)');
+{
+  // The steps a second time, from the reads' times, the suite's own draws of capPhase and of
+  // C, and ready(k) as the order writes it.
+  const stepsOf = (seed, place, times, { packet = 10, late = 9 } = {}) => {
+    const { capPhase } = phasesOf(seed, packet), C = mulberry32((seed ^ 0x3C6EF372) >>> 0);
+    const ready = (k) => (capPhase + (packet * Math.ceil(31.25 * (k + place) / packet - 1e-9) - 31.25 * place)) + late * C();
+    let k = 0, top = -Infinity, next = ready(1);
+    return times.map((t) => {
+      let n = 0;
+      while (n < 3 && Math.max(next, top) <= t) { top = Math.max(next, top); k++; n++; next = ready(k + 1); }
+      return 750 * n;
+    });
+  };
+  let moved = '', wrong = '';
+  for (let seed = 1; seed <= 50; seed++) {
+    const g = genClock({ seed }), ref = Array.from({ length: 2000 }, () => g.next());
+    const times = ref.map((y) => y.time);
+    for (const place of [0, 1, 2, 3, 4, 5, 6, 7, undefined]) {
+      const c = createReadClock({ seed, place }), reads = Array.from({ length: 2000 }, () => c.next());
+      const p = place ?? phasesOf(seed).place;
+      const base = createReadClock({ seed, place: 0 });
+      if (c.place !== p) { wrong ||= `seed ${seed}: place ${c.place} for ${p}`; continue; }
+      for (let i = 0; i < 2000 && !moved; i++) {
+        const b = base.next(), r = reads[i];
+        if (!Object.is(r.since, ref[i].time / 1000) || !Object.is(r.since, b.since) || !Object.is(r.time, b.time) || r.by !== b.by || r.by !== ref[i].by) moved = `seed ${seed}, place ${place}, read ${i}`;
+      }
+      const want = stepsOf(seed, p, times), at = reads.findIndex((r, i) => r.samples !== want[i]);
+      if (at >= 0) wrong ||= `seed ${seed}, place ${place}: read ${at} ${reads[at].samples} for ${want[at]}`;
+    }
+  }
+  check('seeds 1 to 50, each place from 0 to 7 and the drawn one: since, time and by are place 0\'s and the reference\'s bit for bit', !moved, moved);
+  check('the steps equal a second computation from the reads\' times, the suite\'s own draws of capPhase and C, and ready(k) as written (the drawn place the suite\'s fifth draw)', !wrong, wrong);
+  const seen = new Set();
+  for (let seed = 1; seed <= 400; seed++) seen.add(createReadClock({ seed }).place);
+  check('the drawn place takes every value from 0 to 7 over seeds 1 to 400', seen.size === 8 && [...seen].every((p) => Number.isInteger(p) && p >= 0 && p < 8), [...seen].sort().join());
+}
+
+console.log('The read clock: the draws (check 5)');
+{
+  let bad = '';
+  for (let seed = 1; seed <= 1000 && !bad; seed++) {
+    const c = createReadClock({ seed }), d = phasesOf(seed), r = c.next();
+    if (c.lead !== d.lead || c.place !== d.place || !Object.is(r.time, d.phase + r.since)) bad = `seed ${seed}: lead ${c.lead} for ${d.lead}, place ${c.place} for ${d.place}`;
+    const c20 = createReadClock({ seed, packet: 20 }), d20 = phasesOf(seed, 20);
+    if (!bad && (c20.place !== d20.place || c20.lead !== d.lead)) bad = `seed ${seed}, 20 ms packets: place ${c20.place} for ${d20.place}`;
+  }
+  check('lead, place and the phase time - since are the suite\'s own sixth, fifth and seventh draws of P (seeds 1 to 1,000; 16 places with 20 ms packets)', !bad, bad);
+  const seen = new Uint32Array(750);
+  let outside = 0;
+  for (let seed = 1; seed <= 100000; seed++) {
+    const L = createReadClock({ seed }).lead;
+    if (Number.isInteger(L) && L >= 0 && L < 750) seen[L]++; else outside++;
+  }
+  check('over seeds 1 to 100,000 the lead takes every whole value from 0 to 749 and no other', outside === 0 && seen.every((n) => n > 0),
+    `each value ${Math.min(...seen)} to ${Math.max(...seen)} times`);
+  const phases = Array.from({ length: 400 }, (_, s) => { const r = createReadClock({ seed: s + 1 }).next(); return r.time - r.since; });
+  check('the phase spreads over 0 to 0.25 s over seeds 1 to 400', phases.every((p) => p >= 0 && p < 0.25) && Math.min(...phases) < 0.01 && Math.max(...phases) > 0.24,
+    `${Math.min(...phases).toFixed(4)} to ${Math.max(...phases).toFixed(4)} s`);
+  const take = (seed, k) => { const c = createReadClock({ seed }); return JSON.stringify([c.lead, c.place, Array.from({ length: k }, () => c.next())]); };
+  check('an unseeded clock is seed 0xC0FFEE\'s; two seeds differ; one seed repeats', take(undefined, 500) === take(0xC0FFEE, 500) && take(1, 500) !== take(2, 500) && take(5, 2000) === take(5, 2000));
+  let readOnly = 0;
+  const c = createReadClock({ seed: 3 });
+  for (const k of ['lead', 'place', 'next']) try { c[k] = 1; } catch (e) { readOnly += e instanceof TypeError; }
+  check('the clock is frozen: lead, place and next cannot be set', readOnly === 3 && Object.isFrozen(c));
+}
+
+console.log('The read clock\'s statistics (check 7; seeds 1 to 20, 20,000 reads each, pooled; the order\'s bands, the record\'s figures for the sets in brackets)');
+{
+  const s = statsOf((seed) => createReadClock({ seed }));
+  check('mean interval 55.42 to 55.62 ms (Sets J and L 55.43 and 55.37)', within(s.mean, 55.42, 55.62), s.mean.toFixed(3));
+  check('least at least 47.5 ms, most at most 69 ms (Sets J and L 47.75 to 64.13 and 47.85 to 64.44)', s.lo >= 47.5 && s.hi <= 69, `${f2(s.lo)} to ${f2(s.hi)}`);
+  check('intervals under 49 ms 1.9 to 2.7% (3.0 and 2.3)', within(s.under49, 1.9, 2.7), f2(s.under49));
+  check('reads in the fullest 4.5 ms window of the 15 ms tick 63.4 to 64.7% (61.9 and 62.9)', within(s.window, 63.4, 64.7), f2(s.window));
+  check('a read off that window after one in it 50.7 to 53.0% (54.4 and 54.4)', within(s.offAfterOn, 50.7, 53.0), f2(s.offAfterOn));
+  check('a read off it after one off it 5.9 to 9.4% (13.9 and 7.7)', within(s.offAfterOff, 5.9, 9.4), f2(s.offAfterOff));
+  check('neighbouring reads off it 107 to 111 ms apart, of those under 200 ms, 56.5 to 62.5% (54 and 59)', within(s.near, 56.5, 62.5), f2(s.near));
+  check('the intervals\' autocorrelation at lag 2 -0.22 to -0.16 and at lag 4 -0.27 to -0.21 (-0.08 and -0.18; -0.19 and -0.23)',
+    within(s.lag2, -0.22, -0.16) && within(s.lag4, -0.27, -0.21), `${s.lag2.toFixed(3)}, ${s.lag4.toFixed(3)}`);
+  const [c1, c2, c3] = s.sizes;
+  check('chunks of one, two and three steps 23.5 to 24.4, 73.8 to 75.1 and 1.3 to 1.9% (Set L 24.1, 74.7, 1.2; Set D 23.4, 74.8, 1.8)',
+    within(c1, 23.5, 24.4) && within(c2, 73.8, 75.1) && within(c3, 1.3, 1.9), s.sizes.map(f2).join(', '));
+  check('chunk ends at the favoured place in 8 (place 0) 15.6 to 16.6% (15.3 and 15.5)', within(s.at[0], 15.6, 16.6), f2(s.at[0]));
+  check('chunk ends at each other place 11.5 to 12.6% (11.7 to 12.5)', s.at.slice(1).every((x) => within(x, 11.5, 12.6)), s.at.slice(1).map(f2).join(' '));
+  check('one-step chunks ending at that place and at the next 22.5 to 26.5% each (22.5 and 23.2, 21.8 and 24.3)', within(s.sizeAt(1, 0), 22.5, 26.5) && within(s.sizeAt(1, 1), 22.5, 26.5),
+    `${f2(s.sizeAt(1, 0))}, ${f2(s.sizeAt(1, 1))}`);
+  check('two-step chunks ending at the next 7.4 to 9.0% (9.1 and 8.8)', within(s.sizeAt(2, 1), 7.4, 9.0), f2(s.sizeAt(2, 1)));
+  check('three-step chunks ending at the two places after under 0.5% (0 of 7, 1 of 31)', s.sizeAt(3, 1) + s.sizeAt(3, 2) < 0.5, (s.sizeAt(3, 1) + s.sizeAt(3, 2)).toFixed(3));
+  check('pairs one-one under 0.12%; one-three and three-one 1.0 to 1.45% each (Set D 0.3, 1.4, 1.7)',
+    s.pair('1-1') < 0.12 && within(s.pair('1-3'), 1.0, 1.45) && within(s.pair('3-1'), 1.0, 1.45), ['1-1', '1-3', '3-1'].map((k) => s.pair(k).toFixed(3)).join(', '));
+  check('reads a second 17.97 to 18.05', within(s.perSecond, 17.97, 18.05), s.perSecond.toFixed(3));
+}
+
+console.log('The clock as built fails the places (check 8; the second copy of the old clock through the same counting)');
+{
+  const s = statsOf((seed) => { const next = plainClock(seed); return { next }; });
+  check('12.5% at every place in 8 (12.0 to 13.0 each), where the rule has 16% at one', s.at.every((x) => within(x, 12.0, 13.0)), s.at.map(f2).join(' '));
+  check('no autocorrelation of the intervals at lag 2 (within 0.02 of 0), where the rule has -0.19', Math.abs(s.lag2) < 0.02, s.lag2.toFixed(4));
+}
+
+console.log('Packets of 20 ms give the 16-place form (check 9; seeds 1 to 20, 20,000 reads each)');
+{
+  const LONG = [1, 3, 5, 7, 8, 10, 12, 14, 0], SHORT = [2, 4, 6, 9, 11, 13, 15];
+  const meanOf = (at, ps) => ps.reduce((a, p) => a + at[p], 0) / ps.length;
+  const s20 = statsOf((seed) => createReadClock({ seed, packet: 20 }), { cycle: 16 }), s10 = statsOf((seed) => createReadClock({ seed }), { cycle: 16 });
+  const r20 = meanOf(s20.at, LONG) / meanOf(s20.at, SHORT), r10 = meanOf(s10.at, LONG) / meanOf(s10.at, SHORT);
+  check('with 20 ms packets each of the nine long places (1, 3, 5, 7, 8, 10, 12, 14 and 0 of 16) holds more chunk ends than any of the seven short ones',
+    Math.min(...LONG.map((p) => s20.at[p])) > Math.max(...SHORT.map((p) => s20.at[p])), s20.at.map(f2).join(' '));
+  check('the mean of the long over the mean of the short 1.7 to 2.4 with 20 ms packets (measured 2.02), and 0.9 to 1.1 with 10 ms packets', within(r20, 1.7, 2.4) && within(r10, 0.9, 1.1),
+    `${r20.toFixed(3)}, ${r10.toFixed(3)}`);
+}
+
+console.log('The other senders (check 10; seeds 1 to 20, 20,000 reads each)');
+{
+  const near = (got, want, d) => got.every((x, i) => Math.abs(x - want[i]) <= d);
+  const s30 = statsOf((seed) => createReadClock({ seed, fps: 30 }));
+  check('30 frames a second: 58.5 to 58.8 ms a read, chunks within 0.8 of 16.7, 78.9 and 4.4%', within(s30.mean, 58.5, 58.8) && near(s30.sizes, [16.7, 78.9, 4.4], 0.8),
+    `${s30.mean.toFixed(3)} ms; ${s30.sizes.map(f2).join(', ')}`);
+  const s60 = statsOf((seed) => createReadClock({ seed, fps: 60 }));
+  check('60 frames a second: 49.99 to 50.01 ms a read, chunks within 0.1 of 40, 60 and 0%', within(s60.mean, 49.99, 50.01) && near(s60.sizes, [40, 60, 0], 0.1),
+    `${s60.mean.toFixed(4)} ms; ${s60.sizes.map(f2).join(', ')}`);
+  const t30 = statsOf((seed) => createReadClock({ seed, tick: 30 }));
+  check('a tick of 30 ms: 59.6 to 59.9 ms a read', within(t30.mean, 59.6, 59.9), t30.mean.toFixed(3));
+  const l20 = statsOf((seed) => createReadClock({ seed, late: 20 }));
+  check('a lateness of 20 ms: chunks within 0.8 of 26.9, 68.4 and 4.7%, and at least one empty read after the first chunk in 400,000', near(l20.sizes, [26.9, 68.4, 4.7], 0.8) && l20.empty >= 1,
+    `${l20.sizes.map(f2).join(', ')}; ${l20.empty} empty reads`);
+}
+
+console.log('The read clock\'s refusals (check 11)');
+{
+  const refused = (opts, name) => threw(() => createReadClock(opts), new RegExp(`^${name} `));
+  const cases = [['fps', 9], ['fps', 1001], ['tick', 4], ['tick', 101], ['packet', 15], ['late', -1], ['late', 32], ['place', 8], ['place', 1.5], ['place', -1]];
+  for (const name of ['fps', 'tick', 'packet', 'late', 'place', 'seed']) cases.push([name, NaN], [name, '10'], [name, null]);
+  const failed = cases.filter(([name, v]) => !refused({ [name]: v }, name)).map(([n, v]) => `${n} ${String(v)}`);
+  if (!refused({ packet: 20, place: 16 }, 'place')) failed.push('place 16 with 20 ms packets');
+  check('fps 9 and 1001, tick 4 and 101, packet 15, late -1 and 32, place 8 (16 with 20 ms packets), 1.5 and -1, and each given as NaN, a string or null: a RangeError that names it',
+    failed.length === 0, failed.join('; '));
+  const taken = [{ fps: 10 }, { fps: 1000 }, { tick: 5 }, { tick: 100 }, { packet: 20 }, { late: 0 }, { late: 31.25 }, { place: 7 }, { packet: 20, place: 15 }, { place: 0 }]
+    .filter((o) => { try { createReadClock(o).next(); return true; } catch (e) { return false; } });
+  check('the ends of each range are taken: fps 10 and 1000, tick 5 and 100, packet 20, late 0 and 31.25, place 0 and 7 (15 with 20 ms packets)', taken.length === 10, `${taken.length} of 10`);
+}
+
+console.log('The module, again (check 12)');
+{
+  const K = STEAM_SENDER.clock;
+  const want = { pass: 50, tick: 15, fps: 294, fetchSpread: 1, otherRate: 3, timerStep: 15.625, slip: 1.3, tolerance: 1, work: 0.05, workSpread: 1.5, packet: 10, late: 9, maxSteps: 3 };
+  const mix = { phase: 0x1F123BB5, game: 0x2545F491, timer: 0x51ED270B, work: 0x6C8E9CF5, capture: 0x3C6EF372, other: 0x7F4A7C15 };
+  check('STEAM_SENDER.clock is frozen and holds the order\'s numbers and the six mix values, and nothing else',
+    Object.isFrozen(K) && Object.isFrozen(K.mix) && JSON.stringify(K) === JSON.stringify({ ...want, mix }), JSON.stringify(K));
+  check('its exports are the four: STEAM_SENDER, createClock, createSender, createReadClock', Object.keys(M).join() === 'STEAM_SENDER,createClock,createSender,createReadClock');
 }
 
 console.log(`\n${passed} steam sender checks passed`);

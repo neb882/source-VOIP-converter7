@@ -38,7 +38,15 @@
  *     read (counted from the render's start), and on a later tick than the message before
  *     (the engine adds at most one packet a tick).
  *
+ * Beside the clock that runs is the read clock on the rule as read (createReadClock; docs/work-
+ * orders/W3-27-sender-clock.md and finding 28 of tests/REFERENCE_2026.md): one read in each
+ * 50 ms pass of Steam's thread, the pass ended by the game's fetch once a tick or by Windows's
+ * timer step, and capture steps ready as 10 ms packets fill them. Nothing calls it, so no
+ * render changes; W3-27b makes it the sender's clock. Its reference is tests/steam-sender/gen.mjs.
+ *
  * createClock({ seed }) -> { next(), lead }: one read, { time, since, samples }, per call.
+ * createReadClock({ seed, fps, tick, packet, late, place }) -> { next(), lead, place }: one read,
+ *   { time, since, samples, by }, per call.
  * createSender({ seed, clock, lead, uptime, gate, meanMin }) -> { push(int16), finish(), info() }.
  * No imports; runs as a page script, in a worker and under Node.
  */
@@ -94,6 +102,60 @@
     // mulberry32((seed ^ seedMixCapture) >>> 0) for the capture (arbitrary).
     seedMix: 0x51ED270B,
     seedMixCapture: 0x2545F491,
+    // The read clock on the rule as read (createReadClock; docs/work-orders/W3-27-sender-
+    // clock.md, "The rule"; the evidence is finding 28 of tests/REFERENCE_2026.md). Times in
+    // ms. Nothing runs it yet: W3-27b makes it the sender's clock.
+    clock: Object.freeze({
+      // ms: the pass of Steam's pipe server thread, which reads the capture once a pass and
+      // then waits for what is left of it in whole milliseconds, truncated; a wake under 1 ms
+      // before the deadline ends the pass (read, twice).
+      pass: 50,
+      // ms: the game's tick (read). The game fetches voice once for each tick it runs, in the
+      // first frame at or after the tick's time (read); that the fetch wakes Steam's loop is
+      // inferred, and fits Sets J and L.
+      tick: 15,
+      // The game's frames a second: measured, the owner's net_graph at fps_max 300.
+      fps: 294,
+      // ms: the fetch falls evenly within this long of its frame's start (fitted, Set J; weak).
+      fetchSpread: 1,
+      // Other wakes of the thread a second, at random (fitted, Set J; weak).
+      otherRate: 3,
+      // ms: Windows's timer step, counted on from the last timeout. Measured twice (Sets J and
+      // L) as about 15.6 ms; 15.625 is Windows's default and is not fitted.
+      timerStep: 15.625,
+      // ms: the step's slip, one normal draw a timeout of this spread (measured once, the
+      // seven-step gaps of Sets J and L; the record's first count has 1.5 ms).
+      slip: 1.3,
+      // ms: how early a timer step may come and still end the wait, at the due time (fitted,
+      // Set J).
+      tolerance: 1,
+      // ms: the read falls work to work + workSpread after its pass's start, evenly (fitted,
+      // Set J).
+      work: 0.05,
+      workSpread: 1.5,
+      // ms: the capture's packets. A step of 750 samples (31.25 ms, read twice) can be read
+      // once the packet that holds its last sample is in: measured on three sets; that the
+      // layer below works in such packets is inferred. 20 ms packets were measured twice on
+      // another PC, in two stretches (Set Q).
+      packet: 10,
+      // ms: each step is ready 0 to this long after that packet, evenly (fitted, Set L's real
+      // microphone; holds on Set D, which it was not fitted on, measured once). Another PC's
+      // is 0 to 20 ms (fitted, Set Q); no cause read.
+      late: 9,
+      // Capture steps a read brings at most: the app's own (MAX_CHUNK). With the defaults no
+      // read asks for more (measured on the reference, 2,000,000 reads); a step left over
+      // waits for the next read.
+      maxSteps: 3,
+      // The six random sources, mulberry32((seed ^ mix) >>> 0), one for each part, so that a
+      // change to one part leaves the others' draws alone (the reference's choice; nothing
+      // ties the streams). phase: the seven phases drawn when the clock is made (the tick's,
+      // the frame's, the capture's packets against the clock, the timer's, the capture's
+      // place in its pattern, the capture's phase against the sound, the float's grid);
+      // nothing read or measured ties them. game: where in its frame each fetch falls. timer:
+      // the slips. work: where in its pass each read falls. capture: each step's lateness.
+      // other: the other wakes.
+      mix: Object.freeze({ phase: 0x1F123BB5, game: 0x2545F491, timer: 0x51ED270B, work: 0x6C8E9CF5, capture: 0x3C6EF372, other: 0x7F4A7C15 }),
+    }),
   });
 
   const SILENT = 0, ACTIVE = 1, HANGING = 2, ENDED = 3;
@@ -158,6 +220,146 @@
         }
         const read = { time: phase + r, since: r, samples: S.grid * n };
         r = r + (S.readMin + (S.readMax - S.readMin) * A());
+        return read;
+      },
+    });
+  }
+
+  // The read clock on the rule as read (docs/work-orders/W3-27-sender-clock.md, "The rule",
+  // where each step below is written out; STEAM_SENDER.clock has the numbers and their
+  // standing). Held to the reference generator, tests/steam-sender/gen.mjs, to the last bit
+  // with place 0, which needs every sum grouped as written here. Nothing calls it yet.
+  //   - A pass starts at a wake or a timeout; its read is made 0.05 to 1.55 ms later; it then
+  //     waits, in whole milliseconds, for what is left of start + 50 ms. A wake that leaves
+  //     under 1 ms ends the pass; an earlier one only makes it wait again.
+  //   - The wakes: the game's fetch, once for each tick, in the first frame at or after the
+  //     tick's time, and 3 other wakes a second.
+  //   - A timeout ends on a timer step counted on from the last timeout's end, plus a slip
+  //     drawn for that step and kept while one pass waits again: the first such at or after
+  //     the due time less 1 ms, and never before the due time.
+  //   - Capture step k (from 1) can be read at the end of the packet that holds its last
+  //     sample, plus its lateness: the capture had made `place` steps before the clock
+  //     started (they are not read), so step k ends 31.25 (k + place) ms into the capture's
+  //     packets, and is never ready before capPhase + 31.25 k.
+  //   - A read brings the steps ready at its time and not yet taken, three at most.
+  // opts: seed, fps (10 to 1000), tick (ms, 5 to 100), packet (ms, 10 or 20), late (ms, 0 to
+  // 31.25), place (a whole number below 8, or 16 with 20 ms packets; drawn when left out, and
+  // the draw is made either way). Returns { next(), lead, place }: next() gives { time, since,
+  // samples, by }, time and since in seconds as createClock's, by what ended the pass before
+  // the read ('start', 'game', 'timeout' or 'other'); lead, the capture's phase against the
+  // sound (0 to 749 samples, as createClock's); place, the capture's place in its pattern.
+  function createReadClock(opts) {
+    const o = opts || {};
+    const S = STEAM_SENDER, K = S.clock;
+    const seed = setting(o.seed, 0xC0FFEE, 'seed');
+    const ranged = (name, d, lo, hi) => {
+      const x = setting(o[name], d, name);
+      if (!(x >= lo && x <= hi)) throw new RangeError(`${name} must be from ${lo} to ${hi}`);
+      return x;
+    };
+    const fps = ranged('fps', K.fps, 10, 1000);
+    const tick = ranged('tick', K.tick, 5, 100);
+    const packet = setting(o.packet, K.packet, 'packet');
+    if (packet !== 10 && packet !== 20) throw new RangeError('packet must be 10 or 20 ms');
+    const late = ranged('late', K.late, 0, 1000 * S.grid / S.rate);
+    const cycle = packet === 10 ? 8 : 16;          // steps in the pattern of the packets
+    if (o.place !== undefined && !(Number.isInteger(o.place) && o.place >= 0 && o.place < cycle)) {
+      throw new RangeError(`place must be a whole number from 0 to ${cycle - 1} with ${packet} ms packets`);
+    }
+    const R = (mix) => mulberry32((seed ^ mix) >>> 0);
+    const P = R(K.mix.phase), G = R(K.mix.game), T = R(K.mix.timer), W = R(K.mix.work), C = R(K.mix.capture), O = R(K.mix.other);
+    const stepMs = 1000 * S.grid / S.rate;         // 31.25
+    const frame = 1000 / fps;
+
+    // The phases, in this order: the reference's four, then the app's three.
+    const tickPhase = tick * P();
+    const framePhase = frame * P();
+    const capPhase = packet * P();
+    let anchor = -K.timerStep * P();
+    const drawnPlace = Math.floor(cycle * P());
+    const place = o.place !== undefined ? o.place : drawnPlace;
+    const lead = Math.floor(S.grid * P());
+    const phase = S.phaseSpan * P();
+
+    // The game's fetches, made as they are needed.
+    let frameT = framePhase, tickN = 0;
+    const fetches = [];
+    function moreFetches() {
+      for (;;) {
+        let due = 0;
+        while (tickPhase + tickN * tick <= frameT) { tickN++; due++; }
+        const t0 = frameT + K.fetchSpread * G();
+        frameT += frame;
+        if (due > 0) { for (let i = 0; i < due; i++) fetches.push(t0 + 0.02 * i); return; }
+      }
+    }
+    function nextFetchAfter(t) {
+      for (;;) {
+        while (fetches.length && fetches[0] <= t) fetches.shift();
+        if (fetches.length) return fetches[0];
+        moreFetches();
+      }
+    }
+    // The other wakes.
+    let otherT = ((-Math.log(1 - O())) * 1000) / K.otherRate;
+    function nextOtherAfter(t) {
+      while (otherT <= t) otherT += ((-Math.log(1 - O())) * 1000) / K.otherRate;
+      return otherT;
+    }
+    // A timeout's end, for a wait due at `due`: the timer's steps counted on from the last
+    // timeout (anchor), one slip for each step, kept while a pass waits again.
+    let slipN = -1, slipV = 0;
+    function timeoutEnd(due) {
+      let n = Math.max(1, Math.ceil((due - K.tolerance - anchor) / K.timerStep));
+      for (;;) {
+        if (n !== slipN) {
+          slipN = n;
+          const u = 1 - T(), v = T();
+          slipV = K.slip * (Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v));
+        }
+        const q = (anchor + n * K.timerStep) + slipV;
+        if (q >= due - K.tolerance) return Math.max(q, due);
+        n += 1;
+      }
+    }
+    // The capture: when step k (from 1) can be read.
+    function ready(k) {
+      const t = capPhase + (packet * Math.ceil(stepMs * (k + place) / packet - 1e-9) - stepMs * place);
+      return late === 0 ? t : t + late * C();
+    }
+    let nextReady = ready(1);
+
+    let start = 0, by = 'start', capK = 0, capReady = -Infinity;
+    return Object.freeze({
+      lead,
+      place,
+      next() {
+        const readT = (start + K.work) + K.workSpread * W();
+        slipN = -1;
+        let n = 0;
+        while (n < K.maxSteps && Math.max(nextReady, capReady) <= readT) {
+          capReady = Math.max(nextReady, capReady);
+          capK += 1; n += 1;
+          nextReady = ready(capK + 1);
+        }
+        const since = readT / 1000;
+        const read = { time: phase + since, since, samples: S.grid * n, by };
+        // The wait.
+        let now = readT;
+        const deadline = start + K.pass;
+        for (;;) {
+          const left = Math.floor(deadline - now);
+          const due = now + Math.max(0, left);
+          const tOut = left <= 0 ? now : timeoutEnd(due);
+          const g = nextFetchAfter(now), w = nextOtherAfter(now);
+          const wake = Math.min(g, w);
+          if (wake < tOut) {
+            now = wake;
+            if (deadline - now < 1) { start = now; by = g <= w ? 'game' : 'other'; break; }
+          } else {
+            start = tOut; by = 'timeout'; anchor = tOut; slipN = -1; break;
+          }
+        }
         return read;
       },
     });
@@ -409,7 +611,7 @@
     return Object.freeze({ push, finish, info });
   }
 
-  const TF2SteamSender = { STEAM_SENDER, createClock, createSender };
+  const TF2SteamSender = { STEAM_SENDER, createClock, createSender, createReadClock };
   if (typeof module !== 'undefined' && module.exports) module.exports = TF2SteamSender;
   else root.TF2SteamSender = TF2SteamSender;
 })(typeof self !== 'undefined' ? self : this);
