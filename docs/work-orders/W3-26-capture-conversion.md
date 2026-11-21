@@ -1,7 +1,8 @@
 # W3-26: the capture's conversion to 24 kHz, as read
 
-**Status 2026-11-21: planned; the six rulings given ("The rulings", at the end); W3-26a being built while a plan
-reviewer reads the whole order; W3-26b waits for both.** Written by a planner at `main` `8969238` (cache v54) from
+**Status 2026-11-21: planned; the six rulings given ("The rulings", at the end); the plan reviewed ("After the plan review", at the
+end: build with the changes listed there, which override the text above where they differ); W3-26a being built;
+W3-26b waits for it.** Written by a planner at `main` `8969238` (cache v54) from
 the repository, the two readers' own converters and a prototype built in a scratch copy of the tree.
 
 **Kind:** a change to how renders are computed. Every render of Steam voice with the codec on changes, from a
@@ -661,3 +662,62 @@ orchestrator's private runs before W3-26b merges, with Set D's band edge and its
 built module. The record's "within 0.1 dB below 12 kHz" is of noise through the codec and the order's tone gains
 are before it; W3-26b's dated lines say which measure each is. Takes through a 44.1 kHz device and through one
 below 24 kHz are not asked of the owner now: Steam's own file of what it captured comes first.
+
+## After the plan review (2026-11-21)
+
+A plan reviewer wrote a port of its own from "The rule" alone: bit-equal to the first reference on all nine
+vectors at the first try, and its stream from steps 8 to 11 equal to the whole conversion (measured, reviewer).
+`end(count)` can always be met and "every output whose `H` later inputs are in" is check 5's set (reviewer).
+Verdict: build with these changes. Where they differ from the text above, these hold.
+
+### W3-26a
+
+1. **Check 1, the break "beta 10.0558"**: the code's formula gives 10.0613 at quality 30 (`(100 − 8.7) × 0.1102`,
+   both references). The break is made with 10.0613.
+2. **Two more breaks for check 1, made at 44,100 Hz** (neither moves a sample where there is one phase): the phase
+   read reversed (`L − p` or `L − 1 − p` for `p`), and the table read transposed.
+3. **Check 8 gains** what the interface promises and nothing tested: `push` at 24,000 Hz returns a copy and not the
+   caller's array; `push` at any rate leaves the array it is given unchanged; a rate that is not finite or is
+   under 1 is a `RangeError`; a rate of 44100.4 behaves as 44,100; the kept designs never hold more than
+   `2 × TABLE_LIMIT` entries (shown with a small `limit` or by counting what `design` keeps, whichever the
+   module's shape allows without a hook made only for the test).
+4. **`gain`'s formula**: `gain(R, f) = |Σp Σq table[p][q] × e^(−2πi f (L j + p) / (R L))| / L`, with `j` the input
+   offset of tap `q` from the output's instant (`q − (T − H − 1)`) and the sign of `p` as the table's own index
+   has it; it must give the vectors' `gain_db`, which the second reference computed. `design(24000)` returns
+   `null`: no table is made. `gain(24000, f)` is 1.
+5. **Step 8's "in that order"** is chosen: the first reference adds the newest input first. Either order and a
+   pairwise sum give the same bits on every vector, since the sum is rounded to 32 bits once at the end
+   (measured, reviewer).
+6. **Standings in "The rule".** The stored sinc table with its grid `35 k / 16384` and its interpolation, the
+   table limits `(H + 1) L < 100000` and `max(L, M) ≤ 1280`, and the 32-bit running sum are **read, as the first
+   reader's converter has them**: the record does not hold them yet, and the second reader's converter has
+   another grid for the sinc table (`k × 65536 / 30678338`), which is where the two differ. The report says so;
+   W3-26b's dated line in finding 28 carries them into the record.
+
+### W3-26b
+
+1. **Test 6 (the module missing) cannot be built as worded**: the test's loader reads every listed engine file, so
+   a copy without the file stops at the load, and the module also sets its global under Node, so a later load
+   finds it. Build it as the room module's absent case is built (`tests/lib/engine.cjs`, `HANDED`, the precedent
+   of `TF2Room: null`), and `tests/harness.verify.mjs`'s check 7 then counts the modules as that leaves them. If
+   that precedent does not fit, the other way is an empty stub in the copy with the global removed and restored
+   around the load; the report says which and why.
+2. **`captureConverter(codec)`**: a `capture` of `undefined` is no capture (a test's copy has exactly that). A
+   profile with `capture` and a `codecRate` other than 24,000 throws an `Error` that names both.
+3. **The live chain's two paths.** `steamLiveChain` keeps a fallback, as the render and the stream have:
+   `conv ? conv.createStream(ioRate).push : streamResampleSinc(ioRate, STEAM_RATE)`, with the matching term in
+   the hold-backs. And `createLiveChain`'s own path honours `capture` too, wherever it brings the input to the
+   codec's rate with the codec on: a member that the render honours and the live chain ignores is a trap. "They
+   never ran" was true of the shipped profiles only (`test_decoder_eq` and `test_frame_gate` are copies that
+   carry the filter today). If that path cannot run a profile with `capture` at all, the report says why, and a
+   check shows such a profile is refused there with an error and not run without its converter.
+4. **Added to the lists.** May touch, each for the one thing named: `tests/verify.js` at its read of
+   `steam_48.captureEq`; `tests/accuracy.mjs`, whose `MODEL_FILES` gains `capture-converter.js` beside
+   `steam-sender.js`; `README.md`'s table of files, a row for the new file; `docs/LIVE.md`'s "the capture filter";
+   `tests/browser.verify.js`'s note with 206.9 ms; the comment at `contentDelay` in `engine/live-chain.js`. The
+   done-grep for `captureEq` also excepts `docs/PROGRESS.json`.
+
+Checked by the reviewer and correct as written: the condition `enableCodec && !received`; the kept stage A's key
+(it holds `enableWarble`, `received` and the profile's name); `sincWait` stays for the output's wait; no page,
+`app/` file or tool reads `captureEq`; the latency table; `reproduce` and `demo` render `steam` with no recorded
+value.
