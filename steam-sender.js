@@ -144,7 +144,7 @@
       // is 0 to 20 ms (fitted, Set Q); no cause read.
       late: 9,
       // Capture steps a read brings at most: the app's own (MAX_CHUNK). With the defaults no
-      // read asks for more (measured on the reference, 2,000,000 reads). At the ends of the
+      // read asks for more (measured once on the reference, 2,000,000 reads). At the ends of the
       // options' ranges the limit binds more often: in 2,000,000 reads at seed 1 (measured on
       // the reference), 6,215 times at 10 frames a second with a tick of 100 ms, 20 ms packets
       // and a lateness of 31.25 ms; 4,862 at 30 frames a second with those packets and that

@@ -18,8 +18,8 @@ as they were. No line of the existing sections changed but the list of exports.
 
 ## How the port is held to the reference
 
-The suite imports `tests/steam-sender/gen.mjs` and runs it beside `createReadClock` in one Node process
-(Node 22.23.4), so `Math.log`, `Math.cos` and `Math.sqrt` are the same on both sides. With `place: 0`, `since` is
+The suite imports `tests/steam-sender/gen.mjs` and runs it beside `createReadClock` in one Node process,
+so `Math.log`, `Math.cos` and `Math.sqrt` are the same on both sides. With `place: 0`, `since` is
 `Object.is` to the reference's `time / 1000`, and `samples` and `by` are equal, at every read: seeds 1 to 400 of
 2,000 reads, and 200,000 reads at each of nine settings. The port gave this at the first run, with every sum
 grouped as "The rule" writes it (measured). Check 1 first runs `gen.mjs` as a program and compares its output

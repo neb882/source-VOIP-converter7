@@ -857,3 +857,34 @@ Where a line here and a line above differ, this section is the one the builders 
   reference's times with check 4's ten lines.
 - **Checks 6 and 8** take their expected values from the built constant: the report gives each. Check 8's band of
   0.03 is a share of chunk ends (three points of a hundred).
+
+## W3-27a as built (2026-11-21)
+
+Merged 2026-11-21 with the cache number at v55. Report:
+[docs/reports/W3-27a-read-clock.md](../reports/W3-27a-read-clock.md). A reviewer who had not seen the build read
+it and found nothing to fix before the merge.
+
+- `steam-sender.js` has `STEAM_SENDER.clock` and `createReadClock` beside the clock that runs. Nothing calls
+  the new clock, and no render or recorded hash moved (the render hashes of the base and of the head are the same
+  bytes, counted by the builder and again by the reviewer).
+- At place 0 the port gives the reference's reads to the last bit at every setting the suite runs, and, on the
+  reviewer's own run, at 76 settings at and between the ends of the ranges over 4.56 million reads (measured once).
+  With another place the steps equal a second computation of the reviewer's over 8 million reads (measured once).
+- **A figure of this order corrected:** the lead "87 to 166 times" under "The capture's phase against the sound"
+  is the count with the lead as the fifth draw. As built the lead is the sixth draw and the count is 77 to 168;
+  every value from 0 to 749 still occurs.
+- **The limit of three, counted at seed 1** on the reference over 2,000,000 reads (measured once, the builder's;
+  the reviewer counted the same): it binds 6,215 times at 10 frames a second with a tick of 100 ms, 20 ms packets
+  and a lateness of 31.25 ms, 4,862 times at 30 frames a second with those packets and that lateness, and 34 times
+  with 10 ms packets and that lateness. The count moves with the seed (the plan review's 5,693, 4,595 and 39 are
+  another seed's). What is left over is always one step and is never carried twice.
+- **The invariant's least margin** on reads that bring a chunk, over 300 seeds of 20,000 reads (measured once):
+  2.68 samples at the defaults, 7.01 with 20 ms packets, 1.63 at a lateness of 0, 24.78 at 30 frames a second
+  with 20 ms packets and a lateness of 31.25 ms.
+- **Chosen by the builder:** check 8's bands (each place 12.0 to 13.0%, the lag-2 figure within 0.02 of 0); the
+  order gave none.
+- **Three of the order's breaks move no read** and so no check sees them: a product by two regrouped (exact in
+  floating point), the grouping inside `ready()` at place 0, and the lateness's sum regrouped (a last bit of a
+  step's ready time). "The grouping of any sum" in check 2 holds for the sums on the reads' times.
+- The suite takes about 44 s where it took 12; the check that the reads never run ahead of the capture is 17 s of
+  it. Left as the order has it.
