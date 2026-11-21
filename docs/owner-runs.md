@@ -117,6 +117,13 @@ What comes back: `mic_out.wav`, `voice_decompressed.wav`, `voice_micout.log` fro
 Steam's console (or `logs\console_log.txt` from the Steam folder), and the microphone's and the cable's format as
 Windows shows them (part A's last paragraph).
 
+Amended 2026-11-21, after two private reads of `SteamUI.dll` and the client: a line typed in Steam's console does
+set the client's variables, a path needs no quotes, and the folder is made if it is missing (read twice, but for
+the folder: read once). One more step joins step 2, before the two lines: type each of these three names alone and
+note what Steam prints for each: `voice_quality`, `voice_autogain`, `voice_preprocess`. The file's defaults are 4,
+0 and 0, and the first of them cannot be what runs (it would give another codec than every take shows), so the
+printed values are wanted.
+
 Amended 2026-11-21, once the cable's capture side was known (2 channels, 24 bits, 48,000 Hz): the format of the
 cable's playback side comes back too (Settings, System, Sound, the output device "CABLE Input", "Format"), and
 the name of the player the signal was played with. The signal goes through the playback side before the capture
