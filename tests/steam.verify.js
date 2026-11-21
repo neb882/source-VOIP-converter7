@@ -382,11 +382,16 @@ async function steamSection() {
     check('once per message: one resampler call for each message that holds samples (silence records among them)',
       r.codecInfo.resampler.calls === holding(s.msgs) && s.msgs.some((m) => m.silence !== undefined) && r.codecInfo.resampler.kernel === Swr.DEFAULT_KERNEL,
       `${r.codecInfo.resampler.calls} calls, ${s.msgs.length} messages`);
-    // 2400 + lead + the source a whole number of frames (W3-21: seed 0xC0FFEE's lead is 49, so
-    // 95,951 samples; 96,000 with no lead).
-    const exact = talk(4, 17).subarray(0, 96000 - Sender.createClock({ seed: 0xC0FFEE }).lead), g = senderOf(exact, { seed: 0xC0FFEE, gate: false }), last = g.msgs[g.msgs.length - 1];
+    // The spurt's pre-roll, the warm-up's zeros in its first chunk, the lead and the source a
+    // whole number of frames: 98,400 samples from the spurt's start (-2400 less those zeros
+    // less the lead), so the source is 96,000 samples less them. Seed 0xC0FFEE: its lead is 377
+    // and its first chunk begins with 750 zeros of the warm-up (the W3-27 order's ruling of
+    // 2026-11-21), so 94,873 samples. (On W3-16's clock its lead was 49 and there was no
+    // warm-up: 95,951.)
+    const before = 98400 + senderOf(talk(4, 17), { seed: 0xC0FFEE, gate: false }).info.spurts[0].start;
+    const exact = talk(4, 17).subarray(0, before), g = senderOf(exact, { seed: 0xC0FFEE, gate: false }), last = g.msgs[g.msgs.length - 1];
     const rg = await render(exact, { seed: 0xC0FFEE, gate: false });
-    check('once per message: the gate off, 96,000 samples less the lead (95,951) and seed 0xC0FFEE end on an empty end message, which makes no call',
+    check(`once per message: the gate off, 96,000 samples less the lead and the warm-up's zeros in the first chunk (${before}) and seed 0xC0FFEE end on an empty end message, which makes no call`,
       last.end && last.last === last.first - 1 && last.pcm.length === 0 && rg.codecInfo.resampler.calls === g.msgs.length - 1,
       `${rg.codecInfo.resampler.calls} calls, ${g.msgs.length} messages`);
     const three = bursts(8, [0.5, 3, 5.5], 1, -60), h = hooked();
@@ -1007,7 +1012,7 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
   // state it leaves (rule C) is shown on the codec module's stream with a
   // second spurt put after it.
   {
-    const o = { seed: 0xC0FFEE, gate: false }, exact = talk(4, 17).subarray(0, 96000 - senderOf(talk(4, 17), o).info.lead);   // as above
+    const o = { seed: 0xC0FFEE, gate: false }, exact = talk(4, 17).subarray(0, 98400 + senderOf(talk(4, 17), o).info.spurts[0].start);   // as above
     const { msgs } = senderOf(exact, o), k = msgs.length - 1, marker = msgs[k];
     const calls = [], plain = await render(exact, o);
     const r = await render(exact, { ...o, loseMessage: (i) => { calls.push(i); return i === k; } });

@@ -23,16 +23,26 @@
  *     since the read before, three at most (750, 1500 or 2250 samples; none for the first
  *     read, and at the defaults none after the first chunk). A read is { time, since, samples,
  *     by }: its time on the clock (since plus a seeded phase on the float's grid), its time
- *     from the render's start, its chunk's length, and what ended the pass before it (the
+ *     from the clock's start, its chunk's length, and what ended the pass before it (the
  *     sender does not read by).
  *   - The capture runs free of the sound played into it (inferred; docs/work-orders/W3-21-
  *     capture-phase.md): the sender reads `lead` zeros (0 to 749, a draw of the clock's own)
  *     before the source's first sample, so the steps' edges lie 750 - lead samples after the
- *     multiples of 31.25 ms of the source. The times it counts from the render's start (since)
- *     are the reads' less lead / 24000 s, and the positions it reports are in samples of the
- *     source.
- *   - Steam's clock is seconds since Steam started (uptime, then the read's time), narrowed to
- *     a 32-bit float at every read: nowF.
+ *     multiples of 31.25 ms of the source.
+ *   - A render begins in mid-stream (chosen; the W3-27 order's ruling of 2026-11-21): with the
+ *     clock made from the seed, Steam's thread and the capture have run for 1.5 s of silence
+ *     when the source's first sample is captured. The sender reads 36,000 zeros (the warm-up)
+ *     and then the lead's before the source, and through the warm-up it is silent whatever the
+ *     gate: nothing is sent, no spurt begins, and the past sound is 2400 zeros when it ends.
+ *     The first chunk that holds a zero of the lead or a sample of the source is the first the
+ *     gate judges (whole, as every chunk). Every period of the clock at its defaults divides
+ *     1.5 s, so each phase the seed draws stays where it is against the source. A caller's
+ *     clock has no warm-up.
+ *   - The times the sender counts from the source's first sample (since) are the clock's less
+ *     the warm-up's 1.5 s less lead / 24000 s, and the positions it reports are in samples of
+ *     the source.
+ *   - Steam's clock is seconds since Steam started (uptime, Steam's age when the clock starts,
+ *     then the read's time), narrowed to a 32-bit float at every read: nowF.
  *   - The gate judges each chunk whole: active when the mean of |x| is at least 327.67 or a
  *     sample reaches 4915. An active chunk notes nowF, in every state.
  *   - Four states. Silent: an inactive chunk goes into the last 2400 samples of past sound; an
@@ -47,8 +57,8 @@
  *     ended becomes silent with no record. With the gate off it does nothing.
  *   - One chunk is one message: the whole 480-sample frames of what the last chunk left over
  *     plus this chunk. It reaches the game on the first 15 ms tick at or after 2 ms after the
- *     read (counted from the render's start), and on a later tick than the message before
- *     (the engine adds at most one packet a tick).
+ *     read (counted from the source's first sample), and on a later tick than the message
+ *     before (the engine adds at most one packet a tick).
  *
  * The clock (createClock, since W3-27) is the rule as read, held to the reference generator
  * tests/steam-sender/gen.mjs to the last bit with the capture's place at 0. What it draws from
@@ -100,10 +110,13 @@
     // step up to 24.3 days, so the seed spreads the reads over the float's grid (chosen; the
     // clock's seventh phase).
     phaseSpan: 0.25,
-    // Seconds Steam had been running when the render begins, by default: 9 days, where a
+    // Seconds Steam had been running when the sender's clock starts, by default: 9 days, where a
     // float of seconds moves in steps of 1/16 s. Set D's spurt ends tested on the demo's own
     // chunks single out a Steam of 6.1 to 12.1 days (W3-16 second read); 9 days is the
-    // middle of that range.
+    // middle of that range. It is added to the clock's own time, so with the warm-up it is
+    // Steam's age when the warm-up begins, 1.5 s and the lead before the source's first sample:
+    // 1.5 s is a whole number of the float's steps below 2^23 s (97 days; the uptime is at most
+    // 46), so it moves the float's grid nowhere but at an edge, where the step doubles.
     uptime: 777600,
     // Seconds from Steam's read to the game's relay of the message: arbitrary, it only sets
     // the phase against the game's ticks (the order's table).
@@ -111,6 +124,13 @@
     // Seconds: the game's client tick, on which it adds a message (as VOICE_CHANNEL.tick in
     // voice-channel.js; W3-03 §1, read).
     tick: 0.015,
+    // Samples: the warm-up, 1.5 s of silence the sender reads before the lead and the source
+    // when it makes its clock from the seed (chosen; the W3-27 order's ruling of 2026-11-21).
+    // Nothing models the key's press (W3-11c), and every take the app is held to was made with
+    // the key down before the sound. 1.5 s because every period of the clock at its defaults
+    // divides it: 100 ticks, 441 frames at 294 a second, 30 passes, 96 timer steps, 48 capture
+    // steps, 6 turns of the 8-step pattern, 150 packets of 10 ms or 75 of 20.
+    warmUp: 36000,
     // The sender's clock on the rule as read (createClock; docs/work-orders/W3-27-sender-
     // clock.md, "The rule"; the evidence is finding 28 of tests/REFERENCE_2026.md). Times in
     // ms. Each number is the default of the clock; fps, tick, packet and late are its options.
@@ -232,7 +252,7 @@
   //   place (a whole number below 8, or 16 with 20 ms packets; drawn when left out, and the
   //     draw is made either way): chosen, for the tests.
   // createSender makes its clock from the seed alone; a test that wants another sender makes
-  // the clock itself and gives it with its lead. Returns { next(), lead, place }: next() gives
+  // the clock itself and gives it with its lead (and the sender then reads no warm-up). Returns { next(), lead, place }: next() gives
   // { time, since, samples, by }, time and since in seconds (time is since plus the phase on
   // the float's grid), by what ended the pass before the read ('start', 'game', 'timeout' or
   // 'other'); lead, the capture's phase against the sound (0 to 749 samples); place, the
@@ -360,8 +380,9 @@
   // samples a whole number from 0 to 2250; the reads count the lead's zeros), lead (the
   // zeros read before the source, a whole number from 0 to 749: the seeded clock's draw when
   // left out, 0 with a caller's clock; given, it overrides either), uptime (seconds the sender's Steam had been
-  // running when the render begins, 0 to 4,000,000; default 777600: it is added to every
-  // read's time before the narrowing to a float, and changes the hold only), gate (false:
+  // running when its clock starts, 0 to 4,000,000; default 777600: it is added to every
+  // read's time before the narrowing to a float, and changes the hold only; with the seeded
+  // clock that is when the warm-up begins), gate (false:
   // every chunk that is not empty counts as active, and a read with no samples does
   // nothing), meanMin (in place of 327.67: the page's threshold control; the peak rule does
   // not move).
@@ -376,15 +397,15 @@
   // A message is { tick, spurt, first, last, start, end, pcm }: the game tick it reaches the
   // receiver on; the spurt's number (from 0); its first and last frame, numbered through the
   // whole render (last = first - 1 for an end marker alone); start, the source sample of frame
-  // first's first sample (negative in a pre-roll or the lead before sample 0, which are
-  // zeros); end, whether it carries the end marker; pcm, its frames' samples (an Int16Array of
+  // first's first sample (negative in a pre-roll, the lead or the warm-up before sample 0,
+  // which are zeros); end, whether it carries the end marker; pcm, its frames' samples (an Int16Array of
   // 480 a frame, the padding of a last frame included). Or { tick, silence }: the silence
   // record, in samples.
   //
   // info(): { spurts: [{ start, frames, preroll }], chunks, messages, uptime, lead }: each
   // spurt's start (in samples of the source), its frame count and the pre-roll it was given;
-  // the chunks read that were not empty; the messages sent; the uptime and the lead it ran
-  // with. It keeps at most 2400 + 2250 + 479 samples of sound.
+  // the chunks read that were not empty, the warm-up's not counted; the messages sent; the
+  // uptime and the lead it ran with. It keeps at most 2400 + 2250 + 479 samples of sound.
   function createSender(opts) {
     const o = opts || {};
     const S = STEAM_SENDER, FRAME = S.frame;
@@ -406,15 +427,19 @@
     // clock's draw, or a caller's (0 with a caller's clock when none is given).
     const lead = o.lead !== undefined ? o.lead : o.clock === undefined ? clock.lead : 0;
     const LEAD_S = lead / S.rate;
+    // The warm-up (the W3-27 order's ruling of 2026-11-21): the seeded clock's 1.5 s of
+    // silence before the lead; none with a caller's clock.
+    const WARM = o.clock === undefined ? S.warmUp : 0, WARM_S = WARM / S.rate;
 
     const past = new Int16Array(S.preroll);     // the last silent sound, oldest first
     const chunk = new Int16Array(MAX_CHUNK);     // the capture since the last frame
     const kept = new Int16Array(FRAME - 1);      // what the last chunk left of a frame
     let pastLen = 0, chunkLen = 0, keptLen = 0;
     let state = SILENT, notedF = 0, lastTick = -1, finished = false;
-    // The clock: the last read's time, Steam's float "now" and the time from the render's
-    // start of the read in hand; the samples read; the count the read in hand brings them to.
-    let lastTime = -Infinity, nowF = 0, since = 0, read = 0, target = 0;
+    // The clock: the last read's time, Steam's float "now" and the time from the source's
+    // first sample of the read in hand; the samples read, counted from the lead's first zero
+    // (the warm-up's are below 0); the count the read in hand brings them to.
+    let lastTime = -Infinity, nowF = 0, since = 0, read = -WARM, target = -WARM;
     let frames = 0, spurt = -1, spurtStart = 0, spurtFrames = 0, chunks = 0, messages = 0;
     const spurts = [];
 
@@ -430,7 +455,7 @@
         if (!Number.isInteger(samples) || samples < 0 || samples > MAX_CHUNK) throw new RangeError(`the clock's samples must be a whole number from 0 to ${MAX_CHUNK}`);
         lastTime = time;
         nowF = Math.fround(uptime + time);
-        since = (x.since === undefined ? time : x.since) - LEAD_S;
+        since = (x.since === undefined ? time : x.since) - WARM_S - LEAD_S;
         if (samples > 0) { target = read + samples; return; }
         emptyRead(out);
       }
@@ -501,8 +526,10 @@
       if (holdOver()) { encode(out, 0, 0, true); state = ENDED; }
     }
 
-    // Steam's read, on a chunk that is not empty: the samples read - len .. read - 1.
+    // Steam's read, on a chunk that is not empty: the samples read - len .. read - 1. A chunk
+    // of the warm-up alone goes into the past sound and nothing else, whatever the gate.
     function frame(out, len, forceFinal) {
+      if (read <= 0) { remember(len); return; }
       chunks++;
       const chunkStart = read - len;
       const on = active(len);
@@ -590,12 +617,12 @@
     }
 
     // The first read: the state is silent, so a read with no samples sends nothing. Then the
-    // lead's zeros, read as sound before the source; what they make (only with the gate off
-    // and a caller's clock whose first read is shorter than the lead) comes with the first
-    // push() or finish().
+    // warm-up's zeros and the lead's, read as sound before the source; what they make (only
+    // with the gate off, from a chunk that ends in the lead) comes with the first push() or
+    // finish().
     const pending = [];
     nextRead(pending);
-    if (lead) feed(pending, new Int16Array(lead));
+    if (WARM + lead) feed(pending, new Int16Array(WARM + lead));
 
     return Object.freeze({ push, finish, info });
   }
