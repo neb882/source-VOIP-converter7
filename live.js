@@ -406,7 +406,7 @@
       // delay (for `steam` what it holds back: the sender's longest chunk and
       // its pre-roll, or on the game's voice queue the queue's zero, the
       // lookahead, the filters' and resamplers' waits; for the others the
-      // gate's pre-roll, capture EQ and lookahead), the jitter buffer and the
+      // gate's pre-roll and the codec's lookahead), the jitter buffer and the
       // audio device's buffers.
       const device = ((live.ctx.baseLatency || 0) + (live.ctx.outputLatency || 0)) * 1000;
       const ms = 10 + (s.latencyMs || live.chainLatencyMs || 0) + w.queued / live.ctx.sampleRate * 1000 + device;

@@ -311,10 +311,13 @@ const CODEC_PROFILES = {
     // device's sound to that rate (finding 28). The capture runs Windows's
     // converter at quality 30 as read twice (capture-converter.js): a
     // Kaiser-windowed sinc with its cutoff at 0.96634 of 12 kHz, 11,596 Hz.
-    // That a capture stream gets this converter at this quality is not read:
-    // it fits one take made through a virtual cable (measured once). A source
-    // already at 24000 Hz passes as it is (chosen). With the codec off, and
-    // for a demo's received voice, the capture is the app's own resampler.
+    // That a capture stream gets this converter at this quality is read
+    // twice too (finding 28, the wave input road, 2026-11-21), and one take
+    // made through a virtual cable fits it (measured once); it is not checked
+    // sample for sample. A source already at 24000 Hz passes as it is
+    // (chosen). With the codec off, and for a demo's received voice, the
+    // capture is the app's own resampler. Windows dithers the step to 16 bits
+    // (read twice); the app rounds with no dither (not built yet, W3-28).
     capture: { converter: 'windows', quality: 30 },
     // rule 'steam': a render sends as Steam's client does (steam-sender.js,
     // findings 5, 12 and 28) and decodes as its decoder does (finding 29). The
