@@ -793,10 +793,12 @@ const LIVE_HOLD = Object.fromEntries(Object.entries(LIVE_D).map(([fps, d]) => [f
 const REACH_AND_LOOKAHEAD = 4806;
 // The live chain's samples on main before W3-02c-3a (0617875), with no timeline and with 'source': the
 // SHA-256 of its output and of the voice at its mix point, for talk(4, 48000, 51) in blocks of 480.
+// W3-26b (the steam capture runs Windows's converter as read) recorded the three steam rows again, in a commit
+// of its own, from the run in which every other check passed; the celt_22 row did not move.
 const LIVE_MAIN = {
-  'the defaults': ['e83c8b4dd19edb0b4eb872ee1442be1a78666ce8aa45cdf3f4040301f52f5756', '0bce2048c41e665a5d67482a2d3883205dcba873c39d3a63ecadae9bbf535c33'],
-  'loss 15%, jitter 50 ms, seed 3': ['cb9688b450d213e3d5f5de5e8e26cc00816d12021ef95717d90ce181eac97803', 'b928d3cbe1f0e880fe732b7a12b27e2a3e0f50a787e5a7c97259002a318b9ce6'],
-  'the gate off, agc off, voiceScale 2, low latency': ['f91452130410961465f8d83e084bc3e39f87700a754cf3ffe146e37fe4333e85', 'a578306ea42f1a673fe2f05e56f7ab89dc20deea7203410e77ebab33daf7dbee'],
+  'the defaults': ['3c59bf467f63c352d5a68e28d431c2b4fd082eb30b4599d991f50c7842c64b79', '9c4db788a0fa67210cad063070c55827d800cd6fb601b84760fb2e5486442f22'],
+  'loss 15%, jitter 50 ms, seed 3': ['81a86ec712cc0dd84c19d4999e64fdf7db3bbf8699db970017773bb0da1ced9b', 'f90f8cb938088a5cc1da0516ac0c7c92fb7d24f66c9b7ece9b7a5c3252b58af8'],
+  'the gate off, agc off, voiceScale 2, low latency': ['5ca63ff88be4302e792ae5003e2a54877d67cb0be439c4809bff28b94b7c56c7', 'f335b4ef2d4b418b672fbe7f9eef0285c702cf7306a5adf82ddc277f5f1a0370'],
   'celt_22, loss 15%, seed 5': ['ae240a8399c4e6abfd470959f7b1e85db244ebd05a6d36c37fe03f0c3ede4f0a', '1d30d0f8b40a265b63c1f1c5e7d9637f9ce32b75ac005bebe82244a6d2991e92']
 };
 const LIVE_MAIN_OPTS = {
@@ -2203,8 +2205,9 @@ if (runs(24)) {
   console.log('\n[24] The threshold (W3-23a, "What moves", item 4, with the plan review\'s edit 6): nothing moves at 1000/15 and above');
   const rate = 24000, x = talk(6, rate, 21), { steamArrivalPlan } = engine.parts.network;
   // process() on 'game' at 66.67 fps, seed 1, the gate on: the SHA-256 of its WAV and of its codecInfo, recorded on
-  // main (91d37c6) before W3-23a.
-  const MAIN = 'bdf5ec70e80c0422d1e7765e71d2894a18583c1dadd88ba11ae054de0762fd9c 26bae4f9af9bfb1a75ba5bbb238cc00c49ecd871456131a07e7b598e56dce80a';
+  // main (91d37c6) before W3-23a. Recorded again by W3-26b (the steam capture runs Windows's converter as read), in a
+  // commit of its own, from the run in which every other check passed.
+  const MAIN = 'ba1425e6b1a8793cbc102ae8ff56c648dc6263e69bac2f0ad9dea4543d1ba5ca a295de8c0b251933722422275635a2bc51cec7cc25677f156b150a6b11f5689f';
   const hashOf = async (r) => `${sha256(new Uint8Array(await r.blob.arrayBuffer()))} ${sha256(JSON.stringify(r.codecInfo, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)))}`;
   const below = new Float64Array([1000 / 15]);
   new BigInt64Array(below.buffer)[0] -= 1n;
@@ -2495,16 +2498,18 @@ if (runs(28)) {
 // A source that ends in 1 s of silence (the suite's talk, 6 s at 24 kHz, seed 5, and 24,000 zeros) through Steam
 // voice on the game's queue at 300, 66.67, 60 and 30 fps, at jitter 0 and 50: nothing of it is in the queue at its
 // end, so the play-out of W3-24 (docs/work-orders/W3-24-render-end.md) changes nothing. The WAV's hash of each is
-// the one recorded from main (3d8c04d) before the order's first change, in a commit of its own.
+// the one recorded from main (3d8c04d) before the order's first change, in a commit of its own. W3-26b (the steam
+// capture runs Windows's converter as read) recorded all eight again, in a commit of its own, from the run in which
+// every other check passed.
 const ENDS_IN_SILENCE_MAIN = {
-  '300 0': '08fe5217a7a35922a710bb976570c9a1b0bee48ed0db55ef6c5d2130cffb46ec',
-  '300 50': 'dfe687a550523dc3c8144e45b92670d7b7354e95e5da9b7adbcd6d1fbdcdfae5',
-  '66.67 0': 'b0a9a30ffab0b5fd239337e2068ac323085b63e091db0f33487e5dc18704d899',
-  '66.67 50': '8d56f3675b646c7acadbc4e7bbff0e39f9ad59f68fa514fa64cf82ef954eb967',
-  '60 0': '910681100fedeeb22ec15392225e24ff6e6fce94ffe0c16496c60c299d0d23e3',
-  '60 50': '4524496d4141bb64529c80b2a5968786174e534f569a2ae47fa94810f2dea341',
-  '30 0': '96363636b8d36951748d3eccd88537d3149742c98923e42ee61d90ac5be3895e',
-  '30 50': '965dd8f325749641a884f4719ad3b0daadfbb34866d68c0b15500724f10fd816'
+  '300 0': '2629624d33d68ac3267c33e9466ee208f4201ecb388ebc8018b8dc7f793bcbef',
+  '300 50': 'edcc1986730c1e498992af67e5d5f0a147279ac349d78c9c6c19f9f6a45a5551',
+  '66.67 0': '85055220942745a79e364e639262162516eee86f764fcc06e136006621dd7673',
+  '66.67 50': '0cb039141dc4a36d9343fd17509838c3fda59d208e0405c09e039ad386fdd8ed',
+  '60 0': 'f05da27732899afc6d5bf7bce6bfdc3263d8c7ab3c9c0ee46e363415a38d2bf0',
+  '60 50': 'c8aec66206c96c2d54f6579cf11aadb4b95b75b412764d50fdac62ea4edb9635',
+  '30 0': '5829954a7b039da2002d3d800b36c8b9e9bf0682bf8f3680b06ed292b117bdd9',
+  '30 50': '16a61339a726b5cb5744e326e099fa8056d8f8d2c24ef753f8ad160ba2cb5557'
 };
 if (runs(29)) {
   console.log('\n[29] A render\'s end (W3-24, check 12): a source that ends in 1 s of silence renders as main did, WAV hash for WAV hash, with no over');
