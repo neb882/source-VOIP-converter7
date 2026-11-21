@@ -888,3 +888,77 @@ it and found nothing to fix before the merge.
   step's ready time). "The grouping of any sum" in check 2 holds for the sums on the reads' times.
 - The suite takes about 44 s where it took 12; the check that the reads never run ahead of the capture is 17 s of
   it. Left as the order has it.
+
+## A ruling after the second read (2026-11-21): a render does not start cold
+
+Holds over the text above where they differ. It is W3-27b's fix round; W3-27b does not merge without it.
+
+**What the second read found** (measured on the model, by the second reader; the first figure counted again by the
+orchestrator: 2,840 of 3,000 seeds). As built, the clock and the capture start at the render's first sample. The
+first chunk is then one step long at 4,741 of 5,000 seeds, where in the running state the chunk that holds a given
+sample is one step long 13.5% of the time. So sound in a file's first 100 ms is sent early: at 66.67 frames a second
+a burst that begins 0, 30 and 60 ms into the file starts 29.0, 67.4 and 53.2 ms before its source in the mean of 400
+seeds (15.5, 38.4 and 50.0 ms before it on `main`), and the test signal's first spurt lies 37.9 ms before it (5.3 on
+`main`). The clock of W3-16 had the same fault, smaller.
+
+**The rule (chosen).** A render begins in mid-stream: when the source's first sample is captured, Steam's thread and
+the capture have been running for 1.5 s of silence. Nothing models the key's press (W3-11c), and every take the app
+is held to was made with the key down before the sound. 1.5 s because every period of the clock at its defaults
+divides it (100 ticks, 441 frames at 294 a second, 30 passes, 96 timer steps, 48 capture steps, 6 turns of the
+8-step pattern, 150 packets of 10 ms or 75 of 20), so each phase the seed draws stays where it is against the
+source; at other options of the clock the frames need not divide it, and nothing rests on that.
+
+1. **Where.** In `createSender`, and only when it makes its clock from the seed. `createClock` does not change and
+   is held to the reference as before. A caller's clock gets no warm-up: every check that gives the sender a clock
+   of its own passes with no line changed.
+2. **What the sender does.** Before the source's first sample it reads 36,000 zeros and then the lead's zeros.
+   They are the sender's own zeros, as the lead's are (W3-28: they do not pass the dithered step). Through the
+   warm-up the sender is silent whatever `gate` is: nothing is sent, no spurt begins, and the past sound is zeros
+   of the pre-roll's full length when the warm-up ends. `gate: false` acts from the first chunk that holds a zero
+   of the lead or a sample of the source, as it acts today from the first chunk.
+3. **Times and positions.** `since`, the ticks, every message's `start` and `info()`'s spurts count from the
+   source's first sample as today: the clock's `since` less 1.5 s less the lead. `info()`'s chunks and messages do
+   not count the warm-up. `uptime` stays what is added to the clock's own time (so it is Steam's age when the
+   warm-up begins; 1.5 s moves the float's grid nowhere but at an edge): say so in the comment.
+4. **The cost.** The warm-up is a few dozen reads at the sender's making or first push, and adds no latency to the
+   live chain: measure the chain's latency again, with and without the queue, and state it.
+5. **The arrival constant** is measured again as "After the plan review" defines it. If the pooled mean still
+   rounds to 42.0 ms the constant stays and `ARRIVAL_MEASURED` is recorded anew; if not, the constant, the copy in
+   `tests/voicequeue/reference-frames.mjs`, every D and their pins move with it, each listed.
+6. **Checks**, each with its expected value from the suite's own code and each seen to fail on its break:
+   - The chunk that holds the source's first sample: its length's shares over seeds 1 to 3,000 against the shares
+     of the chunk that holds the sample 2 s further on at the same seeds, each within 3 points (a band chosen
+     here; change it with the reason if the spread says so). Break: no warm-up.
+   - On the game's timeline at 66.67 and 300 frames a second, a 0.5 s burst that begins 0, 30 and 60 ms into the
+     source starts, in the mean of seeds 1 to 200, within 6 ms of where the same burst beginning at 2 s starts
+     (the second reader had +0.4, +1.5 and +2.6 ms with the warm-up made from outside). Break: no warm-up.
+   - Nothing is sent for the warm-up with the gate on and with it off, and no message's tick is below 0.
+   - The reads the sender takes after the warm-up are the reference's reads from that point on at the same seed,
+     1.5 s taken off. Breaks: a warm-up of 1.49 s; `since` not moved back.
+   - The stream in pieces and the live chain equal the whole render, and the reads never run ahead of the capture,
+     by the checks that exist, with no line changed but recorded hashes.
+7. **What moves**: every render that runs Steam's seeded sender, once more. The recorded hashes are recorded again
+   in a commit of their own, with the hashes after this round beside the report. The stop rule and its one
+   exception stand. `tests/predictions/predictions.json` and `tests/reproduce.mjs`'s output do not move.
+8. **The browser suite's tone** (the second reader's finding 4). The 326 samples are W3-24's run-on of the voice,
+   not the room's tail. Put the tone back to 0.5 s and have the check take the length it expects from the render's
+   own report of the run-on at the device's rate; if the page cannot give that, say why, keep a tone whose run-on
+   the check itself shows to be 0, and say so in the check's name.
+9. **The reviewer's words**, all four: `tests/steam.verify.js` (the lead named for seed 0xC0FFEE and the length
+   that follows from it: give the values that hold after this round, or none), `tests/voice-channel.verify.mjs`
+   (17.90 messages a second), `tests/steam-sender/README.md` line 5 (the name; yes, change it), `README.md`'s
+   bullet "Read from Steam's and Windows's files" (the 15.6 ms step and the 10 ms packets are measured).
+10. **The words.** Where a document says how a render begins, it says this, as chosen. The report gains a section
+    for this round: what moved, the figures of "What moves" again, the constant as measured again, each check and
+    its break, the live chain's latency.
+
+**Not in this order, and owed** (the second reader's findings 2 and 3, measured on the model once):
+
+- **The zero below 66.67 frames a second.** The order's measure of the arrival is 41.0 to 43.1 ms from 66.67 to
+  300 frames a second and 28.6 at 60, 29.4 at 50, 4.1 at 30, -2.7 at 20, -24.7 at 10 and 71.9 at 1,000: the
+  sender's part is 35.3 to 35.9 ms at every rate, and the rest is the receiver's frame clock, which `latency()`
+  describes on even ticks only. `main` has the same fault. An order of its own: keep the sender's part as the
+  constant and work the receiver's part out from the queue's rule at each frame rate.
+- **About 5 ms of the constant is a convention** (4.7 measured): the capture's packets begin 0 to 10 ms after the
+  time the sound is counted from, which also shifts each seed's whole render by that much. It goes with the order
+  on the zero.
