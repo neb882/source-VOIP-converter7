@@ -91,6 +91,12 @@
   // other way; so is a capture on a profile whose codecRate is not 24000, the
   // converter's one output rate; and a profile with the member where
   // capture-converter.js is not loaded is an Error that names the file.
+  // A value named with its type, for a refusal: the string 'false' is not read as the boolean.
+  function valueText(v) {
+    let t;
+    try { t = JSON.stringify(v) ?? String(v); } catch (e) { t = String(v); }
+    return `${t} (a ${v === null ? 'null' : typeof v})`;
+  }
   function captureConverter(codec) {
     const capture = codec.capture;
     if (capture === undefined) return null;
@@ -101,7 +107,7 @@
       throw new Error(`TF2Audio: a profile's capture is { converter: 'windows', quality: 30 } (Windows's converter at quality 30, the one built), with dither true or false or without it, or absent, not ${text}.`);
     }
     if ('dither' in capture && typeof capture.dither !== 'boolean') {
-      throw new Error(`TF2Audio: a profile's capture dither is true or false, not ${String(capture.dither)} (${text}).`);
+      throw new Error(`TF2Audio: a profile's capture dither is true or false, not ${valueText(capture.dither)} (${text}).`);
     }
     if (codec.codecRate !== STEAM_RATE) {
       throw new Error(`TF2Audio: a profile's capture ${text} converts to ${STEAM_RATE} Hz, and this profile's codecRate is ${codec.codecRate}.`);
@@ -615,7 +621,7 @@
   const DITHER_LENGTH = 4096, DITHER_SEED = 0x28D17E6, DITHER_MIX = 0x5D17E412;
   const CAPTURE_TOP = 32767 / 32768;
   // The table once it is made (a holder: an engine file has no let at its top).
-  const DITHER = { table: null };
+  const DITHER = { table: null, made: 0 };
   function ditherTable() {
     if (DITHER.table) return DITHER.table;
     const N = DITHER_LENGTH, half = N / 2, M = N / Math.sqrt(6 * (N - 1));
@@ -653,6 +659,7 @@
     const T = new Float32Array(N);
     for (let n = 0; n < N; n++) T[n] = Math.round((re[n] / N) * 1e8) / 1e8 / 32768;
     DITHER.table = T;
+    DITHER.made++;
     return T;
   }
   // The index's start for a seed (an unsigned 32-bit whole number).
@@ -663,7 +670,7 @@
   // step with its own index, from ditherStart(seed); start is that index. Anything but a boolean
   // dither is a TypeError.
   function createSteamCapture({ dither = false, seed = 0xC0FFEE } = {}) {
-    if (typeof dither !== 'boolean') throw new TypeError(`createSteamCapture: dither is true or false, not ${String(dither)}.`);
+    if (typeof dither !== 'boolean') throw new TypeError(`createSteamCapture: dither is true or false, not ${valueText(dither)}.`);
     if (!dither) return { push: steamCapture, start: null };
     const T = ditherTable(), start = ditherStart(seed), f32 = Math.fround;
     let i = start;
@@ -694,8 +701,10 @@
     const dither = !!conv && codec.capture.dither === true && Math.round(rate) !== conv.OUT_RATE;
     return createSteamCapture({ dither, seed });
   }
-  // A copy of the dither table, for the suite (the table itself stays the module's).
+  // A copy of the dither table, for the suite (the table itself stays the module's); made() is how
+  // many times this load has made the table (0 until the first dithered capture, then 1).
   const steamDitherTable = () => Float32Array.from(ditherTable());
+  steamDitherTable.made = () => DITHER.made;
 
   // The sender's settings from process()'s options. opts.gateThresholdDb
   // as gateThresholdDb() reads it: the profile's own is Steam's own gate

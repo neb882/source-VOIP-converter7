@@ -200,9 +200,12 @@ async function main() {
       'null': [{ ...P.steam, capture: null }, /capture.*not null/],
       'a member more': [{ ...P.steam, capture: { converter: 'windows', quality: 30, cutoff: 0.9 } }, /capture.*"cutoff":0\.9/],
       'a member more beside dither': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: true, cutoff: 0.9 } }, /capture.*"cutoff":0\.9/],
-      'a dither of 1': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: 1 } }, /capture dither is true or false, not 1/],
-      'a dither of "yes"': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: 'yes' } }, /capture dither is true or false, not yes/],
-      'a dither of null': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: null } }, /capture dither is true or false, not null/],
+      'a dither of 1': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: 1 } }, /capture dither is true or false, not 1 \(a number\)/],
+      'a dither of "yes"': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: 'yes' } }, /capture dither is true or false, not "yes" \(a string\)/],
+      'a dither of null': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: null } }, /capture dither is true or false, not null \(a null\)/],
+      // The strings 'true' and 'false' are named as strings, so the message tells them from the booleans.
+      'a dither of "true"': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: 'true' } }, /capture dither is true or false, not "true" \(a string\)/],
+      'a dither of "false"': [{ ...P.steam, capture: { converter: 'windows', quality: 30, dither: 'false' } }, /capture dither is true or false, not "false" \(a string\)/],
       'a profile at 48000 Hz': [{ ...P.steam_48, capture: { converter: 'windows', quality: 30 } }, /capture.*codecRate is 48000/]
     };
     const x = tone(1000, 0.3, 48000, 0.25), rows = [];

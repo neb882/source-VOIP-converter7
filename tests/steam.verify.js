@@ -1894,16 +1894,31 @@ async function ditherSection() {
       && hash === 'a2befc20946bdd05889adb16f5dc87cf6a5d8a1bda05079fa2bfdc2537a45195' && again.some((v) => v !== 0),
       `mean ${mean.toExponential(2)}, rms - 1/sqrt(6) ${(rms - 1 / Math.sqrt(6)).toExponential(2)}, extremes ${Math.min(...steps).toFixed(4)} and +${Math.max(...steps).toFixed(4)} steps, worst bin ${worst.toExponential(2)} off, constant part ${dc.toExponential(2)}, hash ${hash.slice(0, 12)}`);
   }
-  // The table is made at the first dithered capture, in a fresh engine (a load of its own).
+  // The table is made at the first dithered capture, once, in a fresh engine (a load of its own): the
+  // module's count of tables made (steamDitherTable.made) is 0 after the load and after a plain capture, and
+  // 1 after two dithered captures. A plain capture is a TypeError for a dither that is not a boolean, which
+  // names the value with its type.
   {
-    const fresh = loadEngine({ root }).parts.steam;
+    const fresh = loadEngine({ root }).parts.steam, counts = [fresh.steamDitherTable.made()];
+    fresh.createSteamCapture({ dither: false, seed: 1 }).push(new Float32Array(100));
+    counts.push(fresh.steamDitherTable.made());
     const t0 = process.hrtime.bigint();
     fresh.createSteamCapture({ dither: true, seed: 1 });
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-    const t1 = process.hrtime.bigint();
-    fresh.createSteamCapture({ dither: true, seed: 2 });
-    const again = Number(process.hrtime.bigint() - t1) / 1e6;
-    check('the table is made once, at the first dithered capture', again < ms, `first ${ms.toFixed(2)} ms, the next ${again.toFixed(3)} ms`);
+    fresh.createSteamCapture({ dither: true, seed: 2 }).push(new Float32Array(100));
+    counts.push(fresh.steamDitherTable.made());
+    check('the table is made once, at the first dithered capture: none after the load and after a plain capture, one after two dithered captures',
+      JSON.stringify(counts) === '[0,0,1]', `made ${counts.join(', ')}; the first dithered capture ${ms.toFixed(2)} ms`);
+    const rows = [];
+    let ok = true;
+    for (const [v, want] of [['false', /not "false" \(a string\)/], ['true', /not "true" \(a string\)/], [1, /not 1 \(a number\)/], [null, /not null \(a null\)/]]) {
+      let message = '';
+      try { fresh.createSteamCapture({ dither: v }); } catch (e) { message = e instanceof TypeError ? e.message : `not a TypeError: ${e.message}`; }
+      if (!want.test(message)) ok = false;
+      rows.push(message || `${JSON.stringify(v)} taken`);
+    }
+    check('createSteamCapture refuses a dither that is not a boolean with a TypeError that names the value and its type (the string \'false\' is not the boolean)',
+      ok, rows.join(' | '));
   }
   // The order's ruling after the build: no value of the table reaches 1.5 steps in size (Windows's stays
   // inside them, measured on the private copy), so silence through the step gives only -1, 0 and +1.
