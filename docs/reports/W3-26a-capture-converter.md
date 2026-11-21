@@ -174,7 +174,9 @@ The suite runs in about 1.5 s.
 
 ## CI
 
-The `tests` workflow on the branch's head: see "CI's result" at the end, written after the push.
+The `tests` workflow's run 44846059206 on `694b449`, the branch's last commit outside `docs/`: every job passed
+(`units`, `engine`, `render`, `stages`, `browser`) and `verify` is green. The commits after it change only
+`docs/`, which the workflow does not run on (its `paths-ignore`).
 
 ## The plan review's changes
 
