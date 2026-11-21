@@ -32,9 +32,9 @@ the file was made with): "vectors.json is what this script writes" (1.9 s).
 
 | Member | The sketch | Built | Why |
 | --- | --- | --- | --- |
-| `design(24000)` | not said | `null` | the converter is not run at 24,000 Hz (step 12); there is no table to give |
+| `design(24000)` | `null` (the plan review's change 4) | `null` | the converter is not run at 24,000 Hz (step 12); no table is made |
+| `design(rate)` given again | not said | the same object while the design is kept | the kept designs' bound is shown from outside by it (check 8), with no member made only for the test |
 | `design(...).row(p)` on a stored design | a `Float32Array` of `T` | a fresh copy each call | a view would let a caller write into the kept table; a row made on demand is the one shared array, good until the next call, as the sketch says |
-| `kept()` | not in the sketch | `{ designs, entries }` | the bound on the kept designs (`2 x TABLE_LIMIT` entries) is otherwise not testable from outside |
 | refusals | a rate not finite or under 1 is a `RangeError` | that, and a `RangeError` for a `limit` that is not a number of at least 0, for `end()`'s count that is not a whole number of at least 0, for a length that is not one, for a phase outside 0 to `L - 1`, and for a frequency that is not finite; `push()` or `end()` after `end()` throws an `Error` | the sketch says `end` is called once, last; a later call is a caller's fault, so it is refused rather than given samples |
 
 Inside, and not part of the interface:
@@ -49,6 +49,24 @@ Inside, and not part of the interface:
 - A stream tracks its next output's input and phase by whole-number steps (`p += M`, carried into `i`), so its
   arithmetic stays exact however long it runs.
 
+## The standings the module's comments carry
+
+As the plan review's change 6 gives them: the Kaiser window of beta 10 and the cutoff's rule are read, twice; the
+stored sinc table with its grid `35 k / 16384` and its interpolation, the table limits `(H + 1) L < 100000` and
+`max(L, M) <= 1280`, and the 32-bit running sum are read, as the first reader's converter has them (the record
+does not hold them yet; the second reader's converter has another grid for the sinc, `k x 65536 / 30678338`,
+which is where the two differ). The double-precision sum outside the limits, rows made as needed, the length of a
+finite source and the pass-through at 24,000 Hz are the app's own (chosen).
+
+The order of adding one output's products is chosen (change 5): the module adds the oldest input first, the
+first reference the newest first. Built with the newest first, the suite passes unchanged, every vector bit for
+bit (measured): the sum is rounded to 32 bits once, at its end.
+
+`gain()` is the plan review's formula (change 4): `|sum over p and q of table[p][q] e^(-2 pi i f (L j - p) / (R L))| / L`,
+with `j = q - (T - H - 1)` the input offset of tap `q` from the output's instant and `p` with the sign the table's
+own index has (step 6's index is `|L j - p|`). It gives the vectors' `gain_db` (rounded there to 0.001 dB)
+within 0.0006 dB at 48,000 Hz and 0.0007 dB at 44,100 Hz at all nine of their frequencies (measured).
+
 ## The checks and the breaks that each caught
 
 Each break was made in a copy of the module (`TF2_DIR`), seen to fail, and dropped; the worktree's file was never
@@ -57,7 +75,9 @@ changed. The distances are the largest to the first reference over the nine case
 | Check | Break | What caught it |
 | --- | --- | --- |
 | 1. The vectors | the kernel computed exactly in place of the two stored tables (2.4e-6) | bit equality on every case; the second reference's 3e-6 does not |
-| 1 | beta 10.0558 in place of 10 (2.5e-4) | bit equality and 3e-6 on every case; row 0; check 2 |
+| 1 | beta 10.0613 in place of 10, the code's formula at quality 30 (2.8e-4) | bit equality and 3e-6 on every case; row 0; check 2 |
+| 1 | the phase read reversed, `L - 1 - p` for `p` (0.94); and `L - p` (0.94); nothing at 48,000 Hz | bit equality and 3e-6 at 44,100 Hz and every case with phases; checks 2, 3, 4 and 7 |
+| 1 | the table read transposed, `table[q L + p]` for `table[p T + q]` (5.6); nothing at 48,000 Hz | bit equality and 3e-6 at 44,100 Hz and every case with phases; checks 2, 3, 4, 6 and 7 |
 | 1 | each phase's row normalised to 1 (8.1e-6; nothing at 48,000 and 96,000 Hz, one phase) | bit equality and 3e-6 on the cases with phases; check 7's rows |
 | 1 | the cutoff left unrounded (4.8e-7) | the cutoff itself, and bit equality only |
 | 1 | the sum of one output in single precision (6.0e-7) | bit equality only |
@@ -66,7 +86,7 @@ changed. The distances are the largest to the first reference over the nine case
 | 1 | the phase one fine step off (0.78; nothing at 48,000 and 96,000 Hz) | every case with phases; checks 2, 4 and 7 |
 | 1 | the kernel centred one input late (1.3) | every case; checks 4, 5 and 6 |
 | 1 | the history before the start not zero, here the first sample repeated (0.13) | every case |
-| 2. The gain | `gain()` read from another table (the kernel at a cutoff 0.2% lower, unnormalised) | `gain()` against the vectors' figures (off by up to 0.79 dB) and against the tones through `convert()` |
+| 2. The gain | `gain()` read from another table (the kernel at a step 0.2% shorter, with the design's scale) | `gain()` against the vectors' figures (off by up to 0.79 dB) and against the tones through `convert()` |
 | 2 | the window's length changed (31 zero crossings in place of 30) | `gain()` against the vectors' figures (−0.473 dB at 11,000 Hz, against −0.531); checks 1, 3 and 6 too |
 | 3. Nothing folds back | the app's `resampleSinc` (copied from `engine/dsp.js`) as `convert()` | the tones (−12.42, −22.71 and −39.31 dB at 12,500, 13,000 and 13,500 Hz) and the sweep (22.2 dB under) at both rates, the order's figures; every other section too |
 | 4. Whole against blocks | the kept history cut one sample short | every rate in blocks; check 6's impulses, whose source is long enough for the stream to drop what it holds |
@@ -75,9 +95,11 @@ changed. The distances are the largest to the first reference over the nine case
 | 6. The start, the end, the level | `floor` in place of `round` in the length | `length(12345, 48000)` and the 44,056 Hz case's length |
 | 6 | the first output not on the first input (its centre one input on) | the impulses, check 1 and checks 4 and 5 |
 | 7. The two ways to hold a table | the unrated sum in single precision | the 44,056 Hz case and the 47,999 Hz tone (−0.01499 dB, against 0.00002 dB built; measured) |
-| 7 | the kept designs never dropped | the bound (13,703,412 entries kept, over 8,388,608) |
-| 8. At 24,000 Hz | `convert()` returning the array it was given | the copy check |
-| the edges | a rate rounded up in place of to the nearest | 44100.4 Hz against 44,100 Hz |
+| 8. At 24,000 Hz, and the interface | `convert()` at 24,000 Hz returning the array it was given | the copy check |
+| 8 | `push()` at 24,000 Hz returning the caller's array | the copy check of `push()` |
+| 8 | `push()` writing into the array it is given (its first sample set to 0) | the unchanged-input check; checks 4, 5 and 7 |
+| 8 | a rate rounded up in place of to the nearest | 44100.4 Hz against 44,100 Hz |
+| 8 | the kept designs never dropped | the oldest of three tables of 3,072,000 entries still given as the same object |
 
 What each check holds, and against what:
 
@@ -109,15 +131,20 @@ What each check holds, and against what:
 7. **The two ways to hold a table.** `design(44100, 0)` stores nothing and its 80 rows and its scale equal the
    stored design's bit for bit; `createStream(44100, 0)` gives `convert()`'s samples; a row made as needed is the
    one array, good until the next call. `design(47999)`: `L` 24,000, `M` 47,999, `H` 63, `T` 128, not rated, stored;
-   a 1 kHz tone through it keeps its level within 0.001 dB (built: 0.00002 dB). The kept designs stay under
-   `2 x TABLE_LIMIT` entries through four tables of 3,072,000 and 1,024,000 entries (computed).
-8. **At 24,000 Hz.** `convert()` returns a copy, equal and not the same array; a stream gives a copy of each block
-   and nothing at its end; `wait` 0, `length(n)` n, `design` null, `gain` 1.
+   a 1 kHz tone through it keeps its level within 0.001 dB (built: 0.00002 dB).
+8. **At 24,000 Hz, and what the interface promises** (with the plan review's change 3). `convert()` returns a copy,
+   equal and not the same array; `push()` at 24,000 Hz returns a copy, not the caller's array, and `end()` nothing;
+   `wait` 0, `length(n)` n, `design` null, `gain` 1. `push()`, `end()` and `convert()` leave the array they are
+   given unchanged at 24,000, 48,000, 44,100, 8,000 and 44,056 Hz, with the table stored and not. A rate of 44100.4
+   gives 44,100 Hz's samples, wait, length and kept design. NaN, ±Infinity, 0, 0.5, −48,000, `'48000'`, null and
+   undefined as a rate are a `RangeError` in every member. The kept designs' bound, shown by what `design()` gives
+   again (no member made for the test): after three tables of 3,072,000 entries (computed: `L` 24,000, `T` 128),
+   whose sum is over `2 x TABLE_LIMIT`, the newest two are given again as the same objects and the oldest is made
+   anew.
 
-The edges the order gives the reviewer, checked too: 44100.4 Hz is 44,100 Hz; NaN, ±Infinity, 0, 0.5, −48,000,
-`'48000'`, null and undefined as a rate are refused; `push()` leaves its array as it was; `end()` with a count the
-stream has already given gives nothing; `end()` gives the outputs not yet given up to its count in all; the
-refusals after `end()` and of a bad count or phase.
+The other edges the order gives the reviewer, checked too: `end()` with a count the stream has already given gives
+nothing; `end()` gives the outputs not yet given up to its count in all; the refusals after `end()` and of a bad
+count or phase.
 
 No expected sample comes from the module: they are the vectors', the order's figures, or the test's own arithmetic
 (the least-squares fit, the count of outputs a stream may give, the constant's level). Checks 4 and 7 hold the
@@ -148,6 +175,18 @@ The suite runs in about 1.5 s.
 ## CI
 
 The `tests` workflow on the branch's head: see "CI's result" at the end, written after the push.
+
+## The plan review's changes
+
+The orchestrator sent the plan review's six changes for W3-26a while the build was under way (the order on
+`main` `ef43a36`, "After the plan review", W3-26a). Each is in the build: the beta break made with 10.0613 (1);
+the phase read reversed and the table read transposed, made at 44,100 Hz (2); check 8's additions, with the
+bound shown without a member made for the test, so the `kept()` of the first build went (3); `gain()`'s formula
+and `design(24000)` null (4); the order of adding called chosen, in the module's comment and here (5); the
+standings above, in the module's comment and here (6).
+
+A merge of `main` into the branch was made locally before that message came, then undone at its word ("do not
+merge main into your branch"); it was never pushed. The order's file on the branch is the one at `0cff71e`.
 
 ## The scan
 

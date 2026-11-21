@@ -267,40 +267,54 @@ console.log('7. The two ways to hold a table (rows made as needed against the st
   const level = dB(amplitude(y, 24000, 1000, 6000, 18000) / 0.5);
   check('47,999 Hz: a 1 kHz tone keeps its level within 0.001 dB', Math.abs(level) <= 0.001, `${level.toFixed(5)} dB`);
 }
-{
-  // The kept designs' bound: tables of 3,072,000, 1,024,000, 3,072,000 and 3,072,000 entries (computed: L 24,000,
-  // 8,000, 24,000, 24,000 and T 128).
-  const bound = 2 * C.TABLE_LIMIT, seen = [];
-  for (const r of [47993, 47997, 47989, 47983]) { C.design(r); seen.push(C.kept().entries); }
-  check(`the kept designs never hold more than 2 x TABLE_LIMIT (${bound}) entries`, seen.every((e) => e <= bound) && C.design(47993).stored,
-    seen.join(', '));
-}
 
 // ---------------------------------------------------------------- 8. at 24,000 Hz
 
-console.log('8. At 24,000 Hz (no conversion)');
+console.log('8. At 24,000 Hz (no conversion), and what the interface promises');
 {
   const x = source(1000, 24);
   const y = C.convert(x, 24000);
   check('convert() returns a copy, equal sample for sample and not the same array', y !== x && !sameBits(y, x) && y instanceof Float32Array);
   const s = C.createStream(24000), a = s.push(x), b = s.end(1000);
-  check('a stream at 24,000 Hz gives a copy of each block and nothing at its end; wait 0; length n; no design; gain 1',
-    a !== x && !sameBits(a, x) && b.length === 0 && C.wait(24000) === 0 && C.length(777, 24000) === 777
+  check('push() at 24,000 Hz returns a copy, not the caller\'s array; nothing at the end; wait 0; length n; no design; gain 1',
+    a !== x && a.buffer !== x.buffer && !sameBits(a, x) && b.length === 0 && C.wait(24000) === 0 && C.length(777, 24000) === 777
     && C.design(24000) === null && C.gain(24000, 11000) === 1);
+}
+{
+  const x = source(3000, 5), copy = Float32Array.from(x), changed = [];
+  for (const rate of [24000, 48000, 44100, 8000, 44056]) {
+    for (const limit of [undefined, 0]) {
+      const s = limit === undefined ? C.createStream(rate) : C.createStream(rate, limit);
+      s.push(x.subarray(0, 10)); s.push(x.subarray(10, 2000)); s.push(x.subarray(2000)); s.end(C.length(3000, rate));
+      C.convert(x, rate);
+      if (sameBits(x, copy)) changed.push(`${rate}${limit === 0 ? ', limit 0' : ''}`);
+    }
+  }
+  check('push(), end() and convert() leave the array they are given unchanged, at 24,000, 48,000, 44,100, 8,000 and 44,056 Hz, stored or not',
+    changed.length === 0, changed.join('; '));
+  const whole = C.convert(x, 44100);
+  check('a rate of 44100.4 behaves as 44,100: the same samples, the same wait, the same kept design',
+    !sameBits(C.convert(x, 44100.4), whole) && C.wait(44100.4) === C.wait(44100) && C.design(44100.4) === C.design(44100)
+    && C.length(12345, 44100.4) === 6718);
+  const bad = [NaN, Infinity, -Infinity, 0, 0.5, -48000, '48000', null, undefined].filter((r) => !threw(() => C.convert(x, r), RangeError)
+    || !threw(() => C.createStream(r), RangeError) || !threw(() => C.design(r), RangeError) || !threw(() => C.wait(r), RangeError)
+    || !threw(() => C.length(10, r), RangeError) || !threw(() => C.gain(r, 1000), RangeError));
+  check('a rate that is not a finite number of at least 1 is a RangeError, in every member', bad.length === 0, bad.map(String).join(', '));
+  // The kept designs' bound, by what design() gives again: a kept design is the same object. Three tables of
+  // 3,072,000 entries each (computed: L 24,000, T 128) are more than 2 x TABLE_LIMIT (8,388,608), so the oldest of
+  // the three cannot be kept beside the other two.
+  const [x1, x2, x3] = [47993, 47989, 47983].map((r) => C.design(r));
+  const kept = C.design(47983) === x3 && C.design(47989) === x2 && C.design(48000) === C.design(48000);
+  const dropped = C.design(47993) !== x1;
+  check('a design is kept (given again as the same object), and the kept designs never hold more than 2 x TABLE_LIMIT entries: of three tables of 3,072,000, the oldest was dropped',
+    kept && dropped && x1.stored, `newest two kept ${kept}, oldest dropped ${dropped}`);
 }
 
 // ---------------------------------------------------------------- the edges (the order, "What the reviewer attacks")
 
 console.log('The edges');
 {
-  const x = source(2000, 5), whole = C.convert(x, 44100);
-  check('a rate of 44100.4 is 44100', !sameBits(C.convert(x, 44100.4), whole) && C.wait(44100.4) === C.wait(44100) && C.design(44100.4).rate === 44100);
-  const bad = [NaN, Infinity, -Infinity, 0, 0.5, -48000, '48000', null, undefined].filter((r) => !threw(() => C.convert(x, r), RangeError)
-    || !threw(() => C.createStream(r), RangeError) || !threw(() => C.design(r), RangeError) || !threw(() => C.wait(r), RangeError));
-  check('a rate that is not a finite number of at least 1 is a RangeError', bad.length === 0, bad.map(String).join(', '));
-  const copy = Float32Array.from(x), s = C.createStream(44100);
-  s.push(x.subarray(0, 10)); s.push(x.subarray(10, 2000));
-  check('push() never changes the array it is given', !sameBits(x, copy));
+  const x = source(2000, 5);
   // end() with a count that needs no more input: the outputs given are all there are.
   const t = C.createStream(48000), given = t.push(source(1000, 6)).length;
   check(`end() with a count the stream has already given returns nothing (48,000 Hz, 1,000 inputs, ${given} given; the order's rule gives 469)`,

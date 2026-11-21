@@ -10,13 +10,20 @@
  *
  *   - The phases: L = 24000 / gcd, M = rate / gcd. Output k is centred on the input instant
  *     k M / L, so output 0 sits on the source's first sample and nothing is delayed.
- *   - A Kaiser-windowed sinc (beta 10, 30 zero crossings) looked up in two stored tables with
- *     linear steps in 32-bit floats, as Windows evaluates it (read). The cutoff is 0.96634 of
+ *   - A Kaiser-windowed sinc (beta 10, 30 zero crossings; read, twice). It is looked up in two
+ *     stored tables with linear steps in 32-bit floats: the sinc's on the grid 35 k / 16384 and
+ *     its interpolation are read, as the first reader's converter has them (the second reader's
+ *     converter has another grid for the sinc, k x 65536 / 30678338). The cutoff is 0.96634 of
  *     the lower rate's half (read; computed), 11,596 Hz going down to 24 kHz.
- *   - The table is one sum over all its entries, scaled to L, in 32-bit floats. Where the pair
- *     of rates is outside Windows's limits for a stored table (not rated) the sum is in double
- *     precision: the app's own (chosen), since what Windows does there was not read.
- *   - An output is the sum of its products in double precision, rounded to a 32-bit float.
+ *   - The table is one sum over all its entries, scaled to L, as a running 32-bit float sum,
+ *     where the pair of rates is inside Windows's limits for a stored table, (H + 1) L < 100000
+ *     and max(L, M) <= 1280 (the sum and the limits: read, as the first reader's converter has
+ *     them). Outside them (not rated) the sum is in double precision: the app's own (chosen),
+ *     since what Windows does there was not read.
+ *   - An output is the sum of its products in double precision, rounded to a 32-bit float. The
+ *     order of adding is chosen, the oldest input first: the first reader's converter adds the
+ *     newest first, and either order gives the same bits on every vector, since the sum is
+ *     rounded to 32 bits once at the end (measured).
  *   - A stream starts with zeros for history (read in part) and gives output k as soon as the
  *     H inputs after its centre are in: it holds back H / rate seconds (computed).
  *   - A finite source of n samples gives max(1, round(n L / M)) outputs, the length the app's
@@ -26,8 +33,9 @@
  *     rule and with the same scale (chosen); the samples do not depend on which way.
  *
  * design(rate, limit) -> { rate, L, M, H, T, cutoff, scale, rated, stored, row(p) }; null at
- * 24000 Hz. length(n, rate), wait(rate), createStream(rate, limit) -> { push(x), end(count) },
- * convert(x, rate), gain(rate, hz), kept() -> { designs, entries }.
+ * 24000 Hz, where no table is made. A design kept is given again as the same object. length(n,
+ * rate), wait(rate), createStream(rate, limit) -> { push(x), end(count) }, convert(x, rate),
+ * gain(rate, hz).
  * No imports; runs as a page script, in a worker and under Node.
  */
 (function (root) {
@@ -195,23 +203,17 @@
       }
       return stored ? rowInto(p, new Float32Array(T)) : rowInto(p, shared);
     }
-    const d = Object.freeze({
-      rate: R, L, M: s.M, H, T, cutoff: s.cutoff, scale, rated, stored, row, rowInto, table
-    });
+    const given = Object.freeze({ rate: R, L, M: s.M, H, T, cutoff: s.cutoff, scale, rated, stored, row });
+    const d = Object.freeze({ ...given, rowInto, table, given });
     keep(key, d);
     return d;
-  }
-
-  function publicDesign(d) {
-    const { rate, L, M, H, T, cutoff, scale, rated, stored, row } = d;
-    return Object.freeze({ rate, L, M, H, T, cutoff, scale, rated, stored, row });
   }
 
   function design(rate, limit = TABLE_LIMIT) {
     const R = wholeRate(rate);
     wholeLimit(limit);
     if (R === OUT_RATE) return null;
-    return publicDesign(build(R, limit));
+    return build(R, limit).given;
   }
 
   // The outputs of a finite source of n samples (step 10); n at 24000 Hz.
@@ -345,7 +347,10 @@
   }
 
   // The conversion's gain at hz of the source, linear: the table taken as one filter at L times
-  // the source's rate, divided by L. 1 at 24000 Hz.
+  // the source's rate, divided by L. With j = q - (T - H - 1), the input offset of tap q from
+  // the output's instant, the tap of phase p sits at L j - p fine steps (the table's own index,
+  // step 6, is |L j - p|): gain = |sum over p and q of table[p][q] e^(-2 pi i hz (L j - p) / (R L))| / L.
+  // 1 at 24000 Hz.
   function gain(rate, hz) {
     const R = wholeRate(rate);
     if (typeof hz !== 'number' || !Number.isFinite(hz)) {
@@ -358,7 +363,7 @@
     for (let p = 0; p < L; p++) {
       d.rowInto(p, row);
       for (let q = 0; q < T; q++) {
-        const a = -2 * Math.PI * hz * ((L * (C - q) + p) / (R * L));
+        const a = -2 * Math.PI * hz * ((L * (q - C) - p) / (R * L));
         re += row[q] * Math.cos(a);
         im += row[q] * Math.sin(a);
       }
@@ -366,13 +371,8 @@
     return Math.hypot(re, im) / L;
   }
 
-  // What the kept designs hold: their number and their table entries in all.
-  function kept() {
-    return { designs: designs.size, entries: keptEntries };
-  }
-
   const TF2CaptureConverter = Object.freeze({
-    OUT_RATE, QUALITY, TABLE_LIMIT, design, length, wait, createStream, convert, gain, kept
+    OUT_RATE, QUALITY, TABLE_LIMIT, design, length, wait, createStream, convert, gain
   });
   if (typeof module !== 'undefined' && module.exports) module.exports = TF2CaptureConverter;
   else root.TF2CaptureConverter = TF2CaptureConverter;
