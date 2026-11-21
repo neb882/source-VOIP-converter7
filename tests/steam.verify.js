@@ -277,10 +277,13 @@ async function steamSection() {
   }
   // The gate off: a sender setting; the same path after it.
   {
-    // The spurt starts at -2400 less the capture's lead (W3-21), read from the sender's info().
+    // The spurt starts at -2400 less the capture's lead (W3-21), read from the sender's info(),
+    // and less the warm-up's zeros in its first chunk (W3-27b's fix round): the steps of the
+    // seeded clock's reads, at the default seed, of the chunk that holds the warm-up's end.
     const x = talk(4, 5), r = await render(x, { gate: false }), s = senderOf(x, { gate: false });
-    check('the gate off: one spurt from -2400 - lead, sender.gate false, codecInfo.gate null, one resampler call a message that holds samples',
-      r.codecInfo.spurts === 1 && r.codecInfo.sender.spurts[0].start === -2400 - s.info.lead && s.info.lead > 0 && r.codecInfo.sender.gate === false
+    const warmIn = (() => { const c = Sender.createClock(), W = Sender.STEAM_SENDER.warmUp; let n = 0; for (;;) { const k = n + c.next().samples; if (k > W) return W - n; n = k; } })();
+    check(`the gate off: one spurt from -2400 - lead less the warm-up's zeros in its first chunk (${warmIn}), sender.gate false, codecInfo.gate null, one resampler call a message that holds samples`,
+      r.codecInfo.spurts === 1 && r.codecInfo.sender.spurts[0].start === -2400 - s.info.lead - warmIn && s.info.lead > 0 && r.codecInfo.sender.gate === false
       && r.codecInfo.gate === null && r.codecInfo.resampler.calls === holding(s.msgs) && r.codecInfo.sender.messages === s.msgs.length,
       `${r.codecInfo.resampler.calls} calls, ${s.msgs.length} messages`);
   }
@@ -493,10 +496,11 @@ async function steamSection() {
   // Laying (point 8) and the slots (point 9). On this source two spurts meet
   // (the gate closes and opens again, its pre-roll over the last one's end),
   // and some anchors round up. The gain off: what is laid is what reaches onGain.
-  // The seed is 5 since W3-27b's clock (it was 10 since W3-16's, and 1 before it; on the
-  // clock of W3-27b seed 10's spurts no longer meet).
+  // The seed is 9 since W3-27b's fix round, the first from 1 whose spurts meet with the
+  // sender's warm-up (seeds 1 to 8 have none laid twice); it was 5 on W3-27b's clock with no
+  // warm-up, 10 since W3-16's, and 1 before it.
   {
-    const x = talk(12, 11), h = hooked(), r = await render(x, { seed: 5, agc: false, voiceScale: 1 }, h), L = r.codecInfo.lookahead;
+    const x = talk(12, 11), h = hooked(), r = await render(x, { seed: 9, agc: false, voiceScale: 1 }, h), L = r.codecInfo.lookahead;
     const want = new Float32Array(h.gained.length);
     let spurt = null, cursor = 0, twice = 0, up = 0;
     for (const { y, msg } of h.resampled) {
@@ -1064,7 +1068,10 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
     const m = msgs.find((e) => e.first >= 60 && size(e) === 1 && e !== msgs[msgs.length - 1]), g = m.first - 13;
     const mask = (count) => Uint8Array.from({ length: count }, (_, f) => (f >= g && f < m.first ? (f === g + 5 ? 2 : 1) : 0));
     const plain = (await render(x, { gate: false })).codecInfo, got = (await withMask(mask, () => render(x, { gate: false }))).codecInfo;
-    const L = plain.lookahead, slotOf = (f) => Math.ceil((-2400 + 480 * f + L - 240) / 480), s = slotOf(m.first), end = plain.frameLog.length;
+    // The spurt's start (one spurt, the gate off): -2400 when this was written; less the lead
+    // since W3-21 and the warm-up's zeros in the first chunk since W3-27b's fix round.
+    const start = plain.sender.spurts[0].start;
+    const L = plain.lookahead, slotOf = (f) => Math.ceil((start + 480 * f + L - 240) / 480), s = slotOf(m.first), end = plain.frameLog.length;
     const tail = (info, code) => Array.from(code ? info.frameLog.subarray(s, end) : info.frameBytes.subarray(s, end));
     check('jitter and a gap of more than ten: 12 lost and 1 late frame in front of a one-frame message, the arriving frame at its own slot and nothing after it moved',
       plain.frameBytes[s] > 0 && same(tail(got, 0), tail(plain, 0)) && same(tail(got, 1), tail(plain, 1)) && got.underrunFrames === 1
