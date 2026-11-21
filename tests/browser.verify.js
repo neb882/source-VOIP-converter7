@@ -1735,8 +1735,11 @@ async function verifyRoomsPage(page) {
     agc: document.querySelector('#agc option[value="1"]').textContent }));
   check(labels5.avg === 'Gain target: mean (0) to peak (1) voice_avggain' && labels5.agc === 'On (the game\'s rule)',
     'the labels: "Gain target: mean (0) to peak (1)" with voice_avggain; the auto-gain "On (the game\'s rule)"', `${labels5.avg}; ${labels5.agc}`);
-  // A render with each group's first entry plays and downloads with its tail.
-  await page.locator('#file').setInputFiles({ name: 'room-tone.wav', mimeType: 'audio/wav', buffer: wavTone(0.5) });
+  // A render with each group's first entry plays and downloads with its tail. The tone is one whose render on the
+  // game's voice queue at the page's seed does not run on past the source's end (W3-24), so that the tail is the
+  // room's alone: since W3-27b (the sender's clock as read, the arrival at 42.0 ms) the 0.5 s tone of before runs on
+  // by 326 samples at 48 kHz, and 0.6 s runs on by none, as it did before (measured on the model).
+  await page.locator('#file').setInputFiles({ name: 'room-tone.wav', mimeType: 'audio/wav', buffer: wavTone(0.6) });
   await page.waitForFunction(() => state.sourceName === 'room-tone.wav' && !els.process.disabled);
   for (const [key, setup] of [['open'], ['auto_set_c_room'], ['auto_closet'], ['place_2fort_spawn_room'], ['room_2'], ['manual', 'dsp_room 1']]) {
     await page.evaluate(([k, cmd]) => { execCommand('exec preset_modern'); execCommand(`listener_position ${k}`); if (cmd) execCommand(cmd); }, [key, setup]);
