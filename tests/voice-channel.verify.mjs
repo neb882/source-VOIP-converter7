@@ -1176,12 +1176,13 @@ function serverLogChecks() {
 // 1 to 800, at 300 and 66.67 fps, both layouts pooled, with no codecDelay. ARRIVAL_MEASURED is
 // that measurement as recorded from the build (2026-11-21); the constant is its mean to the half
 // millisecond. `--arrival` measures it again (about four minutes) and holds it to these figures
-// and to the constant. Recorded again with the sender's warm-up (the order's ruling of
-// 2026-11-21, W3-27b's fix round): with none it was 42.144 ms over 7,319 spurts (43.10 at 300
-// fps over 3,319, 41.35 at 66.67 over 4,000), the same constant. Until W3-27b the constant was
+// and to the constant. Recorded again with the sender's warm-up of 4.5 s (the order's rulings of
+// 2026-11-21, W3-27b's fix rounds), where the constant became 42.5 ms: with the warm-up of 1.5 s
+// it was 41.956 ms over 7,314 spurts (42.73 at 300 fps over 3,314, 41.31 at 66.67 over 4,000),
+// and with none 42.144 ms over 7,319 (43.10 and 41.35), each 42.0. Until W3-27b the constant was
 // 50.5 ms (seeds 1 to 50 on W3-16's clock, docs/reports/W3-02c1-channel-as-read.md).
-const ARRIVAL_MEASURED = Object.freeze({ mean: 41.956180703983456, spurts: 7314, at300: 42.732070498688294, n300: 3314, at67: 41.31335600907027, n67: 4000 });
-const ARRIVAL_MS = 42.0;
+const ARRIVAL_MEASURED = Object.freeze({ mean: 42.27295169698745, spurts: 7307, at300: 43.01470734448408, n300: 3307, at67: 41.65970521541949, n67: 4000 });
+const ARRIVAL_MS = 42.5;
 // codecDelay: seconds the caller took off each source for its codec (createTimeline's option).
 const zeroOf = (bufferMs, fps, codecDelay = 0) => 512 * Math.round(44100 * (latency(bufferMs, fps) + ARRIVAL_MS / 1000 + codecDelay) / 512);
 // The Opus codec's look-ahead, 156 samples at 24 kHz: what W3-02c-2 takes off each source.
@@ -1457,7 +1458,8 @@ function timelineChecks() {
     };
     // W3-27b: with the arrival at 42.0 ms (50.5 before), D with no codecDelay is 12800, 14848
     // and 24064 (13312, 15360 and 24064 before), and with the codec's look-ahead 13312, 15360
-    // and 24064 (13312, 15360 and 24576 before).
+    // and 24064 (13312, 15360 and 24576 before). At 42.5 ms (W3-27b's second fix round) every
+    // one of them is the same.
     const plain = gridRun(undefined, { 66.67: 12800, 100: 14848, 300: 24064 });
     check('every block\'s first output sample is a multiple of 512 from the output\'s start at 67, 100 and 300 fps: D is 12800, 14848 and 24064 samples', plain.ok, plain.seen);
     // At 66.67 fps latency + arrival + codecDelay is 298.5 ms, 2.4 ms over the edge where D
@@ -1520,8 +1522,10 @@ function timelineChecks() {
   }
   {
     // A pre-roll before sample 0 is sound, not a record: the first message's source is negative.
-    // Seed 1's capture has a lead of 68 samples on the clock of W3-27b: the pre-roll starts at
-    // -2400 - 68 = -2468, at 44.1 kHz -4535, -0.103 s. (On W3-16's clock with W3-21's lead the
+    // Seed 1's capture has a lead of 68 samples on the clock of W3-27b, and with the warm-up of
+    // 4.5 s its first chunk begins with 750 of the warm-up's zeros: the pre-roll starts at
+    // -2400 - 750 - 68 = -3218, at 44.1 kHz -5913, -0.134 s (-2468, -4535 and -0.103 s with the
+    // warm-up of 1.5 s and with none). (On W3-16's clock with W3-21's lead the
     // case was seed 4's, lead 599: -2999, -5511 and -0.125 s; -2400, -4410 and -0.1 s before
     // W3-21. Seed 4's lead is now 550, which leaves its first step, one step long, under the
     // gate: its spurt opens a chunk later with that step as its pre-roll, from -550.)
@@ -1532,8 +1536,8 @@ function timelineChecks() {
     const hand = [msg(0, 7056, -8820)];
     for (let t = 4; t <= 120; t += 4) hand.push(msg(t, 1764, -8820 + 7056 + 1764 * (t / 4 - 1)));
     const h = timelineRun(hand, { fps: 300, length: 44100 * 3 });
-    check('a spurt that starts before sample 0 (its pre-roll and the capture\'s lead) is sound: one spurt from -4535 / 44100 s (by hand, -0.2 s); where its pre-roll is heard after output 0 the source map says -1',
-      r.messages[0].start === -2400 - 68 && r.pushed[0].source === -4535 && r.info.spurts.length === 1 && r.info.spurts[0].start === -4535 / 44100 && r.info.spurts[0].opened
+    check('a spurt that starts before sample 0 (its pre-roll, the warm-up\'s zeros in its first chunk and the capture\'s lead) is sound: one spurt from -5913 / 44100 s (by hand, -0.2 s); where its pre-roll is heard after output 0 the source map says -1',
+      r.messages[0].start === -2400 - 750 - 68 && r.pushed[0].source === -5913 && r.info.spurts.length === 1 && r.info.spurts[0].start === -5913 / 44100 && r.info.spurts[0].opened
       && h.info.spurts.length === 1 && h.info.spurts[0].start === -0.2 && h.samples[441] !== 0 && h.info.source[0] === -1 && h.info.source[10] > 0,
       `slot 0 plays ${h.samples[441]} and maps to ${h.info.source[0]}; slot 10 to ${h.info.source[10]}`);
     // The stand-in's messages are spec 4's: zeros, 882 a frame, round(samples x 44100 / 24000)
@@ -1597,16 +1601,16 @@ function timelineChecks() {
     check('300 fps: the first spurt opens a channel, its offsetStartMs between -45 and +50', first.every((s) => s.opened && s.offsetStartMs >= -45 && s.offsetStartMs <= 50),
       `${range(first.map((s) => s.offsetStartMs))} ms; dropped ${range(first.map((s) => s.droppedMs))} ms`);
     const own = runs.map((r) => r.sp[2]).filter((s) => s.own);
-    // 31 of these 50 seeds: in the other 19 the timeline keeps one spurt (in the 11 of the clock
+    // 36 of these 50 seeds: in the other 14 the timeline keeps one spurt (in the 11 of the clock
     // with no warm-up the chunk after the final one was active: the ENDED state, no record). The
     // seeds are fixed: the count is exact.
     // (On W3-02b's clock it was 38 of 50, starting -20 to +60 ms; re-derived for W3-16's clock,
     // whose capture steps are read up to 44 ms after their time, 42 of 50; with the capture's
     // phase of W3-21, 35 of 50, starting -20.7 to +23.1 ms; on the clock of W3-27b, 39 of 50,
     // starting -22.6 to +9.3 ms; with its warm-up (fix round 1), 31 of 50, starting -21.1 to
-    // +10.3 ms.)
-    check('300 fps: after 500 ms the next spurt is one of its own in 31 of the 50 seeds (the clock of W3-27b with its warm-up; 39 with none, 35 on W3-16\'s with the capture\'s phase, 42 before W3-21), and then is appended, starting -46 to +35 ms from the source (W3-02b: 0 to +80)',
-      own.length === 31 && own.every((s) => !s.opened && s.offsetStartMs >= -46 && s.offsetStartMs <= 35), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
+    // +10.3 ms; with the warm-up of 4.5 s, 36 of 50, starting -27.2 to +1.9 ms.)
+    check('300 fps: after 500 ms the next spurt is one of its own in 36 of the 50 seeds (the clock of W3-27b with its warm-up of 4.5 s; 31 with 1.5 s, 39 with none, 35 on W3-16\'s with the capture\'s phase, 42 before W3-21), and then is appended, starting -46 to +35 ms from the source (W3-02b: 0 to +80)',
+      own.length === 36 && own.every((s) => !s.opened && s.offsetStartMs >= -46 && s.offsetStartMs <= 35), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
     const last = runs.map((r) => r.sp[3]);
     check('300 fps: after 1200 ms it opens a channel and loses 30 to 170 ms to overflow', last.every((s) => s.own && s.opened && s.droppedMs >= 30 && s.droppedMs <= 170),
       `${range(last.map((s) => s.droppedMs))} ms; starts ${range(last.map((s) => s.offsetStartMs))} ms`);
@@ -1652,7 +1656,7 @@ function timelineChecks() {
     // of 50.5 ms; on the clock as read (W3-27b) the constant is measured over seeds 1 to 800
     // (ARRIVAL_MEASURED, above; --arrival), and these 50 seeds are a part of that measurement.
     // The count opened at 300 fps was 205 before W3-21, 206 with the seeded runs' phase, 204 on
-    // the clock of W3-27b, and is 210 with its warm-up (fix round 1).
+    // the clock of W3-27b, 210 with its warm-up of 1.5 s (fix round 1), and is 203 with 4.5 s.
     const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length;
     const se = (v) => { const m = mean(v); return Math.sqrt(v.reduce((a, x) => a + (x - m) ** 2, 0) / (v.length - 1) / v.length); };
     const grid = (fps) => (zeroOf(100, fps) - 44100 * (latency(100, fps) + ARRIVAL_MS / 1000)) / 44.1;
@@ -1670,7 +1674,7 @@ function timelineChecks() {
     });
     const seedLead = bySeed(undefined), seedZero = bySeed(0);
     check(`an opened spurt's offsetStartMs averages within 5.8 ms of 0 at 300 and at 67 fps (layouts P and Q, seeds 1 to 50), and with the block grid taken out (measured ${pooled.toFixed(3)} ms) to within 3 standard errors of these 50 seeds, the standard error taken by spurt (${bound.toFixed(2)} ms; by seed it is larger, as the spurts of a seed are not independent); over seeds 1 to 800 the arrival is the constant to within 0.3 ms (below, and --arrival)`,
-      opened[300].length === 210 && opened[66.67].length === 250 && Math.abs(m300) <= 5.8 && Math.abs(m67) <= 5.8 && Math.abs(pooled) <= bound,
+      opened[300].length === 203 && opened[66.67].length === 250 && Math.abs(m300) <= 5.8 && Math.abs(m67) <= 5.8 && Math.abs(pooled) <= bound,
       `300 fps ${m300.toFixed(2)} ms over ${opened[300].length}, 67 fps ${m67.toFixed(2)} ms over ${opened[66.67].length}; the grid moves them ${grid(300).toFixed(2)} and ${grid(66.67).toFixed(2)}; both, grid out: ${pooled.toFixed(3)} ms, 3 standard errors ${(3 * se(both)).toFixed(3)} ms by spurt; by seed the standard error is ${se(seedLead).toFixed(3)} ms`);
     // W3-21, paired: on the same seeds, the zero with the capture's lead less the zero at lead 0,
     // seed by seed, lies within 3 standard errors (by seed) of 0. The order's second reader
@@ -1699,7 +1703,7 @@ function timelineChecks() {
     const bothC = [...inFrame[300].map((x) => x + gridC(300)), ...inFrame[66.67].map((x) => x + gridC(66.67))];
     const pooledC = mean(bothC), boundC = Math.max(0.1, 3 * se(bothC));
     check(`with sources earlier by the codec's 156 samples and codecDelay 156 / 24000, the same spurts average within 5.8 ms of 0 at 300 and 67 fps, and with the grid taken out (measured ${pooledC.toFixed(3)} ms) to within 3 standard errors of these 50 seeds (${boundC.toFixed(2)} ms), as above`,
-      inFrame[300].length === 210 && inFrame[66.67].length === 250 && Math.abs(c300) <= 5.8 && Math.abs(c67) <= 5.8 && Math.abs(pooledC) <= boundC,
+      inFrame[300].length === 203 && inFrame[66.67].length === 250 && Math.abs(c300) <= 5.8 && Math.abs(c67) <= 5.8 && Math.abs(pooledC) <= boundC,
       `300 fps ${c300.toFixed(2)} ms, 67 fps ${c67.toFixed(2)} ms; the grid moves them ${gridC(300).toFixed(2)} and ${gridC(66.67).toFixed(2)}; both, grid out: ${pooledC.toFixed(3)} ms, 3 standard errors ${(3 * se(bothC)).toFixed(3)} ms`);
     // W3-27b, check 6: the constant is the recorded measurement over seeds 1 to 800, taken to the
     // half millisecond, and within 0.3 ms of it (--arrival measures it again).
@@ -1716,21 +1720,33 @@ function timelineChecks() {
     check('150 fps: offsetEndMs - offsetStartMs between -26 and -22 ms (one sample for each of 18.01 messages a second)', d150.every((d) => d >= -26 && d <= -22), `${range(d150)} ms`);
     check('300 fps: that or lower', d300.every((d) => d <= -22), `${range(d300)} ms`);
   }
-  // The W3-27 order's ruling of 2026-11-21 (W3-27b's fix round, item 6): a render begins in
+  // The W3-27 order's rulings of 2026-11-21 (W3-27b's fix rounds 1 and 2): a render begins in
   // mid-stream, so sound at the source's start is sent as sound anywhere else is. A 0.5 s burst
   // that begins 0, 30 or 60 ms into the source starts on the game's timeline (its spurt's
   // offsetStartMs, the zero taken out) within 6 ms of where the same burst beginning at 2 s
   // starts, in the mean of seeds 1 to 200 (the order's band). The order's second reader had
   // +0.4, +1.5 and +2.6 ms at 66.67 fps with the warm-up made from outside; with none the
-  // bursts started 29.0, 67.4 and 53.2 ms before their source (400 seeds).
-  console.log('The timeline: a burst at the source\'s start against the same burst 2 s in (the W3-27 order\'s ruling of 2026-11-21; seeds 1 to 200)');
+  // bursts started 29.0, 67.4 and 53.2 ms before their source (400 seeds). At 300 fps a cold
+  // start moves the start by 1.6 to 2.5 ms only (the reader) and the time the queue drops
+  // instead: the burst's spurt's droppedMs at 0, 30 and 60 ms is within 10 ms of the burst's
+  // at 2 s, in the mean of the same seeds (the second ruling's band). On the build with the
+  // warm-up of 4.5 s: 106.1, 107.9 and 107.3 ms against 108.4; with none, 67.0, 41.8 and 72.1
+  // against 107.8 (measured on the model).
+  console.log('The timeline: a burst at the source\'s start against the same burst 2 s in (the W3-27 order\'s rulings of 2026-11-21; seeds 1 to 200)');
   {
     const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length;
-    const startsAt = (t, fps) => mean(Array.from({ length: 200 }, (_, k) => engineRun({ loud: [[t, t + 0.5]], seconds: 4, fps, seed: k + 1 }).info.spurts[0].offsetStartMs));
+    const burstAt = (t, fps) => {
+      const sp = Array.from({ length: 200 }, (_, k) => engineRun({ loud: [[t, t + 0.5]], seconds: 4, fps, seed: k + 1 }).info.spurts[0]);
+      return { start: mean(sp.map((x) => x.offsetStartMs)), dropped: mean(sp.map((x) => x.droppedMs)) };
+    };
     for (const fps of [66.67, 300]) {
-      const two = startsAt(2, fps), d = [0, 0.03, 0.06].map((t) => startsAt(t, fps) - two);
+      const two = burstAt(2, fps), early = [0, 0.03, 0.06].map((t) => burstAt(t, fps)), d = early.map((x) => x.start - two.start);
       check(`${fps} fps: a burst at 0, 30 and 60 ms starts within 6 ms of the same burst at 2 s, in the mean`, d.every((x) => Math.abs(x) <= 6),
-        `${d.map((x) => (x >= 0 ? '+' : '') + x.toFixed(1)).join(', ')} ms; at 2 s ${two.toFixed(1)} ms`);
+        `${d.map((x) => (x >= 0 ? '+' : '') + x.toFixed(1)).join(', ')} ms; at 2 s ${two.start.toFixed(1)} ms`);
+      if (fps === 300) {
+        check('300 fps: the time the queue drops of a burst at 0, 30 and 60 ms is within 10 ms of the same burst\'s at 2 s, in the mean', early.every((x) => Math.abs(x.dropped - two.dropped) <= 10),
+          `${early.map((x) => x.dropped.toFixed(1)).join(', ')} ms against ${two.dropped.toFixed(1)} ms`);
+      }
     }
   }
   console.log('tests/retiming.mjs --engine on the stand-in results');
@@ -1980,7 +1996,7 @@ function frameClockChecks() {
     // samples and info by hashes recorded on main 91d37c6 before W3-23a); 66.6 and the first double
     // below 1000/15 do not, and give the second model's. W3-27b recorded the hashes again: these
     // made-up messages run no sender, and the case moves through the model's zero only (D at
-    // 66.67 fps with no codecDelay is 12800 with the arrival at 42.0 ms, 13312 at 50.5). Before:
+    // 66.67 fps with no codecDelay is 12800 with the arrival at 42.0 ms and at 42.5, 13312 at 50.5). Before:
     // 03861aa5723e05b21f9ec3ad4a67eb3d3b0d113f129dc7e83ab6621660eaa981 and
     // 0a5b49c7adea7965218e550cee6794cd44c6b68eeaf792f77b218eb1d977de24.
     const MAIN = ['a9815b875bc8461a583a8dabef61797b687a5be1ae498df6f4e4002d5ef0c6b4', 'e7b68f27a72e040e9098e31751e8f29e161969d6fbeb217cda4207c1923af81f'];

@@ -95,13 +95,17 @@
   // (D - 44100 x latency) / 44.1 of every opened spurt of the suite's layouts P and Q
   // (tests/voice-channel.verify.mjs: 2 s spurts after 300, 500 and 1200 ms, and after 900, 600
   // and 1200 ms), seeds 1 to 800, at 300 and 66.67 fps, no codecDelay, pooled, and measured again
-  // with the sender's warm-up (the order's ruling of 2026-11-21, W3-27b's fix round): 7,314
-  // spurts, mean 41.956 ms (42.73 at 300 fps over 3,314, 41.31 at 66.67 over 4,000; a standard
-  // error of 0.20 ms taken by seed), taken to the half millisecond. With no warm-up it was 42.144
-  // over 7,319 spurts, the same constant. About 5 ms of it is a convention and not the sender's
-  // timing: the capture's packets begin 0 to 10 ms after the time the sound is counted from
-  // (5 ms in the mean). On the clock of W3-16 it was 50.5 ms (seeds 1 to 50, W3-02c-1).
-  const ARRIVAL_SECONDS = 0.042;
+  // with the sender's warm-up of 4.5 s (the order's rulings of 2026-11-21, W3-27b's fix rounds):
+  // 7,307 spurts, mean 42.273 ms (43.01 at 300 fps over 3,307, 41.66 at 66.67 over 4,000; a
+  // standard error of 0.20 ms taken by seed), taken to the half millisecond: 42.5 ms, the mean
+  // 0.02 ms above the edge between 42.0 and 42.5. With the warm-up of 1.5 s it was 41.956 ms over
+  // 7,314 spurts, and with none 42.144 over 7,319, each 42.0. D moves with it only where the
+  // rounding to a block is near its edge: of 10, 20, 30, 50, 60, 66.67, 100, 144, 150, 200, 300
+  // and 1000 fps at voice_buffer_ms 100, at 144 and 150 with no codecDelay (17920 to 18432),
+  // and at none with the Opus delay of 156 samples. About 5 ms of it is a convention and not the
+  // sender's timing: the capture's packets begin 0 to 10 ms after the time the sound is counted
+  // from (5 ms in the mean). On the clock of W3-16 it was 50.5 ms (seeds 1 to 50, W3-02c-1).
+  const ARRIVAL_SECONDS = 0.0425;
 
   const finiteOr = (x, d) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
   const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
