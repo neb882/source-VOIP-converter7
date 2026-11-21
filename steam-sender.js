@@ -123,8 +123,9 @@
       // ms: Windows's timer step, counted on from the last timeout. Measured twice (Sets J and
       // L) as about 15.6 ms; 15.625 is Windows's default and is not fitted.
       timerStep: 15.625,
-      // ms: the step's slip, one normal draw a timeout of this spread (measured once, the
-      // seven-step gaps of Sets J and L; the record's first count has 1.5 ms).
+      // ms: the step's slip, one normal draw a timeout of this spread (fitted, Set J's reads).
+      // The spread measured beside it is 1.5 ms (neighbouring timeouts of Sets J and L,
+      // counted twice), and it does not grow with the steps between two timeouts.
       slip: 1.3,
       // ms: how early a timer step may come and still end the wait, at the due time (fitted,
       // Set J).
@@ -143,8 +144,12 @@
       // is 0 to 20 ms (fitted, Set Q); no cause read.
       late: 9,
       // Capture steps a read brings at most: the app's own (MAX_CHUNK). With the defaults no
-      // read asks for more (measured on the reference, 2,000,000 reads); a step left over
-      // waits for the next read.
+      // read asks for more (measured on the reference, 2,000,000 reads). At the ends of the
+      // options' ranges the limit binds more often: in 2,000,000 reads at seed 1 (measured on
+      // the reference), 6,215 times at 10 frames a second with a tick of 100 ms, 20 ms packets
+      // and a lateness of 31.25 ms; 4,862 at 30 frames a second with those packets and that
+      // lateness; 34 with 10 ms packets and a lateness of 31.25 ms. What is left over is
+      // always one step; the next read takes it, and nothing is carried twice.
       maxSteps: 3,
       // The six random sources, mulberry32((seed ^ mix) >>> 0), one for each part, so that a
       // change to one part leaves the others' draws alone (the reference's choice; nothing

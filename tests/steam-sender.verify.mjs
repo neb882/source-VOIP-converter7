@@ -1100,9 +1100,10 @@ console.log('The read clock is the reference, to the last bit (check 2; place 0)
   let where = '';
   for (let seed = 1; seed <= 400 && !where; seed++) where = againstGen({ seed }, 2000);
   check('seeds 1 to 400, 2,000 reads each: since is the reference\'s time / 1000 bit for bit, samples and by equal', !where, where);
-  const settings = [{ seed: 1 }, { seed: 2 }, SIDE, { ...SIDE, packet: 20 }, { ...SIDE, late: 20 }, { ...SIDE, fps: 30 }, { ...SIDE, fps: 60 }, { ...SIDE, fps: 144 }, { ...SIDE, tick: 30 }];
+  const S1 = { seed: 1 };
+  const settings = [S1, { seed: 2 }, SIDE, { ...S1, packet: 20 }, { ...S1, late: 20 }, { ...S1, fps: 30 }, { ...S1, fps: 60 }, { ...S1, fps: 144 }, { ...S1, tick: 30 }];
   const parted = settings.map((s) => againstGen(s, 200000)).filter(Boolean);
-  check('200,000 reads at each setting of "Precision" (seeds 1, 2 and the default; 20 ms packets; a lateness of 20 ms; 30, 60 and 144 frames a second; a tick of 30 ms): the same, bit for bit',
+  check('200,000 reads at each of the nine settings of "Precision" (seeds 1, 2 and the default at the default options; at seed 1, 20 ms packets, a lateness of 20 ms, 30, 60 and 144 frames a second, a tick of 30 ms): the same, bit for bit',
     parted.length === 0, parted[0] || '');
 }
 
@@ -1126,11 +1127,32 @@ console.log('The read clock: three steps at most (check 3)');
     differ.map((d) => `read ${d[0]}: ${d[1]} for ${d[2]}`).join('; '));
 }
 
+{
+  // At the ends of the ranges the limit binds often. The reference's steps less the port's,
+  // summed read by read (place 0), is what the port has left over: never more than one step,
+  // and never left over for two reads running.
+  const opts = { seed: 1, fps: 10, tick: 100, packet: 20, late: 31.25 };
+  const a = createReadClock({ ...opts, place: 0 }), b = genClock(opts);
+  let owed = 0, binds = 0, carried = 0, wrong = '', biggest = 0;
+  for (let i = 0; i < 2000000 && !wrong; i++) {
+    const x = a.next(), y = b.next(), before = owed;
+    owed += (y.samples - x.samples) / 750;
+    biggest = Math.max(biggest, x.samples);
+    if (!Object.is(x.since, y.time / 1000) || x.by !== y.by) wrong = `read ${i}: the times or by part`;
+    else if (owed < 0 || owed > 1 || x.samples > 2250) wrong = `read ${i}: ${owed} steps left over, ${x.samples} samples`;
+    if (before === 0 && owed === 1) { binds++; if (x.samples !== 2250) wrong ||= `read ${i}: bound at ${x.samples}`; }
+    if (before === 1 && owed === 1) carried++;
+  }
+  check('seed 1, 10 frames a second, a tick of 100 ms, 20 ms packets, a lateness of 31.25 ms, 2,000,000 reads: the limit binds (6,215 times), each time one step is left over and the next read takes it, and no read is above 2250 samples',
+    !wrong && binds === 6215 && carried === 0 && owed === 0 && biggest === 2250, wrong || `${binds} times; ${carried} carried twice`);
+}
+
 console.log('The read clock: the reads never run ahead of the capture (checks 3 and 6; 300 seeds of 20,000 reads at four settings)');
 {
-  const bad = [], over = [];
-  let least = Infinity;
+  const bad = [], over = [], margins = [];
+  let leastAll = Infinity;
   for (const [label, opts] of EDGES) {
+    let least = Infinity;
     for (let seed = 1; seed <= 300; seed++) {
       const c = createReadClock({ seed, ...opts });
       let taken = 0, last = -Infinity;
@@ -1139,14 +1161,16 @@ console.log('The read clock: the reads never run ahead of the capture (checks 3 
         if (r.samples > 2250 || r.samples % 750 || r.samples < 0) { over.push(`${label}, seed ${seed}, read ${i}: ${r.samples}`); break; }
         taken += r.samples;
         const ahead = r.since * 24000 - taken;
-        if (taken > 0 && ahead < least) least = ahead;
+        if (r.samples > 0 && ahead < least) least = ahead;
+        if (ahead < leastAll) leastAll = ahead;
         if (ahead < 0 || r.time < last) { bad.push(`${label}, seed ${seed}, read ${i}`); break; }
         last = r.time;
       }
     }
+    margins.push(`${label} ${least.toFixed(2)}`);
   }
   check('no read brings more than 2250 samples or samples off whole steps', over.length === 0, over[0] || '');
-  check('at every read since x 24000 is at least the samples taken so far, and time never falls', bad.length === 0, bad[0] || `since x 24000 at least ${least.toFixed(2)} samples above them`);
+  check('at every read since x 24000 is at least the samples taken so far, and time never falls', bad.length === 0, bad[0] || `on reads that bring a chunk, the least margin: ${margins.join('; ')} samples; on any read, an empty first one included, ${leastAll.toFixed(2)}`);
 }
 
 console.log('The read clock: the place turns the pattern and nothing else (check 4)');
@@ -1191,12 +1215,20 @@ console.log('The read clock: the draws (check 5)');
 {
   let bad = '';
   for (let seed = 1; seed <= 1000 && !bad; seed++) {
-    const c = createReadClock({ seed }), d = phasesOf(seed), r = c.next();
-    if (c.lead !== d.lead || c.place !== d.place || !Object.is(r.time, d.phase + r.since)) bad = `seed ${seed}: lead ${c.lead} for ${d.lead}, place ${c.place} for ${d.place}`;
+    const c = createReadClock({ seed }), d = phasesOf(seed);
+    if (c.lead !== d.lead || c.place !== d.place) bad = `seed ${seed}: lead ${c.lead} for ${d.lead}, place ${c.place} for ${d.place}`;
     const c20 = createReadClock({ seed, packet: 20 }), d20 = phasesOf(seed, 20);
     if (!bad && (c20.place !== d20.place || c20.lead !== d.lead)) bad = `seed ${seed}, 20 ms packets: place ${c20.place} for ${d20.place}`;
   }
-  check('lead, place and the phase time - since are the suite\'s own sixth, fifth and seventh draws of P (seeds 1 to 1,000; 16 places with 20 ms packets)', !bad, bad);
+  check('lead and place are the suite\'s own sixth and fifth draws of P (seeds 1 to 1,000; 16 places with 20 ms packets)', !bad, bad);
+  // time - since is the draw to the last bit only at a clock's early reads (the sum rounds),
+  // so the test is time === phase + since.
+  let off = '';
+  for (let seed = 1; seed <= 200 && !off; seed++) {
+    const c = createReadClock({ seed }), { phase } = phasesOf(seed);
+    for (let i = 0; i < 1000; i++) { const r = c.next(); if (r.time !== phase + r.since) { off = `seed ${seed}, read ${i}`; break; } }
+  }
+  check('the phase: time === phase + since at every one of the first 1,000 reads of seeds 1 to 200, phase the suite\'s own seventh draw (the test is not time - since, which is the draw to the last bit only at early reads)', !off, off);
   const seen = new Uint32Array(750);
   let outside = 0;
   for (let seed = 1; seed <= 100000; seed++) {
