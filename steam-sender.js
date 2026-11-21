@@ -29,17 +29,17 @@
  *     capture-phase.md): the sender reads `lead` zeros (0 to 749, a draw of the clock's own)
  *     before the source's first sample, so the steps' edges lie 750 - lead samples after the
  *     multiples of 31.25 ms of the source.
- *   - A render begins in mid-stream (chosen; the W3-27 order's ruling of 2026-11-21): with the
- *     clock made from the seed, Steam's thread and the capture have run for 1.5 s of silence
- *     when the source's first sample is captured. The sender reads 36,000 zeros (the warm-up)
+ *   - A render begins in mid-stream (chosen; the W3-27 order's rulings of 2026-11-21): with the
+ *     clock made from the seed, Steam's thread and the capture have run for 4.5 s of silence
+ *     when the source's first sample is captured. The sender reads 108,000 zeros (the warm-up)
  *     and then the lead's before the source, and through the warm-up it is silent whatever the
  *     gate: nothing is sent, no spurt begins, and the past sound is 2400 zeros when it ends.
  *     The first chunk that holds a zero of the lead or a sample of the source is the first the
  *     gate judges (whole, as every chunk). Every period of the clock at its defaults divides
- *     1.5 s, so each phase the seed draws stays where it is against the source. A caller's
- *     clock has no warm-up.
+ *     4.5 s, so each phase the seed draws stays where it is against the source, and the ring of
+ *     the clock's start (a period of 0.5 s) has died by then. A caller's clock has no warm-up.
  *   - The times the sender counts from the source's first sample (since) are the clock's less
- *     the warm-up's 1.5 s less lead / 24000 s, and the positions it reports are in samples of
+ *     the warm-up's 4.5 s less lead / 24000 s, and the positions it reports are in samples of
  *     the source.
  *   - Steam's clock is seconds since Steam started (uptime, Steam's age when the clock starts,
  *     then the read's time), narrowed to a 32-bit float at every read: nowF.
@@ -114,9 +114,10 @@
     // float of seconds moves in steps of 1/16 s. Set D's spurt ends tested on the demo's own
     // chunks single out a Steam of 6.1 to 12.1 days (W3-16 second read); 9 days is the
     // middle of that range. It is added to the clock's own time, so with the warm-up it is
-    // Steam's age when the warm-up begins, 1.5 s and the lead before the source's first sample:
-    // 1.5 s is a whole number of the float's steps below 2^23 s (97 days; the uptime is at most
-    // 46), so it moves the float's grid nowhere but at an edge, where the step doubles.
+    // Steam's age when the warm-up begins, 4.5 s and the lead before the source's first sample:
+    // 4.5 s is a whole number of the float's steps at every uptime allowed (below 2^22 s, 48
+    // days, the step is at most 0.25 s), so it moves the float's grid nowhere but at an edge,
+    // where the step doubles.
     uptime: 777600,
     // Seconds from Steam's read to the game's relay of the message: arbitrary, it only sets
     // the phase against the game's ticks (the order's table).
@@ -124,13 +125,17 @@
     // Seconds: the game's client tick, on which it adds a message (as VOICE_CHANNEL.tick in
     // voice-channel.js; W3-03 §1, read).
     tick: 0.015,
-    // Samples: the warm-up, 1.5 s of silence the sender reads before the lead and the source
-    // when it makes its clock from the seed (chosen; the W3-27 order's ruling of 2026-11-21).
+    // Samples: the warm-up, 4.5 s of silence the sender reads before the lead and the source
+    // when it makes its clock from the seed (chosen; the W3-27 order's rulings of 2026-11-21).
     // Nothing models the key's press (W3-11c), and every take the app is held to was made with
-    // the key down before the sound. 1.5 s because every period of the clock at its defaults
-    // divides it: 100 ticks, 441 frames at 294 a second, 30 passes, 96 timer steps, 48 capture
-    // steps, 6 turns of the 8-step pattern, 150 packets of 10 ms or 75 of 20.
-    warmUp: 36000,
+    // the key down before the sound. Every period of the clock at its defaults divides it: 300
+    // ticks, 1,323 frames at 294 a second, 90 passes, 288 timer steps, 144 capture steps, 18
+    // turns of the 8-step pattern, 450 packets of 10 ms or 225 of 20. 4.5 s is the first
+    // multiple of 1.5 s at which the one-step share of the chunk that holds a sample is the
+    // running state's (the clock's start rings with a period of 0.5 s; 1.5 s, the first
+    // ruling's, left the share at the source's first sample 2.5 points under it; measured on
+    // the model, tests/steam-sender.verify.mjs --warm-up).
+    warmUp: 108000,
     // The sender's clock on the rule as read (createClock; docs/work-orders/W3-27-sender-
     // clock.md, "The rule"; the evidence is finding 28 of tests/REFERENCE_2026.md). Times in
     // ms. Each number is the default of the clock; fps, tick, packet and late are its options.
@@ -427,7 +432,7 @@
     // clock's draw, or a caller's (0 with a caller's clock when none is given).
     const lead = o.lead !== undefined ? o.lead : o.clock === undefined ? clock.lead : 0;
     const LEAD_S = lead / S.rate;
-    // The warm-up (the W3-27 order's ruling of 2026-11-21): the seeded clock's 1.5 s of
+    // The warm-up (the W3-27 order's rulings of 2026-11-21): the seeded clock's 4.5 s of
     // silence before the lead; none with a caller's clock.
     const WARM = o.clock === undefined ? S.warmUp : 0, WARM_S = WARM / S.rate;
 
