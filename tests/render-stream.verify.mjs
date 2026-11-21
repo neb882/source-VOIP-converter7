@@ -270,10 +270,23 @@ add('steam, 1,000,003 samples (a prime) at 48 kHz', 48000, () => voice(0, 48000,
 // plans and equal to process(): from a pair of rates outside Windows's limits for a stored table (44,056 Hz, not
 // rated: the sum in double precision), from below 24 kHz (16,000 Hz) and from 96,000 Hz. Each is about 8 s, of a
 // length whose n x 24000 / rate has a fraction of .5 or more (192000.55, 192001.5 and 192000.5), so that a flush
-// to floor(n L / M) in place of the rounded length comes out a sample short.
-for (const [name, rate, length] of [['44,056 Hz (not rated)', 44056, 352449], ['16,000 Hz (below 24 kHz)', 16000, 128001],
-  ['96,000 Hz, 8 s', 96000, 768002]]) {
-  add(`steam, the capture converter from ${name}`, rate, () => voice(0, rate, 26, length), {}, ['uneven']);
+// to floor(n L / M) in place of the rounded length comes out a sample short. The 16,000 Hz source sounds to its last
+// sample (its last 0.5 s a steady voiced sound at 0.3 of full scale), so that the output such a flush leaves out
+// reaches the codec through an open gate (W3-26b's fix round 1: with the talk's quiet end the missing output changed
+// nothing after the gate, and the case passed that break).
+const soundingToTheEnd = (x, rate) => {
+  for (let i = x.length - rate / 2; i < x.length; i++) {
+    const t = i / rate;
+    let v = 0;
+    for (let h = 1; h <= 6; h++) v += Math.sin(2 * Math.PI * 150 * h * t) / h;
+    x[i] = 0.3 * v / 1.5;
+  }
+  return x;
+};
+for (const [name, rate, length, toTheEnd] of [['44,056 Hz (not rated)', 44056, 352449, false],
+  ['16,000 Hz (below 24 kHz)', 16000, 128001, true], ['96,000 Hz, 8 s', 96000, 768002, false]]) {
+  add(`steam, the capture converter from ${name}`, rate, () => (toTheEnd ? soundingToTheEnd(voice(0, rate, 26, length), rate) : voice(0, rate, 26, length)),
+    {}, ['uneven']);
 }
 // A demo's voice: the receiver only. The sender, gate, codec and network
 // settings given with it are ignored, as process() ignores them.
