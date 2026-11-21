@@ -1503,17 +1503,20 @@ function timelineChecks() {
   }
   {
     // A pre-roll before sample 0 is sound, not a record: the first message's source is negative.
-    // Seed 4's capture has a lead of 599 samples (W3-21): the pre-roll starts at -2400 - 599
-    // = -2999, at 44.1 kHz -5511, -0.125 s (-2400, -4410 and -0.1 s before W3-21).
-    const r = engineRun({ loud: [[0, 1]], seconds: 3, fps: 300, seed: 4 });
+    // Seed 1's capture has a lead of 68 samples on the clock of W3-27b: the pre-roll starts at
+    // -2400 - 68 = -2468, at 44.1 kHz -4535, -0.103 s. (On W3-16's clock with W3-21's lead the
+    // case was seed 4's, lead 599: -2999, -5511 and -0.125 s; -2400, -4410 and -0.1 s before
+    // W3-21. Seed 4's lead is now 550, which leaves its first step, one step long, under the
+    // gate: its spurt opens a chunk later with that step as its pre-roll, from -550.)
+    const r = engineRun({ loud: [[0, 1]], seconds: 3, fps: 300, seed: 1 });
     const msg = (tick, n, source) => ({ tick, pcm: new Float32Array(n).fill(0.5), source });
     // By hand, a pre-roll of 0.2 s, so that some of it is heard after output 0 (W3-02c-1's zero
     // plays the output 46 ms earlier at 300 fps than W3-02b's, which this case had at 0.1 s).
     const hand = [msg(0, 7056, -8820)];
     for (let t = 4; t <= 120; t += 4) hand.push(msg(t, 1764, -8820 + 7056 + 1764 * (t / 4 - 1)));
     const h = timelineRun(hand, { fps: 300, length: 44100 * 3 });
-    check('a spurt that starts before sample 0 (its pre-roll and the capture\'s lead) is sound: one spurt from -5511 / 44100 s (by hand, -0.2 s); where its pre-roll is heard after output 0 the source map says -1',
-      r.messages[0].start === -2400 - 599 && r.pushed[0].source === -5511 && r.info.spurts.length === 1 && r.info.spurts[0].start === -5511 / 44100 && r.info.spurts[0].opened
+    check('a spurt that starts before sample 0 (its pre-roll and the capture\'s lead) is sound: one spurt from -4535 / 44100 s (by hand, -0.2 s); where its pre-roll is heard after output 0 the source map says -1',
+      r.messages[0].start === -2400 - 68 && r.pushed[0].source === -4535 && r.info.spurts.length === 1 && r.info.spurts[0].start === -4535 / 44100 && r.info.spurts[0].opened
       && h.info.spurts.length === 1 && h.info.spurts[0].start === -0.2 && h.samples[441] !== 0 && h.info.source[0] === -1 && h.info.source[10] > 0,
       `slot 0 plays ${h.samples[441]} and maps to ${h.info.source[0]}; slot 10 to ${h.info.source[10]}`);
     // The stand-in's messages are spec 4's: zeros, 882 a frame, round(samples x 44100 / 24000)
@@ -1577,13 +1580,14 @@ function timelineChecks() {
     check('300 fps: the first spurt opens a channel, its offsetStartMs between -45 and +50', first.every((s) => s.opened && s.offsetStartMs >= -45 && s.offsetStartMs <= 50),
       `${range(first.map((s) => s.offsetStartMs))} ms; dropped ${range(first.map((s) => s.droppedMs))} ms`);
     const own = runs.map((r) => r.sp[2]).filter((s) => s.own);
-    // 35 of these 50 seeds: in the other 15 the chunk after the final one is active (the ENDED
+    // 39 of these 50 seeds: in the other 11 the chunk after the final one is active (the ENDED
     // state: no record), so the timeline keeps one spurt. The seeds are fixed: the count is exact.
     // (On W3-02b's clock it was 38 of 50, starting -20 to +60 ms; re-derived for W3-16's clock,
     // whose capture steps are read up to 44 ms after their time, 42 of 50; with the capture's
-    // phase of W3-21, 35 of 50, starting -20.7 to +23.1 ms.)
-    check('300 fps: after 500 ms the next spurt is one of its own in 35 of the 50 seeds (the seeded runs with the capture\'s phase; 42 before W3-21), and then is appended, starting -46 to +35 ms from the source (W3-02b: 0 to +80)',
-      own.length === 35 && own.every((s) => !s.opened && s.offsetStartMs >= -46 && s.offsetStartMs <= 35), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
+    // phase of W3-21, 35 of 50, starting -20.7 to +23.1 ms; on the clock of W3-27b, 39 of 50,
+    // starting -22.6 to +9.3 ms.)
+    check('300 fps: after 500 ms the next spurt is one of its own in 39 of the 50 seeds (the clock of W3-27b; 35 on W3-16\'s with the capture\'s phase, 42 before W3-21), and then is appended, starting -46 to +35 ms from the source (W3-02b: 0 to +80)',
+      own.length === 39 && own.every((s) => !s.opened && s.offsetStartMs >= -46 && s.offsetStartMs <= 35), `${own.length} of 50; ${range(own.map((s) => s.offsetStartMs))} ms`);
     const last = runs.map((r) => r.sp[3]);
     check('300 fps: after 1200 ms it opens a channel and loses 30 to 170 ms to overflow', last.every((s) => s.own && s.opened && s.droppedMs >= 30 && s.droppedMs <= 170),
       `${range(last.map((s) => s.droppedMs))} ms; starts ${range(last.map((s) => s.offsetStartMs))} ms`);
@@ -1626,7 +1630,8 @@ function timelineChecks() {
     // the grid out lies between +0.4 and +3.6 ms, at lead 0 and with the lead alike (seeds 1 to
     // 50: +0.02 at lead 0, -0.30 with the lead); the lead moves it by -0.3 to -0.75 ms, paired
     // by seed (docs/reports/W3-21-capture-phase.md).
-    // The count opened at 300 fps was 205 before W3-21 and is 206 with the seeded runs' phase.
+    // The count opened at 300 fps was 205 before W3-21, 206 with the seeded runs' phase, and is
+    // 204 on the clock of W3-27b.
     const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length;
     const se = (v) => { const m = mean(v); return Math.sqrt(v.reduce((a, x) => a + (x - m) ** 2, 0) / (v.length - 1) / v.length); };
     const grid = (fps) => (zeroOf(100, fps) - 44100 * (latency(100, fps) + ARRIVAL_MS / 1000)) / 44.1;
@@ -1644,7 +1649,7 @@ function timelineChecks() {
     });
     const seedLead = bySeed(undefined), seedZero = bySeed(0);
     check(`an opened spurt's offsetStartMs averages within 5.8 ms of 0 at 300 and at 67 fps (layouts P and Q, seeds 1 to 50), and with the block grid taken out (measured ${pooled.toFixed(3)} ms) to within 3 standard errors of these 50 seeds, the standard error taken by spurt (${bound.toFixed(2)} ms; by seed it is larger, as the spurts of a seed are not independent); on seeds 1 to 400 the mean lies between +0.4 and +3.6 ms by block of seeds (1-200, 51-200, 201-400; measured 2026-11-13)`,
-      opened[300].length === 206 && opened[66.67].length === 250 && Math.abs(m300) <= 5.8 && Math.abs(m67) <= 5.8 && Math.abs(pooled) <= bound,
+      opened[300].length === 204 && opened[66.67].length === 250 && Math.abs(m300) <= 5.8 && Math.abs(m67) <= 5.8 && Math.abs(pooled) <= bound,
       `300 fps ${m300.toFixed(2)} ms over ${opened[300].length}, 67 fps ${m67.toFixed(2)} ms over ${opened[66.67].length}; the grid moves them ${grid(300).toFixed(2)} and ${grid(66.67).toFixed(2)}; both, grid out: ${pooled.toFixed(3)} ms, 3 standard errors ${(3 * se(both)).toFixed(3)} ms by spurt; by seed the standard error is ${se(seedLead).toFixed(3)} ms`);
     // W3-21, paired: on the same seeds, the zero with the capture's lead less the zero at lead 0,
     // seed by seed, lies within 3 standard errors (by seed) of 0. The order's second reader
@@ -1673,7 +1678,7 @@ function timelineChecks() {
     const bothC = [...inFrame[300].map((x) => x + gridC(300)), ...inFrame[66.67].map((x) => x + gridC(66.67))];
     const pooledC = mean(bothC), boundC = Math.max(0.1, 3 * se(bothC));
     check(`with sources earlier by the codec's 156 samples and codecDelay 156 / 24000, the same spurts average within 5.8 ms of 0 at 300 and 67 fps, and with the grid taken out (measured ${pooledC.toFixed(3)} ms) to within 3 standard errors of these 50 seeds (${boundC.toFixed(2)} ms), as above`,
-      inFrame[300].length === 206 && inFrame[66.67].length === 250 && Math.abs(c300) <= 5.8 && Math.abs(c67) <= 5.8 && Math.abs(pooledC) <= boundC,
+      inFrame[300].length === 204 && inFrame[66.67].length === 250 && Math.abs(c300) <= 5.8 && Math.abs(c67) <= 5.8 && Math.abs(pooledC) <= boundC,
       `300 fps ${c300.toFixed(2)} ms, 67 fps ${c67.toFixed(2)} ms; the grid moves them ${gridC(300).toFixed(2)} and ${gridC(66.67).toFixed(2)}; both, grid out: ${pooledC.toFixed(3)} ms, 3 standard errors ${(3 * se(bothC)).toFixed(3)} ms`);
   }
   console.log('The timeline: the 400 ppm (one 60 s spurt, seeds 1 to 10)');

@@ -488,9 +488,10 @@ async function steamSection() {
   // Laying (point 8) and the slots (point 9). On this source two spurts meet
   // (the gate closes and opens again, its pre-roll over the last one's end),
   // and some anchors round up. The gain off: what is laid is what reaches onGain.
-  // The seed is 10 since W3-16's clock (it was 1, where two spurts no longer meet).
+  // The seed is 5 since W3-27b's clock (it was 10 since W3-16's, and 1 before it; on the
+  // clock of W3-27b seed 10's spurts no longer meet).
   {
-    const x = talk(12, 11), h = hooked(), r = await render(x, { seed: 10, agc: false, voiceScale: 1 }, h), L = r.codecInfo.lookahead;
+    const x = talk(12, 11), h = hooked(), r = await render(x, { seed: 5, agc: false, voiceScale: 1 }, h), L = r.codecInfo.lookahead;
     const want = new Float32Array(h.gained.length);
     let spurt = null, cursor = 0, twice = 0, up = 0;
     for (const { y, msg } of h.resampled) {
@@ -748,8 +749,10 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
   // Test 3. k frames lost give k concealed, by loseMessage, on one long spurt
   // (the gate off): one lost message of each size the signal offers; two and
   // three in a row coming to 7 to 10 frames; more than ten give exactly ten.
+  // The seed is 1 since W3-27b's clock (it was 4; on the clock of W3-27b seed 4's messages
+  // hold no stretch of more than ten frames followed by a message of at most two).
   {
-    const x = talk(16, 13, 0.3), opts = { gate: false, seed: 4 };
+    const x = talk(16, 13, 0.3), opts = { gate: false, seed: 1 };
     const { msgs } = senderOf(x, opts);
     const lose = new Set(), cases = [];
     const sizes = [...new Set(msgs.slice(1, -1).map(size))].sort();

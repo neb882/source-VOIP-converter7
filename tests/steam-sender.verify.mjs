@@ -1,21 +1,26 @@
 // Steam's sender (steam-sender.js), checked against "The sender's packets" in
-// docs/work-orders/W3-02-receiver-queue.md and against docs/work-orders/W3-16-sender-hold-clock.md
-// (the hold in 32-bit floats on Steam's clock, the read clock as measured, a read that brings
-// nothing): the clock, the float arithmetic, the empty read, the reference schedule, the
-// statistics, the gate, the pre-roll, the hold, the gate off and every sample sent once.
+// docs/work-orders/W3-02-receiver-queue.md, against docs/work-orders/W3-16-sender-hold-clock.md
+// (the hold in 32-bit floats on Steam's clock, a read that brings nothing) and against
+// docs/work-orders/W3-27-sender-clock.md (the clock on the rule as read): the clock, the float
+// arithmetic, the empty read, the reference schedule, the statistics, the gate, the pre-roll,
+// the hold, the gate off and every sample sent once.
 //
 //   node tests/steam-sender.verify.mjs
 //
-// A second model of the orders' text, written with plain arrays (plainClock and plainSender
-// below), runs beside the module: the two must agree read for read and message for message,
-// and it gives what the module does not show (which read made which message).
+// A second model of the orders' text, written with plain arrays (plainSender below), runs
+// beside the module: the two must agree read for read and message for message, and it gives
+// what the module does not show (which read made which message). Its seeded clock (refClock)
+// is the study's generator, tests/steam-sender/gen.mjs, run in this process, with the steps,
+// the lead and the phase computed here a second time from the order's text (W3-27b, check 2).
+// The clock of W3-16 (plainClock), which no longer runs, is kept as the break of W3-27a's
+// check 8.
 //
-// W3-27a (docs/work-orders/W3-27-sender-clock.md): the read clock on the rule as read
-// (createReadClock), which nothing calls yet, against the study's generator in
-// tests/steam-sender/gen.mjs, run in this process: its reads to the last bit, three steps at
-// most, the capture's place, the draws, the reads never ahead of the capture, its statistics
-// against the order's bands, the old clock through the same counting, 20 ms packets, the other
-// senders, the refusals. These sections come last.
+// W3-27a (docs/work-orders/W3-27-sender-clock.md): the clock on the rule as read (createClock
+// since W3-27b) against the study's generator: its reads to the last bit, three steps at most,
+// the capture's place, the draws, the reads never ahead of the capture, its statistics against
+// the order's bands, the old clock through the same counting, 20 ms packets, the other
+// senders, the refusals. These sections come last, with W3-27b's check of the capture's place
+// through the sender.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -27,7 +32,6 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const M = require('../steam-sender.js');
 const { STEAM_SENDER, createClock, createSender } = M;
-const { createReadClock } = M;
 const GEN = fileURLToPath(new URL('./steam-sender/gen.mjs', import.meta.url));
 const { createReadClock: genClock } = await import('./steam-sender/gen.mjs');
 
@@ -49,8 +53,27 @@ function mulberry32(seed) {   // as in engine/dsp.js
   };
 }
 
-// The W3-16 order, item 1, as written there: the reads from A, the capture from B; the
-// capture steps' ready times kept in an array.
+// The seeded clock a second time (W3-27b, check 2): the reference's reads (gen.mjs: the time of
+// each read in ms and what ended the pass before it), with the steps, the lead and the phase
+// computed here from the order's text: the suite's own draws of P (phasesOf, below), its own
+// C, and ready(k) as "The rule" writes it, three steps a read at most. place: in place of the
+// drawn one (the draws are made either way). Returns next() with .lead and .place.
+function refClock(seed, { place } = {}) {
+  const g = genClock({ seed }), d = phasesOf(seed), P = place ?? d.place, C = mulberry32((seed ^ 0x3C6EF372) >>> 0);
+  const ready = (k) => (d.capPhase + (10 * Math.ceil(31.25 * (k + P) / 10 - 1e-9) - 31.25 * P)) + 9 * C();
+  let k = 0, top = -Infinity, next = ready(1);
+  return Object.assign(() => {
+    const t = g.next().time;
+    let n = 0;
+    while (n < 3 && Math.max(next, top) <= t) { top = Math.max(next, top); k++; n++; next = ready(k + 1); }
+    const since = t / 1000;
+    return { time: d.phase + since, since, samples: 750 * n };
+  }, { lead: d.lead, place: P });
+}
+
+// The clock of W3-16 (the W3-16 order, item 1, as written there), which no longer runs: the
+// reads from A, the capture from B; the capture steps' ready times kept in an array. Kept as
+// the break of W3-27a's check 8, so that the counting of the statistics is tested.
 function plainClock(seed) {
   const A = mulberry32((seed ^ 0x51ED270B) >>> 0), B = mulberry32((seed ^ 0x2545F491) >>> 0);
   const phase = 0.25 * A();
@@ -200,21 +223,23 @@ function statsSignal() {
   return s;
 }
 
-// The W3-16 order, "The reference schedule" and item 1's reference. W3-21 (the capture's
-// lead, 49 samples at this seed) moved six ticks of REF_MESSAGES each one earlier (messages
-// 3, 5, 15, 19, 27 and 40: 87, 94, 131, 146, 175 and 223 before); with lead 0 the W3-16
-// list comes back (checked below).
-const REF_MESSAGES = `[75,0,7] [79,8,10] [83,11,13] [86,14,16] [90,17,18] [93,19,21] [97,22,24] [101,25,27] [105,28,30] [109,31,32]
-[113,33,35] [116,36,38] [120,39,41] [123,42,43] [127,44,46] [130,47,49] [134,50,50] [138,51,54] [141,55,57]
-[145,58,60] [149,61,63] [152,64,64] [156,65,68] [159,69,71] [163,72,72] [167,73,75] [171,76,79] [174,80,82]
-[179,83,85] [183,86,88] [186,89,89] [190,90,93] [194,94,96] [197,97,99] [201,100,103,e] [205,104,106]
-[209,107,107] [213,108,110] [216,111,113] [219,114,115] [222,116,118] [226,119,121] [230,122,123] [234,124,126]
-[238,127,129] [242,130,132] [245,133,135] [249,136,137] [252,138,141,e] [256,-1,1500]`.split(/\s+/);
-const REF_MESSAGES_W316 = REF_MESSAGES.map((m, i) => ({ 3: '[87,14,16]', 5: '[94,19,21]', 15: '[131,47,49]', 19: '[146,58,60]', 27: '[175,80,82]', 40: '[223,116,118]' })[i] || m);
-const REF_READS = [[0, 0.018701], [1500, 0.078105], [1500, 0.132631], [1500, 0.193900], [750, 0.250731], [1500, 0.298772],
-  [1500, 0.356728], [750, 0.407854], [1500, 0.469505], [1500, 0.518744]];
-const REF_PHASE = 0.124762;
-const CLOCK_HASH = '480ce9b772e19e23d619af099a1292030b62278d75916efb8ae4cf882a843502';
+// The W3-16 order's "The reference schedule", recorded again on the clock of W3-27b: the
+// default seed's 50 messages on the reference signal (lead 377, place 4). On the clock of
+// W3-16 with W3-21's lead (49) they were the list below it, and with lead 0 the W3-16 order's.
+const REF_MESSAGES = `[74,0,7] [78,8,10] [82,11,11] [86,12,14] [90,15,18] [93,19,21] [97,22,24] [101,25,25] [105,26,30] [109,31,33]
+[112,34,35] [116,36,38] [119,39,41] [123,42,43] [127,44,46] [131,47,49] [134,50,52] [138,53,54] [142,55,57] [146,58,60]
+[150,61,63] [153,64,66] [157,67,68] [160,69,71] [164,72,74] [168,75,77] [172,78,80] [176,81,83] [180,84,85] [183,86,88]
+[187,89,91] [190,92,94] [194,95,96] [198,97,100,e] [202,-1,1500] [205,101,106] [209,107,107] [212,108,110] [216,111,114]
+[220,115,117] [224,118,120] [228,121,121] [231,122,125] [235,126,128] [238,129,131] [242,132,132] [246,133,135]
+[250,136,140,e] [253,-1,1500]`.split(/\s+/);
+// W3-27b, check 3: seed 1's first ten reads, as samples at since (to 1 us) and what ended the
+// pass before each, each time 0.055458 s more; and the SHA-256 of its first 100,000 reads,
+// recorded from the build (the reference's reads to the last bit, with the place drawn: 1).
+const REF_READS = [[0, 0.001072, 'start'], [750, 0.05264, 'timeout'], [1500, 0.113422, 'timeout'], [1500, 0.173888, 'timeout'],
+  [1500, 0.235859, 'game'], [1500, 0.294736, 'game'], [750, 0.345659, 'timeout'], [1500, 0.398448, 'game'], [1500, 0.455014, 'timeout'],
+  [1500, 0.518194, 'timeout']];
+const REF_PHASE = 0.055458;
+const CLOCK_HASH = '32ef4221aea9a0a1d9d2c5dda2a08a291ae53b6bef6f971ac2c64c3f11157130';
 // The hand clock n = 4 (i + 1), from W3-02b's order: unchanged at uptime 0.
 const HAND_FIRST = '[71,0,7] [76,8,10] [80,11,13] [84,14,16] [88,17,19] [92,20,22] [96,23,25] [101,26,29] [105,30,32]'.split(' ');
 const HAND_LAST = '[246,136,139,e] [251,-1,1500]'.split(' ');
@@ -227,29 +252,31 @@ console.log('The module');
   const page = vm.createContext({}), worker = vm.createContext({ self: {} });
   vm.runInContext(src, page); vm.runInContext(src, worker);
   check('it loads as a page script and in a worker as TF2SteamSender, with no imports',
-    ['STEAM_SENDER', 'createClock', 'createSender', 'createReadClock'].every((k) => k in page.TF2SteamSender && k in worker.self.TF2SteamSender)
-    && Object.keys(M).join() === 'STEAM_SENDER,createClock,createSender,createReadClock' && !/\bimport\b|\brequire\(/.test(src));
+    ['STEAM_SENDER', 'createClock', 'createSender'].every((k) => k in page.TF2SteamSender && k in worker.self.TF2SteamSender)
+    && Object.keys(M).join() === 'STEAM_SENDER,createClock,createSender' && !/\bimport\b|\brequire\(/.test(src));
   check('it draws only from its seed: no Math.random, no clock, no date', !/Math\.random|Date\b|performance\.now|process\.hrtime/.test(src));
   const S = STEAM_SENDER;
   check('its constants are frozen and the orders\'', Object.isFrozen(S) && S.rate === 24000 && S.frame === 480 && S.grid === 750 && S.preroll === 2400
-    && S.hold === 0.4 && S.meanMin === 327.67 && S.peakMin === 4915 && S.readMin === 0.0480 && S.readMax === 0.0637 && S.captureLate === 0.013
-    && S.phaseSpan === 0.25 && S.uptime === 777600 && S.relay === 0.002 && S.tick === 0.015 && S.seedMix === 0x51ED270B && S.seedMixCapture === 0x2545F491);
+    && S.hold === 0.4 && S.meanMin === 327.67 && S.peakMin === 4915 && S.phaseSpan === 0.25 && S.uptime === 777600 && S.relay === 0.002 && S.tick === 0.015
+    && Object.isFrozen(S.clock));
   check('the timer-tick clock\'s constants are gone (timer, period, late, lateMax)', ['timer', 'period', 'late', 'lateMax'].every((k) => !(k in S)));
+  check('the clock of W3-16 is gone with its constants (readMin, readMax, captureLate, seedMix, seedMixCapture) and the name createReadClock (W3-27b)',
+    ['readMin', 'readMax', 'captureLate', 'seedMix', 'seedMixCapture'].every((k) => !(k in S)) && !('createReadClock' in M) && !/createReadClock/.test(src));
 }
 
-console.log('The clock (the W3-16 order, item 1)');
+console.log('The clock (W3-27b: the rule as read; checks 2 and 3)');
 {
   const c = createClock({ seed: 1 }), first = Array.from({ length: 10 }, () => c.next());
-  const bad = first.findIndex((r, i) => r.samples !== REF_READS[i][0] || Math.abs(r.since - REF_READS[i][1]) > 1e-6 || Math.abs(r.time - r.since - REF_PHASE) > 1e-6);
-  check('seed 1: the order\'s first ten reads, as samples at since (to 1 us), each time 0.124762 more', bad < 0,
-    first.map((r) => `${r.samples}@${r.since.toFixed(6)}`).join(' '));
+  const bad = first.findIndex((r, i) => r.samples !== REF_READS[i][0] || Math.abs(r.since - REF_READS[i][1]) > 1e-6 || Math.abs(r.time - r.since - REF_PHASE) > 1e-6 || r.by !== REF_READS[i][2]);
+  check('seed 1: its first ten reads as recorded, as samples at since (to 1 us) with what ended the pass before each, each time 0.055458 more', bad < 0,
+    first.map((r) => `${r.samples}@${r.since.toFixed(6)} ${r.by}`).join(' '));
   const hash = (seed, k) => {
     const cl = createClock({ seed }), buf = Buffer.alloc(18 * k);
     for (let i = 0; i < k; i++) { const r = cl.next(); buf.writeDoubleLE(r.time, 18 * i); buf.writeDoubleLE(r.since, 18 * i + 8); buf.writeUInt16LE(r.samples, 18 * i + 16); }
     return crypto.createHash('sha256').update(buf).digest('hex');
   };
   const h = hash(1, 100000);
-  check('seed 1, 100,000 reads as time, since (64-bit floats) and samples (16 bits), little-endian: the order\'s SHA-256', h === CLOCK_HASH, h);
+  check('seed 1, 100,000 reads as time, since (64-bit floats) and samples (16 bits), little-endian: the SHA-256 recorded from the build (W3-27b, check 3)', h === CLOCK_HASH, h);
   const take = (seed, k) => { const cl = createClock({ seed }); return JSON.stringify(Array.from({ length: k }, () => cl.next())); };
   check('two seeds differ; one seed repeats', take(1, 50) !== take(2, 50) && take(5, 1000) === take(5, 1000));
   check('an unseeded clock is seed 0xC0FFEE\'s', take(undefined, 50) === take(0xC0FFEE, 50));
@@ -259,61 +286,62 @@ console.log('The clock (the W3-16 order, item 1)');
     try { createSender({ seed: v }); } catch (e) { if (e instanceof RangeError) refused++; }
   }
   check('a seed that is given but is not a finite number is refused, not taken as 0xC0FFEE', refused === 8);
-  // Read for read, bit for bit, against the second copy (the bracket of r included).
+  // Read for read, bit for bit, against the second copy: the reference's times with the
+  // steps, the lead and the phase computed here (refClock).
   let agree = true, where = '';
   for (let seed = 1; seed <= 400 && agree; seed++) {
-    const a = createClock({ seed }), b = plainClock(seed);
+    const a = createClock({ seed }), b = refClock(seed);
+    if (a.lead !== b.lead || a.place !== b.place) { agree = false; where = `seed ${seed}: lead ${a.lead} for ${b.lead}, place ${a.place} for ${b.place}`; break; }
     for (let i = 0; i < 2000; i++) {
       const x = a.next(), y = b();
       if (!Object.is(x.time, y.time) || !Object.is(x.since, y.since) || x.samples !== y.samples) { agree = false; where = `seed ${seed} read ${i}`; break; }
     }
   }
-  check('it is the order\'s formula, drawn in its order: seeds 1 to 400, 2000 reads each, bit for bit against the second copy', agree, where);
+  check('seeds 1 to 400, 2000 reads each, with the place drawn: time, since and samples bit for bit, and the lead and the place, against the second copy (the reference\'s times, the steps, lead and phase computed here)', agree, where);
   // The time is since plus a phase that moves with the seed over 0 to 0.25 s.
   const phases = Array.from({ length: 400 }, (_, s) => { const r = createClock({ seed: s + 1 }).next(); return r.time - r.since; });
-  check('the phase: time less since is the same for every read of a seed, and over seeds 1 to 400 spreads over 0 to 0.25 s',
+  check('the phase: time less since at the first read, over seeds 1 to 400, spreads over 0 to 0.25 s',
     phases.every((p) => p >= 0 && p < 0.25) && Math.min(...phases) < 0.01 && Math.max(...phases) > 0.24,
     `${Math.min(...phases).toFixed(4)} to ${Math.max(...phases).toFixed(4)} s`);
 }
 
-console.log('The clock\'s statistics (300,000 reads of createClock at the default seed; the order\'s bounds)');
+// W3-27b: the bands of W3-27a's check 7 (below) take the place of W3-16's chunk shares, pairs,
+// reads a second and intervals; here are the frames a message and the hold's ends, each band
+// the build's figure (the order's prototype's, "How each kind is handled" and the table under
+// "The hold") with about five times its spread over seeds.
+console.log('The clock\'s statistics (the frames a message, seeds 1 to 40; the hold\'s ends, 300,000 reads of createClock at the default seed)');
 {
-  const U = STEAM_SENDER.uptime, HOLD = f32(0.4), N = 300000;
+  const HOLD = f32(0.4), N = 300000;
+  const pct = (k, n) => (100 * k) / n;
+  // As one endless spurt, pooled over seeds 1 to 40 of 20,000 reads: the share of one frame
+  // follows the capture's place (9.0% at places 0 and 1, 10.8 to 10.9% at the others; the
+  // order), so the check pools seeds. The spread of the pool is 0.13 points (0.02 for 5).
+  const fpm = [0, 0, 0, 0, 0, 0, 0];
+  let total = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const c = createClock({ seed });
+    let kept = 0;
+    for (let i = 0; i < 20000; i++) {
+      const r = c.next();
+      if (!r.samples) continue;
+      const t = kept + r.samples, n = Math.floor(t / 480); kept = t - 480 * n; fpm[Math.min(n, 6)]++; total++;
+    }
+  }
+  const F = [1, 2, 3, 4, 5].map((n) => pct(fpm[n], total)), FW = [10.6, 13.3, 65.0, 9.9, 1.1], FB = [0.6, 0.6, 0.6, 0.6, 0.15];
+  check('frames per message 1 to 5, as one endless spurt, seeds 1 to 40 pooled: within 0.6 of 10.6 / 13.3 / 65.0 / 9.9% and 0.15 of 1.1% (W3-16\'s clock: 10.3 / 13.0 / 65.2 / 10.0 / 1.4)',
+    F.every((x, i) => Math.abs(x - FW[i]) <= FB[i]) && fpm[0] === 0 && fpm[6] === 0, F.map((x) => x.toFixed(2)).join(' / '));
   const cl = createClock();
   const reads = Array.from({ length: N }, () => cl.next());
   const firstChunk = reads.findIndex((r) => r.samples > 0);
   const chunks = reads.filter((r) => r.samples > 0);
-  const pct = (k, n) => (100 * k) / n;
-  const shareOf = (len) => pct(chunks.filter((r) => r.samples === len).length, chunks.length);
-  const s750 = shareOf(750), s1500 = shareOf(1500), s2250 = shareOf(2250);
-  check('chunks of 750 / 1500 / 2250: 22.8 to 23.8 / 74.1 to 75.2 / 1.8 to 2.3%', s750 >= 22.8 && s750 <= 23.8 && s1500 >= 74.1 && s1500 <= 75.2 && s2250 >= 1.8 && s2250 <= 2.3,
-    `${s750.toFixed(2)} / ${s1500.toFixed(2)} / ${s2250.toFixed(2)}`);
   const over = chunks.filter((r) => r.samples > 2250 || r.samples % 750).length, emptyAfter = reads.slice(firstChunk).filter((r) => r.samples === 0).length;
-  check('no chunk over 2250 (and every chunk whole steps); no read that brings nothing after the first chunk', over === 0 && emptyAfter === 0 && firstChunk <= 2,
-    `the first chunk is read ${firstChunk + 1}`);
-  const pairs = {};
-  for (let i = 1; i < chunks.length; i++) { const k = `${chunks[i - 1].samples / 750}-${chunks[i].samples / 750}`; pairs[k] = (pairs[k] || 0) + 1; }
-  const P = (k) => pct(pairs[k] || 0, chunks.length - 1);
-  check('pairs 2-2 52.3 to 53.6%; 2-1 and 1-2 21.0 to 21.9% each', P('2-2') >= 52.3 && P('2-2') <= 53.6 && [P('2-1'), P('1-2')].every((x) => x >= 21.0 && x <= 21.9),
-    `${P('2-2').toFixed(2)}, ${P('2-1').toFixed(2)}, ${P('1-2').toFixed(2)}`);
-  check('pairs 3-1 and 1-3 1.5 to 2.1% each', [P('3-1'), P('1-3')].every((x) => x >= 1.5 && x <= 2.1), `${P('3-1').toFixed(2)}, ${P('1-3').toFixed(2)}`);
-  check('pairs 1-1 under 0.2%; 2-3 and 3-2 0.15 to 0.45% each; 3-3 under 0.02%',
-    P('1-1') < 0.2 && [P('2-3'), P('3-2')].every((x) => x >= 0.15 && x <= 0.45) && P('3-3') < 0.02,
-    `${P('1-1').toFixed(3)}, ${P('2-3').toFixed(3)}, ${P('3-2').toFixed(3)}, ${P('3-3').toFixed(3)}`);
-  const fpm = [0, 0, 0, 0, 0, 0, 0];
-  let kept = 0;
-  for (const r of chunks) { const t = kept + r.samples, n = Math.floor(t / 480); kept = t - 480 * n; fpm[Math.min(n, 6)]++; }
-  const F = [1, 2, 3, 4, 5].map((n) => pct(fpm[n], chunks.length)), FW = [10.3, 13.0, 65.2, 10.0, 1.4];
-  check('frames per message 1 to 5, as one endless spurt: each within 0.6 of 10.3 / 13.0 / 65.2 / 10.0 / 1.4%', F.every((x, i) => Math.abs(x - FW[i]) <= 0.6) && fpm[0] === 0 && fpm[6] === 0,
-    F.map((x) => x.toFixed(2)).join(' / '));
-  const perSecond = chunks.length / (chunks[chunks.length - 1].since - chunks[0].since);
-  check('reads a second: 17.85 to 17.95', perSecond >= 17.85 && perSecond <= 17.95, perSecond.toFixed(3));
-  let lo = Infinity, hi = -Infinity;
-  for (let i = 1; i < N; i++) { const d = reads[i].since - reads[i - 1].since; if (d < lo) lo = d; if (d > hi) hi = d; }
-  // 1e-9 s of slack for the subtraction of two times of up to 4.7 hours.
-  check('the shortest and longest interval: at least 48.0 ms, at most 63.7 ms', lo >= 0.0480 - 1e-9 && hi <= 0.0637 + 1e-9, `${(lo * 1000).toFixed(3)}, ${(hi * 1000).toFixed(3)} ms`);
+  check('no chunk over 2250 (and every chunk whole steps); the first read brings nothing, the first chunk comes with the second or third, and no read after it brings nothing',
+    over === 0 && emptyAfter === 0 && reads[0].samples === 0 && firstChunk >= 1 && firstChunk <= 2, `the first chunk is read ${firstChunk + 1}`);
   // Each read with samples in turn as a spurt's last active one, all later reads inactive: the
   // spurt's last chunk is the first later read with fround(uptime + time) > fround(noted + 0.4).
+  // The reads come more evenly over half a second than W3-16's free walk, so fewer spurts end a
+  // chunk early (the order's table under "The hold": 10.0, 90.0 and 0%; 22.0, 76.3 and 1.7%;
+  // 11.0, 44.3 and 41.3%; over seeds 1 to 5 each figure moves by 0.15 points at most).
   const ends = (uptime) => {
     const n = {}, nowF = chunks.map((r) => f32(uptime + r.time));
     let count = 0;
@@ -328,11 +356,11 @@ console.log('The clock\'s statistics (300,000 reads of createClock at the defaul
   };
   const e9 = ends(777600), e4 = ends(14400), e18 = ends(1555200);
   const show = (e, ks) => ks.map((k) => e(k).toFixed(2)).join(' / ');
-  check('ends on the 7th / 8th / 9th chunk at uptime 777600: 24.5 to 28.5 / 68.8 to 72.8 / 2.0 to 3.6%',
-    e9(7) >= 24.5 && e9(7) <= 28.5 && e9(8) >= 68.8 && e9(8) <= 72.8 && e9(9) >= 2.0 && e9(9) <= 3.6, show(e9, [6, 7, 8, 9, 10]));
-  check('the same at uptime 14400: 18 to 22 / 78 to 82 / under 0.1%', e4(7) >= 18 && e4(7) <= 22 && e4(8) >= 78 && e4(8) <= 82 && e4(9) < 0.1, show(e4, [6, 7, 8, 9]));
-  check('the same at uptime 1555200: 11.2 to 15.2 / 42.3 to 46.3 / 37.1 to 41.1%, and the 10th 2.6 to 4.2%',
-    e18(7) >= 11.2 && e18(7) <= 15.2 && e18(8) >= 42.3 && e18(8) <= 46.3 && e18(9) >= 37.1 && e18(9) <= 41.1 && e18(10) >= 2.6 && e18(10) <= 4.2,
+  check('ends on the 7th / 8th / 9th chunk at uptime 777600: 21.0 to 23.0 / 75.3 to 77.3 / 1.2 to 2.2%, none on the 6th or the 10th (W3-16\'s clock: 26.5 / 70.8 / 2.8)',
+    e9(7) >= 21.0 && e9(7) <= 23.0 && e9(8) >= 75.3 && e9(8) <= 77.3 && e9(9) >= 1.2 && e9(9) <= 2.2 && e9(6) === 0 && e9(10) === 0, show(e9, [6, 7, 8, 9, 10]));
+  check('the same at uptime 14400: 9.0 to 11.0 / 89.0 to 91.0 / under 0.1%', e4(7) >= 9.0 && e4(7) <= 11.0 && e4(8) >= 89.0 && e4(8) <= 91.0 && e4(9) < 0.1, show(e4, [6, 7, 8, 9]));
+  check('the same at uptime 1555200: 10.0 to 12.0 / 43.3 to 45.3 / 40.3 to 42.3%, and the 10th 2.8 to 4.0%',
+    e18(7) >= 10.0 && e18(7) <= 12.0 && e18(8) >= 43.3 && e18(8) <= 45.3 && e18(9) >= 40.3 && e18(9) <= 42.3 && e18(10) >= 2.8 && e18(10) <= 4.0,
     show(e18, [6, 7, 8, 9, 10, 11]));
 }
 
@@ -502,59 +530,69 @@ console.log('An empty read (the W3-16 order, item 2)');
   }
 }
 
-console.log('Determinism and the reference schedule (the W3-16 order)');
+console.log('Determinism and the reference schedule (the W3-16 order, recorded again on the clock of W3-27b)');
 {
   const sig = referenceSignal();
   const r = run(sig, { seed: 0xC0FFEE });
   const got = r.messages.map(fmt);
   const bad = got.findIndex((m, i) => m !== REF_MESSAGES[i]);
-  check('seed 0xC0FFEE at the default uptime: the order\'s 50 messages, message for message', got.length === REF_MESSAGES.length && bad < 0,
+  check('seed 0xC0FFEE at the default uptime: the 49 messages recorded from the build, message for message', got.length === REF_MESSAGES.length && bad < 0,
     bad >= 0 ? `first difference at ${bad}: ${got[bad]} for ${REF_MESSAGES[bad]}` : `${got.length} messages`);
-  // W3-21: 21551 and 71201 (21600 and 71250 before, less the lead of 49), and one chunk
-  // more (73, 72 before): the lead's zeros make the capture one step longer.
-  check('its two spurts: start 21551 with 104 frames (pre-roll 2400), start 71201 with 38 (pre-roll 0, straight from the ended state); 73 chunks; lead 49',
-    JSON.stringify(r.info.spurts) === JSON.stringify([{ start: 21551, frames: 104, preroll: 2400 }, { start: 71201, frames: 38, preroll: 0 }]) && r.info.chunks === 73
-    && r.info.uptime === 777600 && r.info.lead === 49, `${JSON.stringify(r.info.spurts)}, ${r.info.chunks} chunks, lead ${r.info.lead}`);
+  // W3-27b: on W3-16's clock with W3-21's lead (49) the spurts started at 21551 (104 frames)
+  // and 71201 (38, straight from the ended state), with 73 chunks.
+  check('its two spurts: start 21973 with 101 frames (pre-roll 2400), start 70123 with 40 (pre-roll 1500, from the silent state); 73 chunks; lead 377',
+    JSON.stringify(r.info.spurts) === JSON.stringify([{ start: 21973, frames: 101, preroll: 2400 }, { start: 70123, frames: 40, preroll: 1500 }]) && r.info.chunks === 73
+    && r.info.uptime === 777600 && r.info.lead === 377, `${JSON.stringify(r.info.spurts)}, ${r.info.chunks} chunks, lead ${r.info.lead}`);
+  // With lead 0 the same reads, the source 377 samples earlier against the steps: the second
+  // copy's messages at lead 0 (on W3-16's clock it gave back the W3-16 order's schedule).
   const r0 = run(sig, { seed: 0xC0FFEE, lead: 0 });
-  check('with lead 0 the W3-16 order\'s schedule comes back: its 50 messages, spurts from 21600 and 71250, 72 chunks',
-    r0.messages.map(fmt).join(' ') === REF_MESSAGES_W316.join(' ')
-    && JSON.stringify(r0.info.spurts) === JSON.stringify([{ start: 21600, frames: 104, preroll: 2400 }, { start: 71250, frames: 38, preroll: 0 }]) && r0.info.chunks === 72);
+  check('with lead 0: the second copy\'s messages at lead 0, spurts from 20850 (104 frames) and 70500 (40, pre-roll 1500), 72 chunks',
+    same(r0.messages, plainSender(sig, refClock(0xC0FFEE), { lead: 0 }).messages)
+    && JSON.stringify(r0.info.spurts) === JSON.stringify([{ start: 20850, frames: 104, preroll: 2400 }, { start: 70500, frames: 40, preroll: 1500 }]) && r0.info.chunks === 72,
+    `${JSON.stringify(r0.info.spurts)}, ${r0.info.chunks} chunks`);
   check('the same seed and uptime give the same messages twice; seeds 1 and 2 differ',
     same(run(sig, { seed: 3, uptime: 14400 }).messages, run(sig, { seed: 3, uptime: 14400 }).messages) && !same(run(sig, { seed: 1 }).messages, run(sig, { seed: 2 }).messages));
   const at = (seed, uptime) => run(sig, { seed, uptime });
   // W3-21 moved these: before it, seed 1 gave 102 and 40 frames (from 21600 and 70500) at
   // uptime 14400 and 104 and 38 (from 21600 and 71250) at 777600, and the default seed and
-  // seeds 4 to 10 the same spurts at both. With the capture's lead seed 1 gives the same
-  // spurts at both values, and seed 2 is the one shown here.
+  // seeds 4 to 10 the same spurts at both. With the capture's lead seed 1 gave the same
+  // spurts at both values, and seed 2 was the one shown here: 102 and 40 frames (from 21046
+  // and 69946) at 14400, 105 and 33 (from 21046 and 71446) at 777600. Recorded again on the
+  // clock of W3-27b.
   const a = at(2, 14400), b = at(2, 777600);
-  check('seed 2: spurts of 102 and 40 frames (from 21046 and 69946) at uptime 14400, of 105 and 33 (from 21046 and 71446) at 777600, with the same chunks',
-    JSON.stringify(a.info.spurts.map((s) => [s.frames, s.start])) === '[[102,21046],[40,69946]]'
-    && JSON.stringify(b.info.spurts.map((s) => [s.frames, s.start])) === '[[105,21046],[33,71446]]', `${JSON.stringify(a.info.spurts)} ${JSON.stringify(b.info.spurts)}`);
+  check('seed 2: spurts of 105 and 35 frames (from 20828 and 71228) at uptime 14400, of 105 and 36 (from 20828 and 71228) at 777600, with the same chunks',
+    JSON.stringify(a.info.spurts.map((s) => [s.frames, s.start])) === '[[105,20828],[35,71228]]'
+    && JSON.stringify(b.info.spurts.map((s) => [s.frames, s.start])) === '[[105,20828],[36,71228]]', `${JSON.stringify(a.info.spurts)} ${JSON.stringify(b.info.spurts)}`);
   {
     // The same chunks: the reads the second copy ran at the two values are the same reads, as
     // far as the shorter run goes.
-    const fa = plainSender(sig, plainClock(2), { uptime: 14400 }).frames, fb = plainSender(sig, plainClock(2), { uptime: 777600 }).frames;
+    const fa = plainSender(sig, refClock(2), { uptime: 14400 }).frames, fb = plainSender(sig, refClock(2), { uptime: 777600 }).frames;
     const k = Math.min(fa.length, fb.length);
     check('seed 2: the chunks do not depend on uptime (the reads of both runs are the same, as far as the shorter goes)',
       k > 60 && fa.slice(0, k).every((x, j) => x.count === fb[j].count && x.since === fb[j].since && x.time === fb[j].time), `${fa.length} and ${fb.length} reads`);
   }
-  check('seeds 2 and 1: the first message is [71,0,7] at both values of uptime (seed 1\'s was [73,0,7] before W3-21)', fmt(a.messages[0]) === '[71,0,7]' && fmt(b.messages[0]) === '[71,0,7]'
-    && fmt(at(1, 14400).messages[0]) === '[71,0,7]' && fmt(at(1, 777600).messages[0]) === '[71,0,7]', `${fmt(a.messages[0])} ${fmt(at(1, 14400).messages[0])}`);
+  // W3-16's clock with W3-21's lead: [71,0,7] for both seeds at both values (seed 1's was
+  // [73,0,7] before W3-21).
+  check('seeds 2 and 1: the first message is [71,0,7] and [72,0,7] at both values of uptime', fmt(a.messages[0]) === '[71,0,7]' && fmt(b.messages[0]) === '[71,0,7]'
+    && fmt(at(1, 14400).messages[0]) === '[72,0,7]' && fmt(at(1, 777600).messages[0]) === '[72,0,7]', `${fmt(a.messages[0])} ${fmt(at(1, 14400).messages[0])}`);
   const sp = (seed, uptime) => JSON.stringify(at(seed, uptime).info.spurts);
-  check('the default seed\'s two spurts are the same at both values of uptime, as are seeds 1, 5, 6, 7, 8 and 10\'s; seeds 2, 3, 4 and 9\'s are not',
-    [0xC0FFEE, 1, 5, 6, 7, 8, 10].every((s) => sp(s, 14400) === sp(s, 777600)) && [2, 3, 4, 9].every((s) => sp(s, 14400) !== sp(s, 777600)));
+  // W3-16's clock with W3-21's lead: the same at both for the default seed and seeds 1, 5, 6,
+  // 7, 8 and 10, not for seeds 2, 3, 4 and 9.
+  check('the default seed\'s two spurts are the same at both values of uptime, as are seeds 4 and 5\'s; seeds 1, 2, 3, 6, 7, 8, 9 and 10\'s are not',
+    [0xC0FFEE, 4, 5].every((s) => sp(s, 14400) === sp(s, 777600)) && [1, 2, 3, 6, 7, 8, 9, 10].every((s) => sp(s, 14400) !== sp(s, 777600)));
   let agree = 0, where = '';
   for (let seed = 1; seed <= 400; seed++) {
-    if (same(run(sig, { seed }).messages, plainSender(sig, plainClock(seed)).messages)) agree++;
+    if (same(run(sig, { seed }).messages, plainSender(sig, refClock(seed)).messages)) agree++;
     else where ||= `seed ${seed}`;
   }
-  check('the second copy gives the same messages, samples included, for seeds 1 to 400 (and 0xC0FFEE)', agree === 400
-    && same(r.messages, plainSender(sig, plainClock(0xC0FFEE)).messages), where || `${agree} of 400`);
+  // W3-27b, check 2: the seeded sender is the reference's reads through the sender.
+  check('the second copy, on the reference\'s reads with its own steps, lead and phase, gives the same messages, samples included, for seeds 1 to 400 (and 0xC0FFEE)', agree === 400
+    && same(r.messages, plainSender(sig, refClock(0xC0FFEE)).messages), where || `${agree} of 400`);
   // Ticks: each message's is max(last + 1, ceil((since + 0.002) / 0.015)) of the read that made
   // it, the read's since taken from the second copy's reads.
   let ticksOk = true;
   for (let seed = 1; seed <= 50 && ticksOk; seed++) {
-    const p = plainSender(sig, plainClock(seed)), ms = run(sig, { seed }).messages;
+    const p = plainSender(sig, refClock(seed)), ms = run(sig, { seed }).messages;
     let last = -1;
     for (const f of p.frames) {
       if (f.made < 0) continue;
@@ -576,8 +614,8 @@ console.log('Determinism and the reference schedule (the W3-16 order)');
   }
   // Pushed one sample at a time, each message comes back from the push of its chunk's last
   // sample: never before it (and not later either).
-  for (const [label, opts, reads, uptime] of [['seed 0xC0FFEE', () => ({ seed: 0xC0FFEE }), () => plainClock(0xC0FFEE), 777600],
-    ['seed 2, uptime 1555200', () => ({ seed: 2, uptime: 1555200 }), () => plainClock(2), 1555200], ['the hand clock', () => HAND(4), () => handReads(4), 0]]) {
+  for (const [label, opts, reads, uptime] of [['seed 0xC0FFEE', () => ({ seed: 0xC0FFEE }), () => refClock(0xC0FFEE), 777600],
+    ['seed 2, uptime 1555200', () => ({ seed: 2, uptime: 1555200 }), () => refClock(2), 1555200], ['the hand clock', () => HAND(4), () => handReads(4), 0]]) {
     // A read's count includes the capture's lead (W3-21); the source's samples are count - lead.
     const clock = reads(), ref = plainSender(sig, clock, { uptime }), lead = clock.lead ?? 0;
     const due = new Map();
@@ -608,6 +646,10 @@ console.log('The hand clock n = 4 (i + 1) as reads, uptime 0 (W3-02b\'s schedule
   check('the second copy agrees', same(h.messages, plainSender(sig, handReads(4), { uptime: 0 }).messages));
 }
 
+// W3-27b, check 8: recorded from the build, each share within 0.03 (the order's band), the
+// messages a second within 0.02. On W3-16's clock with W3-21's lead they were: ticks 0.305,
+// 0.666 and 0.029; openings 0.790, 0.165 and 0.045; records 0.210, 0.758 and 0.033; 17.90 a
+// second. The order's prototype: openings 0.783, 0.195 and 0.023.
 console.log('The statistics through the sender (seeds 1 to 400; a signal of 240,000 samples, 1000 from 24000 to 215999; the default uptime)');
 {
   const sig = statsSignal();
@@ -615,7 +657,7 @@ console.log('The statistics through the sender (seeds 1 to 400; a signal of 240,
   let agree = 0, rateCount = 0, rateTicks = 0;
   for (let seed = 1; seed <= 400; seed++) {
     const { messages } = run(sig, { seed });
-    const ref = plainSender(sig, plainClock(seed));
+    const ref = plainSender(sig, refClock(seed));
     if (same(messages, ref.messages)) agree++;
     const snd = sound(messages);
     inc('opening', snd[0].last - snd[0].first + 1);
@@ -627,20 +669,17 @@ console.log('The statistics through the sender (seeds 1 to 400; a signal of 240,
   check('the module and the second copy agree on all 400 seeds, samples included', agree === 400, `${agree} of 400`);
   const share = (row, k) => (count[row][k] || 0) / Object.values(count[row]).reduce((a, b) => a + b, 0);
   const rows = [
-    ['game ticks between messages, 3 / 4 / 5 (2 and 6 no longer occur)', 'ticks', [[3, 0.305], [4, 0.666], [5, 0.029], [2, 0], [6, 0]]],
-    // W3-21: the prototype's 0.820 / 0.135 / 0.045 held with the steps cut from the source's
-    // first sample (the signal's edge at 24000 on a step's edge). With the capture's lead these
-    // are this build's own output, recorded with the lead: a guard against regression, not a
-    // comparison with the prototype.
-    ['openings of 8 / 6 / 9 frames', 'opening', [[8, 0.790], [6, 0.165], [9, 0.045]], 'the values recorded with the capture\'s lead (W3-21), a guard against regression'],
-    ['silence records of 750 / 1500 / 2250 samples', 'record', [[750, 0.210], [1500, 0.758], [2250, 0.033]]],
+    ['game ticks between messages, 3 / 4 / 5', 'ticks', [[3, 0.316], [4, 0.667], [5, 0.018]]],
+    ['openings of 8 / 6 / 9 frames', 'opening', [[8, 0.783], [6, 0.195], [9, 0.023]]],
+    ['silence records of 750 / 1500 / 2250 samples', 'record', [[750, 0.205], [1500, 0.778], [2250, 0.018]]],
   ];
-  for (const [label, row, want, against = 'the prototype\'s'] of rows) {
+  for (const [label, row, want] of rows) {
     const got = want.map(([k]) => share(row, k));
-    check(`${label}: each within 0.01 of ${against}`, want.every(([, w], j) => Math.abs(got[j] - w) <= 0.01), got.map((g) => g.toFixed(4)).join(', '));
+    check(`${label}: each within 0.03 of the build's`, want.every(([, w], j) => Math.abs(got[j] - w) <= 0.03), got.map((g) => g.toFixed(4)).join(', '));
   }
+  check('2 and 6 game ticks between messages do not occur', !count.ticks[2] && !count.ticks[6], Object.keys(count.ticks).join(', '));
   const rate = rateCount / (rateTicks * 0.015);
-  check('messages a second: 17.90, within 0.01', Math.abs(rate - 17.90) <= 0.01, rate.toFixed(3));
+  check('messages a second: 18.01, within 0.02', Math.abs(rate - 18.01) <= 0.02, rate.toFixed(3));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -788,7 +827,7 @@ console.log('The gate off');
     ok = g.info.spurts.length === 1 && g.info.spurts[0].start === -2400 - lead && g.info.lead === lead && g.messages.every((m) => m.silence === undefined)
       && s.filter((m) => m.end).length === 1 && z.end
       && over >= 0 && over <= 479 && (over === 0 || z.pcm.subarray(z.pcm.length - over).every((v) => v === 0))
-      && same(g.messages, plainSender(cut, plainClock(seed), { gate: false }).messages);
+      && same(g.messages, plainSender(cut, refClock(seed), { gate: false }).messages);
     if (over === (480 - (2400 + lead + 95003) % 480) % 480) padded++;
     leads.add(lead);
     if (!ok) detail = `seed ${seed}`;
@@ -814,7 +853,7 @@ console.log('Every sample once (seeds 1 to 50, seeded noise bursts; uptime 77760
       for (let i = t; i < Math.min(n, t + len); i++) sig[i] = Math.round((rand() * 2 - 1) * amp) || 1;
       t += len + Math.floor(rand() * 24000);
     }
-    const clock = plainClock(seed), plain = plainSender(sig, clock, { uptime });
+    const clock = refClock(seed), plain = plainSender(sig, clock, { uptime });
     // In samples of the source: a read's count less the capture's lead (W3-21).
     const due = new Map(); for (const f of plain.frames) if (f.made >= 0) due.set(f.made, f.count - clock.lead);
     const s = createSender({ seed, uptime });
@@ -856,14 +895,16 @@ console.log('Every sample once (seeds 1 to 50, seeded noise bursts; uptime 77760
 
 console.log('The capture\'s phase against the sound (the W3-21 order)');
 {
-  // 1. The lead: (750 - round(c0 x 24000)) mod 750, computed a second time from the second
-  // copy's own c0, for 1,000 seeds; over 100,000 seeds no value from 0 to 749 is missing.
+  // 1. The lead (W3-27b, check 4): a draw of its own since W3-27, floor(750 x the sixth draw
+  // of P) (on W3-16's clock it was (750 - round(c0 x 24000)) mod 750, from the capture's
+  // draw c0), computed a second time for 1,000 seeds; over 100,000 seeds no value from 0 to
+  // 749 is missing (each 77 to 168 times, the order's "W3-27a as built").
   let bad = '';
   for (let seed = 1; seed <= 1000 && !bad; seed++) {
-    const c0 = 0.03125 * mulberry32((seed ^ 0x2545F491) >>> 0)(), want = ((750 - Math.round(c0 * 24000)) % 750 + 750) % 750;
-    if (createClock({ seed }).lead !== want || plainClock(seed).lead !== want) bad = `seed ${seed}: ${createClock({ seed }).lead} for ${want}`;
+    const want = Math.floor(750 * Array.from({ length: 6 }, mulberry32((seed ^ 0x1F123BB5) >>> 0))[5]);
+    if (createClock({ seed }).lead !== want || refClock(seed).lead !== want) bad = `seed ${seed}: ${createClock({ seed }).lead} for ${want}`;
   }
-  check('createClock({ seed }).lead is (750 - round(c0 x 24000)) mod 750, seeds 1 to 1,000, by a second computation', !bad, bad);
+  check('createClock({ seed }).lead is floor(750 x the sixth draw of the phases), seeds 1 to 1,000, by a second computation', !bad, bad);
   const seen = new Uint32Array(750);
   let outside = 0;
   for (let seed = 1; seed <= 100000; seed++) {
@@ -906,16 +947,22 @@ console.log('The capture\'s phase against the sound (the W3-21 order)');
     });
     const ticksEarlier = plain.messages.every((m, k) => got.messages[k]?.tick <= m.tick);
     moved += got.messages.filter((m, k) => m.tick !== plain.messages[k]?.tick).length; total += got.messages.length;
-    if (!same(got.messages, want) || !spurtsOk || !asPlain || !ticksEarlier || !same(got.messages, plainSender(sig, plainClock(seed), { lead: L, gate }).messages)) {
+    if (!same(got.messages, want) || !spurtsOk || !asPlain || !ticksEarlier || !same(got.messages, plainSender(sig, refClock(seed), { lead: L, gate }).messages)) {
       fails.push(`${label}, seed ${seed}, lead ${L}, gate ${gate}`);
     }
   }
   check('with lead L of 0, 1, 318 and 749 (seeds 1, 0xC0FFEE and 77; three sources, one shorter than the lead, one loud from sample 0; the gate on and off): the messages of lead 0 on L zeros and the source, starts less L, ticks from since less L / 24000; the second copy agrees',
     fails.length === 0 && moved > 0, fails.slice(0, 3).join('; ') || `${moved} of ${total} ticks earlier than lead 0's on the longer source`);
-  const firstStep = run(opening, { seed: 1, lead: 749 });
-  check('a spurt that opens in the first step (lead 749): its pre-roll and the lead\'s zeros lie before sample 0, and the source is in its frames from sample 0',
-    firstStep.info.spurts[0].start === -2400 - 749 && firstStep.messages[0].pcm.subarray(0, 2400 + 749).every((v) => v === 0)
-    && firstStep.messages[0].pcm[2400 + 749 + 1] === opening[1], JSON.stringify(firstStep.info.spurts[0]));
+  // W3-27b: on W3-16's clock seed 1's first chunk was two steps, so lead 749 opened in it. On
+  // the rule the first chunk is one step (seeds 1 to 20), and with lead 749 it holds one sample
+  // of the source, a zero: lead 600 leaves 150 samples of the loud source in it. Its opening
+  // message is then 6 frames of the pre-roll and the lead's zeros, and the source follows in the
+  // spurt's next message.
+  const firstStep = run(opening, { seed: 1, lead: 600 });
+  const opened = Int16Array.from(firstStep.messages.slice(0, 2).flatMap((m) => (m.spurt === 0 ? Array.from(m.pcm) : [])));
+  check('a spurt that opens in the first step (lead 600): its pre-roll and the lead\'s zeros lie before sample 0, and the source is in its frames from sample 0',
+    firstStep.info.spurts[0].start === -2400 - 600 && firstStep.info.spurts[0].preroll === 2400 && opened.subarray(0, 2400 + 600).every((v) => v === 0)
+    && opened[2400 + 600 + 1] === opening[1] && opened[2400 + 600 + 100] === opening[100], JSON.stringify(firstStep.info.spurts[0]));
 
   // A caller's clock whose first reads are shorter than the lead, the gate off: the lead's
   // zeros make messages before any push, and they come back from the first push, in order.
@@ -1008,8 +1055,9 @@ console.log('Refusals');
 }
 
 // ---------------------------------------------------------------------------------------
-// W3-27a: the read clock on the rule as read (createReadClock), beside the clock that runs.
-// docs/work-orders/W3-27-sender-clock.md, "W3-27a: the suite", checks 1 to 12. The
+// W3-27a: the clock on the rule as read (createReadClock, beside the clock that ran, until
+// W3-27b made it createClock). docs/work-orders/W3-27-sender-clock.md, "W3-27a: the suite",
+// checks 1 to 12. The
 // reference is the study's generator, tests/steam-sender/gen.mjs, run in this process
 // (genClock), so that Math.log and Math.cos are the same on both sides. Times of the
 // reference are in ms; the port's since and time are in seconds.
@@ -1018,7 +1066,7 @@ const SIDE = { seed: 0xC0FFEE };
 // The port's reads at place 0 against the reference's, read for read: since is the
 // reference's time / 1000 bit for bit, samples and by equal. Returns '' or where they part.
 function againstGen(opts, reads) {
-  const a = createReadClock({ ...opts, place: 0 }), b = genClock(opts);
+  const a = createClock({ ...opts, place: 0 }), b = genClock(opts);
   for (let i = 0; i < reads; i++) {
     const x = a.next(), y = b.next();
     if (!Object.is(x.since, y.time / 1000) || x.samples !== y.samples || x.by !== y.by) return `${JSON.stringify(opts)} read ${i}: ${x.since * 1000} ${x.samples} ${x.by} for ${y.time} ${y.samples} ${y.by}`;
@@ -1113,7 +1161,7 @@ const EDGES = [['the defaults', {}], ['20 ms packets', { packet: 20 }], ['a late
 console.log('The read clock: three steps at most (check 3)');
 {
   const opts = { seed: 9, fps: 144, late: 20, packet: 20 };
-  const a = createReadClock({ ...opts, place: 0 }), b = genClock(opts);
+  const a = createClock({ ...opts, place: 0 }), b = genClock(opts);
   const differ = [];
   let timesEqual = true, sumA = 0, sumB = 0;
   for (let i = 0; i < 20000; i++) {
@@ -1132,7 +1180,7 @@ console.log('The read clock: three steps at most (check 3)');
   // summed read by read (place 0), is what the port has left over: never more than one step,
   // and never left over for two reads running.
   const opts = { seed: 1, fps: 10, tick: 100, packet: 20, late: 31.25 };
-  const a = createReadClock({ ...opts, place: 0 }), b = genClock(opts);
+  const a = createClock({ ...opts, place: 0 }), b = genClock(opts);
   let owed = 0, binds = 0, carried = 0, wrong = '', biggest = 0;
   for (let i = 0; i < 2000000 && !wrong; i++) {
     const x = a.next(), y = b.next(), before = owed;
@@ -1154,7 +1202,7 @@ console.log('The read clock: the reads never run ahead of the capture (checks 3 
   for (const [label, opts] of EDGES) {
     let least = Infinity;
     for (let seed = 1; seed <= 300; seed++) {
-      const c = createReadClock({ seed, ...opts });
+      const c = createClock({ seed, ...opts });
       let taken = 0, last = -Infinity;
       for (let i = 0; i < 20000; i++) {
         const r = c.next();
@@ -1192,9 +1240,9 @@ console.log('The read clock: the place turns the pattern and nothing else (check
     const g = genClock({ seed }), ref = Array.from({ length: 2000 }, () => g.next());
     const times = ref.map((y) => y.time);
     for (const place of [0, 1, 2, 3, 4, 5, 6, 7, undefined]) {
-      const c = createReadClock({ seed, place }), reads = Array.from({ length: 2000 }, () => c.next());
+      const c = createClock({ seed, place }), reads = Array.from({ length: 2000 }, () => c.next());
       const p = place ?? phasesOf(seed).place;
-      const base = createReadClock({ seed, place: 0 });
+      const base = createClock({ seed, place: 0 });
       if (c.place !== p) { wrong ||= `seed ${seed}: place ${c.place} for ${p}`; continue; }
       for (let i = 0; i < 2000 && !moved; i++) {
         const b = base.next(), r = reads[i];
@@ -1207,7 +1255,7 @@ console.log('The read clock: the place turns the pattern and nothing else (check
   check('seeds 1 to 50, each place from 0 to 7 and the drawn one: since, time and by are place 0\'s and the reference\'s bit for bit', !moved, moved);
   check('the steps equal a second computation from the reads\' times, the suite\'s own draws of capPhase and C, and ready(k) as written (the drawn place the suite\'s fifth draw)', !wrong, wrong);
   const seen = new Set();
-  for (let seed = 1; seed <= 400; seed++) seen.add(createReadClock({ seed }).place);
+  for (let seed = 1; seed <= 400; seed++) seen.add(createClock({ seed }).place);
   check('the drawn place takes every value from 0 to 7 over seeds 1 to 400', seen.size === 8 && [...seen].every((p) => Number.isInteger(p) && p >= 0 && p < 8), [...seen].sort().join());
 }
 
@@ -1215,9 +1263,9 @@ console.log('The read clock: the draws (check 5)');
 {
   let bad = '';
   for (let seed = 1; seed <= 1000 && !bad; seed++) {
-    const c = createReadClock({ seed }), d = phasesOf(seed);
+    const c = createClock({ seed }), d = phasesOf(seed);
     if (c.lead !== d.lead || c.place !== d.place) bad = `seed ${seed}: lead ${c.lead} for ${d.lead}, place ${c.place} for ${d.place}`;
-    const c20 = createReadClock({ seed, packet: 20 }), d20 = phasesOf(seed, 20);
+    const c20 = createClock({ seed, packet: 20 }), d20 = phasesOf(seed, 20);
     if (!bad && (c20.place !== d20.place || c20.lead !== d.lead)) bad = `seed ${seed}, 20 ms packets: place ${c20.place} for ${d20.place}`;
   }
   check('lead and place are the suite\'s own sixth and fifth draws of P (seeds 1 to 1,000; 16 places with 20 ms packets)', !bad, bad);
@@ -1225,32 +1273,32 @@ console.log('The read clock: the draws (check 5)');
   // so the test is time === phase + since.
   let off = '';
   for (let seed = 1; seed <= 200 && !off; seed++) {
-    const c = createReadClock({ seed }), { phase } = phasesOf(seed);
+    const c = createClock({ seed }), { phase } = phasesOf(seed);
     for (let i = 0; i < 1000; i++) { const r = c.next(); if (r.time !== phase + r.since) { off = `seed ${seed}, read ${i}`; break; } }
   }
   check('the phase: time === phase + since at every one of the first 1,000 reads of seeds 1 to 200, phase the suite\'s own seventh draw (the test is not time - since, which is the draw to the last bit only at early reads)', !off, off);
   const seen = new Uint32Array(750);
   let outside = 0;
   for (let seed = 1; seed <= 100000; seed++) {
-    const L = createReadClock({ seed }).lead;
+    const L = createClock({ seed }).lead;
     if (Number.isInteger(L) && L >= 0 && L < 750) seen[L]++; else outside++;
   }
   check('over seeds 1 to 100,000 the lead takes every whole value from 0 to 749 and no other', outside === 0 && seen.every((n) => n > 0),
     `each value ${Math.min(...seen)} to ${Math.max(...seen)} times`);
-  const phases = Array.from({ length: 400 }, (_, s) => { const r = createReadClock({ seed: s + 1 }).next(); return r.time - r.since; });
+  const phases = Array.from({ length: 400 }, (_, s) => { const r = createClock({ seed: s + 1 }).next(); return r.time - r.since; });
   check('the phase spreads over 0 to 0.25 s over seeds 1 to 400', phases.every((p) => p >= 0 && p < 0.25) && Math.min(...phases) < 0.01 && Math.max(...phases) > 0.24,
     `${Math.min(...phases).toFixed(4)} to ${Math.max(...phases).toFixed(4)} s`);
-  const take = (seed, k) => { const c = createReadClock({ seed }); return JSON.stringify([c.lead, c.place, Array.from({ length: k }, () => c.next())]); };
+  const take = (seed, k) => { const c = createClock({ seed }); return JSON.stringify([c.lead, c.place, Array.from({ length: k }, () => c.next())]); };
   check('an unseeded clock is seed 0xC0FFEE\'s; two seeds differ; one seed repeats', take(undefined, 500) === take(0xC0FFEE, 500) && take(1, 500) !== take(2, 500) && take(5, 2000) === take(5, 2000));
   let readOnly = 0;
-  const c = createReadClock({ seed: 3 });
+  const c = createClock({ seed: 3 });
   for (const k of ['lead', 'place', 'next']) try { c[k] = 1; } catch (e) { readOnly += e instanceof TypeError; }
   check('the clock is frozen: lead, place and next cannot be set', readOnly === 3 && Object.isFrozen(c));
 }
 
 console.log('The read clock\'s statistics (check 7; seeds 1 to 20, 20,000 reads each, pooled; the order\'s bands, the record\'s figures for the sets in brackets)');
 {
-  const s = statsOf((seed) => createReadClock({ seed }));
+  const s = statsOf((seed) => createClock({ seed }));
   check('mean interval 55.42 to 55.62 ms (Sets J and L 55.43 and 55.37)', within(s.mean, 55.42, 55.62), s.mean.toFixed(3));
   check('least at least 47.5 ms, most at most 69 ms (Sets J and L 47.75 to 64.13 and 47.85 to 64.44)', s.lo >= 47.5 && s.hi <= 69, `${f2(s.lo)} to ${f2(s.hi)}`);
   check('intervals under 49 ms 1.9 to 2.7% (3.0 and 2.3)', within(s.under49, 1.9, 2.7), f2(s.under49));
@@ -1285,7 +1333,7 @@ console.log('Packets of 20 ms give the 16-place form (check 9; seeds 1 to 20, 20
 {
   const LONG = [1, 3, 5, 7, 8, 10, 12, 14, 0], SHORT = [2, 4, 6, 9, 11, 13, 15];
   const meanOf = (at, ps) => ps.reduce((a, p) => a + at[p], 0) / ps.length;
-  const s20 = statsOf((seed) => createReadClock({ seed, packet: 20 }), { cycle: 16 }), s10 = statsOf((seed) => createReadClock({ seed }), { cycle: 16 });
+  const s20 = statsOf((seed) => createClock({ seed, packet: 20 }), { cycle: 16 }), s10 = statsOf((seed) => createClock({ seed }), { cycle: 16 });
   const r20 = meanOf(s20.at, LONG) / meanOf(s20.at, SHORT), r10 = meanOf(s10.at, LONG) / meanOf(s10.at, SHORT);
   check('with 20 ms packets each of the nine long places (1, 3, 5, 7, 8, 10, 12, 14 and 0 of 16) holds more chunk ends than any of the seven short ones',
     Math.min(...LONG.map((p) => s20.at[p])) > Math.max(...SHORT.map((p) => s20.at[p])), s20.at.map(f2).join(' '));
@@ -1296,22 +1344,22 @@ console.log('Packets of 20 ms give the 16-place form (check 9; seeds 1 to 20, 20
 console.log('The other senders (check 10; seeds 1 to 20, 20,000 reads each)');
 {
   const near = (got, want, d) => got.every((x, i) => Math.abs(x - want[i]) <= d);
-  const s30 = statsOf((seed) => createReadClock({ seed, fps: 30 }));
+  const s30 = statsOf((seed) => createClock({ seed, fps: 30 }));
   check('30 frames a second: 58.5 to 58.8 ms a read, chunks within 0.8 of 16.7, 78.9 and 4.4%', within(s30.mean, 58.5, 58.8) && near(s30.sizes, [16.7, 78.9, 4.4], 0.8),
     `${s30.mean.toFixed(3)} ms; ${s30.sizes.map(f2).join(', ')}`);
-  const s60 = statsOf((seed) => createReadClock({ seed, fps: 60 }));
+  const s60 = statsOf((seed) => createClock({ seed, fps: 60 }));
   check('60 frames a second: 49.99 to 50.01 ms a read, chunks within 0.1 of 40, 60 and 0%', within(s60.mean, 49.99, 50.01) && near(s60.sizes, [40, 60, 0], 0.1),
     `${s60.mean.toFixed(4)} ms; ${s60.sizes.map(f2).join(', ')}`);
-  const t30 = statsOf((seed) => createReadClock({ seed, tick: 30 }));
+  const t30 = statsOf((seed) => createClock({ seed, tick: 30 }));
   check('a tick of 30 ms: 59.6 to 59.9 ms a read', within(t30.mean, 59.6, 59.9), t30.mean.toFixed(3));
-  const l20 = statsOf((seed) => createReadClock({ seed, late: 20 }));
+  const l20 = statsOf((seed) => createClock({ seed, late: 20 }));
   check('a lateness of 20 ms: chunks within 0.8 of 26.9, 68.4 and 4.7%, and at least one empty read after the first chunk in 400,000', near(l20.sizes, [26.9, 68.4, 4.7], 0.8) && l20.empty >= 1,
     `${l20.sizes.map(f2).join(', ')}; ${l20.empty} empty reads`);
 }
 
 console.log('The read clock\'s refusals (check 11)');
 {
-  const refused = (opts, name) => threw(() => createReadClock(opts), new RegExp(`^${name} `));
+  const refused = (opts, name) => threw(() => createClock(opts), new RegExp(`^${name} `));
   const cases = [['fps', 9], ['fps', 1001], ['tick', 4], ['tick', 101], ['packet', 15], ['late', -1], ['late', 32], ['place', 8], ['place', 1.5], ['place', -1]];
   for (const name of ['fps', 'tick', 'packet', 'late', 'place', 'seed']) cases.push([name, NaN], [name, '10'], [name, null]);
   const failed = cases.filter(([name, v]) => !refused({ [name]: v }, name)).map(([n, v]) => `${n} ${String(v)}`);
@@ -1319,7 +1367,7 @@ console.log('The read clock\'s refusals (check 11)');
   check('fps 9 and 1001, tick 4 and 101, packet 15, late -1 and 32, place 8 (16 with 20 ms packets), 1.5 and -1, and each given as NaN, a string or null: a RangeError that names it',
     failed.length === 0, failed.join('; '));
   const taken = [{ fps: 10 }, { fps: 1000 }, { tick: 5 }, { tick: 100 }, { packet: 20 }, { late: 0 }, { late: 31.25 }, { place: 7 }, { packet: 20, place: 15 }, { place: 0 }]
-    .filter((o) => { try { createReadClock(o).next(); return true; } catch (e) { return false; } });
+    .filter((o) => { try { createClock(o).next(); return true; } catch (e) { return false; } });
   check('the ends of each range are taken: fps 10 and 1000, tick 5 and 100, packet 20, late 0 and 31.25, place 0 and 7 (15 with 20 ms packets)', taken.length === 10, `${taken.length} of 10`);
 }
 
@@ -1330,7 +1378,27 @@ console.log('The module, again (check 12)');
   const mix = { phase: 0x1F123BB5, game: 0x2545F491, timer: 0x51ED270B, work: 0x6C8E9CF5, capture: 0x3C6EF372, other: 0x7F4A7C15 };
   check('STEAM_SENDER.clock is frozen and holds the order\'s numbers and the six mix values, and nothing else',
     Object.isFrozen(K) && Object.isFrozen(K.mix) && JSON.stringify(K) === JSON.stringify({ ...want, mix }), JSON.stringify(K));
-  check('its exports are the four: STEAM_SENDER, createClock, createSender, createReadClock', Object.keys(M).join() === 'STEAM_SENDER,createClock,createSender,createReadClock');
+  check('its exports are the three again (W3-27b): STEAM_SENDER, createClock, createSender', Object.keys(M).join() === 'STEAM_SENDER,createClock,createSender');
+}
+
+// W3-27b, check 5: the capture's place through the sender. On the suite's signal the
+// silence record after the spurt is one step long in a share of seeds that the place's draw
+// sets: with the place fixed at 0 the long step of 8 falls at one place of the source in
+// every seed. Measured on the build: 22.55% with the place drawn and 33.55% with place 0 (the
+// order's prototype: 22.6 and 34.6%; W3-16's clock 23.3%; Set D's demo 2 of 19).
+console.log('The capture\'s place, through the sender (W3-27b, check 5; seeds 1 to 2,000 of the statistics signal)');
+{
+  const sig = statsSignal();
+  let one = 0, one0 = 0;
+  for (let seed = 1; seed <= 2000; seed++) {
+    const rec = run(sig, { seed }).messages.find((m) => m.silence !== undefined);
+    const fixed = refClock(seed, { place: 0 });
+    const rec0 = run(sig, { clock: { next: fixed }, lead: fixed.lead }).messages.find((m) => m.silence !== undefined);
+    if (rec && rec.silence === 750) one++;
+    if (rec0 && rec0.silence === 750) one0++;
+  }
+  check('the silence record is one step long in 20 to 26% of seeds; with place 0 forced through a clock of the suite\'s own, in over 31%',
+    one >= 400 && one <= 520 && one0 > 620, `${(one / 20).toFixed(2)}% and ${(one0 / 20).toFixed(2)}%`);
 }
 
 console.log(`\n${passed} steam sender checks passed`);
