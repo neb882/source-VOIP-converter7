@@ -72,6 +72,7 @@ site's (the footer's "version N"). Pull requests were opened for the record; eve
 | W3-25 | the log tool reads a real server's log | done 2026-11-15: merged, no cache change | [W3-25-server-logs.md](work-orders/W3-25-server-logs.md) | [W3-25-server-logs.md](reports/W3-25-server-logs.md) | after Set Q |
 | W3-26 | the capture's conversion to 24 kHz, as read | part a done 2026-11-21: merged, no cache change; part b not built | [W3-26-capture-conversion.md](work-orders/W3-26-capture-conversion.md) | [W3-26-plan.md](reports/W3-26-plan.md), [W3-26a-capture-converter.md](reports/W3-26a-capture-converter.md) | after the private reads of 2026-11-20 |
 | W3-27 | the sender's clock on the rule as read | planned 2026-11-21; part a being built | [W3-27-sender-clock.md](work-orders/W3-27-sender-clock.md) | [W3-27-plan.md](reports/W3-27-plan.md) | after the private study of 2026-11-21; part b after W3-26b |
+| W3-28 | the capture's step to 16 bits, dithered as Windows's is | written 2026-11-21; not built, waits for W3-26b | [W3-28-capture-dither.md](work-orders/W3-28-capture-dither.md) | none yet | after the two private reads of 2026-11-21 (finding 28) |
 | W3-03 | the engine's binary read (investigation) | done | `4630e06` | W3-03-engine-binary.md | |
 | W3-04 | a file decoded at its own rate | built and merged | `f32ba0e`, v19, #7 | W3-04-native-rate-decode.md | |
 | W3-05 | the receiver's gain | built and merged | `c00dff8`, v21, #12 | W3-05-receiver-gain.md | |
