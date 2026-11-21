@@ -40,6 +40,8 @@ const printHashes = process.argv.includes('--hashes');
 const requireHere = createRequire(import.meta.url);
 const roomModule = requireHere(fileURLToPath(new URL('room-dsp.js', root)));
 const roomTable = requireHere(fileURLToPath(new URL('room-presets.js', root)));
+// The capture converter (W3-26b), handed to the vm context as the loader hands it (tests/lib/engine.cjs, HANDED).
+const captureModule = requireHere(fileURLToPath(new URL('capture-converter.js', root)));
 const paths = [];
 // neverEnds.on: the next paths' tailLeft() never says the output ended (the
 // tail loop's own bound, section 3).
@@ -71,7 +73,7 @@ function engineInThisRealm(rooms = true) {
 // The same text in a vm context, the way the suites loaded it before the
 // loader (tests/verify.js until S3-01a).
 function engineInVm() {
-  const sandbox = { window: {}, Blob, console, TF2Room: roomModule, TF2_ROOM_PRESETS: roomTable };
+  const sandbox = { window: {}, Blob, console, TF2Room: roomModule, TF2_ROOM_PRESETS: roomTable, TF2CaptureConverter: captureModule };
   vm.createContext(sandbox);
   vm.runInContext(engineSource(root), sandbox);
   sandbox.TF2Opus = TF2Opus;
@@ -264,6 +266,13 @@ for (const [rate, plan] of [[44100, 'uneven'], [96000, '12345'], [22050, '960']]
   add(`steam, source at ${rate} Hz`, rate, () => voice(15, rate, 3), {}, [plan]);
 }
 add('steam, 1,000,003 samples (a prime) at 48 kHz', 48000, () => voice(0, 48000, 3, 1000003), {}, ['uneven', '12345']);
+// W3-26b, test 3: the steam capture is Windows's converter as read (capture-converter.js), streamed at the steam
+// plans and equal to process(): from a pair of rates outside Windows's limits for a stored table (44,056 Hz, not
+// rated: the sum in double precision), from below 24 kHz (16,000 Hz) and from 96,000 Hz.
+for (const [name, rate, plan] of [['44,056 Hz (not rated)', 44056, 'uneven'], ['16,000 Hz (below 24 kHz)', 16000, 'uneven'],
+  ['96,000 Hz, 8 s', 96000, 'uneven']]) {
+  add(`steam, the capture converter from ${name}`, rate, () => voice(8, rate, 26), {}, [plan]);
+}
 // A demo's voice: the receiver only. The sender, gate, codec and network
 // settings given with it are ignored, as process() ignores them.
 const demo = receivedVoice(6, 7);

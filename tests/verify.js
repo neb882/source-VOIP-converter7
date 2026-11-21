@@ -8,7 +8,8 @@
  *
  * Covers, by the labels it prints:
  *   [1] the resampler: passband, stopband, alignment and exact lengths
- *   [2] the profile calibration FIR's response
+ *   [2] the filter design and the zero-phase run; the steam profile's capture
+ *       member (W3-26b) and the profiles that would run a capture not built
  *   [3] the receiver's auto-gain: target, cap, int16 clamp, silence, voice_scale
  *   [4] the measured clipping signature on dense input
  *   [5] [5b] real codec modes for every profile; the sender's voice gate
@@ -171,17 +172,46 @@ async function main() {
     check('resampler round-trip reconstructs an in-band tone', diffRms(roundTrip.subarray(500, -500), src.subarray(500, -500)) < 1e-3);
   }
 
-  console.log('\n[2] Profile calibration FIR');
+  console.log('\n[2] Profile calibration FIR, and the steam profile\'s capture (W3-26b)');
   {
-    // libopus 1.1.5 reproduces Steam's decoded spectrum, so only the capture resampler's band edge remains.
-    check('steam has no decoder EQ', engine.CODEC_PROFILES.steam.decoderEq == null);
-    const eq = engine.CODEC_PROFILES.steam.captureEq;
-    const taps = TF2Audio.firwin2(eq.taps, eq.freqs, eq.gainsDb, 24000);
-    const gains = [1000, 5000, 9000, 10500].map(f => firGainDb(taps, f, 24000));
-    check('steam capture EQ is transparent up to 10.5 kHz', gains.every(g => Math.abs(g) < 0.15), gains.map(g => g.toFixed(2)).join(' / '));
-    const g114 = firGainDb(taps, 11450, 24000), g1175 = firGainDb(taps, 11750, 24000), g12 = firGainDb(taps, 12000, 24000);
-    check('steam capture EQ follows the capture resampler roll-off from 11.1 kHz', Math.abs(g114 + 2.2) < 0.6 && Math.abs(g1175 + 6.6) < 1 && g12 < -7,
-      `${g114.toFixed(2)} / ${g1175.toFixed(2)} / ${g12.toFixed(2)} dB`);
+    // libopus 1.1.5 reproduces Steam's decoded spectrum. Since W3-26b the capture's band edge is
+    // Windows's converter as read (finding 28; capture-converter.js and its own suite), not a fitted
+    // filter: the profile names the converter and nothing else reads a capture filter.
+    const P = engine.CODEC_PROFILES;
+    check('steam has no decoder EQ', P.steam.decoderEq == null);
+    // A capture filter would be a member whose name starts with 'capture' other than capture itself (the
+    // fitted filter's member, removed by W3-26b, was one).
+    const filterMembers = (p) => Object.keys(p).filter((k) => k.startsWith('capture') && k !== 'capture');
+    check('steam has no capture filter (no member named capture-something but capture), and has capture { converter: \'windows\', quality: 30 } with those two members alone',
+      filterMembers(P.steam).length === 0 && isDeepStrictEqual(P.steam.capture, { converter: 'windows', quality: 30 }),
+      `${JSON.stringify(P.steam.capture)}${filterMembers(P.steam).length ? `; also ${filterMembers(P.steam).join(', ')}` : ''}`);
+    const others = Object.keys(P).filter((k) => k !== 'steam' && ('capture' in P[k] || filterMembers(P[k]).length));
+    check('no other profile has capture, nor a capture filter', others.length === 0 && Object.keys(P).length >= 6,
+      others.join(', ') || `${Object.keys(P).length - 1} other profiles`);
+    // A test's copies of the profile with a capture the engine does not build: process() rejects, with
+    // an error that names the member and the value given (another converter, another quality, null, a
+    // member more), or the member and the profile's rate (a capture on a profile not at 24000 Hz).
+    // With the codec off the member is not read: the capture is the app's resampler there.
+    const bad = {
+      'another converter': [{ ...P.steam, capture: { converter: 'linear', quality: 30 } }, /capture.*"converter":"linear"/],
+      'another quality': [{ ...P.steam, capture: { converter: 'windows', quality: 15 } }, /capture.*"quality":15/],
+      'null': [{ ...P.steam, capture: null }, /capture.*not null/],
+      'a member more': [{ ...P.steam, capture: { converter: 'windows', quality: 30, cutoff: 0.9 } }, /capture.*"cutoff":0\.9/],
+      'a profile at 48000 Hz': [{ ...P.steam_48, capture: { converter: 'windows', quality: 30 } }, /capture.*codecRate is 48000/]
+    };
+    const x = tone(1000, 0.3, 48000, 0.25), rows = [];
+    for (const [name, [profile, named]] of Object.entries(bad)) {
+      P.test_capture = profile;
+      let message = '';
+      try { await TF2Audio.process(mkBuffer(x, 48000), { codec: 'test_capture' }); } catch (e) { message = e.message; }
+      const off = await TF2Audio.process(mkBuffer(x, 48000), { codec: 'test_capture', enableWarble: false });
+      if (!named.test(message) || !(off.samples.length > 0)) rows.push(`${name}: ${message || 'not refused'}`);
+    }
+    delete P.test_capture;
+    check('a profile whose capture names another converter or quality, null or a member more, or sits on a profile not at 24000 Hz, makes process() reject with an error that names it; with the codec off it renders',
+      rows.length === 0 && !('test_capture' in P), rows.join('; ') || Object.keys(bad).join(', '));
+    // The filter design and the zero-phase run, on a filter the test makes.
+    const taps = TF2Audio.firwin2(255, [0, 11000, 12000], [0, 0, -8.5], 24000);
     const js = TF2Audio.firwin2(95, [0, 6000, 12000], [0, -6, -6], 24000);
     // Gains interpolate linearly: halfway from 1.0 to 0.501 is 0.75 (-2.5 dB).
     check('firwin2 design follows its gain points', Math.abs(firGainDb(js, 9000, 24000) + 6) < 0.1 && Math.abs(firGainDb(js, 3000, 24000) + 2.5) < 0.2);
@@ -646,8 +676,8 @@ async function main() {
 
     // The whole chain, 20 ms at a time, against a render of the same audio:
     // the same level, and the same waveform once the live chain's own delay
-    // (the capture EQ's half length, Opus lookahead; until W3-10 also the
-    // output FIR's 1 sample at 44.1 kHz) is allowed for. `steam_48` runs the 20 ms frame gate, the
+    // (Opus lookahead; until W3-10 also the output FIR's 1 sample at 44.1
+    // kHz) is allowed for. `steam_48` runs the 20 ms frame gate, the
     // float decode and the app's resampler in both, so it holds the frame
     // path's live chain to the render here; the `steam` live chain is proved
     // in liveSteamSection, sample for sample.
@@ -660,8 +690,8 @@ async function main() {
     parts.reduce((o, p) => { live.set(p, o); return o + p.length; }, 0);
     chain.free();
     const whole = await TF2Audio.process(mkBuffer(src, SR), opts), offline = whole.samples;
-    const live48 = engine.CODEC_PROFILES.steam_48, eqHalf = live48.captureEq ? (live48.captureEq.taps - 1) / 2 : 0;
-    const delay = (eqHalf + whole.codecInfo.lookahead) / live48.codecRate, shift = Math.round(delay * SR);
+    const live48 = engine.CODEC_PROFILES.steam_48;
+    const delay = whole.codecInfo.lookahead / live48.codecRate, shift = Math.round(delay * SR);
     const correlate = (d) => {
       let dot = 0, ea = 0, eb = 0;
       for (let i = SR / 2; i < live.length - shift - SR / 2; i++) { dot += offline[i] * live[i + shift + d]; ea += offline[i] ** 2; eb += live[i + shift + d] ** 2; }

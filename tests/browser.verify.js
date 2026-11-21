@@ -1057,10 +1057,11 @@ async function verifyLiveMonitor(page) {
   check(live.pressed === 'true' && live.stats.sent > 0 && live.stats.modes.hybrid > 0,
     'the live monitor runs the microphone through the Steam chain in real time', `${live.stats.sent} of ${live.stats.frames} frames sent, ${live.tx}`);
   // W3-11b: on steam the chain holds back the sender's longest chunk and its
-  // pre-roll (stats.latencyMs: 206.9 ms at 44.1 and 48 kHz since W3-10, which
-  // took the output FIR's sample out and put the device stage's wait for one
-  // 44.1 kHz sample in place of the sinc resampler's); the page adds its own
-  // delays.
+  // pre-roll (stats.latencyMs: 202.2 ms at 44.1 and 48 kHz since W3-26b, which
+  // put the capture converter's wait in place of the app's resampler's and the
+  // capture filter's; 206.9 ms since W3-10, which took the output FIR's sample
+  // out and put the device stage's wait for one 44.1 kHz sample in place of the
+  // sinc resampler's); the page adds its own delays.
   const ms = Number(/^(\d+) ms/.exec(live.latency)?.[1]);
   check(ms >= live.stats.latencyMs && ms < live.stats.latencyMs + 400 && live.stats.latencyMs > 190,
     'the live monitor reports its latency: between the chain\'s own figure (what it holds back) and that plus 400 ms', `${live.latency}; the chain ${live.stats.latencyMs.toFixed(1)} ms`);
