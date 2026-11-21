@@ -777,6 +777,32 @@ file version. Hashes are measured on the private copies.
 The readings of F25 to F27, of F31 and of F24 against F4 had been made once when these rows were written; what they
 found is added to finding 28 as each is read a second time.
 
+Added 2026-11-21: ten more rows, the files the owner sent that day. None had been read when the rows were
+written: a first read of each began the same day, and what is found joins finding 28 in dated lines once it has
+been read a second time. Hashes are measured on the private copies.
+
+| Id | File | From | Build, as its owner can read it | Built | Taken | SHA-256 | Read for | Report |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F33 | `winmm.dll` | the owner's Windows 11, `System32` | file version 10.0.26100.9818 | none | 2026-11-21 | `7aa646b2bd1f2d8714225d303bb1a38bb2b2faef62285a52eea567485ca6960b` | 28 (the wave input road under DirectSound's capture and the conversion on it; a first read began 2026-11-21 and nothing is recorded from it yet) | none yet |
+| F34 | `winmmbase.dll` | the owner's Windows 11, `System32` | file version 10.0.26100.9818 | none | 2026-11-21 | `77855ae3389859aca41e4a45941178eb5436b59d590cebd4fe9266f15e86523b` | 28 (the wave input road under DirectSound's capture and the conversion on it; a first read began 2026-11-21 and nothing is recorded from it yet) | none yet |
+| F35 | `wdmaud.drv` | the owner's Windows 11, `System32` | file version 10.0.26100.9818 | none | 2026-11-21 | `6d1b27248ee6f5cdacf38c8452c083773d324aaa036a95792a45cfd1662715f4` | 28 (the wave input road under DirectSound's capture and the conversion on it; a first read began 2026-11-21 and nothing is recorded from it yet) | none yet |
+| F36 | `msacm32.drv` | the owner's Windows 11, `System32` | file version 10.0.26100.1882 | none | 2026-11-21 | `86d81cfedb065e3fceabe6d31b2a52b28c6c981f1b73ff5681d73ff8d4d756f7` | 28 (the wave input road under DirectSound's capture and the conversion on it; a first read began 2026-11-21 and nothing is recorded from it yet) | none yet |
+| F37 | `msacm32.dll` | the owner's Windows 11, `System32` | file version 10.0.26100.7019 | none | 2026-11-21 | `f77312070a57b67e6e9ee0f4b66bbf38d08f01a40e5721f04064485298ad1263` | 28 (the wave input road under DirectSound's capture and the conversion on it; a first read began 2026-11-21 and nothing is recorded from it yet) | none yet |
+| F38 | `MMDevAPI.dll` | the owner's Windows 11, `System32` | file version 10.0.26100.9974 | none | 2026-11-21 | `78e64aeccc4ff5322d1e8f696cd3644883c909bba9b291bddb40256d86c569aa` | 28 (the wave input road under DirectSound's capture and the conversion on it; a first read began 2026-11-21 and nothing is recorded from it yet) | none yet |
+| F39 | `audiosrv.dll` | the owner's Windows 11, `System32` | file version 10.0.26100.9974 | none | 2026-11-21 | `1bf8df4102e63b4f0b0e0a387131eadd65a9741df12a0c462957c8ba421176af` | 28 (the wave input road under DirectSound's capture and the conversion on it; a first read began 2026-11-21 and nothing is recorded from it yet) | none yet |
+| F40 | `audiodg.exe` | the owner's Windows 11, `System32` | file version 10.0.26100.9974 | none | 2026-11-21 | `017628fc0ace806163950bb3019709ca3820531d7f19c1103429e09b4c54f6ca` | 28 (the wave input road under DirectSound's capture and the conversion on it; a first read began 2026-11-21 and nothing is recorded from it yet) | none yet |
+| F41 | `AudioKSE.dll` | the owner's Windows 11, `System32` | file version 10.0.26100.9974 | none | 2026-11-21 | `a288556681eeac9b162ccd1d0ff45034846b13b3345a66a74aa43997f6806648` | 28 (the wave input road under DirectSound's capture and the conversion on it; a first read began 2026-11-21 and nothing is recorded from it yet) | none yet |
+| F42 | `SteamUI.dll` | the owner's Steam, 64-bit | file version 11.23.65.88 | 2026-11-13 | 2026-11-21 | `2dfb0a5d50dd90667549cc7d413c7bfb0794c9af4ebaf08bf1cf7d938a11ea93` | 28 (which process turns the loop that reads the microphone, and any timer-resolution call; a first read began 2026-11-21 and nothing is recorded from it yet) | none yet |
+
+With them, on 2026-11-21, the format of the capture device of the owner's takes as Windows's settings show it
+(read from the owner's screen; the screen itself stays private): the virtual cable's output, VB-Audio Virtual
+Cable, driver 3.3.1.7 of 2024-10-07, at 2 channels, 24 bits, 48,000 Hz, input volume 100, the settings page's
+processing test mode at "Default". So between that device and the 24,000 Hz, one-channel, 16-bit stream Steam
+opens (finding 28) there is a conversion of rate by two, a fold of two channels to one and a step from 24 bits to
+16. That the takes of earlier days were made at the same format is inferred: the format was read on 2026-11-21
+only, and the Set D test of finding 28 fits a 48,000 Hz source a little better than a 44,100 Hz one (0.14 against
+0.17 dB rms, measured once).
+
 A reader whose file has the same SHA-256 holds the bytes the finding was read from, and can look for the same rule
 with a disassembler and the report's account of it. A later build has another hash: the game and Steam update, and
 a hash that differs refutes nothing. The checks of [docs/REPRODUCE.md](../docs/REPRODUCE.md) say whether the

@@ -11,7 +11,7 @@ sender's hold depends on it (finding 28), and the `volume` and voice settings us
 
 | Run | State | What it would settle |
 | --- | --- | --- |
-| For the evening of 2026-11-20: files to copy, a real server's log, and what Steam captured | asked 2026-11-20; the first files received, the rest not done | where the 31.25 ms capture step comes from, Windows's capture resampler (by its files, and sample by sample by Steam's own file of what it captured), the owner's own copy of Steam's timer library, and the queue's fade and underrun |
+| For the evening of 2026-11-20: files to copy, a real server's log, and what Steam captured | asked 2026-11-20; part A done 2026-11-21 (every file and the cable's format received, the files being read); parts B and C not done | where the 31.25 ms capture step comes from, Windows's capture resampler (by its files, and sample by sample by Steam's own file of what it captured), the owner's own copy of Steam's timer library, and the queue's fade and underrun |
 | The re-check after a Steam update | to run after each Steam update | whether Steam's voice path is still the one the app runs |
 | The key, for W3-11c | not run; W3-11c waits for it | how Steam's push-to-talk key starts and ends a phrase |
 | `vaudio_miles` in an engine of 2006 or 2007 | run once, on 2026-11-13, in Source SDK Base 2006, with a file as the microphone and with speech; not run: the 2007 engine, a second player, a lost packet | whether the `miles` profile (not in TF2) is what such an engine does |
@@ -59,6 +59,12 @@ down (read once, being read a second time).
 And one setting, no file: the microphone's format as Windows shows it (Settings, System, Sound, the input device,
 "Format": the sample rate and bit depth, and the same for the virtual cable if the takes used one). The conversion
 depends on the rate it starts from.
+
+**Received 2026-11-21:** all ten files of the table above (`SteamUI.dll` with them), and the virtual cable's
+format: 2 channels, 24 bits, 48,000 Hz, input volume 100. Part A is done. The files are rows F33 to F42 of the
+record's table of files ([tests/REFERENCE_2026.md](../tests/REFERENCE_2026.md), "The files that were read"); a
+first read of them began the same day. Not asked and welcome: the format of the real microphone, for the takes
+made with speech.
 
 ### B. A real server's log
 

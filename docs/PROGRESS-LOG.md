@@ -775,3 +775,9 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 ## 2026-11-21: W3-26a merged
 
 - live.last_merge: W3-26a put first; the earlier text follows it unchanged after "Before it:".
+
+## 2026-11-21: the rest of the files received; entries replaced
+
+- waiting_on_the_owner, the evening's entry replaced: "For the evening of 2026-11-20, in docs/owner-runs.md, 'For the evening of 2026-11-20'. Received: dsound.dll, AudioEng.dll, AudioSes.dll, resampledmo.dll, tier0_s64.dll, vstdlib_s64.dll, steam.exe and the current steamclient64.dll. Still wanted: (A) from C:\Windows\System32: winmm.dll, winmmbase.dll, wdmaud.drv, msacm32.drv, msacm32.dll, audiosrv.dll, audiodg.exe, AudioKSE.dll, MMDevAPI.dll; steamui.dll from the Steam folder (optional); and the microphone's format as Windows shows it (sample rate and bit depth); (B) a real server's log, voice_server3.log, with a channel that opens at fps_max 67 and runs unbroken five minutes, for the queue's fade and underrun; its first line also prints snd_mixahead. (C) Added late on 2026-11-20: one take of the test signal through the cable with Steam's mic_outputfile set (Steam writes every sample it captured, before the gate), with voice_recordtofile on: mic_out.wav, voice_decompressed.wav, the console log and Steam's console text. It is the one sample-by-sample test of Windows's conversion to 24 kHz."
+- open_questions, the capture's conversion: in point (2) "asked of the owner" became "received 2026-11-21, being read", with the fold to one channel added.
+- in_flight: one entry added (the private first reads).
