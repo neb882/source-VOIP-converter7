@@ -22,8 +22,9 @@
  *     since what Windows does there was not read.
  *   - An output is the sum of its products in double precision, rounded to a 32-bit float. The
  *     order of adding is chosen, the oldest input first: the first reader's converter adds the
- *     newest first, and either order gives the same bits on every vector, since the sum is
- *     rounded to 32 bits once at the end (measured).
+ *     newest first, with a library routine whose order is not this one. Either order gives the
+ *     same bits on every vector (measured); on longer signals a rare sample can differ from the
+ *     first reference in its last bit (measured: one of about 2.8 million, by 1.3e-6).
  *   - A stream starts with zeros for history (read in part) and gives output k as soon as the
  *     H inputs after its centre are in: it holds back H / rate seconds (computed).
  *   - A finite source of n samples gives max(1, round(n L / M)) outputs, the length the app's
@@ -254,7 +255,10 @@
     let hist = new Float32Array(Math.max(4 * T, 4096));
     let base = -C, filled = C;
     let n = 0;                    // inputs in
-    let k = 0, i = 0, p = 0;      // the next output, its centre's input and its phase
+    // The next output, its centre's input and its phase, by whole-number steps. Exact while
+    // (i + 1) L stays under 2^53: about 90 days of a stream at 47,999 Hz, 80 years at
+    // 44,100 Hz (computed).
+    let k = 0, i = 0, p = 0;
 
     function room(extra) {
       if (filled + extra <= hist.length) return;
@@ -272,10 +276,10 @@
       filled = live;
     }
 
-    // The outputs with centre input at most `last`, from k on.
-    function outputsTo(last) {
+    // The outputs with centre input at most `last`, from k on, and never past output cap - 1.
+    function outputsTo(last, cap = Infinity) {
       if (last < 0) return NONE;
-      const total = Math.floor(((last + 1) * L - 1) / M) + 1;
+      const total = Math.min(cap, Math.floor(((last + 1) * L - 1) / M) + 1);
       if (total <= k) return NONE;
       const out = new Float32Array(total - k);
       for (let j = 0; j < out.length; j++) {
@@ -312,7 +316,8 @@
       wholeCount(count);
       ended = true;
       if (count <= k) return NONE;
-      // The centre input of output count - 1, and the zeros read up to H after it.
+      // The centre input of output count - 1, and the zeros read up to H after it. Where L > M
+      // several outputs share that centre: the cap stops at output count - 1.
       const lastCentre = Math.floor(((count - 1) * M) / L);
       const need = lastCentre + H + 1 - (base + filled);
       if (need > 0) {
@@ -320,7 +325,7 @@
         hist.fill(0, filled, filled + need);
         filled += need;
       }
-      return outputsTo(lastCentre);
+      return outputsTo(lastCentre, count);
     }
 
     return Object.freeze({ push, end });

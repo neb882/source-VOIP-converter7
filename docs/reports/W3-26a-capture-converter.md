@@ -43,11 +43,13 @@ Inside, and not part of the interface:
   not change the stream's samples.
 - `I0` is summed until a term no longer changes the sum (step 4 says "summed to double precision").
 - The sinc table's step array holds one entry more than the rule's, 0, so that an index that rounds up to the
-  table's end reads the last entry rather than nothing. No input of the converter reaches it: the kernel is only
-  asked for points under about 33 zero crossings (computed from step 6).
+  table's end reads the last entry rather than nothing. No input of the converter reaches it: the kernel's
+  argument reaches 34.79 zero crossings below 32 kHz (computed, reviewer; "about 33" in the first build was wrong
+  there) and stays under 35, so the extra entry is never read.
 - The designs are kept by rate and by whether the table is stored; a design used again counts as the newest.
-- A stream tracks its next output's input and phase by whole-number steps (`p += M`, carried into `i`), so its
-  arithmetic stays exact however long it runs.
+- A stream tracks its next output's input and phase by whole-number steps (`p += M`, carried into `i`). Its
+  arithmetic is exact while `(last + 1) x L` stays under 2^53: about 90 days of a stream at 47,999 Hz and about
+  80 years at 44,100 Hz (computed, reviewer). The module says so at the counter.
 
 ## The standings the module's comments carry
 
@@ -59,8 +61,11 @@ which is where the two differ). The double-precision sum outside the limits, row
 finite source and the pass-through at 24,000 Hz are the app's own (chosen).
 
 The order of adding one output's products is chosen (change 5): the module adds the oldest input first, the
-first reference the newest first. Built with the newest first, the suite passes unchanged, every vector bit for
-bit (measured): the sum is rounded to 32 bits once, at its end.
+first reference the newest first, with a library routine whose order is not the module's. Built with the newest
+first, the suite passes unchanged: every vector bit for bit (measured). That is not a guarantee: on longer signals
+a rare sample can differ from the first reference in its last bit (measured by the orchestrator: one sample of
+about 2.8 million on stretches of the test signal read as 44,100 Hz, by 1.3e-6; none in the reviewer's 960,000
+outputs of noise).
 
 `gain()` is the plan review's formula (change 4): `|sum over p and q of table[p][q] e^(-2 pi i f (L j - p) / (R L))| / L`,
 with `j = q - (T - H - 1)` the input offset of tap `q` from the output's instant and `p` with the sign the table's
@@ -99,6 +104,8 @@ changed. The distances are the largest to the first reference over the nine case
 | 8 | `push()` at 24,000 Hz returning the caller's array | the copy check of `push()` |
 | 8 | `push()` writing into the array it is given (its first sample set to 0) | the unchanged-input check; checks 4, 5 and 7 |
 | 8 | a rate rounded up in place of to the nearest | 44100.4 Hz against 44,100 Hz |
+| 8 | a rate truncated in place of rounded (fix round 1: the first build's 44100.4 does not catch it) | 44100.6 Hz against 44,101 Hz (`L` 24,000, `M` 44,101) |
+| 1 and 6 | `end(count)` without its cap (fix round 1, the first build's fault) | the vectors ended at every count past what `push()` gave at 11,025, 22,050, 16,000 and 8,000 Hz (one or two outputs too many: `end(1105)` gave 1,107 at 8,000 Hz); every length from 1 to 600 samples (one sample at 11,025 Hz gave 3 for 2); `end()` in mid-phase (8,000 Hz, 10 inputs, `end(1)` gave 3) |
 | 8 | the kept designs never dropped | the oldest of three tables of 3,072,000 entries still given as the same object |
 
 What each check holds, and against what:
@@ -161,7 +168,10 @@ Measured on a shared four-core machine, Node 22.23.4, best of three:
 | the table for 47,999 Hz (3,072,000 entries) | 0.10 s |
 | one second from 191,999 Hz, rows made as needed (12,000,000 entries; the scale's pass included) | 0.56 s |
 
-The suite runs in about 1.5 s.
+Of the 0.56 s, about 0.32 s is the one pass over the table's 12,000,000 entries that finds the scale, made once
+for a design; with the design made, the second takes 0.25 s, the plan's figure (measured, reviewer).
+
+The suite runs in about 2.5 s.
 
 ## The suites run
 
@@ -177,6 +187,39 @@ The suite runs in about 1.5 s.
 The `tests` workflow's run 44846059206 on `694b449`, the branch's last commit outside `docs/`: every job passed
 (`units`, `engine`, `render`, `stages`, `browser`) and `verify` is green. The commits after it change only
 `docs/`, which the workflow does not run on (its `paths-ignore`).
+
+## Fix round 1
+
+The review found one major fault. `end(count)` asked for every output whose centre is at or before the centre of
+output `count - 1`. Where `L > M` several outputs share one centre, so `end()` gave up to `ceil(L / M) - 1`
+outputs past `count`, and `convert()` came out longer than `length()` from a source below 24 kHz (at 11,025 Hz
+for 995 of the lengths from 1 to 2,000, the reviewer measured). The fix: `outputsTo()` takes a cap, and `end()`
+passes `count`. `end()` now gives exactly the outputs not yet given up to `count` in all.
+
+Why the first build's checks missed it: the lengths it tested (1, 2, 3 and 1,201 samples) were at 44,100, 48,000
+and 8,000 Hz, and only 8,000 Hz has `L > M`; there `round(n x 3)` is a whole number of centres for any `n`, so
+the overshoot never showed. The vectors below 24 kHz (400 samples at 22,050, 16,000, 11,025 and 8,000 Hz) all end
+on the last output of a centre: at 11,025 Hz output 870 is the last of centre 399 (computed). Check 4 ended every
+stream at `length()`, the same count.
+
+The new checks, each with the break that fails it above:
+
+- In check 1, a stream of each case's inputs ended at every count past what `push()` gave (11,025 Hz: 803 to 871;
+  22,050 Hz: 402 to 435; 16,000 Hz: 553 to 600; 8,000 Hz: 1,105 to 1,200), most in mid-phase, gives exactly that
+  many outputs, the first reference's bit for bit. The expected samples are the vector cut at the count. The cut
+  is a valid expected value: the first reference computes each output `k` from the inputs and `k` alone (the loop
+  of `winsrc.convert`, one output at a time), and the vector was made from the same inputs followed by zeros,
+  which is what `end()` reads after the input. A shorter source could not be cut so, since the vector's later
+  outputs read the case's later inputs. No new vector was needed.
+- In check 6, `convert()` and `length()` give `max(1, round(n L / M))` outputs, with the test's own gcd, for every
+  source from 1 to 600 samples at 11,025, 22,050, 23,999, 16,000, 8,000, 12,000, 32,000, 44,100 and 48,000 Hz.
+- In check 6, `end(count)` in mid-phase gives exactly `count` in all: 8,000 and 16,000 Hz, 10 inputs, counts 1,
+  2, 4, 29 and 30, the samples those of the same stream ended at 30.
+- In check 8, a rate of 44100.6 behaves as 44,101 Hz. The break `Math.trunc` for `Math.round` passed the first
+  build's suite (44100.4 rounds down either way); it fails this one.
+
+The words: the order of adding (above) no longer claims more than the vectors; the kernel's reach and the
+counter's exactness are corrected (above, and at the counter in the module).
 
 ## The plan review's changes
 

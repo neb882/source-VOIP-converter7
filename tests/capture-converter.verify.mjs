@@ -115,6 +115,29 @@ for (const c of V.cases) {
   }
 }
 
+{
+  // A stream of a case's inputs ended at every count past what push() gave, most in mid-phase (several outputs on
+  // one centre where L > M). The expected samples are the first `count` of the case's vector: the first reference
+  // computes each output k from the inputs and k alone (winsrc.convert's loop), and the vector was made from these
+  // same inputs followed by zeros, which is what end() reads after the input. So the vector cut at any count is the
+  // reference's output for that count. (A shorter source could not be cut so: the vector's later outputs read the
+  // case's later inputs, not zeros.)
+  for (const rate of [11025, 22050, 16000, 8000]) {
+    const c = V.cases.find((v) => v.rate === rate), x = source(c.samples, c.seed), first = floats(c.first);
+    let wrong = '', given = 0;
+    for (let count = 1; count <= c.outputs && !wrong; count++) {
+      const s = C.createStream(rate), a = s.push(x);
+      given = a.length;
+      if (count <= given) continue;
+      const y = join2([a, s.end(count)]);
+      const d = sameBits(y, first.subarray(0, count));
+      if (d) wrong = `end(${count}): ${d}`;
+    }
+    check(`${rate} Hz: the case's ${c.samples} inputs ended at every count from ${given + 1} to ${c.outputs} give exactly that many outputs, the first reference's bit for bit`,
+      !wrong, wrong);
+  }
+}
+
 // ---------------------------------------------------------------- 2. the gain
 
 console.log('2. The gain (the vectors\' gain_db, computed by both references; a tone through convert() fitted over its middle)');
@@ -239,6 +262,30 @@ check('length(0, R) is 0, length(1, 48000) 1, length(12345, 44100) 6,718, length
   [8000, 44100, 48000, 44056].every((r) => C.length(0, r) === 0) && C.length(1, 48000) === 1
   && C.length(12345, 44100) === 6718 && C.length(12345, 48000) === 6173,
   `${C.length(1, 48000)} ${C.length(12345, 44100)} ${C.length(12345, 48000)}`);
+{
+  // The length of every source from 1 to 600 samples, by the test's own arithmetic: max(1, round(n L / M)).
+  const gcd = (a, b) => (b ? gcd(b, a % b) : a), wrong = [];
+  for (const rate of [11025, 22050, 23999, 16000, 8000, 12000, 32000, 44100, 48000]) {
+    const g = gcd(rate, 24000), L = 24000 / g, M = rate / g;
+    for (let n = 1; n <= 600; n++) {
+      const expect = Math.max(1, Math.floor(n * L / M + 0.5)), got = C.convert(source(n, n), rate).length;
+      if (got !== expect || C.length(n, rate) !== expect) { wrong.push(`${rate} Hz, ${n} samples: ${got}, length() ${C.length(n, rate)}, not ${expect}`); break; }
+    }
+  }
+  check('convert() and length() give max(1, round(n L / M)) outputs for every source of 1 to 600 samples, at 11,025, 22,050, 23,999, 16,000, 8,000, 12,000, 32,000, 44,100 and 48,000 Hz',
+    wrong.length === 0, wrong.join('; '));
+  const bad = [];
+  for (const rate of [8000, 16000]) {
+    const x = source(10, 10), whole = C.createStream(rate);
+    const all = join2([whole.push(x), whole.end(30)]);
+    for (const count of [1, 2, 4, 29, 30]) {
+      const s = C.createStream(rate), y = join2([s.push(x), s.end(count)]);
+      if (y.length !== count || sameBits(y, all.subarray(0, count))) bad.push(`${rate} Hz end(${count}): ${y.length}`);
+    }
+  }
+  check('end(count) in mid-phase gives exactly count outputs in all (8,000 and 16,000 Hz, 10 inputs, counts 1, 2, 4, 29 and 30)',
+    bad.length === 0, bad.join('; '));
+}
 check('a source of n samples gives length(n) outputs, at 1, 2, 3 and 1,201 samples from 44,100, 48,000 and 8,000 Hz',
   [44100, 48000, 8000].every((r) => [1, 2, 3, 1201].every((n) => C.convert(source(n, n), r).length === C.length(n, r)))
   && C.convert(new Float32Array(0), 44100).length === 0);
@@ -296,6 +343,9 @@ console.log('8. At 24,000 Hz (no conversion), and what the interface promises');
   check('a rate of 44100.4 behaves as 44,100: the same samples, the same wait, the same kept design',
     !sameBits(C.convert(x, 44100.4), whole) && C.wait(44100.4) === C.wait(44100) && C.design(44100.4) === C.design(44100)
     && C.length(12345, 44100.4) === 6718);
+  const up = C.design(44100.6);
+  check('a rate of 44100.6 behaves as 44,101: its design is of 44,101 Hz, L 24,000 and M 44,101 (gcd 1)',
+    up.rate === 44101 && up.L === 24000 && up.M === 44101 && C.wait(44100.6) === C.wait(44101), `${up.rate} ${up.L} ${up.M}`);
   const bad = [NaN, Infinity, -Infinity, 0, 0.5, -48000, '48000', null, undefined].filter((r) => !threw(() => C.convert(x, r), RangeError)
     || !threw(() => C.createStream(r), RangeError) || !threw(() => C.design(r), RangeError) || !threw(() => C.wait(r), RangeError)
     || !threw(() => C.length(10, r), RangeError) || !threw(() => C.gain(r, 1000), RangeError));
