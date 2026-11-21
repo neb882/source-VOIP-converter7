@@ -386,15 +386,17 @@ async function steamSection() {
       r.codecInfo.resampler.calls === holding(s.msgs) && s.msgs.some((m) => m.silence !== undefined) && r.codecInfo.resampler.kernel === Swr.DEFAULT_KERNEL,
       `${r.codecInfo.resampler.calls} calls, ${s.msgs.length} messages`);
     // The spurt's pre-roll, the warm-up's zeros in its first chunk, the lead and the source a
-    // whole number of frames: 98,400 samples from the spurt's start (-2400 less those zeros
-    // less the lead), so the source is 96,000 samples less them. Seed 0xC0FFEE: its lead is 377
-    // and its first chunk begins with 750 zeros of the warm-up (the W3-27 order's ruling of
-    // 2026-11-21), so 94,873 samples. (On W3-16's clock its lead was 49 and there was no
-    // warm-up: 95,951.)
-    const before = 98400 + senderOf(talk(4, 17), { seed: 0xC0FFEE, gate: false }).info.spurts[0].start;
+    // whole number of frames, ending where a read ends: 86,400 samples from the spurt's start
+    // (-2400 less those zeros less the lead), so the source is 84,000 samples less them. Seed
+    // 0xC0FFEE: its lead is 377 and with the warm-up of 4.5 s its first chunk holds none of the
+    // warm-up's zeros, so 83,623 samples; 96,000 less them (95,623) ends inside a chunk since the
+    // second fix round, so the source is 12,000 samples (a whole number of steps and of frames)
+    // shorter. (With the warm-up of 1.5 s 96,000 less the lead and 750 zeros, 94,873; on W3-16's
+    // clock its lead was 49 and there was no warm-up: 95,951.)
+    const before = 86400 + senderOf(talk(4, 17), { seed: 0xC0FFEE, gate: false }).info.spurts[0].start;
     const exact = talk(4, 17).subarray(0, before), g = senderOf(exact, { seed: 0xC0FFEE, gate: false }), last = g.msgs[g.msgs.length - 1];
     const rg = await render(exact, { seed: 0xC0FFEE, gate: false });
-    check(`once per message: the gate off, 96,000 samples less the lead and the warm-up's zeros in the first chunk (${before}) and seed 0xC0FFEE end on an empty end message, which makes no call`,
+    check(`once per message: the gate off, 84,000 samples less the lead and the warm-up's zeros in the first chunk (${before}) and seed 0xC0FFEE end on an empty end message, which makes no call`,
       last.end && last.last === last.first - 1 && last.pcm.length === 0 && rg.codecInfo.resampler.calls === g.msgs.length - 1,
       `${rg.codecInfo.resampler.calls} calls, ${g.msgs.length} messages`);
     const three = bursts(8, [0.5, 3, 5.5], 1, -60), h = hooked();
@@ -496,11 +498,11 @@ async function steamSection() {
   // Laying (point 8) and the slots (point 9). On this source two spurts meet
   // (the gate closes and opens again, its pre-roll over the last one's end),
   // and some anchors round up. The gain off: what is laid is what reaches onGain.
-  // The seed is 9 since W3-27b's fix round, the first from 1 whose spurts meet with the
-  // sender's warm-up (seeds 1 to 8 have none laid twice); it was 5 on W3-27b's clock with no
-  // warm-up, 10 since W3-16's, and 1 before it.
+  // The seed is 3 since W3-27b's second fix round, the first from 1 whose spurts meet with the
+  // sender's warm-up of 4.5 s (seeds 1 and 2 have none laid twice); it was 9 with the warm-up of
+  // 1.5 s, 5 on W3-27b's clock with no warm-up, 10 since W3-16's, and 1 before it.
   {
-    const x = talk(12, 11), h = hooked(), r = await render(x, { seed: 9, agc: false, voiceScale: 1 }, h), L = r.codecInfo.lookahead;
+    const x = talk(12, 11), h = hooked(), r = await render(x, { seed: 3, agc: false, voiceScale: 1 }, h), L = r.codecInfo.lookahead;
     const want = new Float32Array(h.gained.length);
     let spurt = null, cursor = 0, twice = 0, up = 0;
     for (const { y, msg } of h.resampled) {
@@ -1016,7 +1018,7 @@ async function steamLossTests({ R, VR, Swr, lib, encoderOptions, senderOf, hooke
   // state it leaves (rule C) is shown on the codec module's stream with a
   // second spurt put after it.
   {
-    const o = { seed: 0xC0FFEE, gate: false }, exact = talk(4, 17).subarray(0, 98400 + senderOf(talk(4, 17), o).info.spurts[0].start);   // as above
+    const o = { seed: 0xC0FFEE, gate: false }, exact = talk(4, 17).subarray(0, 86400 + senderOf(talk(4, 17), o).info.spurts[0].start);   // as above
     const { msgs } = senderOf(exact, o), k = msgs.length - 1, marker = msgs[k];
     const calls = [], plain = await render(exact, o);
     const r = await render(exact, { ...o, loseMessage: (i) => { calls.push(i); return i === k; } });
@@ -1311,6 +1313,9 @@ async function liveSteamSection() {
   // on 8 s of talk; the gain off with voice_scale 2 on louder talk, which the
   // scale and the clip of stage 4 must reach.
   const x8 = talk(8, 24000, 3), x8loud = talk(8, 24000, 3, 0.6);
+  // The warm-up's zeros in the first chunk of a seed (W3-27b's fix rounds): the gate-off spurt
+  // starts that much before -2400 - lead. From the seeded clock's own reads.
+  const warmIn = (sd) => { const c = Sender.createClock({ seed: sd }), W = Sender.STEAM_SENDER.warmUp; let n = 0; for (;;) { const k = n + c.next().samples; if (k > W) return W - n; n = k; } };
   {
     const up = [await renderRun(x8, 24000, { seed, steamUptime: 14400 }), await renderRun(x8, 24000, { seed, steamUptime: 3110400 })];
     check('two uptimes end a spurt on different chunks in the render of this source (seed 7: 14400 s and 3110400 s)',
@@ -1326,7 +1331,7 @@ async function liveSteamSection() {
         const eq = equalsRender(live, ren);
         check(`the live chain is the render with ${name} (blocks of ${plan})`,
           eq.diff === -1 && eq.n > 0.9 * ren.laid.length && eq.packets && eq.codes && eq.counted && live.stats.droppedLate === 0 && live.stats.movedLate === 0
-          && (o.gate !== false || (ren.info.sender.spurts.length === 1 && ren.info.sender.spurts[0].start === -S.preroll - Sender.createSender({ seed, gate: false }).info().lead && live.gateDb === null))
+          && (o.gate !== false || (ren.info.sender.spurts.length === 1 && ren.info.sender.spurts[0].start === -S.preroll - warmIn(seed) - Sender.createSender({ seed, gate: false }).info().lead && live.gateDb === null))
           && (o.agc !== false || clipped),
           `${eq.n} samples, first difference at ${eq.diff}; gate ${live.gateDb}${o.agc === false ? `; the render clips: ${clipped}` : ''}`);
       }

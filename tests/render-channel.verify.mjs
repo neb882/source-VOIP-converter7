@@ -517,12 +517,11 @@ if (runs(4)) {
       own.length > 0 && own.every((s) => !s.opened && within(s.offsetStartMs, lo, hi)), `${own.length} seeds: ${fmt(own.map((s) => s.offsetStartMs))} ms`);
   }
   const appended = q300.map((i) => i.spurts[1]).filter((s) => s && !s.opened);
-  // The band's top was -215 until W3-27b's fix round: with the sender's warm-up these seeds give
-  // -347.0 to -207.2 ms (10 of 10; measured on the build), so the top is -200, about 7 ms past the
-  // measured end. An appended spurt's start is the running queue's fill, which moves with each
-  // seed's draws; the bottom stays.
-  check('Q at 300 fps: spurts[1] (after 900 ms) is not opened in at least 7 of seeds 1 to 10, its offsetStartMs -380 to -200',
-    appended.length >= 7 && appended.every((s) => within(s.offsetStartMs, -380, -200)), `${appended.length} of 10: ${fmt(appended.map((s) => s.offsetStartMs))} ms`);
+  // The band's top was -200 in W3-27b's first fix round (the warm-up of 1.5 s gave -347.0 to -207.2 ms); with
+  // the warm-up of 4.5 s these seeds give -321.7 to -249.0 ms (10 of 10; measured on the build), inside the band of
+  // before it, so the band is -380 to -215 again.
+  check('Q at 300 fps: spurts[1] (after 900 ms) is not opened in at least 7 of seeds 1 to 10, its offsetStartMs -380 to -215',
+    appended.length >= 7 && appended.every((s) => within(s.offsetStartMs, -380, -215)), `${appended.length} of 10: ${fmt(appended.map((s) => s.offsetStartMs))} ms`);
   check('Q at 66.67 fps: spurts[1] is opened, every seed', q67.every((i) => i.spurts[1] && i.spurts[1].opened),
     `${q67.filter((i) => i.spurts[1] && i.spurts[1].opened).length} of 10`);
   const opened = [...p300, ...p67, ...q300, ...q67].flatMap((i) => i.spurts.filter((s) => s.opened));
@@ -574,7 +573,11 @@ if (runs(5)) {
 
 if (runs(6)) {
   console.log('\n[6] A lost message through the queue (BC-3), against the \'source\' render of the same loss');
-  const t0 = performance.now(), rate = 44100, x = noise(20, rate, 13, 0.2), seed = 4;
+  // The seed is 1 since W3-27b's second fix round, the first from 1 that gives every premise of the
+  // section with the sender's warm-up of 4.5 s: with seed 4, the seed before it, the shift across
+  // the gap of 0.26 s at 300 fps could not be found on one side (seeds 1, 2, 3, 5, 6 and 7 pass, 8
+  // does not; measured on the build).
+  const t0 = performance.now(), rate = 44100, x = noise(20, rate, 13, 0.2), seed = 1;
   // The sender's messages of this source and seed (they do not depend on the loss).
   const dry = await sourceRender(x, rate, { agc: false, seed });
   const sound = (m) => m.silence === undefined && m.last >= m.first;
@@ -672,7 +675,7 @@ if (runs(6)) {
 
 // D, the delay the channel takes out, with the Opus codec's 156 samples at 24 kHz
 // (pinned by tests/voice-channel.verify.mjs). W3-27b: 24064 at 300 fps with the arrival at
-// 42.0 ms (24576 at 50.5); 13312 at 66.67 either way.
+// 42.0 ms (24576 at 50.5); 13312 at 66.67 either way. Both the same at 42.5 ms (the second fix round).
 const D = { 300: 24064, 66.67: 13312 };
 if (runs(7)) {
   console.log('\n[7] The stream: createRender under \'game\' gives process()\'s render, and gives out its samples as the source comes');
@@ -790,7 +793,8 @@ if (runs(9)) {
 // the codec's look-ahead the chain holds back on the file's own timing, 4,650 and 156 samples at 24 kHz
 // (read: engine/steam.js steamReach from the sender's constants, and the codec's look-ahead).
 // W3-27b: with the arrival at 42.0 ms D is a block less at 10, 20, 50, 60 and 300 fps (it was
-// 9728, 10240, 12288, 12800 and 24576 at 50.5 ms) and the same at 30, 66.67 and 100.
+// 9728, 10240, 12288, 12800 and 24576 at 50.5 ms) and the same at 30, 66.67 and 100. At 42.5 ms (W3-27b's
+// second fix round) every one is the same.
 const LIVE_D = { 10: 9216, 20: 9728, 30: 10752, 50: 11776, 60: 12288, 66.67: 13312, 100: 15360, 300: 24064 };
 // W3-23b (the plan review's edit 11): what the chain holds back at its mix point, D and, under 1000/15, the blocks
 // of a frame, ceil(88200 / (1024 fps)): 9 at 10 fps, 5 at 20, 3 at 30, 2 at 50 and 60, none at 66.67 and above
@@ -2279,7 +2283,7 @@ if (runs(26)) {
 // opens and the SHA-256 of the indices joined by commas. W3-27b recorded the two rows at 300 fps again, in a commit
 // of its own, from the run in which every other check passed: this traffic runs no sender, and the indices move
 // through the model's zero only (D at 300 fps with the codec's 156 samples is 24,064 with the arrival at 42.0 ms,
-// 24,576 at 50.5; it does not move at 66.67, and neither do those rows).
+// 24,576 at 50.5; it does not move at 66.67, and neither do those rows; at 42.5 ms it is 24,064 again).
 const OPEN_MAIN = {
   '66.67 1': [29, '25d5124e30fbdd5057f5a4c6ecb056676f3c7bec05f0977495e068488eebdd9b'],
   '66.67 2': [32, '30608ed5c0c48f3fe3743dfeb934b96a4463824f799a5499868a8cf5f3f4bccb'],
