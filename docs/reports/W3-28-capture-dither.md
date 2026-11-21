@@ -26,6 +26,7 @@ removed or renamed.
 | `tests/README.md` | `verify.js`'s and `steam.verify.js`'s rows |
 | `tests/REFERENCE_2026.md` | one dated line under finding 28, after "In the app" in "From the device to Steam's 16-bit samples"; nothing rewritten |
 | `tests/predictions/PREDICTIONS.md` | its dated line |
+| `README.md`, `docs/ACCURACY.md` | (fix round 1, asked by the orchestrator) the lines that said the app rounds with no dither |
 | `docs/reports/W3-28/` | `hashes-before.txt` (the untouched tree) and `hashes-after.txt` (the branch), from `node tests/render-stream.verify.mjs --hashes` |
 
 The suite is a section of `tests/steam.verify.js` ([5e]), not a suite of its own: it needs the steam render, the
@@ -34,22 +35,27 @@ CI jobs, which the order does not list.
 
 ## The table
 
-- **Its hash is the order's.** SHA-256 of the 4,096 values as 32-bit floats, least byte first:
-  `7c3ef8d281fd1ce1bc9834c34c4c5a08add9b3ef0208ec23e02f82244d93ee91`. Three methods give it in a scratch run: the
+- **Its seed is `0x28D17E6`, by the order's ruling after the build** (fix round 1, below). The first build used
+  the order's `0x28D17E5`.
+- **Its hash is the ruling's.** SHA-256 of the 4,096 values as 32-bit floats, least byte first:
+  `a2befc20946bdd05889adb16f5dc87cf6a5d8a1bda05079fa2bfdc2537a45195`. Three methods give it in a scratch run: the
   plain sum as the order writes it, the sum with the argument reduced modulo 4,096, and a radix-2 inverse transform.
-  The largest difference between them before the rounding was 7.9e-13, against 5.6e-13 from the nearest value to an
-  8-decimal boundary (measured once), the reviewer's figures.
+  The largest difference between them before the rounding was 8.3e-13, against 1.4e-12 from the nearest value to an
+  8-decimal boundary (measured once). With `0x28D17E5` the same three gave the order's first hash,
+  `7c3ef8d2...93ee91`.
 - **The module's method** is the radix-2 inverse transform in double precision (bit reversal, butterflies with
   e^(+2 pi i j / len), then the factor 1/4096), each value rounded to 8 decimals in steps and then to a 32-bit float
   of steps / 32768. The suite makes the table a second way, by the plain sum, and holds the module's to it value for
   value and to the pinned hash.
-- **Its time:** 5.3 ms for the first dithered capture in a fresh load inside the suite, and 7.5 ms in a scratch run
-  of a bare load (measured once each, on a machine shared with other agents); the next capture takes 0.01 ms. It is
+- **Its time:** 7.4 ms for the first dithered capture in a fresh load inside the suite (5.3 ms in the first build's
+  run), and 6.2 ms for the transform alone in a scratch run (measured once each, on a machine shared with other
+  agents); the next capture takes 0.01 ms. It is
   made at the first `createSteamCapture` with `dither` true, never at load and never inside a live block (the live
   chain makes its step when the chain is made, before its first block).
-- **Its figures** (the suite's detail line): mean 3.22e-11 of a step, rms 4.22e-10 under 1/sqrt(6), extremes
-  -1.4599 and +1.5149 steps; on its values rounded to 8 decimals every bin of the transform is within 4.73e-7 of
-  4096/sqrt(6 x 4095), the constant part 2.4e-7. These match the reviewer's.
+- **Its figures** (the suite's detail lines): mean -4.73e-11 of a step, rms 4.37e-11 under 1/sqrt(6), extremes
+  -1.38477266 and +1.34817636 steps as 32-bit floats (-1.38477267 and +1.34817641 before the step to 32-bit floats,
+  the orchestrator's figures by the plain sum, which the 8-decimal values give alike); on its values rounded to 8
+  decimals every bin of the transform is within 4.77e-7 of 4096/sqrt(6 x 4095), the constant part 1.8e-7.
 - **It is module-private:** a holder object of `engine/steam.js`; `steamDitherTable()` hands out a copy, and the
   suite writes into the copy and sees the next copy unchanged.
 
@@ -99,30 +105,35 @@ from the stage the lists say.
 Measured once on the model (`process()` on `a822707` and on the branch, render-stream's speech-like signal and its
 page options; the capture difference from the converter's output through each step, 48 kHz unless named). The level
 of the difference between the two capture signals is -95.1 dBFS on talk (a third of the samples move, each by one
-step) and -97.0 dBFS on silence. That is above the table's own level, -98.1 dBFS (1/sqrt(6) of a step, computed),
+step) and -97.0 dBFS on silence (the first build's table gave the same to 0.05 dB). That is above the table's own level, -98.1 dBFS (1/sqrt(6) of a step, computed),
 because the difference of two roundings is not the table itself; on silence it is exactly the rms of the table
 rounded to steps.
 
 | Case | Spurts | Messages | Bytes, before and after | Frames of 2 bytes or less |
 | --- | --- | --- | --- | --- |
-| steam, 20 s | 9 and 9 | 218 and 218 | 36,956 and 36,968 | 155 and 155 |
-| gate off | 1 and 1 | 269 and 269 | 30,679 and 30,604 | 372 and 373 |
-| gate on at -30 dBFS | 10 and 10 | 163 and 163 | 26,738 and 26,751 | 140 and 140 |
-| high-pass 250 Hz, low-pass 3500 Hz | 10 and 10 | 163 and 163 | 24,822 and 25,142 | 142 and 142 |
-| mic gain 4 | 6 and 6 | 178 and 178 | 31,516 and 31,566 | 132 and 132 |
-| loss 15%, jitter 50 ms, 40 ms packets | 6 and 6 | 168 and 168 | 25,757 and 25,692 | 130 and 131 |
-| from 44,100 Hz | 9 and 9 | 210 and 210 | 35,305 and 35,196 | 157 and 157 |
-| from 96,000 Hz | 7 and 7 | 225 and 225 | 36,814 and 36,734 | 156 and 156 |
-| from 22,050 Hz | 6 and 6 | 212 and 212 | 36,907 and 36,945 | 149 and 149 |
-| seed 1 | 6 and 6 | 169 and 169 | 28,543 and 28,532 | 131 and 131 |
-| seed 2 | 7 and 7 | 165 and 165 | 28,364 and 28,372 | 130 and 130 |
-| seed 7, gate off | 1 and 1 | 272 and 272 | 30,577 and 30,515 | 373 and 373 |
+Measured again in fix round 1 with the table of seed `0x28D17E6`:
+
+| Case | Spurts | Messages | Bytes, before and after | Frames of 2 bytes or less |
+| --- | --- | --- | --- | --- |
+| steam, 20 s | 9 and 9 | 218 and 218 | 36,956 and 36,964 | 155 and 155 |
+| gate off | 1 and 1 | 269 and 269 | 30,679 and 30,746 | 372 and 372 |
+| gate on at -30 dBFS | 10 and 10 | 163 and 163 | 26,738 and 26,732 | 140 and 140 |
+| high-pass 250 Hz, low-pass 3500 Hz | 10 and 10 | 163 and 163 | 24,822 and 24,992 | 142 and 143 |
+| mic gain 4 | 6 and 6 | 178 and 178 | 31,516 and 31,468 | 132 and 132 |
+| loss 15%, jitter 50 ms, 40 ms packets | 6 and 6 | 168 and 168 | 25,757 and 25,762 | 130 and 130 |
+| from 44,100 Hz | 9 and 9 | 210 and 210 | 35,305 and 35,258 | 157 and 157 |
+| from 96,000 Hz | 7 and 7 | 225 and 225 | 36,814 and 36,718 | 156 and 156 |
+| from 22,050 Hz | 6 and 6 | 212 and 212 | 36,907 and 36,956 | 149 and 149 |
+| seed 1 | 6 and 6 | 169 and 169 | 28,543 and 28,497 | 131 and 131 |
+| seed 2 | 7 and 7 | 165 and 165 | 28,364 and 28,323 | 130 and 130 |
+| seed 7, gate off | 1 and 1 | 272 and 272 | 30,577 and 30,578 | 373 and 373 |
 | silence, gate off, 5 s | 1 and 1 | 91 and 91 | 716 and 869 | 236 and 236 |
-| the -72 dBFS floor alone, gate off, 5 s | 1 and 1 | 91 and 91 | 2,265 and 2,258 | 223 and 223 |
+| the -72 dBFS floor alone, gate off, 5 s | 1 and 1 | 91 and 91 | 2,265 and 2,252 | 223 and 223 |
 
 The list of spurts (start, frames, pre-roll) is the same before and after in every case. The bytes move by at most
-1.3% on talk and rise by 21% (153 bytes) on silence with the gate off. The frames of 2 bytes or less move by one in
-two cases. The output samples differ in 56 to 95% of places on talk.
+0.7% on talk and rise by 21% (153 bytes) on silence with the gate off. The frames of 2 bytes or less move by one in
+one case. The output samples differ in 56 to 93% of places on talk. (The first build's table: bytes within 1.3% on
+talk, the same 21% on silence, frames of 2 bytes or less moved by one in two cases.)
 
 **The accuracy suite's public rows** were not run: every row of `tests/accuracy.takes.json` needs the owner's takes,
 and the published recordings (`tests/recordings/files/`) are CELT and Speex files, which the step does not touch.
@@ -143,9 +154,11 @@ first six, through a copy of the suite that skips its other sections).
 | the dither left on for a 24,000 Hz source | [5e] "steamCaptureStep dithers where ..." (a start at 24,000 Hz) and "where the step does not run" (every 24 kHz render apart), and `render-stream`'s two 24,000 Hz cases (below) |
 
 [5e]'s checks: the table (above); the table made once; the step against the suite's own on noise, quiet noise, a sine
-at 1.3 that clips at both ends, silence and 4,096 exact ties built on the sum (each proved exact first:
-`fround(x + T[i]) x 32768 = k + 0.5`), 2,048 from an even k and 2,048 from an odd; silence in, every value from -2
-to +2, not all 0, with the rms of the table rounded (-1: 1,365, 0: 9,648, +1: 1,272, +2: 3 over 12,288 samples);
+at 1.3 that clips at both ends, silence and 4,095 exact ties built on the sum (each proved exact first:
+`fround(x + T[i]) x 32768 = k + 0.5`), 2,048 from an even k and 2,047 from an odd; since fix round 1, no value of
+the table reaching 1.5 steps (the largest 1.38477266) and 8,192 samples of silence from six starts (six seeds)
+giving only -1, 0 and +1, each present (-1: 838, 0: 6,418, +1: 936 at every start); silence in, every value from
+-1 to +1, not all 0, with the rms of the table rounded (-1: 1,257, 0: 9,627, +1: 1,404 over 12,288 samples);
 pieces of 1, 7, 240, 750 and 4,097 and of those in turn equal one push; pushes of 1,000 and 7,192 samples of silence
 equal one of 8,192 and differ from a step restarted at the second; `steamCaptureStep`'s start at 48, 44.1 and 16 kHz
 and none at 24 kHz, at 24,000.4 Hz, with dither false or absent; renders of the profile and of a copy with dither
@@ -177,8 +190,47 @@ pieces of 1, 777, 4,097 and 30, and the live chain in blocks of 441, decoding th
   predictions' notes; its run is read in the hand-back.
 - `--hashes` at the end, after the full run: the same file as the one taken after the change, byte for byte
   (`docs/reports/W3-28/hashes-after.txt`).
+- Fix round 1, `flock /tmp/tf2ve-heavy.lock pnpm test render-stream render-channel stages steam verify harness` after
+  the hashes' commit: "6 of 6 suites passed. 1037.8 s summed". The site suite passed too. CI on the round's head
+  is read in the hand-back.
 - The 24,000 Hz break against `render-stream`: the two 24,000 Hz cases fail, in their WAV and codecInfo and their
   gain hashes (4 failed, 632 passed), and nothing else.
+
+## Fix round 1
+
+**Why.** The order's seed `0x28D17E5` gives a table with one value beyond 1.5 steps (+1.51486488), so silence
+through the step gave a 2 once in 4,096 samples (the first build's [5e] showed it: +2: 3 in 12,288). Windows's table
+stays inside 1.5 steps (extremes -1.47 and +1.49, measured on the private copy), so a silent input through it gives
+only -1, 0 and +1. The orchestrator ruled (the order's last section, "A ruling after the build"): the seed is
+`0x28D17E6`, the first after `0x28D17E5` whose table has every value inside 1.5 steps. Nothing else of the rule
+changed.
+
+**What changed.**
+- `engine/steam.js`: `DITHER_SEED` is `0x28D17E6`, and its comment says why.
+- `constants.js`: the comment on `capture` says it too.
+- `tests/steam.verify.js` [5e]:
+  - the pinned hash is the ruling's, and the suite's own table takes the new seed;
+  - two checks are added: no value reaches 1.5 steps in size, and 8,192 samples of silence from six seeds give only
+    -1, 0 and +1, each present;
+  - the silence check that allowed -2 to +2 now allows -1 to +1.
+- The recorded hashes, again in a commit of their own (below).
+- `docs/VOICE-PATH.md` and the record's line: the "now and then ±2" is gone, and the seed's reason and the extremes
+  are named.
+- `README.md` and `docs/ACCURACY.md`: brought to what is built, as the orchestrator asked.
+
+**The break.** The seed set back to `0x28D17E5` in a scratch copy fails six of [5e]'s checks:
+- the table's check (its hash);
+- "no value of the dither table reaches 1.5 steps" (the largest 1.51486492);
+- "silence through the dithered step ... only -1, 0 and +1" (a 2 twice in 8,192 at each start);
+- "silence in: every value from -1 to +1" (+2: 3);
+- "the step is the rule's" and "one capture, one index", whose own chain has the new table.
+
+The six breaks of the first build were made again on the fix round's code, and each still fails [5e].
+
+**Hashes.** Against main the same cases move as in the first build, and no other: the 100 entries of
+`render-stream` (`GOLDEN` and `GAIN_GOLDEN` of the same 50 cases) are the first build's set exactly. Every one of
+them moved again against the first build's values. In `render-channel`, LIVE_MAIN's three steam rows moved again and
+its `celt_22` row did not. `docs/reports/W3-28/hashes-after.txt` is made again.
 
 ## Scanned
 
@@ -187,8 +239,6 @@ SteamIDs and model names: none, but the attribution trailer each commit message 
 
 ## Not done, and what to know
 
-- `README.md` (line 104) and `docs/ACCURACY.md` (lines 47, 60 and 77) still say the app rounds with no dither (not
-  built yet). The order does not name them, so the branch leaves them to the orchestrator.
 - The accuracy suite's public rows: none exist for `steam` (above).
 - The level of the capture's difference is -95.1 dBFS on talk, not the table's -98.1: the order's "about -98" is
   the table's own level; the difference of two roundings is larger (above).
