@@ -377,3 +377,275 @@ W3-27a's sections; `voice-channel` 3 min 53 s.
   way of counting, at the pull's start; the planner's way is not in the repository. Both are given on `main` and on
   the branch alike, so they compare with each other and not with the order's figures.
 
+
+## Fix round 1 (2026-11-21): a render does not start cold
+
+The order's section "A ruling after the second read (2026-11-21): a render does not start cold", items 1 to 10, built
+on this branch (main was not merged in; its only change is that section). Where this section and the ones above
+differ, this one holds: the tone of [3c4] is 0.5 s again, `tests/steam-sender/README.md` is changed, and the hashes
+after this round are `docs/reports/W3-27b/hashes-after-fix1.txt`.
+
+### Commits of the round
+
+| Commit | What |
+| --- | --- |
+| `be387f0` | the warm-up in `createSender`; the sender suite's second model with it, the round's sender checks, the sender pins recorded again; `steam.verify.js`'s length for seed 0xC0FFEE |
+| `b6214e5` | the arrival measured again (42.0 ms stays), `ARRIVAL_MEASURED` anew, the burst check on the game's timeline, the 400 ppm check's 18.01 |
+| `7fb1151` | the browser suite's rooms' tone back to 0.5 s, the checks reading the render's run-on |
+| `86056d5` | the reviewer's words in `README.md` and `tests/steam-sender/README.md` |
+| `48d5c07` | the words on how a render begins (VOICE-PATH, ACCURACY, FINDINGS, tests/README) and the record's dated lines |
+| `ae44d93` | the counts and premises the warm-up moved in `voice-channel`, `render-channel` and `steam` |
+| `667fc6d` | the recorded hashes, in a commit of their own (`render-stream`'s `GOLDEN` and `GAIN_GOLDEN`, `render-channel`'s three tables) |
+| this section's commit | the report's section and `hashes-after-fix1.txt` |
+
+Pushed in three pushes: `be387f0` to `86056d5`, `48d5c07` to `667fc6d`, and the report.
+
+### What changed, file by file
+
+| File | Change |
+| --- | --- |
+| `steam-sender.js` | `STEAM_SENDER.warmUp` (36,000 samples, with its standing and why 1.5 s). `createSender`, with the clock made from the seed only: `read` starts at -36,000, so the warm-up's zeros are read and then the lead's; a chunk that ends in the warm-up goes into the past sound and nothing else, whatever the gate, and `info()`'s chunks do not count it; `since` is the clock's less 1.5 s less the lead. A caller's clock has a warm-up of 0, and every line it runs is as before (`x - 0` is `x`). The header, `uptime`'s comment (Steam's age when the warm-up begins; 1.5 s is a whole number of the float's steps below 2^23 s, so it moves the grid only at an edge) and `createSender`'s comments say so. `createClock` is not changed |
+| `tests/steam-sender.verify.mjs` | the second model (`plainSender`) reads a warm-up when its clock carries one (`refClock` carries 36,000); `STEAM_SENDER.warmUp` among the constants; the pins below recorded again; the checks that gave the module a clock of its own to stand for the seeded sender rewritten (below); the section "The warm-up" with the round's sender checks |
+| `tests/voice-channel.verify.mjs` | `ARRIVAL_MEASURED` recorded anew with its comment; the burst check; "18.01 messages a second" in the 400 ppm check; two counts the warm-up moved (below) |
+| `voice-channel.js` | the constant's comment: the measurement again, and the one before it. `ARRIVAL_SECONDS` stays 0.042 |
+| `tests/steam.verify.js` | the gate-off length that ends on an empty end message is taken from the sender's own spurt start, `98400 + start` (94,873 for seed 0xC0FFEE: lead 377 and 750 zeros of the warm-up in its first chunk), in two places; the comment gives the values |
+| `tests/browser.verify.js` | [3c4]'s tone 0.5 s again; [3c4] and [3c5] expect the source's length plus the run-on the render reports (`codecInfo.channel.over`, at the device's rate as `engine/room.js` takes it) plus the room's tail |
+| `tests/render-channel.verify.mjs` | the Q band's top (below); `LIVE_MAIN`'s three steam rows, section 24's hash and section 29's eight, recorded again |
+| `tests/render-stream.verify.mjs` | `GOLDEN` and `GAIN_GOLDEN` of the 52 cases that moved, with the comment above them |
+| `README.md` | the bullet "Read from Steam's and Windows's files": the 15.6 ms step and the 10 ms packets measured |
+| `tests/steam-sender/README.md` | line 5: `createClock` (named `createReadClock` by W3-27a) |
+| `docs/VOICE-PATH.md`, `docs/ACCURACY.md`, `docs/FINDINGS.md`, `tests/README.md` | how a render begins, as chosen; the round's checks |
+| `tests/REFERENCE_2026.md` | added, dated lines only: one under "The rule since W3-21", one under "The gate off", one under the arrival's W3-27b line, and one sentence in the Model table's sender cell after the round-1 sentence |
+| `docs/reports/W3-27b/hashes-after-fix1.txt` | `node tests/render-stream.verify.mjs --hashes` after this round, beside `hashes-after.txt` (before it) |
+
+### The warm-up as built
+
+`createSender` with the clock made from the seed starts its count of samples at -36,000 and reads 36,000 zeros, then
+the lead's, then the source. They are the sender's own zeros, fed before the first `push()` (W3-28's dithered step is
+the engine's, before the sender, so they do not pass it). The warm-up's 36,000 samples are 48 capture steps, so a
+chunk never holds part of a step of the warm-up and part of one of the lead, but a chunk of two or three steps can hold
+one or two steps of the warm-up before the one that holds the lead's first zero: at 210 of seeds 1 to 400 (measured on
+the model). Such a chunk is judged whole by the gate, as every chunk is, and with the gate off it is the first sent,
+so the gate-off spurt starts at -2400 less those zeros less the lead. The pre-roll is then always 2400 zeros, the past
+sound the warm-up leaves. The cost is about 27 reads and 36,000 samples of zeros at the sender's making.
+
+### The first chunk's shares, before and after
+
+The chunk that holds the source's first sample, seeds 1 to 3,000: one step long at 2,840 seeds before this round (the
+order's count, and the share of the chunk that holds a given sample on the running clock is about 13%). After it, one,
+two and three steps at 11.7, 85.7 and 2.6%, where the chunk that holds sample 48000 (2 s on) is one, two and three
+steps at 13.1, 84.1 and 2.8% (the check, measured on the model). The band of 3 points stays: the two shares of each
+length differ by 1.4, 1.6 and 0.2 points, and one share of 3,000 seeds has a standard error of about 0.6 points.
+
+### Item 6's second check: where a burst at the source's start is placed
+
+A 0.5 s burst on the game's timeline, its spurt's `offsetStartMs` (the zero taken out), in the mean of seeds 1 to 200,
+less the same burst's at 2 s (measured on the model by the check):
+
+| Frame rate | At 2 s | Burst at 0 ms | at 30 ms | at 60 ms |
+| ---: | ---: | ---: | ---: | ---: |
+| 66.67 | +1.4 ms | -1.7 ms | -0.7 ms | -1.0 ms |
+| 300 | -3.4 ms | -0.5 ms | +0.4 ms | +0.6 ms |
+
+With no warm-up (the break below) the bursts at 66.67 frames a second start -43.0, -65.1 and -35.9 ms from the burst at
+2 s (+0.2 ms), and at 300 +2.6, +2.2 and +3.1 ms from it (-3.1 ms): at 300 the cold start stays inside the band in
+these seeds, so the check's catch is its 66.67 row (measured on the model, a scratch copy).
+
+### The arrival constant, measured again
+
+`node tests/voice-channel.verify.mjs --arrival`'s measure (layouts P and Q, seeds 1 to 800, 300 and 66.67 frames a
+second, pooled, no codec delay), on a frozen copy of the branch with the warm-up: 41.956 ms over 7,314 opened spurts
+(42.73 ms at 300 over 3,314, 41.31 at 66.67 over 4,000; a standard error of 0.20 ms taken by seed, 0.13 by spurt; the
+mean of the four cells 42.03). Before this round 42.144 ms over 7,319. It rounds to 42.0 ms to the half millisecond,
+so `ARRIVAL_SECONDS`, the copy in `tests/voicequeue/reference-frames.mjs`, every D and their pins stay;
+`ARRIVAL_MEASURED` is recorded anew.
+
+### What moves, again against main
+
+The same scratch script and signals as "What moves, as measured on the branch" above, on a frozen copy of the branch
+with the warm-up (its `pull()` counted the same way), against the same runs of `main` `7f37d2d` (measured on the
+model). Each cell is `main`, then the branch after this round; "+-" is one seed's spread.
+
+**The queue on the test signal** (seeds 1 to 40):
+
+| The listener's frames a second | 300 | 66.67 | 30 |
+| --- | --- | --- | --- |
+| Times the queue opens | 15.1, 15.3 | 18.0, 18.0 | 18.0, 18.0 |
+| Spurts that join an open queue | 3.3, 3.0 | 0.5, 0.4 | 0.5, 0.4 |
+| Overflows | 91.8 (+-10.6), 90.3 (+-10.0) | none | none |
+| Samples the overflows drop | 75,291 (+-7,597), 76,465 (+-5,301) | none | none |
+| Pulls that run short | 20.2, 20.0 | 21.8, 21.7 | 36.0, 35.5 |
+| Pulls with a fade | 275 (+-86), 290 (+-92) | 178, 179 | 1,518 (+-626), 1,606 (+-592) |
+| Pulls with under 50 ms queued, counted before the pull | 78.8, 80.5 | 82.1, 82.4 | 117 (+-32), 110 (+-26) |
+| Samples queued at a pull, before it, mean | 18,281, 18,356 | 9,256, 9,247 | 6,357, 6,295 |
+| An opened spurt's start against its source, mean | +1.7, +3.6 ms | +5.1, -3.3 ms | -5.2, -15.0 ms |
+| The same, one seed's mean against another's | +-8.6, +-3.8 ms | +-8.8, +-4.1 ms | +-11.6, +-6.9 ms |
+
+Against round 1's branch, the overflows (85.3) and the samples dropped (72,161) at 300 frames a second come back to
+`main`'s within one standard error of these seeds; against `main` every row but the opened spurt's start moves by
+less than two, and that one moves with the constant, as in round 1. An opened spurt starts 2.4 ms later at 66.67 and
+3.8 ms later at 30 than on round 1's branch (-5.7 and -18.8 ms there); that the test signal's first spurt no longer
+goes out early is the part of that the order's finding names (inferred, not split out here).
+
+**The network test signal** (seeds 1 to 10): at 300 frames a second 60.4 and 54.3 overflows, 44,858 and 45,659
+samples dropped, 8.9 and 8.9 opens, 4.6 and 5.1 spurts joined; at 66.67, 12.8 and 13.0 opens and 15.3 and 16.6 pulls
+that run short; at 30, 25.6 and 25.4 pulls that run short and 434 (+-274) and 685 (+-307) pulls with a fade. **The
+low-tone signal** (seeds 1 to 3, 300 frames a second): 19 and 19 opens, 94,594 and 94,588 samples dropped.
+
+**The render** (the test signal, seeds 1 to 40):
+
+| | `main` | The branch after this round |
+| --- | ---: | ---: |
+| Level, the whole output, at 300, 66.67 and 30 frames a second | -7.09, -7.07, -7.25 dBFS | -7.09, -7.07, -7.25 dBFS |
+| The seven octave bands, the branch less `main` | | within 0.009 dB at 300 and 66.67, 0.015 at 30 |
+| A band's spread over seeds | 0.01 to 0.09 dB (0.33 at 30) | 0.01 to 0.10 dB (0.28 at 30) |
+| Frames sent | 5,069.2 (+-6.8) | 5,065.5 (+-8.9) |
+| DTX frames | 664 (+-15) | 663 (+-16) |
+| Bytes sent | 328,909 | 328,754 |
+| Spurts | 19.9 | 19.6 |
+| Messages | 1,798.1 | 1,807.6 |
+| Chunks | 2,559.8 | 2,575.2 |
+| Frames in each of the eight 1 s bursts | 79.93 (+-1.88) | 79.67 (+-1.71) |
+| A spurt's length, the 19 places most seeds have a spurt | | 0.64 frames longer in the mean |
+| A spurt's start, the same | | 0.12 ms sooner in the mean |
+| One spurt's length over seeds | +-4.89 frames | +-4.68 frames |
+| One spurt's start over seeds | +-18.5 ms | +-18.6 ms |
+
+No level and no band moves by as much as one seed differs from another, as in round 1.
+
+### The live chain's latency
+
+The chain's own `stats.latencyMs`, read from a chain made on the frozen copy (the warm-up is about 27 reads at the
+sender's making and adds nothing to it):
+
+| | Before this round | After it |
+| --- | ---: | ---: |
+| without the queue, 48 kHz and 44.1 kHz | 202.252, 202.232 ms | 202.252, 202.232 ms |
+| on the queue at 300 frames a second, 48 kHz (44.1 kHz) | 547.671 (547.651) ms | 547.671 (547.651) ms |
+| at 100 | 350.301 ms | 350.301 ms |
+| at 66.67 and 60 | 303.861 ms | 303.861 ms |
+| at 30 and 20 | 280.641 ms | 280.641 ms |
+| at 10 | 315.471 ms | 315.471 ms |
+
+`tests/steam.verify.js`'s checks of `latencyMs` (its terms' sum, the hold-back against a render) pass as before.
+
+**`docs/LIVE.md` at 50 and 144 frames a second** (report only, as the order asks). On `main` the queue costs 101.609 and
+229.319 ms there and the chain holds 303.861 and 431.571 ms at 48 kHz; on the branch 89.999 and 217.709 ms, 292.251
+and 419.961 ms: 11.6 ms sooner, as the order says (read from chains made on `main` and on the branch). The table lists
+the page's own reference rates and the frame clock's thresholds (66.67, 100, 300, and 60, 30, 20, 10), and 50 and 144
+are neither, so nothing is changed; if the table should list them, the rows are 50: 90.0 / 292.3 ms and 144:
+217.7 / 420.0 ms, read.
+
+### Every pin that moved in this round
+
+Found in a scratch copy of the branch whose checks go on after a failure (every Node suite, with the warm-up and
+nothing recorded yet), then recorded from the build; each value before is the round-1 build's.
+
+- **`tests/steam-sender.verify.mjs`**: the reference schedule, the default seed's 49 messages (`[74,0,7] [78,8,10] ...
+  [250,136,140,e] [253,-1,1500]` before, `[72,0,7] [76,8,10] ... [251,138,141,e] [255,-1,1500]` now); its spurts
+  (21973, 101 frames, and 70123, 40, pre-roll 1500, 73 chunks; now 21223, 101, and 69373, 41, pre-roll 2250, 72
+  chunks); at lead 0 (20850, 104, and 70500, 40, 72 chunks; now 21600, 101, and 69750, 41, pre-roll 2250, 72); seed 2
+  at uptimes 14400 and 777600 (105 and 35 frames, 105 and 36, from 20828 and 71228; now 107 and 33 from 20828 and 71978,
+  the second from the ended state, and 104 and 40 from 20828 and 70478); the first messages of seeds 2 and 1
+  (`[71,0,7]`, `[72,0,7]`; now `[70,0,7]`, `[73,0,7]`); the seeds whose spurts are the same at both uptimes (the
+  default, 4 and 5; now 1, 3, 4, 5, 6 and 7); the statistics through the sender, seeds 1 to 400 (ticks 0.316, 0.667,
+  0.018, now 0.315, 0.668, 0.018; openings 0.783, 0.195, 0.023, now 0.778, 0.203, 0.020; silence records 0.205,
+  0.778, 0.018, now 0.280, 0.695, 0.025; 18.01 messages a second, unchanged). The records' share of 750 moved most:
+  over seeds 1 to 4,000 it is 0.234 with the warm-up and 0.219 without (measured once), so the move at 400 seeds is
+  their spread.
+- **`tests/voice-channel.verify.mjs`**: `ARRIVAL_MEASURED` (above); after 500 ms the next spurt is one of its own in 31
+  of the 50 seeds at 300 frames a second (39); the spurts opened at 300 frames a second over layouts P and Q, seeds 1
+  to 50, 210 (204), in both zero checks. The zero checks' means pass as they were (-3.25 ms at 300 and -0.11 at 66.67;
+  -0.824 ms pooled with the grid out, within 1.54).
+- **`tests/render-channel.verify.mjs`**: Q at 300 frames a second, the appended spurt's `offsetStartMs` -347.0 to -207.2
+  ms over seeds 1 to 10, so the band is -380 to -200 where it was -380 to -215 (a band on an appended spurt's start,
+  which is the queue's fill; its top moved 15 ms, about 7 past the measured end).
+- **`tests/steam.verify.js`**: three premises. The laying of two spurts that meet takes seed 9, the first from 1 whose
+  spurts meet with the warm-up (seeds 1 to 8 lay nothing twice; seed 5 before). The gate-off spurt starts at -2400
+  less the lead less the warm-up's zeros in its first chunk, 750 at the default seed, counted from the clock's own
+  reads. The jitter check's slot of a frame counts from the spurt's own start where it had -2400 written in (with the
+  lead it had still landed in the right slot; with 750 more zeros it fell two slots off). And the length that ends
+  seed 0xC0FFEE's gate-off render on an empty end message (item 9): 94,873 samples.
+- **The recorded hashes**: below.
+
+Some checks of `tests/steam-sender.verify.mjs` gave the module a clock of its own to stand for the seeded sender: the
+forced lead (W3-21's rule 2), the 1 s burst's steps and, through the second model, the gate-off spurt on 95,003
+samples. With a caller's clock reading no warm-up they cannot stand for it, so the forced lead's "same reads with since
+moved" go to the second model (which reads the warm-up), the burst's steps are counted on the second model's reads,
+and the gate-off spurt's start takes the warm-up's zeros from the second model's first read. Every other check that
+gives the sender a clock of its own (the float arithmetic, the empty read, the hand clock, the gate, the pre-roll, the
+hold, the gate off on the hand clock, the refusals, W3-27a's sections, check 5's place 0) passes with no line
+changed.
+
+### The recorded hashes
+
+`node tests/render-stream.verify.mjs --hashes` before this round (`docs/reports/W3-27b/hashes-after.txt`, round 1's
+"after") and after it (`docs/reports/W3-27b/hashes-after-fix1.txt`). Of 88 cases the same 52 moved as in round 1,
+every case that runs Steam's seeded sender and sends sound: their `codecInfo` hashes all, their WAV and `GAIN_GOLDEN`
+hashes all but one's (`steam, 1 s pushed a sample at a time`, whose samples are those of before; only its
+`codecInfo` moved). The other 36 did not move (a script over the two files: no case moved that had not moved in round
+1, and the 36 are the same bytes). The stop rule was not met and its exception was not needed: the voice channel's
+threshold case and `OPEN_MAIN`'s rows, the two of round 1, pass with no line changed. In the other suites:
+`render-channel`'s `LIVE_MAIN` (the three steam rows; celt_22 did not move), section 24's render at 66.67 and section
+29's eight renders (with no `over`, as the check wants), all of the seeded sender. Every failure of `render-stream`
+in the scratch run named one of the 52 moved cases. `tests/stages.verify.mjs` reads `GOLDEN` and changed no line.
+
+### What must not move, shown again
+
+- `tests/predictions/predictions.json` is not in the diff against `main`; `node tests/reproduce.mjs` on the published
+  recordings' rows and the inputs check prints the same output as on the untouched tree, byte for byte.
+- `createClock` is not changed (the clock's hash and the reference checks pass with no line changed), and W3-28's
+  dither draws from its own generator (`tests/steam.verify.js` [5e] passes with no line changed).
+- The stream in pieces, a sample at a time and the live chain against the whole render, and the reads never ahead of
+  the capture: `render-stream`, `render-channel`, `steam` and W3-27a's check 6 pass with no line changed but the
+  recorded hashes and the premises above.
+
+### Each check and the break it caught
+
+Each break was made in a scratch copy of the branch (the code as built, one change in `steam-sender.js`), with the
+suite's checks set to go on after a failure, and seen to fail its check.
+
+| Item 6's check | The break | What caught it |
+| --- | --- | --- |
+| The chunk that holds the source's first sample, its shares against the chunk 2 s on (seeds 1 to 3,000, 3 points) | no warm-up (`WARM` 0 with the seeded clock) | the check: 94.7 / 4.1 / 1.2% against 11.6 / 85.3 / 3.0%; with it every seeded pin above, the second model's agreement (0 of 400) and the warm-up's other two checks |
+| A burst at 0, 30 and 60 ms placed as the burst at 2 s, 66.67 and 300 fps, seeds 1 to 200 (6 ms) | no warm-up | the check's 66.67 row (-43.0, -65.1 and -35.9 ms); its 300 row stays within 6 ms (+2.6, +2.2, +3.1), so this break is caught at one rate of the two |
+| Nothing sent for the warm-up, the gate on and off; no tick below 0 | the warm-up's chunks through the gate (the line that keeps a chunk of the warm-up as past sound only, taken out) | the check (seed 1, the gate off: the first message from -38,468, the warm-up's first chunk, and `info()` counting 55 chunks for 28), with the gate-off spurt on 95,003 samples, the forced lead with the gate off and "every sample once"'s counts. No break can make a tick below 0 while ticks are `max(last + 1, ...)` from -1; the check holds that property |
+| The reads after the warm-up are the reference's, 1.5 s off (the warm-up made from outside, seeds 1 to 200, three sources, two uptimes) | (a) a warm-up of 1.49 s (35,760 zeros) | the check (the reference signal, seeds 1, 2, 3, ...), with the reference schedule (`[77,8,10]` for `[76,8,10]`), the second model's agreement (0 of 400), the openings' shares (0.823 / 0.153 / 0.025), the lead's 1 s burst and "nothing sent" |
+| | (b) `since` not moved back (the clock's less the lead only) | the check (the reference signal, seeds 1, 2, 3, ...), with the reference schedule (`[172,0,7]` for `[72,0,7]`: every tick 100 later), seeds 2 and 1's first messages, the ticks' formula against the second model's reads, and the second model's agreement (0 of 400) |
+| The stream in pieces, the live chain and the reads never ahead of the capture | none new: the checks that exist, with no line changed but the recorded hashes (round 1's break 7 is what they catch) | `render-stream`, `render-channel`, `steam`, W3-27a's check 6: passed |
+
+The browser suite's two checks (item 8) were not broken by hand: with the warm-up the 0.5 s tone runs on by none at
+the page's seed (measured on the model), so on this build they read a run-on of 0 and pass either way; what they
+now hold is that the length is the source's, the reported run-on and the room's tail, whatever the run-on is.
+
+### The suites, as run in this round
+
+Each heavy run went through `flock /tmp/tf2ve-heavy.lock`, one at a time.
+
+| Command | Where | Last line |
+| --- | --- | --- |
+| `node tests/render-stream.verify.mjs --hashes` | a scratch copy of the branch with the warm-up, before anything was recorded | `hashes-after-fix1.txt`; the same 52 cases moved, 36 did not |
+| `node tests/run.mjs` (every Node suite) | the same scratch copy, every check going on after a failure | "23 of 28 suites passed; FAILED: voice-channel, steam, render-channel, render-stream, stages", the pins and hashes above and nothing else |
+| `node tests/run.mjs harness site voice-channel steam-sender steam render-channel render-stream stages browser` | the branch at `667fc6d` | "9 of 9 suites passed. 1835.4 s summed" (the other 19 Node suites passed in the run above with the same code and no test of theirs changed) |
+| `node tests/voice-channel.verify.mjs --arrival` | the branch | "... 0 failed (the arrival constant's alone)": 41.956 ms, -0.044 ms from the constant, and the recorded figures to 1e-9 ms |
+| `node tests/reproduce.mjs` on the published recordings and the inputs check | the branch | the same output as on the untouched tree, byte for byte |
+
+`steam-sender` takes about 1 min 15 s inside a run (1 min 7 s in round 1); `voice-channel` about 4 min 6 s (3 min
+53 s), the burst check about 13 s of it; `tests/README.md` gives both.
+
+### CI of the round
+
+- The run on `86056d5` (run 44911819873) failed, as it had to: the hashes were not yet recorded.
+- The run on `667fc6d` (run 44915876928): `units`, `engine`, `render`, `stages`, `browser` and `verify` passed.
+- The report's commit also gives `tests/README.md` the two suites' times, so CI runs on it too; that run is read in
+  the hand-back.
+
+### Not done in this round, and owed
+
+- **The second reader's findings 2 and 3** (the zero below 66.67 frames a second; the 5 ms of the constant that is a
+  convention) are the order's "Not in this order, and owed", not built here. The constant's comment and the record
+  still say that about 5 ms of it is a convention.
+- **The private runs** stay the orchestrator's, as in round 1.
+- **The breaks were run in scratch copies**, and the runner of the last of them (the voice channel's suite with no
+  warm-up) was stopped by the session's time limit for a background job before it reached the burst check; it was
+  started again on its own and is the row above.
