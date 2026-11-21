@@ -962,3 +962,59 @@ source; at other options of the clock the frames need not divide it, and nothing
 - **About 5 ms of the constant is a convention** (4.7 measured): the capture's packets begin 0 to 10 ms after the
   time the sound is counted from, which also shifts each seed's whole render by that much. It goes with the order
   on the zero.
+
+## A second ruling (2026-11-21): the warm-up is 4.5 s
+
+The fix round (the branch at `6bc90f6`) built the ruling above, and the second reader read it: the cold start is
+closed (a burst at the file's start now starts within 2.3 ms of the same burst 2 s on at 66.67 frames a second,
+where it started 29 to 67 ms early; measured on the model, the reader's own harness, seeds 1 to 1,000). Its port
+of the rule also shows what 1.5 s leaves. The clock's start rings with a period of 0.5 s (9 reads, 16 capture
+steps), and the ring has not died at 1.5 s. The share of one-step chunks among the chunks that hold the capture's
+sample t seconds after the clock starts, 40,000 seeds (measured on the model once, standard error 0.16 points):
+
+| t, s | 0.25 | 0.5 | 0.75 | 1.0 | 1.25 | 1.5 | 1.75 | 2.0 | 2.5 | 3.0 | 4 and on |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| one step, % | 19.9 | 6.7 | 18.8 | 9.5 | 16.7 | 10.9 | 15.1 | 12.2 | 12.4 | 13.0 | 13.3 to 13.7 (mean 13.4) |
+
+So the source's first sample sits 2.5 points under the running state: inside the 3 points this order chose, and
+1 to 2 ms on the timeline (4.4 ms, standard error 1.4, in whole renders of a tone at 66.67 frames a second), but
+it is the cold start's own trace and a longer warm-up removes it at no cost but the reads. A real Steam has run
+for days. Since every seeded render moves in this order already, it is settled here and not later.
+
+1. **`STEAM_SENDER.warmUp` is 108,000 samples (4.5 s)** (chosen): the first multiple of 1.5 s at which the table
+   above is in the running state's range. Every period the 1.5 s was chosen for divides it: 300 ticks, 1,323
+   frames at 294 a second, 90 passes, 288 timer steps, 144 capture steps, 18 turns of the pattern, 450 packets of
+   10 ms or 225 of 20, and a whole number of the float's steps at every uptime allowed (the step is at most
+   0.25 s). Nothing else of the warm-up changes. The comments and the words that say 1.5 s or 36,000 say this.
+2. **A measurement of the warm-up, on a flag** (as `--arrival` is): the one-step share of the chunk that holds the
+   capture's sample t seconds after the clock starts, t from 0.5 to 6 s in steps of 0.5, over enough seeds to
+   give a standard error of 0.2 points or less, with the test that the share at the warm-up's length is within
+   1 point of the mean of the shares from 4 to 6 s. The default run pins the figures recorded from it. It must
+   fail at a warm-up of 1.5 s (say what it gives there). The 3,000-seed check of the first round stays, its band
+   set again from what it now measures (say the figures).
+3. **The arrival constant** is measured again, by the rule of item 5 above.
+4. **The burst check at 300 frames a second** cannot see the cold start by the start's place (the reader: the
+   start moves 1.6 to 2.5 ms there with no warm-up). What moves there is the time the queue drops: 79.7, 38.5 and
+   53.9 ms a render with no warm-up against 107 to 109 with it and for a burst 2 s on (measured, the reader's
+   harness). Add to the 300 leg: the dropped time of the bursts at 0, 30 and 60 ms is within 10 ms of the burst's
+   at 2 s, in the mean of the same seeds (the band chosen here; set it from what you measure, with the figures).
+   Break: no warm-up. If the timeline does not report the dropped time in a form the check can read, say so and
+   leave the leg as it is.
+5. **The words** (the second reader's corrections):
+   - `docs/VOICE-PATH.md`, "When Steam reads": not "the chunk that holds the file's first sound is as long as any
+     other, and nothing of the silence before it is sent". True is: that chunk's lengths come in the running
+     state's shares (give the measured figures), and no message is sent for a chunk of the warm-up alone; the
+     first spurt's pre-roll, the warm-up's zeros in its first chunk (0, 750 or 1,500 samples) and the lead are
+     sent as zeros before the source, with the gate on as with it off.
+   - `tests/REFERENCE_2026.md`, this order's new lines (not yet on main, so they are corrected in place): "the
+     gate off sends up to 93.7 ms of zeros before the source" is so with the gate on too, when the first chunk
+     is active; "sound in a file's first 100 ms went out early" names its frame rates (66.67 and below; at 300 it
+     did not start early). Figures that the longer warm-up changes are given as measured on it.
+6. **What moves**: every render that runs Steam's seeded sender, once more, by item 7 above: the recorded hashes
+   in a commit of their own, `docs/reports/W3-27b/hashes-after-fix2.txt` beside the report, the stop rule and its
+   exception as they stand. The pins that moved in the first round move again; list each.
+7. **The report** gains "Fix round 2": the table above measured by the suite's own code, the first chunk's shares,
+   the burst figures at both rates with the dropped time, the arrival as measured again, the live chain's latency
+   (unchanged is expected: say what it is), every pin that moved, each check and its break.
+
+`docs/LIVE.md`'s table stays as the first round left it.
