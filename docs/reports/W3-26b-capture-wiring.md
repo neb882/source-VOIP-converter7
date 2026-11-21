@@ -206,8 +206,68 @@ machine, real SteamIDs and model names: none, but the attribution trailers.
 
 ## Not done
 
-- `live.js` (the page's live monitor) has a comment that names a capture EQ among what the other profiles' chain holds
-  back; there never was one there. `live.js` is not among the order's files.
+- `live.js` (the page's live monitor) had a comment that named a capture EQ among what the other profiles' chain
+  holds back; there never was one there. Changed in fix round 1, on the coordinator's word.
+- `capture-converter.js`'s header still says that a capture stream gets this converter at quality 30 is not read.
+  That file is W3-26a's and not this order's to change; finding 28 now reads it twice.
 - The orchestrator's private runs (the accuracy suite, Set D's band edge and its sweep through the built module, the
   retiming, the page's real-take check) are not this build's.
 - The page was not looked at by eye; the browser suite ran it.
+
+## Fix round 1 (2026-11-21)
+
+The reviewer and the second reader found the code right; the round is words and one test. Same branch, main not
+merged in (main is at `5e9d411` now: finding 28 gained "From the device to Steam's 16-bit samples", read from it with
+`git show`).
+
+**The standing, after finding 28's new paragraph.** That paragraph reads, each twice, that the wave driver's stream
+flags give a capture stream Windows's converter at quality 30, that a two-channel device is folded to its left channel
+alone, and that the step to 16 bits is dithered. Every line of this branch that said the quality or the dither was not
+read now says: the quality is read twice (finding 28, the wave input road, 2026-11-21) and one take fits it (0.14 dB
+rms on Set D, measured once); it is not checked sample for sample (Steam's own `mic_outputfile` take is asked of the
+owner); the dither is read twice and not built yet (W3-28). Changed: `constants.js` (the profile's comment),
+`README.md` (the bullet on the capture), `docs/VOICE-PATH.md` (the table's standing, the opening line on the left
+channel, the bullets "To 24000 Hz" and "16 bits", and the other profiles' capture), `docs/ACCURACY.md` (the list, the
+table's row, the stage's bullets), `docs/FINDINGS.md` (what rests on one PC), and this branch's own dated lines in
+`tests/REFERENCE_2026.md` (finding 28's built line and its "What the app chose around it", and the line under "What
+remains unverified"; they are not merged yet, so they were reworded, not noted). Left as they are, still true: that
+Windows converts at equal rates is not read, nor what it does with a pair of rates outside its table limits.
+
+**Sources below 24 kHz.** From a source below 24 kHz the cutoff is 0.96634 of the source's own half rate, so such a
+source loses more of its top than through the app's resampler before. The module's `gain()`, and a tone through
+`convert()` fitted by least squares, agree to four decimals: from 16,000 Hz −4.14 dB at 7.65 kHz and −8.05 dB at
+7.8 kHz, from 22,050 Hz −5.95 dB at 10.65 kHz (computed from the rule as read). Main's two stages, measured the same
+way with tones on the model, give −2.25, −3.56 and −2.88 dB; the second reader's −1.9, −2.6 and −2.4 for main did not
+come out here, and the documents give the tone measure. One sentence each in `docs/VOICE-PATH.md` ("To 24000 Hz") and
+`docs/ACCURACY.md` ("What differs"), with "a file's own rate stands for the device's (chosen)", and the same in the
+record's line of what the app chose.
+
+**The gain and the clip.** One clause in `docs/VOICE-PATH.md` ("Microphone level") and `docs/ACCURACY.md` ("What the
+app runs"): the capture gain and the clip before the converter are the app's own (chosen), since Windows's pipe has a
+volume of 1.0 and no limiter (finding 28, read once), and at gain 1 they act on nothing in a 16-bit source. The Model
+table's Capture row, whose cell says "resampled to 24 kHz and clipped", gains in its dated note the order as built
+(the gain, the clip, the conversion, the 16 bits); nothing of the cell is rewritten.
+
+**README's fold-back.** "Lets nothing above 12 kHz fold back" now says what the figures say: a 12.5 kHz tone folded
+back to 11.5 kHz at −44 dB and a 13 kHz one at about −100 dB, where the app's resampler folded them at −15 and −23 dB
+(computed).
+
+**The 16,000 Hz case of test 3.** The reviewer's break, the flush to `floor(n L / M)`, failed the 44,056 Hz,
+96,000 Hz, prime-length and 37,800 Hz cases and passed the 16,000 Hz one: its talk is quiet at the end, so the one
+output the break leaves out changed nothing after the gate. Its source's last 0.5 s is now a steady voiced sound at
+0.3 of full scale. The break was made again in a copy (`TF2_DIR`): the 16,000 Hz case now fails at every plan, 266
+samples differing in each, beside the four cases above. Its hashes were recorded again in a commit of their own, after
+the stream suite and `stages` passed with them: the WAV, `codecInfo` and gain hashes of that case alone moved, since
+its source changed. The head's `--hashes` output (`docs/reports/W3-26b/hashes-branch.txt`, replaced) differs from the
+earlier head's in that case's two lines and nowhere else. The 11,025 Hz case (`steam, 88203 samples at 11025 Hz`) also
+passes that break, for the same reason; it was not changed.
+
+**`live.js`.** The one comment line now says the other profiles' chain holds back the gate's pre-roll and the codec's
+lookahead; nothing else in the file changed.
+
+**Checks run.** `flock ... pnpm test render-stream stages harness site verify`: every suite passed. The words changed
+no code; `live.js`'s change is a comment.
+
+**Commits.** `52ff556` the words; `2ee8be1` the 16,000 Hz case's source; `844f86c` its hashes recorded again; then this
+section. CI's run on `844f86c` (the head that changes code): `verify` success, with `units`, `engine`, `render`,
+`stages` and `browser` all successful. This section's commit changes `docs/` alone and starts no run.
