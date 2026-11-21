@@ -125,3 +125,64 @@ values' histogram and their spectrum against the table's description.
 - The table's own values, and the index's true place at a spurt's start: not known.
 - The fold to one channel: the app takes the left channel by default already (finding 6; read on 2026-11-21).
 - The lateness of a capture step and the 20 ms packets: the sender's clock (W3-27).
+
+## After the plan review (2026-11-21)
+
+A reviewer who had not seen the order being written read it against W3-26b's branch, made the table six ways
+and tried the step in a scratch copy. Verdict: build with the changes below. Where a line here and a line above
+differ, this section is the one the builder works from.
+
+- **The profile's member.** W3-26b's `captureConverter` (`engine/steam.js`) refuses a `capture` member with any key
+  but `converter` and `quality`, and `tests/verify.js` holds the profile to those two. So: `captureConverter`
+  accepts `dither`, a boolean, and refuses any other value of it by name; a key other than the three is refused as
+  now; the checks of `tests/verify.js` take the new member and keep "a member more is refused" with another key.
+  On a frame-gate copy of `steam` there is no 16-bit step, and the member is ignored there: the comment says so.
+- **The table is pinned by its hash, and any method that gives it may be used.** Made six ways (the sum as
+  written, the argument reduced modulo 4,096, the sum taken downward, cosine and sine apart, the magnitude inside
+  the sum, a radix-2 inverse transform) it comes out the same 4,096 values, but with little room: one value lies
+  5.6e-13 from a rounding boundary of the 8-decimal step and the methods differ by up to 7.9e-13 (measured once,
+  the reviewer's). The rounding to 8 decimals stays. The SHA-256 of the table's 4,096 values as 32-bit floats,
+  least byte first, is `7c3ef8d281fd1ce1bc9834c34c4c5a08add9b3ef0208ec23e02f82244d93ee91` (measured once, the
+  reviewer's; the builder's own count must give it, and the suite pins it). If the builder's does not, the
+  builder stops and says which method gave what.
+- **Where the table is made.** The plain sum took 191 ms and a radix-2 transform 7 ms (measured once). The table
+  is made by a method that takes under 20 ms, at the first `createSteamCapture` with `dither` on, never inside a
+  live block.
+- **The table's figures with the order's seed** (measured once, the reviewer's): mean 3.2e-11 of a step, rms
+  within 4.2e-10 of 1/sqrt(6), extremes -1.4599 and +1.5149 steps. The spectrum check is taken on the values
+  rounded to 8 decimals, before the float32 step, where the worst bin is 4.7e-7 off the magnitude; on the float32
+  table it is 1.61e-6 off, which the order's bound would have failed.
+- **The step has no clamp after the rounding.** The clip to -1 and 32767/32768 before the multiply is the whole of
+  it (the largest result is 32,767). With a table of zeros the step equals today's `steamCapture` on every
+  float32 input, the two ends included (the reviewer's count). The break "the clip at +1" is then seen by the
+  value 32,768 that it would give; the builder says how the check sees it.
+- **The ties** are built on the sum, not on the input: `x = Math.fround((k + 0.5) / 32768 - T[i])` for chosen `k`
+  and `i`, with the check first proving that `Math.fround(x + T[i]) * 32768` is exactly `k + 0.5`. The rounding is
+  `roundEven` of `engine/dsp.js`.
+- **"The index does not restart"** is tested with pushes of 1,000 and then 7,192 samples of silence against one
+  push of 8,192 and against a step restarted at the second push (two pushes of 4,096 cannot tell them apart,
+  since the table repeats every 4,096).
+- **The live chain's rebuild** on a change of settings is a new capture: its index starts again at its seeded
+  place. A stream fed in pieces is one capture.
+- **The sender's own zeros never pass the step.** `steam-sender.js`, which this order does not touch, makes the
+  lead's zeros (0 to 749 samples) and the zeros it reads after the source ends; they stay zeros. The index starts
+  at the source's first sample. "Never a run of zeros" above holds for the source's own silence only.
+- **The hashes that must not move.** W3-26b moved the 24,000 Hz cases (they ran the fitted filter); under this
+  order they must equal W3-26b's merged values, and a change in any of them is a stop: `render-stream`'s
+  "steam, source at 24 kHz" and "steam, 192004 samples at 24000 Hz", and the 24,000 Hz rows of
+  `render-channel`'s ends-in-silence table. **The suites whose records move:** `render-stream` (its two tables of
+  hashes), `stages`, `render-channel` (its live, main and ends-in-silence tables), and the check of
+  `tests/steam.verify.js` "the render's capture is capture-converter.js's" at 48,000 and 44,100 Hz, whose own
+  chain takes the dithered step written a second time in the test.
+- **What item 7 measures.** Every packet's size can change, so the question "does any packet's size change" is
+  always yes. Asked instead, for each seeded case of the suite's signal, before and after: the list of spurts,
+  the count of messages, the total bytes, and the count of frames of 2 bytes or less. The reviewer's scratch run
+  (two rates, two seeds, the gate on and off, speech and silence; measured once): the spurts and frame counts
+  the same in all 16 renders, total bytes within 0.4% on speech and about 22% (some 100 bytes) on silence with
+  the gate off, output samples different in 60 to 95% of places with speech and nowhere on gated silence.
+- **Standings corrected in the table above:** the step's formula is read twice, and the rounding of ties and the
+  index's running on are read once; "about 98 dB under full scale", "about 0.4 of a step" and 26.131081 are
+  computed from the table's description; the table's seed `0x28D17E5`, the sign of bin 2,048 and the index's mix
+  value are chosen. The mix value collides with none in use (the reviewer's count over seeds 0 to 100,000).
+- **Kept place A** needs no change: the step sits behind A, and the seed is already in the key of the place
+  behind it (the reviewer's reading; the builder confirms it in the report).
