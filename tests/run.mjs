@@ -55,6 +55,7 @@ export const SUITES = [
   ['steam-sender', 'units', ['tests/steam-sender.verify.mjs']],
   ['swresample', 'units', ['tests/swresample.verify.mjs']],
   ['room-dsp', 'units', ['tests/room-dsp.verify.mjs']],
+  ['capture-converter', 'units', ['tests/capture-converter.verify.mjs']],
   ['verify', 'engine', ['tests/verify.js']],
   ['steam', 'engine', ['tests/steam.verify.js']],
   ['render-channel', 'engine', ['tests/render-channel.verify.mjs']],
