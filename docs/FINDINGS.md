@@ -268,7 +268,7 @@ Every recording here was made on the owner's PC, with one exception: Set D, wher
 
 What a single PC limits is what belongs to a PC and not to the code:
 
-- **The capture.** The 750-sample step, the times of Steam's reads, and the roll-off of the band above 11 kHz, which is done by Windows or by the audio cable and not by Steam.
+- **The capture.** The 750-sample step, the times of Steam's reads, and the conversion to 24 kHz, which Windows does and not Steam. The converter is read from the owner's Windows; that a capture stream gets it at quality 30 fits one take made through a cable on that PC and is not read (finding 28 of the record).
 - **The resampler's variant**, which the processor's features pick (entry 5).
 - **The sound device's rate.** Every recording was made at 48000 Hz.
 - **The frame rate.** The queue's wait follows it (entry 7), and the owner's is 300.
