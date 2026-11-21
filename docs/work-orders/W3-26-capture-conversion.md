@@ -1,9 +1,9 @@
 # W3-26: the capture's conversion to 24 kHz, as read
 
-**Status 2026-11-21: planned; the six rulings given ("The rulings", at the end); the plan reviewed ("After the plan review", at the
-end: build with the changes listed there, which override the text above where they differ); W3-26a being built;
-W3-26b waits for it.** Written by a planner at `main` `8969238` (cache v54) from
-the repository, the two readers' own converters and a prototype built in a scratch copy of the tree.
+**Status 2026-11-21: W3-26a built, reviewed and merged ("W3-26a as built", at the end); W3-26b not built.** The
+six rulings are in "The rulings" and the plan review's changes in "After the plan review"; both hold over the text
+above them where they differ. Written by a planner at `main` `8969238` (cache v54) from the repository, the two
+readers' own converters and a prototype built in a scratch copy of the tree.
 
 **Kind:** a change to how renders are computed. Every render of Steam voice with the codec on changes, from a
 source at any rate. No render of another profile, of received voice or with the codec switched off changes by a
@@ -721,3 +721,27 @@ Checked by the reviewer and correct as written: the condition `enableCodec && !r
 (it holds `enableWarble`, `received` and the profile's name); `sincWait` stays for the output's wait; no page,
 `app/` file or tool reads `captureEq`; the latency table; `reproduce` and `demo` render `steam` with no recorded
 value.
+
+## W3-26a as built (2026-11-21)
+
+Built on `claude/w3-26a-capture-converter`, reviewed, one fix round, merged with no cache change (no file the site
+loads changed). The report is [W3-26a-capture-converter.md](../reports/W3-26a-capture-converter.md).
+
+- **The port equals the first reader's converter bit for bit on all nine vectors** and is within 1.6 parts in a
+  million of the second's (measured, builder). The reviewer ran it against the first reader's converter at nine
+  more rates, whole tables and outputs: bit for bit (measured, reviewer).
+- **"Bit for bit" is of the vectors, not of every signal.** On three stretches of the test signal (47 s in all,
+  read as 48,000 and as 44,100 Hz) the module's output equals the first reference's in every sample but one of
+  about 2.8 million, a sample of 1.3e-6 that differs in its last bit, and is within 4.5e-7 of the second's
+  (measured, the orchestrator). The reference adds an output's products with a library routine whose order is
+  not the module's.
+- **The review's one fault**: from a source below 24 kHz `end(count)` gave more than `count` outputs, so a
+  conversion came out one sample longer than `length()` says in about half the lengths at 11,025 Hz (878 for 877
+  from 403 samples). The first build's checks could not see it: its lengths were tested where no two outputs
+  share a centre, and every vector below 24 kHz ended on a whole number of phases. Fixed with a cap, and checked
+  on every length from 1 to 600 samples at nine rates and on counts in mid-phase (builder); the orchestrator
+  counted 3,010 lengths at ten rates again, none off.
+- **For W3-26b's builder**: `design(24000)` is `null`; a kept design is given again as the same object; `row(p)`
+  of a stored design is a copy; `push` or `end` after `end` throws; a stream's counters are exact for about 90
+  days at 47,999 Hz and 80 years at 44,100 Hz (computed, reviewer); the first second from an odd rate above about
+  65 kHz costs one pass over the table to find the scale (0.32 s of the 0.56 s measured at 191,999 Hz).
