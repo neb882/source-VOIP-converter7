@@ -596,7 +596,7 @@
   // go to even, and one table value serves one sample, the index running on modulo 4,096 (read
   // once). There is no clamp after the rounding: the largest result is 32,767. With a table of
   // zeros the step is steamCapture's on every 32-bit float input (computed).
-  //   - The table (DITHER_TABLE): Windows's own values are not in this repository. Its
+  //   - The table (ditherTable): Windows's own values are not in this repository. Its
   //     description was measured on the private copy: a spectrum exactly flat, every bin of
   //     magnitude 4096 / sqrt(6 x 4095), the constant part 0, phases random; an rms of
   //     1/sqrt(6) of a step. The app's table has that spectrum with phases drawn from
@@ -611,9 +611,10 @@
   //     moves no other draw.
   const DITHER_LENGTH = 4096, DITHER_SEED = 0x28D17E5, DITHER_MIX = 0x5D17E412;
   const CAPTURE_TOP = 32767 / 32768;
-  let DITHER_TABLE = null;
+  // The table once it is made (a holder: an engine file has no let at its top).
+  const DITHER = { table: null };
   function ditherTable() {
-    if (DITHER_TABLE) return DITHER_TABLE;
+    if (DITHER.table) return DITHER.table;
     const N = DITHER_LENGTH, half = N / 2, M = N / Math.sqrt(6 * (N - 1));
     const rnd = mulberry32(DITHER_SEED);
     const re = new Float64Array(N), im = new Float64Array(N);
@@ -648,7 +649,7 @@
     }
     const T = new Float32Array(N);
     for (let n = 0; n < N; n++) T[n] = Math.round((re[n] / N) * 1e8) / 1e8 / 32768;
-    DITHER_TABLE = T;
+    DITHER.table = T;
     return T;
   }
   // The index's start for a seed (an unsigned 32-bit whole number).
