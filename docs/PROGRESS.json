@@ -10,7 +10,7 @@
   },
   "in_flight": [
     "W3-26, the capture's conversion to 24 kHz as read (docs/work-orders/W3-26-capture-conversion.md): planned 2026-11-21, the rulings given. W3-26a (the module capture-converter.js, its vectors and suite; nothing loads it) is being built on claude/w3-26a-capture-converter while a plan reviewer reads the whole order. W3-26b (the wiring; every steam render with the codec on moves) waits for both.",
-    "A private study of the sender's clock on the rule as read, scored against Sets J, L, D and Q beside the app's clock as built; an order follows W3-26 if it holds."
+    "W3-27, the sender's clock on the rule as read: being planned, 2026-11-21, after the private study of that day (tests/REFERENCE_2026.md, finding 28, the last added paragraph: the rule gives the sets' reads and chunk places where the app's clock does not; measured once). It builds after W3-26b, since both move every steam render."
   ],
   "next": [
     {
