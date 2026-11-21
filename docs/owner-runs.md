@@ -117,6 +117,11 @@ What comes back: `mic_out.wav`, `voice_decompressed.wav`, `voice_micout.log` fro
 Steam's console (or `logs\console_log.txt` from the Steam folder), and the microphone's and the cable's format as
 Windows shows them (part A's last paragraph).
 
+Amended 2026-11-21, once the cable's capture side was known (2 channels, 24 bits, 48,000 Hz): the format of the
+cable's playback side comes back too (Settings, System, Sound, the output device "CABLE Input", "Format"), and
+the name of the player the signal was played with. The signal goes through the playback side before the capture
+side, and a different rate there is one more conversion in front of Windows's.
+
 What is read and what is not (the current client, 2026-11-20, read once): the file is opened at the first read of
 the microphone after the variable is set, a 44-byte header with empty lengths is written, and each read's samples
 follow as they were read (`steamclient64.dll` `0x1380d6785` to `0x1380d69a1`); Steam's own message says "close
