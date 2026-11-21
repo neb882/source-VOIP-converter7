@@ -2,8 +2,8 @@
 
 A reference generator of Steam's microphone reads on the rule as read (finding 28 of `tests/REFERENCE_2026.md`,
 the paragraphs of 2026-11-20 and 2026-11-21), written for a private study of 2026-11-21 that scored the rule
-against the sets. The app's `createReadClock` in `steam-sender.js` (order W3-27a,
-`docs/work-orders/W3-27-sender-clock.md`) must give its reads to the last bit with the capture's place at 0.
+against the sets. The app's `createClock` in `steam-sender.js` (named `createReadClock` by order W3-27a,
+`docs/work-orders/W3-27-sender-clock.md`, and renamed by W3-27b) must give its reads to the last bit with the capture's place at 0.
 These two files are the orchestrator's: a builder does not edit them. They are our own code and hold nothing of
 the owner's files or logs.
 
