@@ -794,11 +794,13 @@ const REACH_AND_LOOKAHEAD = 4806;
 // The live chain's samples on main before W3-02c-3a (0617875), with no timeline and with 'source': the
 // SHA-256 of its output and of the voice at its mix point, for talk(4, 48000, 51) in blocks of 480.
 // W3-26b (the steam capture runs Windows's converter as read) recorded the three steam rows again, in a commit
-// of its own, from the run in which every other check passed; the celt_22 row did not move.
+// of its own, from the run in which every other check passed; the celt_22 row did not move. W3-28 (the steam
+// capture's step to 16 bits dithered, from 48 kHz here) recorded the three steam rows again, in a commit of its
+// own, from the run in which every other check passed; the celt_22 row did not move.
 const LIVE_MAIN = {
-  'the defaults': ['3c59bf467f63c352d5a68e28d431c2b4fd082eb30b4599d991f50c7842c64b79', '9c4db788a0fa67210cad063070c55827d800cd6fb601b84760fb2e5486442f22'],
-  'loss 15%, jitter 50 ms, seed 3': ['81a86ec712cc0dd84c19d4999e64fdf7db3bbf8699db970017773bb0da1ced9b', 'f90f8cb938088a5cc1da0516ac0c7c92fb7d24f66c9b7ece9b7a5c3252b58af8'],
-  'the gate off, agc off, voiceScale 2, low latency': ['5ca63ff88be4302e792ae5003e2a54877d67cb0be439c4809bff28b94b7c56c7', 'f335b4ef2d4b418b672fbe7f9eef0285c702cf7306a5adf82ddc277f5f1a0370'],
+  'the defaults': ['f31aa0510941101424759cf8881759eb796d03a4a63e3ca954e469710c2b5285', '26ce47f1b0662f11aad3b327b83783120a61839e313b42486d8c4f9cf165123b'],
+  'loss 15%, jitter 50 ms, seed 3': ['1dcb28ac73fd836b3d81578bb67aa752ae1d74d209c0b4b9f7402f7fa331caf7', 'a0ac613f8405b441e0ade8a22cc9bef27167eb4f86baf32390995bfd8309bfe2'],
+  'the gate off, agc off, voiceScale 2, low latency': ['c0569e9c3eb5b8e5a3cd88cdc8445b7d77e635d4a66a0433689cd7b470872116', 'ca04671df0c504571e1eb44e1d51f3a6198300ee03e88e4bbf5e064a9add70f9'],
   'celt_22, loss 15%, seed 5': ['ae240a8399c4e6abfd470959f7b1e85db244ebd05a6d36c37fe03f0c3ede4f0a', '1d30d0f8b40a265b63c1f1c5e7d9637f9ce32b75ac005bebe82244a6d2991e92']
 };
 const LIVE_MAIN_OPTS = {
