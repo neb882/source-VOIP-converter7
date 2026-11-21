@@ -10,9 +10,11 @@
 
   const DEFAULT_SENDER_GATE = { thresholdDb: -39.5, prerollMs: 120, holdMs: 440 };
 
+  // A profile's decoder filter (decoderEq: a test's profile has one, no
+  // shipped profile does), designed once; null where it has none.
   const firCache = new Map();
-  function profileEq(codec, stage = 'decoderEq') {
-    const eq = codec[stage];
+  function profileEq(codec) {
+    const eq = codec.decoderEq;
     if (!eq) return null;
     const key = `${codec.codecRate}:${eq.taps}:${eq.freqs}:${eq.gainsDb}`;
     if (!firCache.has(key)) firCache.set(key, firwin2(eq.taps, eq.freqs, eq.gainsDb, codec.codecRate));

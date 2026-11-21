@@ -13,8 +13,8 @@
   const { DEFAULT_SENDER_GATE, FRAME_CODES, celtModeRate, gateThresholdDb, loadOpusModule, profileEq,
     receivedCodecInfo } = E.codec;
   const { runOnAtDevice, resolveRoom, roomModule, tailAtDevice } = E.room;
-  const { STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule, steamCodecInfo,
-    steamDemoVoice, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamRunOn, steamSenderOptions,
+  const { STEAM_RATE, STEAM_VOICE_RATE, captureConverter, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
+    steamCodecInfo, steamDemoVoice, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamRunOn, steamSenderOptions,
     steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
@@ -218,14 +218,18 @@
     const voiceLength = sincLength(codecLength, codecRate, codec.voiceRate);
     const outLength = Math.round(length * deviceRate / srcRate);
 
-    /* ---- 1-2) Sender: resample to the codec rate; capture filters ---- */
-    const stages = [sincStage(srcRate, codecRate, length)];
+    /* ---- 1-2) Sender: to the codec rate; capture filters ---- */
+    // process()'s converter (captureConverter, W3-26b), as a stream: each
+    // output once the H inputs after its centre are in, and at the end the
+    // rest of process()'s codecLength outputs, which is the converter's own
+    // length(); otherwise the app's own resampler.
+    const conv = enableCodec && !received ? captureConverter(codec) : null;
+    const capture = conv ? conv.createStream(srcRate) : null;
+    const stages = [capture ? { push: (x) => capture.push(x), flush: () => capture.end(codecLength) } : sincStage(srcRate, codecRate, length)];
     if (hp > 10 && !received) stages.push(biquadStage(biquadCoefs('highpass', codecRate, hp, 0.707)));
     if (lp < codecRate * 0.45 && !received) {
       stages.push(biquadStage(biquadCoefs('lowpass', codecRate, lp, 0.707)), biquadStage(biquadCoefs('lowpass', codecRate, lp, 0.707)));
     }
-    const captureEq = enableCodec && !received ? profileEq(codec, 'captureEq') : null;
-    if (captureEq) stages.push(firStage(captureEq, codecLength));
 
     /* ---- 3) Gate, encode, lose packets, decode ---- */
     let voice = null, kind = null, coder = null, gate = null, gateOpts = null, bitrate = 0, packetBytes = 0, lead = 0;

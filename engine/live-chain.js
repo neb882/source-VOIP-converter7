@@ -5,14 +5,14 @@
 (function (root) {
   'use strict';
   const E = root.TF2Engine;
-  const { INT16_FULL_SCALE, biquadCoefs, clamp, finiteOr, firStage, hardClip, joinSamples, mulberry32, sincWait, streamBiquad,
+  const { INT16_FULL_SCALE, biquadCoefs, clamp, finiteOr, hardClip, joinSamples, mulberry32, sincWait, streamBiquad,
     streamFir, streamResampleSinc } = E.dsp;
   const { GAIN_BLOCK, createGain, streamAutoGain } = E.gain;
   const { MIX_BLOCK, MIX_RATE, createOutputStage, mixToFloat } = E.mix;
   const { steamArrivalPlan, steamLoser, streamLossMask } = E.network;
   const { DEFAULT_SENDER_GATE, FRAME_CODES, celtModeRate, gateThresholdDb, loadOpusModule, profileEq } = E.codec;
-  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamBoundTick, steamCapture, steamChannel, steamGameTimeline, steamGiveOut,
-    steamModules, steamReach, steamSenderOptions, steamTimeline } = E.steam;
+  const { STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, captureConverter, steamBoundTick, steamCapture, steamChannel, steamGameTimeline,
+    steamGiveOut, steamModules, steamReach, steamSenderOptions, steamTimeline } = E.steam;
 
   /* ------------------------------------------------------------------ */
   /* Live chain: process() one block at a time                          */
@@ -44,9 +44,11 @@
   // BC-1 a gap of more than ten lost frames leaves its time empty and later
   // sound does not move, so no packet lands on what was given out (a packet
   // that would is still moved, and counted in movedLate).
-  //   - Capture: the mic gain and the clip, the context's rate to 24 kHz, the
-  //     optional filters, the capture roll-off with its delay dropped from
-  //     the front (firStage, as createRender runs it), the 16 bits.
+  //   - Capture: the mic gain and the clip, the context's rate to 24 kHz by
+  //     the profile's capture converter as a stream (captureConverter:
+  //     Windows's on `steam`, W3-26b; the app's own resampler for a profile
+  //     with none), as createRender runs it, the optional filters, the 16
+  //     bits.
   //   - Steam's sender with the render's seed, settings and steamUptime; the
   //     message draw once per message (BC-1) and the late-frame mask a frame
   //     at a time by the sender's frame number;
@@ -130,14 +132,16 @@
     const bitrate = Math.max(6000, Math.round(codec.bitrate * bits / 16));
 
     /* ---- Capture, as createRender's stages 1 and 2 ---- */
-    const toCodec = streamResampleSinc(ioRate, STEAM_RATE);
+    // The profile's converter (the codec is on here), or the app's resampler
+    // where the profile has none; captureWait is what either holds back.
+    const conv = captureConverter(codec);
+    const toCodec = conv ? conv.createStream(ioRate).push : streamResampleSinc(ioRate, STEAM_RATE);
+    const captureWait = conv ? conv.wait(ioRate) : sincWait(ioRate, STEAM_RATE);
     const filters = [];
     if (hp > 10) filters.push(streamBiquad(biquadCoefs('highpass', STEAM_RATE, hp, 0.707)));
     if (lp < STEAM_RATE * 0.45) {
       filters.push(streamBiquad(biquadCoefs('lowpass', STEAM_RATE, lp, 0.707)), streamBiquad(biquadCoefs('lowpass', STEAM_RATE, lp, 0.707)));
     }
-    const captureEq = profileEq(codec, 'captureEq');
-    if (captureEq) filters.push(firStage(captureEq, Infinity).push);
 
     /* ---- The sender, the codec, the network and the receiver ---- */
     const settings = steamSenderOptions(opts, gateOn, finiteOr(opts.seed, 0xC0FFEE) >>> 0);
@@ -182,14 +186,16 @@
     after.push(...mixStages());
 
     // contentDelay: how many samples (at ioRate) the output's index sits
-    // behind the input's: 0 (W3-10). Nothing shifts it: the capture FIR's
-    // delay is dropped, the lookahead is trimmed where packets are laid, the
-    // reach only holds samples back, and after the mix point the entry and
-    // mixOut have no memory, the voice is not upsampled, and the device
-    // stage starts at phase 0 (below 44.1 kHz the sinc resampler is
-    // time-aligned). latencyMs is every hold-back: the resamplers' waits (to
-    // 24 kHz, Steam's resampler's 16 inputs, and the context's: outputWait),
-    // the capture FIR's dropped delay, the reach and the lookahead. On the
+    // behind the input's: 0 (W3-10). Nothing shifts it: the capture
+    // converter's output k sits on its input instant (it holds back, it
+    // delays nothing; so does the app's resampler), the lookahead is trimmed
+    // where packets are laid, the reach only holds samples back, and after
+    // the mix point the entry and mixOut have no memory, the voice is not
+    // upsampled, and the device stage starts at phase 0 (below 44.1 kHz the
+    // sinc resampler is time-aligned). latencyMs is every hold-back: the
+    // capture's wait to 24 kHz (captureWait: the converter's H / ioRate, or
+    // the app's resampler's), Steam's resampler's 16 inputs, the context's
+    // (outputWait), the reach and the lookahead. On the
     // game's timeline the voice queue's zero D (at 44.1 kHz) and, under
     // 1000/15 frames a second, the frame's blocks (liveQueueHold) are held
     // back in place of the reach and the lookahead (the render's sample n is
@@ -198,16 +204,13 @@
     // defaults when they are not given), as lowLatencySavingMs is what low
     // latency saves. D is voice-channel.js's zero(); null where that module
     // is not loaded (then the chain cannot run the queue).
-    const firDelay = (taps) => (taps ? (taps.length - 1) / 2 : 0);
     const contentDelay = 0;
-    const holdBack = (r) => sincWait(ioRate, STEAM_RATE) + (firDelay(captureEq) + r + lookahead + swr.TAPS / 2) / STEAM_RATE
-      + outputWait(ioRate) + roomHoldSeconds();
+    const holdBack = (r) => captureWait + (r + lookahead + swr.TAPS / 2) / STEAM_RATE + outputWait(ioRate) + roomHoldSeconds();
     const latencyMs = (r) => 1000 * (contentDelay / ioRate + holdBack(r));
     const VC = typeof TF2VoiceChannel !== 'undefined' ? TF2VoiceChannel : null;
     const D = channel ? channel.zero : VC ? VC.zero(opts.bufferMs, opts.fps, lookahead / STEAM_RATE) : null;
     const hold = D === null ? null : D + liveQueueHold(opts.fps);
-    const queueHoldBack = () => sincWait(ioRate, STEAM_RATE) + (firDelay(captureEq) + swr.TAPS / 2) / STEAM_RATE + hold / STEAM_VOICE_RATE
-      + outputWait(ioRate) + roomHoldSeconds();
+    const queueHoldBack = () => captureWait + (swr.TAPS / 2) / STEAM_RATE + hold / STEAM_VOICE_RATE + outputWait(ioRate) + roomHoldSeconds();
     const queueLatencyMs = () => 1000 * (contentDelay / ioRate + queueHoldBack());
 
     let talking = true, pushed = 0, given = 0, slot = 0, roomSpurt = null;
@@ -468,14 +471,19 @@
         avgGain, maxGain, voiceScale, framesPerPacket, rand, mixStages, roomHoldSeconds, spurtStarts, game });
     }
 
-    const toCodec = streamResampleSinc(ioRate, codecRate);
+    // The capture to the codec's rate: with the codec on, the profile's
+    // converter where it has one (captureConverter; no shipped profile takes
+    // this path with one, a test's copy of `steam` on the frame gate does),
+    // as the render runs it; otherwise the app's own resampler. Neither
+    // shifts the output (each output sits on its input instant); what they
+    // hold back is not counted in latencyMs on this path.
+    const conv = enableCodec ? captureConverter(codec) : null;
+    const toCodec = conv ? conv.createStream(ioRate).push : streamResampleSinc(ioRate, codecRate);
     const filters = [];
     if (hp > 10) filters.push(streamBiquad(biquadCoefs('highpass', codecRate, hp, 0.707)));
     if (lp < codecRate * 0.45) {
       filters.push(streamBiquad(biquadCoefs('lowpass', codecRate, lp, 0.707)), streamBiquad(biquadCoefs('lowpass', codecRate, lp, 0.707)));
     }
-    const captureEq = enableCodec ? profileEq(codec, 'captureEq') : null;
-    if (captureEq) filters.push(streamFir(captureEq));
     const decoderEq = enableCodec ? profileEq(codec) : null;
     const after = [];
     if (decoderEq) after.push(streamFir(decoderEq));
@@ -550,14 +558,13 @@
     let talking = true;
     const codes = [];   // opus-codec.mjs FRAME codes of the frames since takeFrameCodes()
     // The output is the input this many samples (at ioRate) later: the
-    // group delay of the causal FIRs (capture and decoder EQ at the codec
-    // rate), which a render applies zero-phase, and the codec's lookahead,
-    // which a render trims. The pre-roll only holds output back; it does not
-    // shift it. The stages after the mix point shift nothing against a
-    // render (the upsampler's one or three mix samples of lateness are in
-    // the render too).
+    // group delay of the causal decoder EQ at the codec rate, which a render
+    // applies zero-phase, and the codec's lookahead, which a render trims.
+    // The pre-roll only holds output back; it does not shift it. The stages
+    // after the mix point shift nothing against a render (the upsampler's
+    // one or three mix samples of lateness are in the render too).
     const firDelay = (taps) => (taps ? (taps.length - 1) / 2 : 0);
-    const delaySeconds = (firDelay(captureEq) + firDelay(decoderEq) + (voice ? voice.lookahead : 0)) / codecRate;
+    const delaySeconds = (firDelay(decoderEq) + (voice ? voice.lookahead : 0)) / codecRate;
     const contentDelay = Math.round(delaySeconds * ioRate);
     const stats = { codec: codecKey, frames: 0, sent: 0, modes: { silk: 0, hybrid: 0, celt: 0, speex: 0, vr12: 0 }, dtx: 0, lost: 0, late: 0,
       bytes: 0, gateOpen: false, lastMode: null, inputPeak: 0, outputPeak: 0, spurts: 0, talking,

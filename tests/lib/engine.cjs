@@ -29,6 +29,11 @@
  * TF2Engine on the load's window, so two engines share none of them; a load
  * returns that object as `parts`. steam-sender.js, voice-channel.js and the
  * resampler still attach to Node's global object.
+ * The files of HANDED (the room module, its table and, since W3-26b, the
+ * capture converter) are loaded as Node loads a module and handed in under
+ * their global's name: they do not attach themselves, and loads from one
+ * folder share each through Node's module cache unless a suite hands in its
+ * own (or null, for a page that did not load it).
  */
 'use strict';
 
@@ -40,9 +45,9 @@ const REPO = path.join(__dirname, '..', '..');
 
 // The page's order: index.html's first script tags, live-worker.js's
 // importScripts, and the head of audio-worker.js's.
-const ENGINE_FILES = ['constants.js', 'steam-sender.js', 'voice-channel.js', 'vendor/swresample/swresample.js',
-  'room-presets.js', 'room-dsp.js', 'engine/dsp.js', 'engine/gain.js', 'engine/mix.js', 'engine/network.js',
-  'engine/codec.js', 'engine/room.js', 'engine/steam.js', 'engine/render.js', 'engine/render-stream.js',
+const ENGINE_FILES = ['constants.js', 'steam-sender.js', 'capture-converter.js', 'voice-channel.js',
+  'vendor/swresample/swresample.js', 'room-presets.js', 'room-dsp.js', 'engine/dsp.js', 'engine/gain.js', 'engine/mix.js',
+  'engine/network.js', 'engine/codec.js', 'engine/room.js', 'engine/steam.js', 'engine/render.js', 'engine/render-stream.js',
   'engine/live-chain.js', 'audio.js'];
 
 // The engine's own files, each one part of TF2Engine: the entries of
@@ -52,10 +57,12 @@ const PART_DIR = 'engine';
 const PART_FILES = ENGINE_FILES.filter((f) => f.startsWith(`${PART_DIR}/`));
 
 // The files loaded as Node loads a module and handed to the engine under their
-// global's name instead of being joined into its text: the two a suite wraps
+// global's name instead of being joined into its text: those a suite wraps
 // (tests/render-stream.verify.mjs watches every room path) or withholds (a page
-// that did not load them).
-const HANDED = { 'room-presets.js': 'TF2_ROOM_PRESETS', 'room-dsp.js': 'TF2Room' };
+// that did not load them: the room module and its table; the capture converter,
+// tests/harness.verify.mjs, check 6b). A joined file would attach itself to
+// Node's global object, where a later load without it would still find it.
+const HANDED = { 'capture-converter.js': 'TF2CaptureConverter', 'room-presets.js': 'TF2_ROOM_PRESETS', 'room-dsp.js': 'TF2Room' };
 
 // constants.js's top-level tables, returned by loadEngine (the engine's own
 // objects, not copies).
@@ -89,9 +96,10 @@ function engineSource(root = REPO) {
 // default). `options.codec` is what the engine sees as TF2Opus: the returned
 // object's `codec` reads it and `engine.codec = m` sets it, so the engine's
 // next loadOpusModule() takes m, and a render already running keeps the module
-// it took. Unset, the engine sees no TF2Opus. `options.TF2Room` and
-// `options.TF2_ROOM_PRESETS` are what it sees under those names: left out, the
-// modules as Node loads them from root; null, absent. The returned `parts` is
+// it took. Unset, the engine sees no TF2Opus. `options.TF2Room`,
+// `options.TF2_ROOM_PRESETS` and `options.TF2CaptureConverter` are what it
+// sees under those names: left out, the modules as Node loads them from root;
+// null, absent. The returned `parts` is
 // the load's TF2Engine (undefined while PART_FILES is empty): a suite can call
 // what a part gives and cannot replace it, since each part is frozen and every
 // caller took its functions at the load. To break one internal function, load

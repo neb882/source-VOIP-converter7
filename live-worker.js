@@ -25,8 +25,8 @@
  * voice_buffer_ms and the channel's counts over the recording. */
 'use strict';
 
-importScripts('constants.js', 'steam-sender.js', 'voice-channel.js', 'vendor/swresample/swresample.js', 'room-presets.js',
-  'room-dsp.js', 'engine/dsp.js', 'engine/gain.js', 'engine/mix.js', 'engine/network.js', 'engine/codec.js',
+importScripts('constants.js', 'steam-sender.js', 'capture-converter.js', 'voice-channel.js', 'vendor/swresample/swresample.js',
+  'room-presets.js', 'room-dsp.js', 'engine/dsp.js', 'engine/gain.js', 'engine/mix.js', 'engine/network.js', 'engine/codec.js',
   'engine/room.js', 'engine/steam.js', 'engine/render.js', 'engine/render-stream.js', 'engine/live-chain.js',
   'audio.js');
 

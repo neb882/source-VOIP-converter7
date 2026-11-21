@@ -78,6 +78,34 @@
     return { sender, swr };
   }
 
+  // The capture's converter to the codec's rate (W3-26b), read from a
+  // profile's `capture` in one place for the render, the stream and the live
+  // chain: TF2CaptureConverter (capture-converter.js, Windows's converter as
+  // read, finding 28) when capture is { converter: 'windows', quality: 30 },
+  // and null when the profile has none (absent or undefined: a test's copy of
+  // a profile can carry capture: undefined), where the caller runs the app's
+  // own resampler. Any other value is an Error that names the member (null,
+  // another converter or quality, a member more), never a capture run some
+  // other way; so is a capture on a profile whose codecRate is not 24000, the
+  // converter's one output rate; and a profile with the member where
+  // capture-converter.js is not loaded is an Error that names the file.
+  function captureConverter(codec) {
+    const capture = codec.capture;
+    if (capture === undefined) return null;
+    let text;
+    try { text = JSON.stringify(capture) ?? String(capture); } catch (e) { text = `a ${typeof capture}`; }
+    const keys = capture && typeof capture === 'object' && !Array.isArray(capture) ? Object.keys(capture).sort().join() : '';
+    if (keys !== 'converter,quality' || capture.converter !== 'windows' || capture.quality !== 30) {
+      throw new Error(`TF2Audio: a profile's capture is { converter: 'windows', quality: 30 } (Windows's converter at quality 30, the one built) or absent, not ${text}.`);
+    }
+    if (codec.codecRate !== STEAM_RATE) {
+      throw new Error(`TF2Audio: a profile's capture ${text} converts to ${STEAM_RATE} Hz, and this profile's codecRate is ${codec.codecRate}.`);
+    }
+    const converter = typeof TF2CaptureConverter !== 'undefined' ? TF2CaptureConverter : null;
+    if (!converter) throw new Error(`TF2Audio: a profile's capture ${text} needs capture-converter.js (TF2CaptureConverter) loaded beside audio.js.`);
+    return converter;
+  }
+
   // The receiver's voice channel (voice-channel.js), for a render on the
   // game's timeline (W3-02c-2), found as steamModules() finds the sender.
   function steamChannelModule() {
@@ -541,9 +569,10 @@
     };
   }
 
-  // The capture's 16 bits, after the capture roll-off at 24 kHz: Steam's
-  // recorder hands its gate and encoder 16-bit samples. q = round(x * 32768),
-  // ties to even, clamped to -32768..32767.
+  // The capture's 16 bits, after the conversion to 24 kHz (captureConverter)
+  // and the optional filters: Steam's recorder hands its gate and encoder
+  // 16-bit samples. q = round(x * 32768), ties to even, clamped to
+  // -32768..32767: the converter's overshoot past full scale is clamped here.
   function steamCapture(x) {
     const q = new Int16Array(x.length);
     for (let i = 0; i < x.length; i++) {
@@ -822,7 +851,7 @@
   }
 
   E.steam = Object.freeze({
-    STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
+    STEAM_FRAME, STEAM_RATE, STEAM_VOICE_RATE, captureConverter, steamArriveAt, steamBoundTick, steamCapture, steamChannel, steamChannelModule,
     steamCodecInfo, steamDemoVoice, steamFits, steamGameTimeline, steamGiveOut, steamModules, steamPlayedInfo, steamReach, steamRunOn,
     steamSenderOptions, steamTimeline
   });

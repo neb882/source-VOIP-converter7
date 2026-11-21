@@ -1,8 +1,10 @@
 /* TF2 Voice Emulator — local DSP and codec orchestration.
  *
  * Sender:   mono capture (left channel by default) -> capture gain / int16
- *           clip -> resample to the codec rate -> optional capture filters
- *           -> Steam capture roll-off -> Steam voice gate (pre-roll, hold, one
+ *           clip -> for `steam`, Windows's conversion to 24 kHz
+ *           (capture-converter.js, finding 28; the other profiles: the app's
+ *           resampler to the codec rate) -> optional capture filters
+ *           -> Steam voice gate (pre-roll, hold, one
  *           encoder per talk spurt) -> libopus 1.1.5 encode, as in Steam
  * Network:  `steam`: each sender message is one packet, lost whole by its
  *           own draw (BC-1); the other profiles: 20 ms packets grouped by
@@ -23,7 +25,10 @@
  * (tests/REFERENCE_2026.md). The room is the engine's arithmetic as read
  * (room-dsp.js and its table room-presets.js, order W3-17), loaded before
  * this file as the globals TF2Room and TF2_ROOM_PRESETS; a render with no
- * room and not under water does not need them.
+ * room and not under water does not need them. The `steam` capture's
+ * converter (capture-converter.js, W3-26b) is the global TF2CaptureConverter,
+ * loaded before this file too; a render of another profile, or with the codec
+ * off, does not need it.
  * Same decoded PCM + settings + pinned runtime gives repeatable output.
  *
  * TF2Audio.process(buffer, opts) -> { samples, sampleRate, blob, codecInfo }

@@ -33,6 +33,7 @@ const ASSETS = [
   './style.css',
   './constants.js',
   './steam-sender.js',
+  './capture-converter.js',
   './voice-channel.js',
   './vendor/swresample/swresample.js',
   './vendor/swresample/COPYING.LGPLv2.1',
