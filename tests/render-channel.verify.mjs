@@ -796,11 +796,12 @@ const REACH_AND_LOOKAHEAD = 4806;
 // W3-26b (the steam capture runs Windows's converter as read) recorded the three steam rows again, in a commit
 // of its own, from the run in which every other check passed; the celt_22 row did not move. W3-28 (the steam
 // capture's step to 16 bits dithered, from 48 kHz here) recorded the three steam rows again, in a commit of its
-// own, from the run in which every other check passed; the celt_22 row did not move.
+// own, from the run in which every other check passed; the celt_22 row did not move. Its fix round 1 (the table's
+// seed 0x28D17E6) recorded the same three rows again, in a commit of its own; the celt_22 row did not move.
 const LIVE_MAIN = {
-  'the defaults': ['f31aa0510941101424759cf8881759eb796d03a4a63e3ca954e469710c2b5285', '26ce47f1b0662f11aad3b327b83783120a61839e313b42486d8c4f9cf165123b'],
-  'loss 15%, jitter 50 ms, seed 3': ['1dcb28ac73fd836b3d81578bb67aa752ae1d74d209c0b4b9f7402f7fa331caf7', 'a0ac613f8405b441e0ade8a22cc9bef27167eb4f86baf32390995bfd8309bfe2'],
-  'the gate off, agc off, voiceScale 2, low latency': ['c0569e9c3eb5b8e5a3cd88cdc8445b7d77e635d4a66a0433689cd7b470872116', 'ca04671df0c504571e1eb44e1d51f3a6198300ee03e88e4bbf5e064a9add70f9'],
+  'the defaults': ['f9b683d41b0b63b1cf27f4dc05c2b8b93c4fb364c57adf3f030f1751cb225685', '058fac1978322537a6323fd93baf7d41eaa52157a34866027ced6a037b40fbe2'],
+  'loss 15%, jitter 50 ms, seed 3': ['d6984b3cf02b96377c52f9b6272df89d96c0f8c41b30114847c7316574b81698', '4f212973ce23e3e620529f078b7e7c6503466611f43c53869bd6d23c8ec25768'],
+  'the gate off, agc off, voiceScale 2, low latency': ['e3db672792357ff696ac413525e78dbdf3e9052f5a96c99e65e8e1c8b69acd1b', '4bc76f3cff1279cb76b8e29857ec58316bd8bdc37985cfb05892f2e1813facf0'],
   'celt_22, loss 15%, seed 5': ['ae240a8399c4e6abfd470959f7b1e85db244ebd05a6d36c37fe03f0c3ede4f0a', '1d30d0f8b40a265b63c1f1c5e7d9637f9ce32b75ac005bebe82244a6d2991e92']
 };
 const LIVE_MAIN_OPTS = {
