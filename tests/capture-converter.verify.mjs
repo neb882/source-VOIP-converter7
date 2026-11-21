@@ -102,7 +102,7 @@ for (const c of V.cases) {
     `${d.L} ${d.M} ${d.H} ${d.T} ${d.cutoff} rated ${d.rated}`);
   const diff = sameBits(y, first);
   check(`${c.rate} Hz: ${c.outputs} outputs, each the first reference's bit for bit`, y.length === c.outputs && !diff,
-    diff || `largest difference ${farthest(y, first)}`);
+    `${diff ? `${diff}; ` : ''}largest difference ${farthest(y, first).toExponential(2)}`);
   if (c.second) {
     const apart = farthest(y, floats(c.second));
     check(`${c.rate} Hz: within 3e-6 of the second reference`, apart <= 3e-6, `${apart.toExponential(2)}`);
