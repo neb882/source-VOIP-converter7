@@ -806,3 +806,11 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 - in_flight, W3-28 replaced: "W3-28, the capture's step to 16 bits, dithered as Windows's is (docs/work-orders/W3-28-capture-dither.md): written 2026-11-21 after the two private reads of the wave input road (tests/REFERENCE_2026.md, finding 28, 'From the device to Steam's 16-bit samples'); not built, waits for W3-26b's merge. Every steam render with the codec on moves by a noise of about 0.4 of one 16-bit step; the cache number rises once."
 - in_flight, W3-27b: "waits for W3-26b's merge and W3-28's" became "waits for W3-28's merge".
 - open_questions: one entry added (the band from 11 to 12 kHz after the packets).
+
+## 2026-11-21: W3-28 merged
+
+- live.last_merge: W3-28 put first; the earlier text follows it unchanged after "Before it:". live.cache v56 became v57.
+- in_flight, W3-28 removed: "W3-28, the capture's step to 16 bits, dithered as Windows's is (docs/work-orders/W3-28-capture-dither.md, with 'After the plan review'): being built on claude/w3-28-capture-dither (2026-11-21), then reviewed and read a second time. Every steam render with the codec on moves by a noise of about 0.4 of one 16-bit step; the cache number rises once."
+- in_flight, W3-27b: "Not built: waits for W3-28's merge (W3-26b merged 2026-11-21)." became "Being built on its own branch from 2026-11-21 (W3-26b and W3-28 merged 2026-11-21), then reviewed and read a second time."
+- open_questions, the band from 11 to 12 kHz replaced: "2026-11-21, from the private runs before W3-26b's merge: in the band from 11 to 12 kHz the render is 0.7 to 1.2 dB over the take on Set B's test-signal rows and 2.4 to 2.6 dB over on Set D's two (the accuracy suite, nine seeds, measured once), a little more than before W3-26b, while the capture's band edge fits Steam's own packets to 0.20 dB rms. The filter W3-26b removed was fitted to a recorded output and took out part of this. What is left belongs after the packets (the decoder's resampler, the device stage, or the recording) and is not explained."
+

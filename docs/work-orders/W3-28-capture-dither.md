@@ -205,3 +205,41 @@ This holds over "The rule" and "After the plan review" above where they name the
 - **The checks gain two.** No value of the table reaches 1.5 steps in size; and a silent input through the
   dithered step, 8,192 samples from any start, gives only -1, 0 and +1, with each of the three present.
 - **What moves.** Every hash the first build moved moves again, and no other.
+
+## W3-28 as built (2026-11-21)
+
+Merged 2026-11-21 with the cache number at v57. Report:
+[docs/reports/W3-28-capture-dither.md](../reports/W3-28-capture-dither.md). A reviewer and a second reader read the
+build apart; both found the mechanism right. Two rounds of fixes followed: the ruling's seed, then a check that
+could not fail, a refusal's wording and words in the documents.
+
+- The `steam` profile's member is `capture: { converter: 'windows', quality: 30, dither: true }`. `engine/steam.js`
+  has `createSteamCapture({ dither, seed })` and `steamCaptureStep(codec, rate, seed)`; the render, a render fed in
+  pieces and the live chain each make one step for one capture. The table is made at the first dithered capture
+  (about 7 ms, measured once by the builder), never at load.
+- **The table** is the ruling's: seed `0x28D17E6`, SHA-256 `a2befc20...37a45195` by the builder's transform, the
+  builder's plain sum, the orchestrator's and the second reader's own. Extremes -1.38477267 and +1.34817641
+  steps; a silent input gives only -1, 0 and +1, 0 on 78% of samples, the longest run of zeros 58 samples
+  (computed).
+- **What moved:** 50 of `render-stream`'s 88 cases and LIVE_MAIN's three steam rows of `render-channel`, the same
+  set in the first build and after the seed's change (the builder's lists, the reviewer's count). The two named
+  24,000 Hz cases did not. The order expected `render-channel`'s main and ends-in-silence tables to move: they do
+  not, since one is received voice and the other is all at 24,000 Hz (the builder, confirmed by the reviewer).
+- **A second port:** the second reader built the table and the step from "The rule" alone; it equals the built
+  capture sample for sample at three rates, whole, in pieces and in the live chain, and its sender gives the same
+  messages. Across 39 cases nothing moved that should not.
+- **What the dither does on the model** (measured once by the second reader and the builder): a -90 dBFS tone
+  keeps its level in the capture with its third harmonic under -137 dBFS, where plain rounding gave -91.8 and
+  -106.7; a -100 dBFS tone survives the capture where it was all zeros; with the gate on, silence still sends
+  nothing, and the spurts and the count of messages do not change; with the gate off, silence costs a fifth more
+  bytes and the decoded floor rises from about -109 to about -97 dBFS.
+- **The private runs** (the orchestrator, measured once; `tests/REFERENCE_2026.md`, finding 28, "The dithered
+  step on the private takes"): the accuracy suite's level figures a little better in the mean; the band from 11
+  to 12 kHz on the test signal's rows 1.1 to 1.6 dB lower and nearer the takes, all of it the encoder's DTX on
+  the test signal's 11 kHz tone, which the dither brings from 23 to 41 frames of 50 to 8 to 31, where the takes
+  have 8 to 18.
+- **Left as chosen:** the sender's own zeros (the lead, the first spurt's pre-roll, the end) stay zeros where
+  Windows would give dither; a source at 24,000 Hz is not dithered; the hand-set filters act between the
+  conversion and the step. The bytes on talk followed by silence: the builder measured -0.3 to +0.2%, the second
+  reader +1.1 to +2.8% on a case of its own; the report gives both and does not settle it.
+
