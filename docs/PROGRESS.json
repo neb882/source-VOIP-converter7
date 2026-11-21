@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-20",
+  "updated": "2026-11-21",
   "about": "Where the TF2 Voice Emulator stands. Read CLAUDE.md first, then this. The orchestrating session keeps this file; builders do not edit it. Since 2026-11-12 it holds where things stand now. What it no longer carries (each stand's history, the decisions no longer in force, the list of merges) is in docs/PROGRESS-LOG.md, dated and appended to, never edited; docs/README.md indexes every order with its state.",
   "live": {
     "url": "https://neb882.github.io/source-VOIP-converter7/",
@@ -9,7 +9,8 @@
     "last_merge": "W3-25 (no cache change, 2026-11-15): tests/voicequeue/log-to-fixture.mjs reads a real server's log: several packets on a tick, one channel of several (--channel), the mixer's demand from voice_showchannels 2's pull lines, and with --mid-play a log that begins while the channel plays (a new fixture pair 4, B, a start that is not compared). On Set Q's two logs the module gives the logged queue on every tick line the replay compares (measured privately; docs/work-orders/W3-25-server-logs.md). No site file changed. Before it: W3-24 (cache v54, 2026-11-15): a render of Steam voice on the game's voice queue runs on past its source's end until the channel has given out the last of the source it holds, so the last words are heard instead of cut. Measured on the build: a 6.13 s phrase ending with the file runs on 0 ms at 300 frames a second and jitter 0, 16.5 ms (0 to 41.2) at jitter 50, and 81 to 96 ms at 1000/15, 60 and 30 with jitter 50; a source that ends in 1 s of silence runs on by nothing. A render that does not run on is unchanged sample for sample (the recorded hashes equal main's). On one that does, a sample before the source's length changes only where the device stage's read touches the voice's end or later (one sample at a 44.1 kHz device, two at 48 kHz, on the review's case). The console says how long a render ran on. Not checked against the game."
   },
   "in_flight": [
-    "W3-26, the capture's conversion to 24 kHz as read (Windows's converter at quality 30 in place of the app's resampler and captureEq on the steam profile): being planned, 2026-11-20."
+    "W3-26, the capture's conversion to 24 kHz as read (docs/work-orders/W3-26-capture-conversion.md): planned 2026-11-21, the rulings given. W3-26a (the module capture-converter.js, its vectors and suite; nothing loads it) is being built on claude/w3-26a-capture-converter while a plan reviewer reads the whole order. W3-26b (the wiring; every steam render with the codec on moves) waits for both.",
+    "A private study of the sender's clock on the rule as read, scored against Sets J, L, D and Q beside the app's clock as built; an order follows W3-26 if it holds."
   ],
   "next": [
     {
