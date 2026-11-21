@@ -33,7 +33,8 @@ function check(name, cond, detail) {
 // rule", and not a call of the module: the table by the plain sum of its step 3 (the module uses a
 // radix-2 transform), the index's start by the test's own mulberry32, the rounding by the test's own
 // floor and its own tie rule (the module uses roundEven). `t8` is the table in steps, rounded to 8
-// decimals, before the step to 32-bit floats.
+// decimals, before the step to 32-bit floats. The seed 0x28D17E6 is the order's ruling after the build
+// (the first after 0x28D17E5 whose table keeps every value inside 1.5 steps).
 function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
@@ -46,7 +47,7 @@ function mulberry32(seed) {
 let ditherRefTable = null;
 function ditherRef() {
   if (ditherRefTable) return ditherRefTable;
-  const N = 4096, M = 4096 / Math.sqrt(6 * 4095), rnd = mulberry32(0x28D17E5), phase = new Float64Array(2048);
+  const N = 4096, M = 4096 / Math.sqrt(6 * 4095), rnd = mulberry32(0x28D17E6), phase = new Float64Array(2048);
   for (let k = 1; k <= 2047; k++) phase[k] = 2 * Math.PI * rnd();
   const t8 = new Float64Array(N), T = new Float32Array(N);
   for (let n = 0; n < N; n++) {
@@ -1890,7 +1891,7 @@ async function ditherSection() {
     const again = St.steamDitherTable();
     check('the dither table: 4,096 values, the test\'s own (the plain sum of the rule), mean under 1e-9 and rms within 1e-6 of 1/sqrt(6) of a step, every bin of its 8-decimal values\' transform of magnitude 4096/sqrt(6 x 4095) within 1e-6 and the constant part under 1e-6, its SHA-256 the order\'s; the module hands out a copy',
       same && Math.abs(mean) < 1e-9 && Math.abs(rms - 1 / Math.sqrt(6)) < 1e-6 && worst < 1e-6 && dc < 1e-6
-      && hash === '7c3ef8d281fd1ce1bc9834c34c4c5a08add9b3ef0208ec23e02f82244d93ee91' && again.some((v) => v !== 0),
+      && hash === 'a2befc20946bdd05889adb16f5dc87cf6a5d8a1bda05079fa2bfdc2537a45195' && again.some((v) => v !== 0),
       `mean ${mean.toExponential(2)}, rms - 1/sqrt(6) ${(rms - 1 / Math.sqrt(6)).toExponential(2)}, extremes ${Math.min(...steps).toFixed(4)} and +${Math.max(...steps).toFixed(4)} steps, worst bin ${worst.toExponential(2)} off, constant part ${dc.toExponential(2)}, hash ${hash.slice(0, 12)}`);
   }
   // The table is made at the first dithered capture, in a fresh engine (a load of its own).
@@ -1903,6 +1904,24 @@ async function ditherSection() {
     fresh.createSteamCapture({ dither: true, seed: 2 });
     const again = Number(process.hrtime.bigint() - t1) / 1e6;
     check('the table is made once, at the first dithered capture', again < ms, `first ${ms.toFixed(2)} ms, the next ${again.toFixed(3)} ms`);
+  }
+  // The order's ruling after the build: no value of the table reaches 1.5 steps in size (Windows's stays
+  // inside them, measured on the private copy), so silence through the step gives only -1, 0 and +1.
+  {
+    const steps = Array.from(St.steamDitherTable(), (v) => v * 32768), worst = Math.max(...steps.map(Math.abs));
+    check('no value of the dither table reaches 1.5 steps in size', steps.length === N && worst < 1.5,
+      `the largest ${worst.toFixed(8)} steps; extremes ${Math.min(...steps).toFixed(8)} and +${Math.max(...steps).toFixed(8)}`);
+    const rows = [];
+    let ok = true;
+    for (const seed of [0, 1, 7, 11, 0xC0FFEE, 123456789]) {
+      const q = St.createSteamCapture({ dither: true, seed }).push(new Float32Array(8192)), hist = {};
+      for (const v of q) hist[v] = (hist[v] || 0) + 1;
+      const keys = Object.keys(hist).map(Number).sort((a, b) => a - b);
+      if (JSON.stringify(keys) !== '[-1,0,1]') ok = false;
+      rows.push(`seed ${seed} (start ${ditherRefStart(seed)}): ${keys.map((v) => `${v}: ${hist[v]}`).join(', ')}`);
+    }
+    check('silence through the dithered step, 8,192 samples from six starts (six seeds): only -1, 0 and +1, each of the three present',
+      ok, rows.join('; '));
   }
   // The step against the test's own, from the seed's start: noise, a sine past full scale at both ends,
   // silence, exact ties.
@@ -1939,15 +1958,15 @@ async function ditherSection() {
     check('the step is the rule\'s (the test\'s own table, start and rounding): noise, quiet noise, a sine at 1.3 that clips at 32767 and -32768, silence, and exact ties to even; the start is the seed\'s draw',
       ok, rows.join('; '));
   }
-  // Silence in: -2 to +2, never all 0, with the rms of the table rounded.
+  // Silence in: never all 0, with the rms of the table rounded.
   {
     const q = St.createSteamCapture({ dither: true, seed: 11 }).push(new Float32Array(3 * N));
     const rounded = Array.from(ref.T, (v) => engine.parts.dsp.roundEven(v * 32768));
     const rmsOf = (a) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / a.length);
     const hist = {};
     for (const v of q) hist[v] = (hist[v] || 0) + 1;
-    check('silence in: every value from -2 to +2, not all 0, and the rms of the table rounded to steps',
-      q.every((v) => v >= -2 && v <= 2) && q.some((v) => v !== 0) && rmsOf(Array.from(q)) === rmsOf(rounded),
+    check('silence in: every value from -1 to +1, not all 0, and the rms of the table rounded to steps',
+      q.every((v) => v >= -1 && v <= 1) && q.some((v) => v !== 0) && rmsOf(Array.from(q)) === rmsOf(rounded),
       `${Object.keys(hist).sort((a, b) => a - b).map((v) => `${v}: ${hist[v]}`).join(', ')}; rms ${rmsOf(Array.from(q)).toFixed(4)} steps`);
   }
   // Pieces equal the whole, and the index does not restart at a push.

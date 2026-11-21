@@ -323,7 +323,10 @@ const CODEC_PROFILES = {
     // adds a value of a table of 4,096 to each sample before it clips and
     // rounds (read twice), ties to even, the index running on (read once);
     // the app's table has the spectrum measured on Windows's (flat, an rms of
-    // 1/sqrt(6) of a step) with phases of its own (chosen), and the index
+    // 1/sqrt(6) of a step) with phases of its own, from the first seed after
+    // 0x28D17E5 whose table keeps every value inside 1.5 steps as Windows's
+    // does (measured on the private copy), so that a silent input gives only
+    // -1, 0 and +1 (chosen; engine/steam.js, DITHER_SEED), and the index
     // starts at a place drawn from the render's seed (chosen). It runs where
     // the converter converts: not for a source at 24000 Hz (chosen, W3-26's
     // first ruling), not with the codec off, nor on received voice

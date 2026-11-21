@@ -599,17 +599,20 @@
   //   - The table (ditherTable): Windows's own values are not in this repository. Its
   //     description was measured on the private copy: a spectrum exactly flat, every bin of
   //     magnitude 4096 / sqrt(6 x 4095), the constant part 0, phases random; an rms of
-  //     1/sqrt(6) of a step. The app's table has that spectrum with phases drawn from
-  //     mulberry32(0x28D17E5) (chosen; bin 2,048 is +M, chosen), made by a radix-2 inverse
-  //     transform in double precision, each value rounded to 8 decimals and then to a 32-bit
-  //     float of steps / 32768. It is made once, at the first dithered capture, and nothing
+  //     1/sqrt(6) of a step; every value inside 1.5 steps (extremes -1.47 and +1.49), so a
+  //     silent input gives only -1, 0 and +1. The app's table has that spectrum with phases
+  //     drawn from mulberry32(0x28D17E6) (chosen; bin 2,048 is +M, chosen): the seed is the first
+  //     after 0x28D17E5 whose table has every value inside 1.5 steps, as Windows's has (its
+  //     extremes -1.385 and +1.348 steps, computed). It is made by a radix-2 inverse transform
+  //     in double precision, each value rounded to 8 decimals and then to a 32-bit float of
+  //     steps / 32768. It is made once, at the first dithered capture, and nothing
   //     writes to it; its SHA-256 is pinned by tests/steam.verify.js ([5e]).
   //   - The index belongs to one capture, so a capture fed in pieces gives the samples of the
   //     whole. Its start is drawn from the render's seed by a draw of its own,
   //     floor(4096 x the first draw of mulberry32((seed ^ 0x5D17E412) >>> 0)) (chosen: the
   //     stream is set up some time before the sound, and nothing read says how long), so it
   //     moves no other draw.
-  const DITHER_LENGTH = 4096, DITHER_SEED = 0x28D17E5, DITHER_MIX = 0x5D17E412;
+  const DITHER_LENGTH = 4096, DITHER_SEED = 0x28D17E6, DITHER_MIX = 0x5D17E412;
   const CAPTURE_TOP = 32767 / 32768;
   // The table once it is made (a holder: an engine file has no let at its top).
   const DITHER = { table: null };
