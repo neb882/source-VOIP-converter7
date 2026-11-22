@@ -60,7 +60,8 @@
 //     0.000001, the second model and jitter 0.5 and 1 (the order's check 5); voice-channel.js's relayTick against
 //     it (W3-29, check 3).
 // 23. The stream: createRender in odd pieces at 60, 30 and 10 fps; what it gives out (check 6).
-// 24. The threshold: 1000/15 is 66.67 and main's; 66.6 and the double below 1000/15 are not.
+// 24. The threshold: 1000/15 is 66.67 and main's; 66.6 and the double below 1000/15 run the frame clock (since W3-29
+//     with the rule's zero there: the render at 66.6 is 66.67's sample for sample, the double below's is not).
 // 25. The stage keys: a render at 30 fps after one at 300 starts from B (check 9).
 // 26. Determinism under 1000/15 (check 11).
 // 27. onOpen through steamChannel (W3-23b, check 8): main's indices on the even clock, the timeline's under the frame
@@ -70,6 +71,10 @@
 //     play-out (check 9); the output's length, and its head against an engine without the play-out (check 10);
 //     the stream (check 11); the stage keys (check 13); determinism (check 17).
 // 29. A source that ends in 1 s of silence: main's WAV hashes, no over (check 12).
+// The game timeline's zero by the queue's rule (W3-29, docs/work-orders/W3-29-timeline-zero.md, "The checks"):
+// 30. Real renders under 67 frames a second: an opened phrase's mean offsetStartMs near 0 at 30 and 10 fps (check 7);
+//     what a render reports, codecInfo.channel's zero and zeroSeconds, and a demo's (check 9).
+// (Check 3 is in section 22 and check 8 in section 10.)
 // Renders use deviceRate 44100 and compare the voice at the mix point (opts.onGain).
 // TF2_DIR points the suite at a copy of the sources. Every signal is synthetic, made here.
 import crypto from 'node:crypto';
@@ -82,6 +87,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { loadEngine, sourceRoot } from './lib/engine.cjs';
 import { closedForm, referenceArrivals } from './voicequeue/reference-arrivals.mjs';
 import { frameClockRuns, frameTime, referenceFrames } from './voicequeue/reference-frames.mjs';
+import { suiteZero, suiteZeroSeconds } from './voicequeue/reference-zero.mjs';
 
 const root = sourceRoot();
 const require = createRequire(import.meta.url);
@@ -795,7 +801,11 @@ if (runs(9)) {
 // (read: engine/steam.js steamReach from the sender's constants, and the codec's look-ahead).
 // W3-27b: with the arrival at 42.0 ms D is a block less at 10, 20, 50, 60 and 300 fps (it was
 // 9728, 10240, 12288, 12800 and 24576 at 50.5 ms) and the same at 30, 66.67 and 100.
-const LIVE_D = { 10: 9216, 20: 9728, 30: 10752, 50: 11776, 60: 12288, 66.67: 13312, 100: 15360, 300: 24064 };
+// W3-29 (the zero by the queue's rule): under 1000/15 D is the suite's own writing of the rule
+// (tests/voicequeue/reference-zero.mjs), not a figure of the module's: 7680 at 10 fps, 8704 at 20, 10240 at 30,
+// 11264 at 50 and 11776 at 60 (it was 9216, 9728, 10752, 11776 and 12288 with the constant of 42.0 ms); at 66.67,
+// 100 and 300 the pins stand.
+const LIVE_D = { ...Object.fromEntries([10, 20, 30, 50, 60].map((fps) => [fps, suiteZero(100, fps, 156 / 24000)])), 66.67: 13312, 100: 15360, 300: 24064 };
 // W3-23b (the plan review's edit 11): what the chain holds back at its mix point, D and, under 1000/15, the blocks
 // of a frame, ceil(88200 / (1024 fps)): 9 at 10 fps, 5 at 20, 3 at 30, 2 at 50 and 60, none at 66.67 and above
 // (arithmetic, written again here from the order).
@@ -862,6 +872,19 @@ async function liveGame(x, rate, opts, plan = 480, { keyUp = [], room = null } =
   return { voice: join(voice), starts, stats: chain ? { ...chain.stats } : {}, D, hold, G: Math.floor(P * 147 / 80) - hold,
     queueCostMs: chain ? chain.queueCostMs : null, marks, codes, error };
 }
+// The live chain on the game's timeline at a 44.1 kHz microphone (so its output is at 44.1 kHz), fed x in blocks of
+// `plan`: what process() returned, joined; the hold; the zero; stats.latencyMs.
+async function liveOut(x, rate, opts, plan = 480) {
+  const chain = await A.createLiveChain({ ...BASE, ...opts, timeline: 'game' }, rate), out = [];
+  try {
+    for (let at = 0; at < x.length; at += plan) out.push(await chain.process(x.subarray(at, Math.min(x.length, at + plan))));
+    return { out: join(out), hold: chain.hold, D: chain.zero, latencyMs: chain.stats.latencyMs };
+  } finally { chain.free(); }
+}
+// W3-29's check 8: the chain at 30 fps (talk(12, 44100, 3), seed 1, jitter 0, blocks of 480) on the commit before the
+// switch (9059aee, the zero of latency() + 42.0 ms): its hold, its output's length, the SHA-256 of its output from the
+// hold on, and stats.latencyMs.
+const CHAIN_BEFORE = { hold: 12288, length: 516855, hash: '1eb385bf99f20db41cf14e22d09b91cc9873d299d0db03e1099fd974646f23e4', latencyMs: 280.62131519274374 };
 // A run's channel opens, or null where the chain gave no counts.
 const opensOf = (live) => (live.stats.channel ? live.stats.channel.opens : null);
 // createRender on the game's timeline, its voice at the mix point and its codecInfo.
@@ -1048,6 +1071,22 @@ if (runs(10)) {
     }
     check('one block less runs short: on silence at jitter 0 the chain\'s margin is the arithmetic\'s at each instant; at 60 and 50 fps it falls under 512 at the instant the arithmetic gives (a hold one block shorter runs short there); at 30, 20 and 10 its least in 20 s is the arithmetic\'s, above a block',
       ok && [30, 20, 10].every((fps) => figures[fps] >= 512), rows.join('; '));
+  }
+
+  // W3-29's check 8 (docs/work-orders/W3-29-timeline-zero.md, "The live monitor", and the plan review's change 8): the
+  // monitor's sound does not come sooner or later when D falls. The chain gives out the render's sample n as its own
+  // sample n, floor(P x 147 / 80) - hold of them, so with delta the old D less the new the new chain's sample
+  // n + delta is the old chain's sample n, given out after the same input: from the old hold plus delta on, the
+  // output hashes as the old output from the old hold on, over as many samples, the output is delta samples longer,
+  // and stats.latencyMs is delta / 44.1 ms less.
+  {
+    const rate = 44100, x = talk(12, rate, 3), live = await liveOut(x, rate, { fps: 30, seed: 1 });
+    const delta = CHAIN_BEFORE.hold - live.hold, from = CHAIN_BEFORE.hold + delta, n = CHAIN_BEFORE.length - CHAIN_BEFORE.hold;
+    const got = live.out.length >= from + n ? sha256(bytesOf(live.out.subarray(from, from + n))) : null;
+    check(`check 8: at 30 fps the chain's output from the old hold plus delta on (${delta} samples, the old D less the new) is the output recorded before the switch from its hold on, over as many samples, and stats.latencyMs is delta / 44.1 ms less`,
+      delta === 512 && live.D === LIVE_D[30] && got === CHAIN_BEFORE.hash && live.out.length === CHAIN_BEFORE.length + delta
+        && Math.abs(live.latencyMs - (CHAIN_BEFORE.latencyMs - delta / 44.1)) < 1e-9,
+      `hold ${live.hold} (${CHAIN_BEFORE.hold} before), ${live.out.length} samples (${CHAIN_BEFORE.length} before); from the hold on ${sha256(bytesOf(live.out.subarray(live.hold)))}; from the old hold plus delta ${got}; latencyMs ${live.latencyMs} (${CHAIN_BEFORE.latencyMs} before)`);
   }
 
   // The delay the chain reports: the hold, D at 66.67 fps and above and D and the frame's blocks under 1000/15
@@ -1767,6 +1806,7 @@ if (runs(21)) {
   // The render is the reference's, at four frame rates, the auto-gain on and off (at 30 fps on the frame clock,
   // W3-23a: the reference on the second model's).
   const renders = {};
+  let demoZero = true;
   for (const fps of [300, 100, 66.67, 30]) {
     for (const agc of [true, false]) {
       const set = { fps, agc, bufferMs: 100 }, game = await demoRender(receivedOf(dec), { fps, agc }), ref = await demoReference(dec, set);
@@ -1776,8 +1816,11 @@ if (runs(21)) {
         at === -1 ? `${ref.samples.length} samples, D ${ref.Z}; ${ref.info.opens} opens, ${ref.info.appended} joined, ${ref.info.droppedSamples} dropped`
           : `the first difference at ${at}: ${game.voice[at] * 32768} against ${ref.samples[at] * 32768}; channel ${isDeepStrictEqual(ci.channel, ref.info) ? 'equal' : 'differs'}, demo ${JSON.stringify(ci.demo)}`);
       if (agc) renders[fps] = { game, ref };
+      // W3-29's check 9: with a demo's packets the channel reports the zero it was given and no zeroSeconds.
+      if (!(ci.channel.zero === VC.arrivalZero(100, fps) && ci.channel.zero === ref.Z && ci.channel.zeroSeconds === null)) demoZero = false;
     }
   }
+  check('W3-29\'s check 9 with a demo\'s packets: codecInfo.channel.zero is the zero given (arrivalZero, the reference\'s own) and zeroSeconds null, at the four rates', demoZero);
   // The phrases (measured on this build, 2026-11-14: at 300 fps phrase 2 opened 9.7 ms late, 3
   // joined 74.0 ms early, 4 joined 301.9 ms early, 1 opened 9.2 ms late; at 66.67 phrase 4 opened
   // 8.5 ms late and phrases 1 and 2 opened within 0.4 ms).
@@ -2249,19 +2292,32 @@ if (runs(24)) {
   // clock on the rule as read; at 66.67 fps D is the same with the arrival at 42.0 ms), in a commit of its own, from
   // the run in which every other check passed, and by its fix rounds 1 and 2 (the seeded sender's warm-up of 1.5 s,
   // then 4.5 s), each in a commit of its own.
+  // W3-29 adds zero and zeroSeconds to codecInfo.channel: the WAV's hash stands, and the codecInfo's stands with the
+  // two fields taken out (MAIN); the whole codecInfo's is recorded again, in a commit of its own (MAIN_INFO).
   const MAIN = '7b83e61addca339f76d45d117c675a8445064058e4300aa69cdff312043de4a4 eb61b55c5f123551747c9e8e4439fca005a9ef2569ae8b3e806161f96356d441';
-  const hashOf = async (r) => `${sha256(new Uint8Array(await r.blob.arrayBuffer()))} ${sha256(JSON.stringify(r.codecInfo, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)))}`;
+  const MAIN_INFO = '';
+  const infoHash = (info) => sha256(JSON.stringify(info, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)));
+  const withoutZero = (info) => { const { zero: z, zeroSeconds: zs, ...channel } = info.channel; return { ...info, channel }; };
+  const hashOf = async (r) => `${sha256(new Uint8Array(await r.blob.arrayBuffer()))} ${infoHash(withoutZero(r.codecInfo))}`;
   const below = new Float64Array([1000 / 15]);
   new BigInt64Array(below.buffer)[0] -= 1n;
   const at = (fps) => A.process(buffer(x, rate), { ...BASE, timeline: 'game', seed: 1, fps });
   const a = await at(66.67), b = await at(1000 / 15), c = await at(66.6), d = await at(below[0]);
   const { fps: fa, ...ca } = a.codecInfo.channel, { fps: fb, ...cb } = b.codecInfo.channel;
   const plans = [66.67, 1000 / 15, 66.6, below[0]].map((fps) => steamArrivalPlan({ jitterMs: 0, fps, seed: 1 }));
-  check('a render at 1000/15 is the render at 66.67 sample for sample (the same wait, the same D, no arrival plan); the render at 66.67 is main\'s by hashes; at 66.6 and at the first double below 1000/15 (66.66666666666666) the render differs, with the same wait and D',
+  // Under the frame clock, at 66.6 and at the double below 1000/15, the zero is the rule's at that clock (W3-29, the
+  // plan review's change 5): by the suite's own writing of the rule 12,800 and 12,288 samples with the codec's
+  // look-ahead, against 13,312 at 66.67 (the mean of first less the wait is -1.87 and -9.19 ms there, +5.80 ms at
+  // 1000/15, computed), a step of 15 ms across one double, the model's. The render at 66.6 is then the render at
+  // 66.67 sample for sample (measured); the one at the double below is not.
+  const ruleAt = (fps) => suiteZero(100, fps, 156 / 24000);
+  check('a render at 1000/15 is the render at 66.67 sample for sample (the same wait, the same D, no arrival plan); the render at 66.67 is main\'s by hashes (its codecInfo with zero and zeroSeconds taken out); at 66.6 and at the first double below 1000/15 (66.66666666666666) the frame clock runs with the same wait, and D is the rule\'s there, a block and two blocks less: the render at 66.6 is 66.67\'s sample for sample, the one at the double below differs',
     firstDiff(a.samples, b.samples) === -1 && isDeepStrictEqual(ca, cb) && ca.waitTicks === 7 && zeroAt(66.67) === zeroAt(1000 / 15) && plans[0] === null && plans[1] === null
-    && await hashOf(a) === MAIN && firstDiff(a.samples, c.samples) !== -1 && firstDiff(a.samples, d.samples) !== -1 && plans[2] !== null && plans[3] !== null
-    && c.codecInfo.channel.waitTicks === 7 && d.codecInfo.channel.waitTicks === 7 && zeroAt(66.6) === zeroAt(66.67) && zeroAt(below[0]) === zeroAt(66.67),
-    `66.67: ${(await hashOf(a)).split(' ').map((h) => h.slice(0, 12)).join(' ')}; 66.6 differs from sample ${firstDiff(a.samples, c.samples)}, the double below from ${firstDiff(a.samples, d.samples)}`);
+    && await hashOf(a) === MAIN && infoHash(a.codecInfo) === MAIN_INFO && plans[2] !== null && plans[3] !== null
+    && c.codecInfo.channel.waitTicks === 7 && d.codecInfo.channel.waitTicks === 7 && zeroAt(66.67) === ruleAt(66.67) && zeroAt(66.6) === ruleAt(66.6) && zeroAt(below[0]) === ruleAt(below[0])
+    && ruleAt(66.6) === ruleAt(66.67) - 512 && ruleAt(below[0]) === ruleAt(66.67) - 1024 && c.codecInfo.channel.zero === ruleAt(66.6) && d.codecInfo.channel.zero === ruleAt(below[0])
+    && firstDiff(a.samples, c.samples) === -1 && firstDiff(a.samples, d.samples) !== -1,
+    `66.67: ${(await hashOf(a)).split(' ').map((h) => h.slice(0, 12)).join(' ')}, the whole codecInfo ${infoHash(a.codecInfo)}; D ${zeroAt(66.67)}, ${zeroAt(66.6)} at 66.6 and ${zeroAt(below[0])} at the double below; 66.6 differs from sample ${firstDiff(a.samples, c.samples)}, the double below from ${firstDiff(a.samples, d.samples)}`);
 }
 
 /* ---------------- 25. the stage keys ---------------- */
@@ -2574,6 +2630,36 @@ if (runs(29)) {
     }
   }
   check('at 300, 66.67, 60 and 30 fps, jitter 0 and 50: the WAV\'s hash is main\'s, the length the source\'s, and codecInfo.channel has no over', ok, rows.join('; ') || 'all eight main\'s');
+  console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
+}
+
+/* ---------------- 30. the zero by the queue's rule (W3-29) ---------------- */
+
+if (runs(30)) {
+  console.log('\n[30] The game timeline\'s zero by the queue\'s rule (W3-29): real renders under 67 frames a second, and what a render reports');
+  const t0 = performance.now(), rate = 24000, x = talk(60, rate, 1), mean = (v) => v.reduce((a, b) => a + b, 0) / v.length;
+  // Check 7: the suite's talk(60, 24000, 1) through process() on the queue with the codec on, render seeds 1 to 6: the
+  // mean offsetStartMs of the opened spurts is within 6 ms of 0 at 30 fps and within 10 ms at 10 (the plan review's
+  // change 7; the reviewer had -2.34 and +4.64 ms over seeds 1 to 3, and -13.95 and -30.19 on the zero of 42.0 ms).
+  // Check 9: codecInfo.channel.zero is zero() at the render's settings, and the suite's rule's, and zeroSeconds the
+  // module's zeroSeconds() and within 1e-12 s of the suite's.
+  const rows = [];
+  let near = true, reported = true;
+  for (const [fps, band] of [[30, 6], [10, 10]]) {
+    const all = [], bySeed = [];
+    for (let seed = 1; seed <= 6; seed++) {
+      const r = await A.process(buffer(x, rate), { ...BASE, timeline: 'game', fps, seed }), ch = r.codecInfo.channel, L = r.codecInfo.lookahead;
+      const own = ch.spurts.filter((sp) => sp.opened).map((sp) => sp.offsetStartMs);
+      all.push(...own); bySeed.push(mean(own));
+      if (!(ch.zero === VC.zero(100, fps, L / 24000) && ch.zero === suiteZero(100, fps, L / 24000) && ch.zeroSeconds === VC.zeroSeconds(100, fps, L / 24000)
+        && Math.abs(ch.zeroSeconds - suiteZeroSeconds(100, fps, L / 24000)) <= 1e-12 && L === 156)) reported = false;
+    }
+    const m = mean(all), sd = Math.sqrt(all.reduce((a, v) => a + (v - m) ** 2, 0) / (all.length - 1));
+    if (!(Math.abs(m) <= band)) near = false;
+    rows.push(`${fps} fps: ${m.toFixed(2)} ms over ${all.length} opened spurts (a standard error of ${(sd / Math.sqrt(all.length)).toFixed(2)} ms by spurt; by seed ${bySeed.map((v) => v.toFixed(1)).join(', ')}), within ${band}`);
+  }
+  check('check 7: talk(60, 24000, 1) through process() on the queue with the codec on, render seeds 1 to 6: the mean offsetStartMs of the opened spurts is within 6 ms of 0 at 30 fps and within 10 ms at 10', near, rows.join('; '));
+  check('check 9: codecInfo.channel.zero is zero() at the render\'s settings (the suite\'s rule\'s too) and codecInfo.channel.zeroSeconds the module\'s zeroSeconds(), within 1e-12 s of the suite\'s, in each of these twelve renders', reported);
   console.log(`  (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
 }
 

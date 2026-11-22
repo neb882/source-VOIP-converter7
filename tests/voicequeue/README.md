@@ -258,3 +258,12 @@ The suites compare the modules with models written again from the orders' words,
   of a sound message, and the output runs on to one past the last place of the source heard; with `even` it runs the
   clock of even ticks and blocks (1000/15 frames a second and above) instead, so that the play-out's record has a
   second model at every frame rate. Neither shares a line with `createTimeline`'s play-out.
+- `reference-zero.mjs` (W3-29, written again from `docs/work-orders/W3-29-timeline-zero.md`, "The receiver's rule"):
+  the game timeline's zero by the queue's rule. It steps the clock as `createTimeline` does, one frame at a time
+  under 1000/15 frames a second and one event at a time above, with a fresh channel for each opening on one walk of
+  the clock, and gives the time from each sender's tick to the first block that plays its opening, the mean of it
+  over ticks 0 to 5,119, and the zero before and after it is put on whole blocks. It also records the sender's part
+  as the suite measured it (`SENDER_MEASURED`). `tests/voice-channel.verify.mjs` holds `zeroSeconds`, `zero` and
+  `createTimeline`'s openings to it; `reference-frames.mjs` and `tests/render-channel.verify.mjs` take their zero
+  from it. It shares with the module only the clock's definitions and the relay's rule as `engine/network.js` states
+  it.
