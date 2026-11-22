@@ -1018,3 +1018,50 @@ for days. Since every seeded render moves in this order already, it is settled h
    (unchanged is expected: say what it is), every pin that moved, each check and its break.
 
 `docs/LIVE.md`'s table stays as the first round left it.
+
+## A third ruling (2026-11-22): the arrival constant is 42.0 ms, from 2,400 seeds; the words
+
+The second reader read the second fix round (`7915767`) and closed it with corrections. The warm-up of 4.5 s is
+built as ruled: the one-step share at the source's first sample is 13.54% against 13.42% from 4 to 6 s (the
+reader's own port, seeds 1 to 40,000, measured), the ring of the clock's start is gone by 4 s, and the sender
+differs from the reader's port in none of 138,042 messages. What it corrected is the arrival constant's side and
+three sentences.
+
+**The constant.** The second ruling's item 3 took the mean over seeds 1 to 800 to the half millisecond, and the
+builder's 42.273 ms (a standard error of 0.20 by seed) rounds to 42.5 from 0.02 ms above the edge. The reader
+measured the same 42.273 on those seeds, and then 42.127 ms over seeds 801 to 1,600 and 42.082 over 1,601 to
+2,400: 42.160 ms over all 2,400 (21,935 opened spurts, an error of about 0.12 ms, not computed by seed;
+measured once). So 800 seeds do not tell the side, and the best figure is under the edge. The side is heard: the
+queue's zero is a block of 512 samples (11.6 ms) apart wherever the block's edge lies between the two, with the
+codec's look-ahead at 120.01 to 130 frames a second at `voice_buffer_ms` 100, 240.01 to 260 at 50, 60.01 to 65
+at 200 and 48.01 to 52 at 250, and with no codec delay at 140.01 to 150 at 100 (the reader's, computed in steps
+of 0.01; a render of a tone at 125 and 130 frames a second differs between the two constants, measured). W3-29
+replaces the constant by the sender's part and the queue's rule, which give 41.1 ms on the even clock, so a
+constant of 42.5 would move those renders now and back again then.
+
+1. `ARRIVAL_SECONDS` is 0.042, its copy in `tests/voicequeue/reference-frames.mjs` 0.042 and the suite's
+   `ARRIVAL_MS` 42.0. The builder measures the pooled mean over seeds 1 to 2,400 by the suite's own code, with
+   its standard error by seed, and records it. `--arrival` measures those seeds and holds the constant within
+   0.3 ms of the mean. If the builder's mean over 2,400 seeds is 42.25 ms or more, stop and ask.
+2. A pin of the side: `zero(100, 125, the codec's look-ahead)` is 16896 (the reader's, computed), in the voice
+   channel's suite, with a break that moves the constant to 42.5.
+3. The comment over the constant, the record's lines of this order and the report name where the zero depends on
+   the side (the bands above, computed again by the builder), in place of the list of twelve frame rates.
+4. 42.0 ms again wherever the second round wrote 42.5: `README.md`, `docs/LIVE.md`'s paragraph,
+   `docs/ACCURACY.md`, `tests/README.md`, `tests/predictions/PREDICTIONS.md`.
+5. `docs/VOICE-PATH.md`, "What differs": "within 1 ms of the same burst 2 s in" was 200 seeds'. Over seeds 1 to
+   1,000 the reader has -2.0, -1.3 and -1.1 ms at 66.67 frames a second (a standard error of 0.5) and -0.6, -1.1
+   and -0.8 at 300 (0.4), and the 2 ms at 66.67 is there deep in a file too (inferred: the timeline's grid, not
+   the start). The sentence says about 2 ms, with the seeds it was measured on.
+6. `tests/predictions/PREDICTIONS.md`: "7% fewer overflows at 300 frames a second" was the first build's. On
+   this build the reader has 91.75 against main's 92.45 over seeds 1 to 20 of the test signal, 0.8% fewer and
+   inside the seeds' spread. The builder measures the sentence's figures again on its head (the overflows, the
+   messages, a phrase's spread, and the level, band and spurt-length figures the reader did not re-measure), or
+   marks each it does not as the first build's.
+7. The report's "both fail" at 1.5 s: the default run fails there at the pin of `warmUp`, before the warm-up's
+   own check. Said so.
+8. No render hash moves: `--hashes` of the render stream's suite and the render-channel suite's recorded hashes
+   are the same before and after, and the report shows it. The report gains a section "Fix round 3".
+
+Left as built: the warm-up's check passes at 3.0 and 3.5 s as well as at 4.5 s (the reader ran it at each). The
+ring left at 3.0 s is half a point, and a band that told them apart would sit inside the seeds' error.
