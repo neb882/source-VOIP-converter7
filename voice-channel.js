@@ -94,18 +94,19 @@
   // "After the plan review"), on the sender's clock as read: offsetStartMs plus
   // (D - 44100 x latency) / 44.1 of every opened spurt of the suite's layouts P and Q
   // (tests/voice-channel.verify.mjs: 2 s spurts after 300, 500 and 1200 ms, and after 900, 600
-  // and 1200 ms), seeds 1 to 800, at 300 and 66.67 fps, no codecDelay, pooled, and measured again
-  // with the sender's warm-up of 4.5 s (the order's rulings of 2026-11-21, W3-27b's fix rounds):
-  // 7,307 spurts, mean 42.273 ms (43.01 at 300 fps over 3,307, 41.66 at 66.67 over 4,000; a
-  // standard error of 0.20 ms taken by seed), taken to the half millisecond: 42.5 ms, the mean
-  // 0.02 ms above the edge between 42.0 and 42.5. With the warm-up of 1.5 s it was 41.956 ms over
-  // 7,314 spurts, and with none 42.144 over 7,319, each 42.0. D moves with it only where the
-  // rounding to a block is near its edge: of 10, 20, 30, 50, 60, 66.67, 100, 144, 150, 200, 300
-  // and 1000 fps at voice_buffer_ms 100, at 144 and 150 with no codecDelay (17920 to 18432),
-  // and at none with the Opus delay of 156 samples. About 5 ms of it is a convention and not the
-  // sender's timing: the capture's packets begin 0 to 10 ms after the time the sound is counted
-  // from (5 ms in the mean). On the clock of W3-16 it was 50.5 ms (seeds 1 to 50, W3-02c-1).
-  const ARRIVAL_SECONDS = 0.0425;
+  // and 1200 ms), at 300 and 66.67 fps, no codecDelay, pooled, with the sender's warm-up of 4.5 s
+  // (the order's rulings of 2026-11-21 and 2026-11-22, W3-27b's fix rounds): over seeds 1 to
+  // 2,400, 21,935 spurts, mean 42.160 ms (42.97 at 300 fps over 9,935, 41.49 at 66.67 over 12,000; a
+  // standard error of 0.12 ms taken by seed), taken to the half millisecond: 42.0 ms. Over
+  // seeds 1 to 800 alone it was 42.273 ms (0.20 by seed), which rounds to 42.5 from 0.02 ms above
+  // the edge: 800 seeds do not tell the side, and the second fix round's 42.5 ms is taken back.
+  // The side is heard where the zero's block edge lies between 42.0 and 42.5 ms, a block of 512
+  // samples apart: with the codec's look-ahead at 120.01 to 130 frames a second at voice_buffer_ms 100, 240.01 to 260 at 50, 60.01 to 65 at 200 and 48.01 to 52 at 250; with no codecDelay at 140.01 to 150 at 100, 280.01 to 300 at 50, 70.01 to 75 at 200 and 56.01 to 60 at 250
+  // (computed in steps of 0.01 fps). With the warm-up of 1.5 s it was 41.956 ms (seeds 1 to 800),
+  // and with none 42.144. About 5 ms of it is a convention and not the sender's timing: the
+  // capture's packets begin 0 to 10 ms after the time the sound is counted from (5 ms in the
+  // mean). On the clock of W3-16 it was 50.5 ms (seeds 1 to 50, W3-02c-1).
+  const ARRIVAL_SECONDS = 0.042;
 
   const finiteOr = (x, d) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
   const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));

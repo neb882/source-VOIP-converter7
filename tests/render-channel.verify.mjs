@@ -675,7 +675,7 @@ if (runs(6)) {
 
 // D, the delay the channel takes out, with the Opus codec's 156 samples at 24 kHz
 // (pinned by tests/voice-channel.verify.mjs). W3-27b: 24064 at 300 fps with the arrival at
-// 42.0 ms (24576 at 50.5); 13312 at 66.67 either way. Both the same at 42.5 ms (the second fix round).
+// 42.0 ms (24576 at 50.5); 13312 at 66.67 either way.
 const D = { 300: 24064, 66.67: 13312 };
 if (runs(7)) {
   console.log('\n[7] The stream: createRender under \'game\' gives process()\'s render, and gives out its samples as the source comes');
@@ -793,8 +793,7 @@ if (runs(9)) {
 // the codec's look-ahead the chain holds back on the file's own timing, 4,650 and 156 samples at 24 kHz
 // (read: engine/steam.js steamReach from the sender's constants, and the codec's look-ahead).
 // W3-27b: with the arrival at 42.0 ms D is a block less at 10, 20, 50, 60 and 300 fps (it was
-// 9728, 10240, 12288, 12800 and 24576 at 50.5 ms) and the same at 30, 66.67 and 100. At 42.5 ms (W3-27b's
-// second fix round) every one is the same.
+// 9728, 10240, 12288, 12800 and 24576 at 50.5 ms) and the same at 30, 66.67 and 100.
 const LIVE_D = { 10: 9216, 20: 9728, 30: 10752, 50: 11776, 60: 12288, 66.67: 13312, 100: 15360, 300: 24064 };
 // W3-23b (the plan review's edit 11): what the chain holds back at its mix point, D and, under 1000/15, the blocks
 // of a frame, ceil(88200 / (1024 fps)): 9 at 10 fps, 5 at 20, 3 at 30, 2 at 50 and 60, none at 66.67 and above
@@ -2227,7 +2226,7 @@ if (runs(24)) {
   // commit of its own, from the run in which every other check passed. Recorded again by W3-27b (Steam's sender's
   // clock on the rule as read; at 66.67 fps D is the same with the arrival at 42.0 ms), in a commit of its own, from
   // the run in which every other check passed, and by its fix rounds 1 and 2 (the seeded sender's warm-up of 1.5 s,
-  // then 4.5 s; D at 66.67 is the same with the arrival at 42.5 ms), each in a commit of its own.
+  // then 4.5 s), each in a commit of its own.
   const MAIN = '7b83e61addca339f76d45d117c675a8445064058e4300aa69cdff312043de4a4 eb61b55c5f123551747c9e8e4439fca005a9ef2569ae8b3e806161f96356d441';
   const hashOf = async (r) => `${sha256(new Uint8Array(await r.blob.arrayBuffer()))} ${sha256(JSON.stringify(r.codecInfo, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)))}`;
   const below = new Float64Array([1000 / 15]);
@@ -2284,7 +2283,7 @@ if (runs(26)) {
 // opens and the SHA-256 of the indices joined by commas. W3-27b recorded the two rows at 300 fps again, in a commit
 // of its own, from the run in which every other check passed: this traffic runs no sender, and the indices move
 // through the model's zero only (D at 300 fps with the codec's 156 samples is 24,064 with the arrival at 42.0 ms,
-// 24,576 at 50.5; it does not move at 66.67, and neither do those rows; at 42.5 ms it is 24,064 again).
+// 24,576 at 50.5; it does not move at 66.67, and neither do those rows).
 const OPEN_MAIN = {
   '66.67 1': [29, '25d5124e30fbdd5057f5a4c6ecb056676f3c7bec05f0977495e068488eebdd9b'],
   '66.67 2': [32, '30608ed5c0c48f3fe3743dfeb934b96a4463824f799a5499868a8cf5f3f4bccb'],

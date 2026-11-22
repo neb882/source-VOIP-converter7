@@ -635,11 +635,12 @@ add('demo voice on the game\'s timeline at 66.67 fps, auto-gain off', 24000, () 
 // cases, again in a commit of its own: their codecInfo hashes all moved, and
 // their WAV and GAIN_GOLDEN hashes all but one's ('steam, 1 s pushed a sample
 // at a time', whose samples are those of before). The other 36 did not move.
-// Its fix round 2 (the warm-up of 4.5 s; the arrival constant at 42.5 ms, which
-// moves no D these cases use) re-recorded the same 52 cases, in a commit of its
-// own: their WAV and GAIN_GOLDEN hashes all moved, and their codecInfo hashes
-// all but those of ten cases with a room setting or under water ('steam,
-// dsp_room 137 (no room)' among them). The other 36 did not move.
+// Its fix round 2 (the warm-up of 4.5 s) re-recorded the same 52 cases, in a
+// commit of its own: their WAV and GAIN_GOLDEN hashes all moved, and their
+// codecInfo hashes all but those of ten cases with a room setting or under
+// water ('steam, dsp_room 137 (no room)' among them). The other 36 did not
+// move. The arrival constant (42.5 ms in that round, 42.0 again in round 3)
+// moves none of them.
 const GOLDEN = {
   // W3-02g: a demo's own packets on the game's timeline, recorded once from the run in which every
   // other check of this suite passed (every recorded hash above and below unmoved, and these two
