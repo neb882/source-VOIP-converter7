@@ -40,7 +40,7 @@ import { createReferenceChannel, referenceWaitTicks, referenceLatency } from './
 import { engineRun, syntheticResults } from './voicequeue/synthetic-results.mjs';
 import { FAULTS, validFixture, replayFixture } from './voicequeue/replay.mjs';
 import { frameClockRuns, frameRate, frameTime, referenceFrames } from './voicequeue/reference-frames.mjs';
-import { SENDER_MEASURED, SUITE_SENDER_SECONDS, suiteFirsts, suiteMeanFirst, suiteWait, suiteZeroSeconds } from './voicequeue/reference-zero.mjs';
+import { SENDER_MEASURED, SUITE_SENDER_SECONDS, suiteFirsts, suiteMeanFirst, suiteQueueSeconds, suiteWait, suiteZeroSeconds } from './voicequeue/reference-zero.mjs';
 import { mulberry32, UNRELATED, synthesize, synthesizeServer } from './voicequeue/synthetic-log.mjs';
 
 const require = createRequire(import.meta.url);
@@ -2736,6 +2736,62 @@ function senderPartChecks() {
     sameAsRecorded(got, rec) && SENDER_SECONDS === Math.round(10 * got.mean) / 10000, `${got.mean}, ${got.seBySeed}, ${JSON.stringify(got.frames)}, ${got.short} short`);
 }
 
+// The stop rule's table (W3-29, "What must not move, and what moves", with the plan review's changes 2 and 3;
+// --zero-table prints it): over the stop rule's grid, every setting at which the zero by the rule (zeroSeconds on
+// whole blocks of 512 samples) differs from the zero before W3-29, latency() + 42.0 ms + the codec's delay on whole
+// blocks, written again here; whole frame rates with the same pair of values in a row are one range. Then the
+// values that must not move, and the range of the sender's part over which each stays, by the suite's own rule.
+const OLD_ARRIVAL = 0.042;
+const oldZero = (bufferMs, fps, delay) => 512 * Math.round(44100 * (latency(bufferMs, fps) + OLD_ARRIVAL + delay) / 512);
+const ruleZero = (bufferMs, fps, delay) => 512 * Math.round(44100 * zeroSeconds(bufferMs, fps, delay) / 512);
+const MUST_STAY = [[66.67, OPUS_DELAY], [66.67, 0], [1000 / 15, OPUS_DELAY], [1000 / 15, 0], [100, OPUS_DELAY], [100, 0], [300, OPUS_DELAY], [300, 0],
+  [1000, OPUS_DELAY], [1000, 0], [144, OPUS_DELAY], [150, OPUS_DELAY]];
+function zeroTable() {
+  const lines = [];
+  const say = (s) => { lines.push(s); console.log(s); };
+  say('The stop rule\'s table: where the zero by the rule differs from the zero before W3-29 (latency() + 42.0 ms + the codec\'s delay), at the sender\'s part '
+    + `${1000 * SENDER_SECONDS} ms (the suite measured ${SENDER_MEASURED.all.mean.toFixed(4)} ms over seeds 1 to ${SENDER_MEASURED.all.seeds}); computed`);
+  say('');
+  say('| voice_buffer_ms | codec delay | frames a second | D before | D by the rule | blocks |');
+  say('| ---: | --- | --- | ---: | ---: | ---: |');
+  let moved = 0, settings = 0;
+  for (const bufferMs of GRID_BUFFERS) {
+    for (const [delay, name] of [[OPUS_DELAY, 'the look-ahead'], [0, 'none']]) {
+      const rows = [];
+      for (const fps of GRID_RATES) {
+        settings++;
+        const a = oldZero(bufferMs, fps, delay), b = ruleZero(bufferMs, fps, delay);
+        if (a === b) continue;
+        moved++;
+        const last = rows[rows.length - 1], whole = Number.isInteger(fps);
+        if (last && whole && last.whole && last.to === fps - 1 && last.a === a && last.b === b) last.to = fps;
+        else rows.push({ from: fps, to: fps, whole, a, b });
+      }
+      for (const r of rows) {
+        const span = r.from === r.to ? fpsName(r.from) : `${r.from} to ${r.to}`;
+        say(`| ${bufferMs} | ${name} | ${span} | ${r.a} | ${r.b} | ${(r.b - r.a) / 512 > 0 ? '+' : ''}${(r.b - r.a) / 512} |`);
+      }
+    }
+  }
+  say('');
+  say(`${moved} of ${settings} settings move.`);
+  say('');
+  say('Must not move at voice_buffer_ms 100 (the plan review\'s change 2), and the sender\'s part over which each stays by the suite\'s rule:');
+  say('');
+  say('| frames a second | codec delay | D before | D by the rule | stays for S from, to, ms |');
+  say('| --- | --- | ---: | ---: | --- |');
+  let lo = -Infinity, hi = Infinity;
+  for (const [fps, delay] of [...MUST_STAY, [144, 0], [150, 0]]) {
+    const a = oldZero(100, fps, delay), b = ruleZero(100, fps, delay), n = a / 512, q = suiteQueueSeconds(100, fps) + delay;
+    const from = 1000 * ((n - 0.5) * 512 / 44100 - q), to = 1000 * ((n + 0.5) * 512 / 44100 - q);
+    if (MUST_STAY.some(([f, d]) => f === fps && d === delay)) { lo = Math.max(lo, from); hi = Math.min(hi, to); }
+    say(`| ${fpsName(fps)} | ${delay ? 'the look-ahead' : 'none'} | ${a} | ${b} | ${from.toFixed(3)} to ${to.toFixed(3)} |`);
+  }
+  say('');
+  say(`All of the must-not-move values stay for S from ${lo.toFixed(3)} to ${hi.toFixed(3)} ms (at 144 and 150 frames a second with no codec delay the value is listed and is not one the plan review holds).`);
+  return lines;
+}
+
 // ---------------------------------------------------------------------------------------
 // The arrival constant measured again (W3-27b, docs/work-orders/W3-27-sender-clock.md, check 6,
 // and "After the plan review"): offsetStartMs + (D - 44100 x latency) / 44.1, D the zero the
@@ -2789,7 +2845,8 @@ for (let i = 0; i < argv.length; i++) {
   else if (argv[i] === '--play-out') playOnly = true;
   else if (argv[i] === '--arrival') arrivalOnly = true;
   else if (argv[i] === '--zero') zeroOnly = true;
-  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>] [--frames] [--play-out] [--server-logs] [--arrival] [--zero]'); process.exit(2); }
+  else if (argv[i] === '--zero-table') { zeroTable(); process.exit(0); }
+  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>] [--frames] [--play-out] [--server-logs] [--arrival] [--zero] [--zero-table]'); process.exit(2); }
 }
 if (arrivalOnly) {
   keepGoing = true;
