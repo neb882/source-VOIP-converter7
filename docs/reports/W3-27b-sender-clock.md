@@ -839,3 +839,91 @@ short) are caught by the same checks as before: their code did not change in thi
   the voice's end (above). `units`, `engine`, `render` and `stages` passed.
 - The run on `3bc6152` (run 44929994227): `units`, `engine`, `render`, `stages`, `browser` and `verify` passed. It is
   the last commit that CI runs: the report's commit touches `docs/` only, which the workflow leaves out.
+
+## Fix round 3 (2026-11-22): the arrival constant is 42.0 ms, from 2,400 seeds; the words
+
+The order's section "A third ruling (2026-11-22): the arrival constant is 42.0 ms, from 2,400 seeds; the words",
+items 1 to 8, built on this branch (main was not merged in). Where this section and the ones above differ, this one
+holds; in particular the constant is 42.0 ms, not the 42.5 of round 2.
+
+### Commits of the round
+
+| Commit | What |
+| --- | --- |
+| `02c79b9` | `ARRIVAL_SECONDS` 0.042 again, its copy and `ARRIVAL_MS`; `ARRIVAL_MEASURED` over seeds 1 to 2,400 with its standard error by seed; `--arrival` over those seeds; the pin of the side at 125 frames a second; the comments that had 42.5 |
+| `eafc176` | the words (README, LIVE, ACCURACY, tests/README, PREDICTIONS, the record's lines of this order in place, round 2's "both fail") |
+| this section's commit | this section |
+
+### The constant over 2,400 seeds (items 1 and 3)
+
+The suite's own measure (offsetStartMs + (D - 44100 x latency) / 44.1 over every opened spurt of layouts P and Q at
+300 and 66.67 frames a second, no codec delay, pooled), with the warm-up of 4.5 s, over seeds 1 to 2,400: **42.160 ms
+over 21,935 opened spurts**, 42.97 ms at 300 over 9,935 and 41.49 at 66.67 over 12,000, with a **standard error of
+0.117 ms taken by seed** (0.076 by spurt; the mean of the four cells of layout and rate 42.24; measured on the model).
+That is under 42.25 by 0.77 standard errors, so the constant is 42.0 ms, within 0.3 ms of the mean (0.160). The order's
+second reader had the same 42.160 over the same 21,935 spurts. Seeds 1 to 800 alone give 42.273 ms (0.20 by seed),
+which round 2 took to 42.5 from 0.02 ms above the edge. `ARRIVAL_MEASURED` records the measurement with `seBySeed`;
+`--arrival` measures seeds 1 to `ARRIVAL_SEEDS` (2,400), holds the constant within 0.3 ms of the mean and the figures
+to the recorded ones, and takes about a quarter of an hour: on the branch it passes, 0.160 ms from the constant and the recorded figures to 1e-9 ms (12 min 14 s).
+
+**Where the zero depends on the side** (computed again here, in steps of 0.01 frames a second over 10 to 1,000): the
+zero is a block of 512 samples (11.6 ms) apart between 42.0 and 42.5 ms with the codec's look-ahead at 120.01 to 130
+frames a second at `voice_buffer_ms` 100, 240.01 to 260 at 50, 60.01 to 65 at 200 and 48.01 to 52 at 250; with no codec
+delay at 140.01 to 150 at 100, 280.01 to 300 at 50, 70.01 to 75 at 200 and 56.01 to 60 at 250. The reader's bands are
+these; the last three of the no-delay ones it did not list. These replace the list of twelve frame rates in the
+constant's comment, in the record's line and here. **The pin of the side** (item 2): `zero(100, 125, the codec's
+look-ahead)` is 16,896 samples (computed; 17,408 at 42.5 ms), in `tests/voice-channel.verify.mjs` beside the exported
+zero's check. Its break, the constant at 42.5 ms: in a scratch copy of the branch with `ARRIVAL_SECONDS` 0.0425 the
+check's condition is false, `zero(100, 125, ...)` 17,408 there (the condition evaluated on that copy's `zero()`; the whole suite was not run on it).
+
+### The words (items 4 to 7)
+
+- **42.0 ms again** in `README.md`, `docs/LIVE.md`'s paragraph, `docs/ACCURACY.md`, `tests/README.md` and this branch's
+  line in `tests/predictions/PREDICTIONS.md`, and in the record's two lines of this order (corrected in place).
+- **The burst's start** (item 5; the sentence is `docs/ACCURACY.md`'s "What differs", not VOICE-PATH's): "within 1 ms"
+  was 200 seeds'. Over seeds 1 to 1,000, measured on the model by the burst check's own way (`engineRun`, the burst's
+  spurt's `offsetStartMs` less the same seed's burst at 2 s): at 66.67 frames a second -1.18, -0.40 and -0.71 ms for
+  bursts at 0, 30 and 60 ms (standard errors 0.49, 0.47 and 0.49), at 300 -0.90, -0.80 and -0.97 ms (0.42 to 0.43).
+  The sentence now says about 1 ms before, with those figures and seeds. The reader's -2.0, -1.3 and -1.1 at 66.67
+  are 1.7, 1.9 and 0.8 of these standard errors from them; its harness is its own, and the sentence names it.
+- **PREDICTIONS** (item 6): "7% fewer overflows" was the first build's. On this build against `main`, the test
+  signal at 300 frames a second, seeds 1 to 20 (measured on the model by the same scratch script as "What moves"):
+  91.8 overflows against 92.5 (0.8% fewer, a difference of 0.7 with a standard error of 3.0; the reader had 91.75
+  against 92.45), 1,808.0 messages against 1,798.8 (0.5% more), an opened spurt's start spreading 4.1 ms from seed
+  to seed against 9.0 (half as much), the level the same to 0.01 dB, the seven octave bands within 0.013 dB, and a
+  spurt 0.47 frames longer and 1.8 ms later in the mean at the 19 places most seeds have one. The sentence gives these;
+  the level and the bands at 66.67 and 30 frames a second were not measured again and are marked as the first build's.
+- **"Both fail"** (item 7): with a warm-up of 1.5 s the flag fails at the share, but the default run fails first at
+  the pin of `STEAM_SENDER.warmUp` among the constants, and reaches the warm-up's own check only in a copy whose checks
+  go on after a failure. Round 2's subsection and its table row are corrected in place to say so.
+
+### No render hash moves (item 8)
+
+`node tests/render-stream.verify.mjs --hashes` on this round's code (`02c79b9`) is byte for byte
+`docs/reports/W3-27b/hashes-after-fix2.txt`; `tests/render-channel.verify.mjs` passes with its recorded hashes
+(`LIVE_MAIN`, section 24's, section 29's eight, `OPEN_MAIN`) unchanged, and so does the voice channel's threshold case.
+The live chain's latency is the first two rounds' (202.252 ms without the queue at 48 kHz, 547.671 ms on it at 300
+frames a second): the zero at the rates it is read at (10, 20, 30, 50, 60, 66.67, 100, 144 and 300 frames a second)
+is the same at 42.0 and 42.5 ms (computed).
+
+### The suites, as run in this round
+
+| Command | Where | Last line |
+| --- | --- | --- |
+| the arrival measure over seeds 1 to 2,400 | a frozen copy of the branch | 42.160 ms over 21,935 spurts, 0.117 ms by seed (11 min 25 s) |
+| `node tests/render-stream.verify.mjs --hashes` | the branch at `02c79b9` | the same file as round 2's |
+| `node tests/run.mjs all` | the branch at `02c79b9` (the words' commit after it changes no file a suite runs) | "29 of 29 suites passed. 2100.4 s summed" |
+| `node tests/voice-channel.verify.mjs --arrival` | the branch | "... 0 failed (the arrival constant's alone)": 42.160 ms, 0.160 from the constant |
+| the burst at the source's start, seeds 1 to 1,000 | a frozen copy of the branch | the figures above |
+| the test signal at 300 frames a second, seeds 1 to 20 | a counting copy of the branch at `02c79b9`, against `main`'s runs of round 1 | the figures above |
+
+### CI of the round
+
+- The run on `eafc176` (run 45071557925): `units`, `engine`, `render`, `stages`, `browser` and `verify` passed. It is the
+  last commit that CI runs: this section's commit touches `docs/` only, which the workflow leaves out.
+
+### Not done in this round
+
+- The zero's dependence on the side is named and pinned, not removed: W3-29 replaces the constant by the sender's
+  part and the queue's rule.
+- Left as built, as the order says: the warm-up's check passes at 3.0 and 3.5 s as well as at 4.5 s.
