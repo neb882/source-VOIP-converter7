@@ -2295,7 +2295,7 @@ if (runs(24)) {
   // W3-29 adds zero and zeroSeconds to codecInfo.channel: the WAV's hash stands, and the codecInfo's stands with the
   // two fields taken out (MAIN); the whole codecInfo's is recorded again, in a commit of its own (MAIN_INFO).
   const MAIN = '7b83e61addca339f76d45d117c675a8445064058e4300aa69cdff312043de4a4 eb61b55c5f123551747c9e8e4439fca005a9ef2569ae8b3e806161f96356d441';
-  const MAIN_INFO = '';
+  const MAIN_INFO = '4a9c79242db6948349aef11bfe375e27b2f696dfa6e033ee21d3f79031440fb2';
   const infoHash = (info) => sha256(JSON.stringify(info, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)));
   const withoutZero = (info) => { const { zero: z, zeroSeconds: zs, ...channel } = info.channel; return { ...info, channel }; };
   const hashOf = async (r) => `${sha256(new Uint8Array(await r.blob.arrayBuffer()))} ${infoHash(withoutZero(r.codecInfo))}`;
@@ -2604,16 +2604,18 @@ if (runs(28)) {
 // every other check passed. W3-27b (Steam's sender's clock on the rule as read, and the arrival at 42.0 ms) recorded
 // all eight again, in a commit of its own, from the run in which every other check passed, and its fix round 1 (the
 // seeded sender's warm-up of 1.5 s) all eight again, in a commit of its own, and its fix round 2 (the warm-up of
-// 4.5 s) all eight again, in a commit of its own.
+// 4.5 s) all eight again, in a commit of its own. W3-29 (the zero by the queue's rule: D a block less at 60 and 30
+// fps with the codec's look-ahead, the same at 300 and 66.67) recorded the four at 60 and 30 again, in a commit of
+// its own, from the run in which every other check passed; the four at 300 and 66.67 did not move.
 const ENDS_IN_SILENCE_MAIN = {
   '300 0': 'f607028bb6e8481b269314698a77f82d2e615b6b5f6d0daa6aa2e757b46dbfea',
   '300 50': 'bfa7c68e82f025c5ddb6bfdf3e2e74aa1f72dfad9bddec50a2048e8d1ea0cd9a',
   '66.67 0': 'acadaeac279048436747a9c71436dd32bb87a8c8ff775d87fe89fa4a1af46aed',
   '66.67 50': 'ece245372a2b84841175595a4a2bf37cb723f33251aea57ee163ab30e24ea692',
-  '60 0': 'acadaeac279048436747a9c71436dd32bb87a8c8ff775d87fe89fa4a1af46aed',
-  '60 50': 'b6e784b5e02599129984e7a0c39bd5bf8413ac606e3b0652f9fbc4f47e320976',
-  '30 0': 'acadaeac279048436747a9c71436dd32bb87a8c8ff775d87fe89fa4a1af46aed',
-  '30 50': 'be1d3e488c29fa041fccdb7c995e303a596a7f5c371d09d52da1c5b60683067e'
+  '60 0': '2c7711ea7a05ff09f0479b18c3178bc656745a6640becf2a2f34f0c3fc1dec2d',
+  '60 50': 'c29321697c7dd84e1235042ecd12ce5bd2f3c5d44dcd2a4c519bd15b4af05d6f',
+  '30 0': '2c7711ea7a05ff09f0479b18c3178bc656745a6640becf2a2f34f0c3fc1dec2d',
+  '30 50': 'b4044c72a8d0636c1edd9353170433030b8ac775cf69269151410ce354039fbe'
 };
 if (runs(29)) {
   console.log('\n[29] A render\'s end (W3-24, check 12): a source that ends in 1 s of silence renders as main did, WAV hash for WAV hash, with no over');
