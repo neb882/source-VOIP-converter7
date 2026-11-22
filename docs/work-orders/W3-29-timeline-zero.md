@@ -690,3 +690,14 @@ page or the browser suite pins a figure of the monitor under 67 frames a second 
 11. **Figures that ran the sender on `6bc90f6`** are measured again on the builder's head and stated beside the
     plan's (check 4's mean over seeds 1 to 4,000 is 35.342 ms on `7915767` by the reviewer, where the plan had
     35.310).
+
+### After W3-27's third ruling (2026-11-22)
+
+The review above was made with `ARRIVAL_SECONDS` at 0.0425. W3-27's third ruling of the same day puts it back to
+0.042 before W3-27b merges, and this order is built from that head. So "today's `D`" in the changes' items 2 to 4
+is the review's, against 42.5 ms: with 42.0 the old constant is again 0.9 ms over `S + 5.80`, the settings that
+move at 67 frames a second and above are expected to be those of the order's own table and not the review's
+further ranges, and `D` at 144 and 150 frames a second with no codec delay is expected to stay 17920 (inferred
+from the two tables; not computed on that head). The builder's printed table, computed on its own head, is the
+authority, and its report says which of the two it gives. Everything else of the review stands: the frame clock's
+values by the rule do not depend on the old constant, nor do items 5 to 11.
