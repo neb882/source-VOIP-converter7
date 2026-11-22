@@ -702,7 +702,10 @@ The mean from 4 to 6 s is 13.42%; at the warm-up's length, 4.5 s, 13.54%, 0.12 p
 second reader's to the decimal (6.7, 9.5, 10.9, 12.2, 12.4, 13.0, and 13.3 to 13.7 from 4 s). The flag holds the
 counts to those recorded in `WARM_MEASURED`, each standard error to 0.2 points, and the share at
 `STEAM_SENDER.warmUp / 24000` s to within 1 point of that mean; the default run holds the warm-up to the recorded
-counts the same way. With a warm-up of 1.5 s both fail: 10.92% against 13.42%, 2.50 points off.
+counts the same way. With a warm-up of 1.5 s the flag fails at the share, 10.92% against 13.42%, 2.50 points off; the
+default run fails before that, at the pin of `STEAM_SENDER.warmUp` among the constants ("its constants are frozen and
+the orders'"), and reaches the warm-up's own check, which fails the same way, only in a copy whose checks go on after
+a failure (corrected in fix round 3).
 
 ### The first chunk's shares
 
@@ -811,7 +814,7 @@ Each break in a scratch copy of the branch, one change in `steam-sender.js`, the
 
 | Check | The break | What caught it |
 | --- | --- | --- |
-| The warm-up's length (`--warm-up`, and its pin in the default run) | a warm-up of 1.5 s (36,000) | both: "the share at the warm-up's length, 1.5 s, 10.92%, is within 1 point of the mean ... 13.42%" fails on the flag and in the default run; with it every sender pin of this round, the second model's agreement and the reads' check. The 3,000-seed check passes under it (above) |
+| The warm-up's length (`--warm-up`, and its pin in the default run) | a warm-up of 1.5 s (36,000) | the flag: "the share at the warm-up's length, 1.5 s, 10.92%, is within 1 point of the mean ... 13.42%" fails. The default run fails first at the pin of `STEAM_SENDER.warmUp` among the constants; in a copy whose checks go on after a failure the warm-up's own check fails after it the same way, with every sender pin of this round, the second model's agreement and the reads' check. The 3,000-seed check passes under it (above) |
 | The 3,000-seed first chunk | no warm-up | the check: 94.7 / 4.1 / 1.2% against 11.6 / 85.3 / 3.0%. The warm-up's pin passes under this break, as it reads the length, not the sender |
 | The burst's dropped time at 300 frames a second (10 ms) | no warm-up | the leg: 67.0, 41.8 and 72.1 ms against 107.8; with it the start's check at 66.67 (-43.0, -65.1 and -35.9 ms) and voice-channel's counts |
 
