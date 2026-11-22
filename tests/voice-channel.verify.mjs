@@ -1663,7 +1663,9 @@ function timelineChecks() {
     // the clock of W3-27b, 210 with its warm-up of 1.5 s (fix round 1), and is 203 with 4.5 s.
     const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length;
     const se = (v) => { const m = mean(v); return Math.sqrt(v.reduce((a, x) => a + (x - m) ** 2, 0) / (v.length - 1) / v.length); };
-    const grid = (fps, delay = 0) => (zeroOf(100, fps, delay) - 44100 * suiteZeroSeconds(100, fps, delay)) / 44.1;
+    // D added back is the one the timeline ran with (zero(), which check 2 holds to the rule), and the zero before the
+    // grid is the suite's own, so the grid's part read from zeroSeconds is the suite's and not the module's.
+    const grid = (fps, delay = 0) => (zero(100, fps, delay) - 44100 * suiteZeroSeconds(100, fps, delay)) / 44.1;
     opened[100] = [];
     for (const lay of [layout([0.3, 0.5, 1.2]), layout([0.9, 0.6, 1.2])]) {
       for (let seed = 1; seed <= 50; seed++) for (const x of engineRun({ ...lay, fps: 100, seed }).info.spurts) if (x.opened) opened[100].push(x.offsetStartMs);
@@ -2751,7 +2753,8 @@ function zeroRuleChecks() {
     const rows = [];
     let ok = true;
     for (const fps of [20, 30, 50, 60, 66.67, 100, 150, 10]) {
-      const rule = suiteFirsts({ fps, wait: waitTicks(100, fps), ticks: 1200 }), D = zeroOf(100, fps), slot = [], start = [];
+      // D added back is the one the timeline ran with; the identity's other side is the suite's rule.
+      const rule = suiteFirsts({ fps, wait: waitTicks(100, fps), ticks: 1200 }), D = zero(100, fps), slot = [], start = [];
       for (const lay of PQ) for (let seed = 1; seed <= 50; seed++) {
         const r = engineRun({ ...lay, fps, seed, relay: true }), firsts = firstsOf(r.pushed), src = r.info.source;
         r.info.spurts.forEach((sp, i) => {
@@ -2794,7 +2797,8 @@ function zeroRuleChecks() {
     // less zeroSeconds (the offset there plus the grid's part), is within 3 ms of 0 in the mean, and at its first slot
     // heard it is 15 to 35 ms over it: a record of the path, so that a change of it is seen (the planner had +1.2 and
     // +26.4 ms over seeds 1 to 400).
-    const D = zeroOf(100, 300), grid = (D - 44100 * suiteZeroSeconds(100, 300)) / 44.1, at = [], later = [];
+    // D added back is the one the timeline ran with; the zero subtracted is the suite's own.
+    const D = zero(100, 300), grid = (D - 44100 * suiteZeroSeconds(100, 300)) / 44.1, at = [], later = [];
     for (const lay of PQ) for (let seed = 1; seed <= 50; seed++) {
       const { info } = engineRun({ ...lay, fps: 300, seed });
       for (const sp of info.spurts) {
