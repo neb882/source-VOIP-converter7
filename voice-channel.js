@@ -108,6 +108,21 @@
   // mean). On the clock of W3-16 it was 50.5 ms (seeds 1 to 50, W3-02c-1).
   const ARRIVAL_SECONDS = 0.042;
 
+  // The sender's part of the zero (W3-29, docs/work-orders/W3-29-timeline-zero.md, "The sender's
+  // part" and the ruling 1 of "After the plan review"): how long after the first sample of a spurt
+  // that opens with the sender's full pre-roll of 2400 samples its opening message leaves, less the
+  // opening's eight 20 ms frames (OPENING_SECONDS, which latency() counts). It does not depend on the
+  // listener's frame rate. Measured on the model on 2026-11-22 (tests/voice-channel.verify.mjs,
+  // SENDER_MEASURED and --sender): the mean of 15 ms x tick - start / 24 - 160 ms over the opening
+  // message of every spurt of layout R (22 s at 24 kHz, eight bursts of 1 s at the constant level 1000
+  // after pauses of over 1.5 s), steam-sender.js alone, seeds 1 to 12,000: 35.3305 ms over 96,000
+  // openings, every one with a full pre-roll (a standard error of 0.0465 ms by seed), taken to the
+  // tenth of a millisecond (chosen): 35.3 ms. The mean lies 0.02 ms from the tenth's edge at 35.35 ms.
+  // It moves with the level by about 2 ms (33.3 ms at 400, 36.4 at 10000; the plan's measurement), and
+  // about 5 ms of it is a convention: the capture's packets begin 0 to 10 ms after the time the sound is
+  // counted from, drawn from the seed, and the zero takes the mean of that phase.
+  const SENDER_SECONDS = 0.0353;
+
   const finiteOr = (x, d) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
   const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
@@ -139,6 +154,100 @@
     const delay = codecDelay === undefined ? 0 : codecDelay;
     if (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0) throw new RangeError('createTimeline\'s codecDelay is a finite number of seconds, 0 or more');
     return VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (latency(bufferMs, fps) + ARRIVAL_SECONDS + delay) / VOICE_CHANNEL.mixBlock);
+  }
+
+  // The queue's rule for the zero (W3-29, docs/work-orders/W3-29-timeline-zero.md, "The receiver's
+  // rule"). Times are in half samples at 44.1 kHz: tick i at 1323 i, mixer block b at 1024 b, frame k
+  // at (88200 k) / rate, rate the frame rate limited to 10..1000 as waitTicks limits it (createTimeline's
+  // clock, as read: W3-23r). The frame clock runs where a frame is longer than a tick (under 1000/15
+  // frames a second).
+  const HALF = 2 * VOICE_CHANNEL.rate, TICK_HALF = Math.round(HALF * VOICE_CHANNEL.tick), BLOCK_HALF = 2 * VOICE_CHANNEL.mixBlock;
+  const clockRate = (fps) => clamp(finiteOr(fps, VOICE_CHANNEL.fps), VOICE_CHANNEL.fpsRange[0], VOICE_CHANNEL.fpsRange[1]);
+  const onFrames = (rate) => HALF / rate > TICK_HALF;
+
+  // relayTick(tick, fps): the tick on which the message the sender gave `tick` reaches the channel at
+  // jitter 0, the rule of engine/network.js's steamFrameArrivals written again here (this module imports
+  // nothing; tests/render-channel.verify.mjs holds the two equal tick for tick). Under the frame clock
+  // the message is in the listener's list from tick + 1, leaves at the listener's first frame k with
+  // (88200 k) / rate > 1323 (tick + 1), and reaches the channel on ceil(((88200 k) / rate) / 1323) - 2;
+  // on the even clock (1000/15 frames a second and above) it is the tick itself. fps is read as
+  // waitTicks reads it; tick is a whole number, else a RangeError.
+  function relayTick(tick, fps) {
+    if (!Number.isInteger(tick)) throw new RangeError('relayTick takes a whole tick');
+    const rate = clockRate(fps);
+    if (!onFrames(rate)) return tick;
+    const frame = (k) => (HALF * k) / rate, enter = TICK_HALF * (tick + 1);
+    let k = Math.floor(enter * rate / HALF);
+    while (frame(k) > enter) k--;
+    while (frame(k) <= enter) k++;
+    return Math.ceil(frame(k) / TICK_HALF) - 2;
+  }
+
+  // first(p, wait, rate): the half samples from the sender's tick p to the start of the first mixer
+  // block that plays an opening sent on that tick, on a channel that waits `wait` ticks (the order's
+  // "The receiver's rule", as createTimeline runs it). On the even clock the message is added on tick p,
+  // the wait ends on tick p + wait - 1, and the opening plays from the first block that starts at or
+  // after it. Under the frame clock: the message comes on a = relayTick(p); frame k1, the first at or
+  // after tick a, adds it and runs every tick it has, all of which count toward the wait, those before
+  // tick a too; the wait ends on tick i1 + wait - 1, i1 the first tick frame k1 runs; frame k2, the first
+  // at or after that tick, runs it, and the opening plays from k2's first block. Each "first tick a frame
+  // runs" and "first block" is found by the clock's own comparisons, 1323 i <= F(k) and 1024 b <= F(k).
+  function first(p, wait, rate) {
+    if (!onFrames(rate)) return BLOCK_HALF * Math.ceil(TICK_HALF * (p + wait - 1) / BLOCK_HALF) - TICK_HALF * p;
+    const frame = (k) => (HALF * k) / rate;
+    const atOrAfter = (t) => {                   // the least frame k with F(k) >= t
+      let k = Math.max(0, Math.ceil(t * rate / HALF));
+      while (k > 0 && frame(k - 1) >= t) k--;
+      while (frame(k) < t) k++;
+      return k;
+    };
+    const after = (k, unit) => {                 // the first tick (or block) frame k runs: the least n with unit x n > F(k - 1)
+      if (k === 0) return 0;
+      const t = frame(k - 1);
+      let n = Math.floor(t / unit) + 1;
+      while (n > 0 && unit * (n - 1) > t) n--;
+      while (unit * n <= t) n++;
+      return n;
+    };
+    const k1 = atOrAfter(TICK_HALF * relayTick(p, rate));
+    const k2 = atOrAfter(TICK_HALF * (after(k1, TICK_HALF) + wait - 1));
+    return BLOCK_HALF * after(k2, BLOCK_HALF) - TICK_HALF * p;
+  }
+
+  // The mean of first(p) in half samples over the sender's ticks 0 to 5,119 (chosen: 76.8 s, a whole
+  // period of ticks, frames and blocks at 10, 20, 30, 40, 50 and 60 frames a second, not at 24 and 66,
+  // where the period is 25,600 ticks and the mean over 5,120 lies about 0.02 ms from the whole period's,
+  // computed). On the even clock it is 1323 (wait - 1) + 511.5 exactly (arithmetic: 1323 is odd, so over
+  // any 1,024 ticks in a row 1323 n takes each remainder of 1,024 once), and that closed form is used.
+  // Under the frame clock it is the sum over the ticks, worked out once for each wait and rate and kept
+  // (the table is emptied when it passes 64 entries).
+  const MEAN_TICKS = 5120;
+  const means = new Map();
+  function meanFirst(wait, rate) {
+    if (!onFrames(rate)) return TICK_HALF * (wait - 1) + (BLOCK_HALF - 1) / 2;
+    const key = `${wait} ${rate}`;
+    if (means.has(key)) return means.get(key);
+    let sum = 0;
+    for (let p = 0; p < MEAN_TICKS; p++) sum += first(p, wait, rate);
+    if (means.size >= 64) means.clear();
+    means.set(key, sum / MEAN_TICKS);
+    return sum / MEAN_TICKS;
+  }
+
+  // zeroSeconds(bufferMs, fps, codecDelay) (W3-29): the zero in seconds, before it is put on whole
+  // blocks: the sender's part (SENDER_SECONDS), plus the queue's part, plus codecDelay. The queue's
+  // part is the opening's eight frames (OPENING_SECONDS) and the mean of first() at the channel's wait,
+  // but where the wait is longer than the ring's 0.5 s holds (latency() is then 0.5 s) the form kept
+  // there (chosen): min(0.16 s + mean first(wait), 0.5 s + mean first(1)). On the even clock that is
+  // latency() + 5.80 ms. bufferMs and fps are read as waitTicks reads them; codecDelay (seconds,
+  // default 0) is a finite number of 0 or more, else a RangeError.
+  function zeroSeconds(bufferMs, fps, codecDelay) {
+    const delay = codecDelay === undefined ? 0 : codecDelay;
+    if (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0) throw new RangeError('createTimeline\'s codecDelay is a finite number of seconds, 0 or more');
+    const wait = waitTicks(bufferMs, fps), rate = clockRate(fps);
+    const queue = Math.min(OPENING_SECONDS + meanFirst(wait, rate) / HALF,
+      VOICE_CHANNEL.ring / VOICE_CHANNEL.rate + meanFirst(1, rate) / HALF);
+    return SENDER_SECONDS + queue + delay;
   }
 
   // frameHold(fps) (W3-23b, docs/work-orders/W3-23-low-frame-rates.md, the plan review's edit 11 and "W3-23b: after
@@ -778,7 +887,7 @@
     return Object.freeze({ push, advance, finish, counts, held });
   }
 
-  const TF2VoiceChannel = { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, frameHold, createChannel, createTimeline };
+  const TF2VoiceChannel = { VOICE_CHANNEL, SENDER_SECONDS, waitTicks, latency, zero, zeroSeconds, relayTick, arrivalZero, frameHold, createChannel, createTimeline };
   if (typeof module !== 'undefined' && module.exports) module.exports = TF2VoiceChannel;
   else root.TF2VoiceChannel = TF2VoiceChannel;
 })(typeof self !== 'undefined' ? self : this);

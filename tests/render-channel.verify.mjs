@@ -57,7 +57,8 @@
 // run at 60, 30 and 10 fps too (the order's checks 6 and 7), against the reference on the second model's clock
 // (tests/voicequeue/reference-frames.mjs), and section 21 at 30 fps (the plan review's edit 8).
 // 22. The arrival at jitter 0: the model with jitter as its jitter goes to 0, in closed form, against jitter
-//     0.000001, the second model and jitter 0.5 and 1 (the order's check 5).
+//     0.000001, the second model and jitter 0.5 and 1 (the order's check 5); voice-channel.js's relayTick against
+//     it (W3-29, check 3).
 // 23. The stream: createRender in odd pieces at 60, 30 and 10 fps; what it gives out (check 6).
 // 24. The threshold: 1000/15 is 66.67 and main's; 66.6 and the double below 1000/15 are not.
 // 25. The stage keys: a render at 30 fps after one at 300 starts from B (check 9).
@@ -2120,6 +2121,27 @@ if (runs(22)) {
   for (let p = 0; p < N && p5bad < 0; p++) if (p5.at(p) !== p10.at(p)) p5bad = p;
   check('jitter 0 gives the ticks of jitter 0.000001 (seeds 1 to 3) and of the second model\'s closed form, tick for tick over 40,000 ticks, at 10, 20, 24, 30, 40, 50, 59.94, 60, 66, 1000/15, 66.67, 75 and 300 fps, and the second model\'s at 66.66666666666666; at(p) >= p and never falls; under 1000/15 a render\'s plan is this rule (frames true, floorTicks 0, jitter 0), at 1000/15 and above it is null as before; with no end (W3-23b) the model and the plan give the same ticks, hold nothing (held() 0) and are null where the whole one is; at 5 fps the plan is fps 10\'s, tick for tick',
     ok && p5bad < 0 && p5.fps === 10 && p5.frames === true, `${rows.join('; ')}; 5 fps: ${p5bad < 0 ? 'fps 10\'s' : `DIFFERS from tick ${p5bad}`}, fps ${p5.fps}`);
+  // W3-29 (docs/work-orders/W3-29-timeline-zero.md, "The checks", 3): voice-channel.js writes the same rule again for
+  // its zero (relayTick, since the module imports nothing): equal to the engine's arrival at jitter 0 for ticks 0 to
+  // 5,119 under 1000/15, and the tick itself at 1000/15 and above.
+  {
+    const rows = [];
+    let same = true;
+    for (const fps of [10, 20, 24, 30, 40, 50, 59.94, 60, 66, 66.6, below[0], 1000 / 15, 66.67, 75, 300, 1000]) {
+      const engineRule = A.steamArrivals({ jitterMs: 0, fps });
+      let bad = -1, moved = 0;
+      for (let p = 0; p < 5120; p++) {
+        const a = VC.relayTick(p, fps);
+        if (bad < 0 && a !== engineRule.at(p)) bad = p;
+        if (a !== p) moved++;
+      }
+      const under = 1000 / limitFps(fps) > 15;
+      if (bad >= 0 || (!under && moved !== 0)) same = false;
+      rows.push(`${fps === 1000 / 15 ? '1000/15' : fps}: ${bad < 0 ? `${moved} of 5120 moved` : `DIFFERS from tick ${bad}`}`);
+    }
+    check('relayTick (voice-channel.js\'s writing of the rule, W3-29\'s check 3) is the engine\'s arrival at jitter 0 tick for tick over ticks 0 to 5,119 at 10, 20, 24, 30, 40, 50, 59.94, 60, 66, 66.6 fps and the double below 1000/15, and the tick itself at 1000/15, 66.67, 75, 300 and 1000',
+      same, rows.join('; '));
+  }
   // The fix round, item 2: the looks are the frame clock's frames, (88200 k) / fps half samples. At all 567 one-decimal
   // rates from 10.0 to 66.6, over 20,000 ticks: the rule equals the second model; it equals the rule worked in whole
   // numbers at the rate f / 10 wherever no look falls exactly on a tick (there the frame clock's own double decides);
