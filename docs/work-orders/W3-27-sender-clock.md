@@ -1065,3 +1065,50 @@ constant of 42.5 would move those renders now and back again then.
 
 Left as built: the warm-up's check passes at 3.0 and 3.5 s as well as at 4.5 s (the reader ran it at each). The
 ring left at 3.0 s is half a point, and a band that told them apart would sit inside the seeds' error.
+
+## W3-27b as built (2026-11-22)
+
+Merged 2026-11-22 with the cache number at v58. Report:
+[docs/reports/W3-27b-sender-clock.md](../reports/W3-27b-sender-clock.md), with a section for each of the three
+fix rounds the rulings above asked for. A reviewer read the first build. A second reader read the first build and
+the first two fix rounds, each time with code of its own. The third round (the constant back at 42.0 ms and the
+words) was read by the orchestrator only: its mean over 2,400 seeds is the figure the second reader had measured.
+
+- **The clock.** `createClock` in `steam-sender.js` is the read clock of W3-27a, and W3-16's clock no longer runs.
+  A caller's clock is used as given.
+- **The warm-up is 4.5 s** (chosen, the second ruling): with the seeded clock the sender reads 108,000 zeros and
+  the lead's before the source, silent whatever the gate. The one-step share of the chunk that holds the source's
+  first sample is 13.54% against 13.42% from 4 to 6 s (seeds 1 to 40,000; measured on the model by the builder
+  and again by the second reader's own port). The reader's port and the module differ in none of 138,042
+  messages (measured once). `node tests/steam-sender.verify.mjs --warm-up` repeats the measure. Its band passes
+  at 3.0 and 3.5 s as well as at 4.5 s, and is left so (the third ruling).
+- **A burst at a file's start** lies about 1 ms before the same burst 2 s in at 66.67 and at 300 frames a second
+  (the builder, seeds 1 to 1,000: -1.2, -0.4 and -0.7 ms, then -0.9, -0.8 and -1.0, for bursts at 0, 30 and 60
+  ms; measured on the model). The second reader's own harness has -2.0, -1.3 and -1.1 ms at 66.67 over the same
+  count of seeds and finds the same 1 to 2.5 ms between bursts deep in a file, so it is not the start's
+  (measured once; that it is the timeline's grid is inferred). As first built, with no warm-up, the three bursts
+  came 32, 69 and 56 ms early at 66.67 (the second reader, measured once).
+- **The arrival constant is 42.0 ms** where it was 50.5: 42.160 ms over 21,935 opened spurts of seeds 1 to 2,400,
+  a standard error of 0.117 ms by seed (measured on the model by the builder; the second reader had the same
+  mean). With the codec's look-ahead the queue's zero is a block of 512 samples less than before W3-27b at 10,
+  20, 50, 60, 144 and 300 frames a second and the same at 30, 66.67, 100 and 200, at `voice_buffer_ms` 100
+  (computed). The bands in which the zero would differ by a block with 42.5 ms are in the constant's comment and
+  in finding 28, and the voice channel's suite pins the side at 125 frames a second. W3-29 replaces the constant.
+- **What moved.** Every render that runs Steam's seeded sender: 52 of the render stream's recorded cases, and
+  the render-channel suite's recorded hashes of the live chain's three steam rows and of its sections 24 and 29. The 36 other recorded cases, every
+  other profile, `steam` with the codec off, a demo's voice, a caller's packets,
+  `tests/predictions/predictions.json` and the output of `tests/reproduce.mjs` did not (the builder's lists; the
+  second reader's own nine hashes of what must not move agree).
+- **The live monitor's latency** is as before without the queue (202.25 ms at 48 kHz). On the queue it is 547.67
+  ms at 300 frames a second and 303.86 at 66.67, which is 345.4 and 101.6 ms over the switch off (the chain's own
+  figure, read by the builder and the second reader).
+- **The hold's ends at 9 days** fall on the 7th, 8th and 9th chunk after the last active one 21.84, 76.48 and
+  1.68% of the time over 240 seeds (the second reader, measured once), as before the warm-up within the seeds'
+  error.
+- **The private runs** (the orchestrator's, each measured once) are in finding 28 of
+  `tests/REFERENCE_2026.md`, "The sender's clock on the private takes": Set D's spurt ends still single out a
+  Steam of about a week, the accuracy suite's means move by under 0.11 dB in the level's rms, and the engine's
+  phrase starts are 4 ms nearer the takes'.
+- **Not done.** In `tests/predictions/PREDICTIONS.md` the level and band figures at 66.67 and 30 frames a
+  second are the first build's and are marked so. The zero's dependence on the constant's side is named and
+  pinned, not removed.
