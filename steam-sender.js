@@ -3,24 +3,46 @@
  * A source file has no packets, so a render makes them as Steam does. The rule was read
  * from Steam's client (docs/reports/W3-09-steam-voice.md, sections 1 and 2, and (a)); the
  * form it takes here is docs/work-orders/W3-02-receiver-queue.md, "The sender's packets";
- * the hold's arithmetic and the read clock are docs/work-orders/W3-16-sender-hold-clock.md,
- * from docs/reports/W3-16-steam-hold-read.md and W3-14-steam-file-input.md. Only the clock
- * that says when Steam reads the capture is a model, and it is the only thing drawn: every
- * render is reproducible from its seed.
+ * the hold's arithmetic is docs/work-orders/W3-16-sender-hold-clock.md, from
+ * docs/reports/W3-16-steam-hold-read.md and W3-14-steam-file-input.md; the clock is
+ * docs/work-orders/W3-27-sender-clock.md, "The rule", from finding 28 of tests/REFERENCE_2026.md
+ * (the paragraphs of 2026-11-20 and 2026-11-21). Only the clock that says when Steam reads
+ * the capture holds fitted numbers and draws, and it draws only from the seed: every render
+ * is reproducible from its seed.
  *
- *   - Steam reads the capture every 48.0 to 63.7 ms, uniformly (createClock). The capture
- *     moves in steps of 750 samples at 24 kHz, each ready up to 13 ms after its time; a
- *     read's chunk is the steps that became ready since the read before (750, 1500 or 2250
- *     samples; none at all for the first read or two). A read is { time, since, samples }:
- *     its time on the clock (since plus a seeded phase on the float's grid), its time from
- *     the render's start, and its chunk's length.
+ *   - Steam reads the capture once in each 50 ms pass of the thread that answers the game
+ *     (createClock; read). The pass ends early when the game fetches voice, once a tick, within
+ *     its last millisecond (read; that the fetch wakes the thread is inferred). Otherwise it
+ *     ends on Windows's timer, in steps of 15.625 ms counted on from the last such end, each
+ *     with a slip (measured). So reads come 47.5 to 67 ms apart, 55.5 ms in the mean, most of
+ *     them on the game's tick (measured on the model; Sets J and L have 47.75 to 64.4 ms and
+ *     55.4). The capture moves in steps of 750 samples at 24 kHz (read), and a step can be
+ *     read once the 10 ms packet that holds its last sample is in (measured; that Windows works
+ *     in such packets is inferred), each up to 9 ms after that (fitted on the owner's PC): so
+ *     seven steps of eight come 30 ms apart and one 40 ms. A read's chunk is the steps ready
+ *     since the read before, three at most (750, 1500 or 2250 samples; none for the first
+ *     read, and at the defaults none after the first chunk). A read is { time, since, samples,
+ *     by }: its time on the clock (since plus a seeded phase on the float's grid), its time
+ *     from the clock's start, its chunk's length, and what ended the pass before it (the
+ *     sender does not read by).
  *   - The capture runs free of the sound played into it (inferred; docs/work-orders/W3-21-
- *     capture-phase.md): the sender reads `lead` zeros (0 to 749, from the clock's c0) before the
- *     source's first sample, so the steps' edges lie c0 after the multiples of 31.25 ms of
- *     the source. The times it counts from the render's start (since) are the reads' less
- *     lead / 24000 s, and the positions it reports are in samples of the source.
- *   - Steam's clock is seconds since Steam started (uptime, then the read's time), narrowed to
- *     a 32-bit float at every read: nowF.
+ *     capture-phase.md): the sender reads `lead` zeros (0 to 749, a draw of the clock's own)
+ *     before the source's first sample, so the steps' edges lie 750 - lead samples after the
+ *     multiples of 31.25 ms of the source.
+ *   - A render begins in mid-stream (chosen; the W3-27 order's rulings of 2026-11-21): with the
+ *     clock made from the seed, Steam's thread and the capture have run for 4.5 s of silence
+ *     when the source's first sample is captured. The sender reads 108,000 zeros (the warm-up)
+ *     and then the lead's before the source, and through the warm-up it is silent whatever the
+ *     gate: nothing is sent, no spurt begins, and the past sound is 2400 zeros when it ends.
+ *     The first chunk that holds a zero of the lead or a sample of the source is the first the
+ *     gate judges (whole, as every chunk). Every period of the clock at its defaults divides
+ *     4.5 s, so each phase the seed draws stays where it is against the source, and the ring of
+ *     the clock's start (a period of 0.5 s) has died by then. A caller's clock has no warm-up.
+ *   - The times the sender counts from the source's first sample (since) are the clock's less
+ *     the warm-up's 4.5 s less lead / 24000 s, and the positions it reports are in samples of
+ *     the source.
+ *   - Steam's clock is seconds since Steam started (uptime, Steam's age when the clock starts,
+ *     then the read's time), narrowed to a 32-bit float at every read: nowF.
  *   - The gate judges each chunk whole: active when the mean of |x| is at least 327.67 or a
  *     sample reaches 4915. An active chunk notes nowF, in every state.
  *   - Four states. Silent: an inactive chunk goes into the last 2400 samples of past sound; an
@@ -35,17 +57,25 @@
  *     ended becomes silent with no record. With the gate off it does nothing.
  *   - One chunk is one message: the whole 480-sample frames of what the last chunk left over
  *     plus this chunk. It reaches the game on the first 15 ms tick at or after 2 ms after the
- *     read (counted from the render's start), and on a later tick than the message before
- *     (the engine adds at most one packet a tick).
+ *     read (counted from the source's first sample), and on a later tick than the message
+ *     before (the engine adds at most one packet a tick).
  *
- * Beside the clock that runs is the read clock on the rule as read (createReadClock; docs/work-
- * orders/W3-27-sender-clock.md and finding 28 of tests/REFERENCE_2026.md): one read in each
- * 50 ms pass of Steam's thread, the pass ended by the game's fetch once a tick or by Windows's
- * timer step, and capture steps ready as 10 ms packets fill them. Nothing calls it, so no
- * render changes; W3-27b makes it the sender's clock. Its reference is tests/steam-sender/gen.mjs.
+ * The clock (createClock, since W3-27) is the rule as read, held to the reference generator
+ * tests/steam-sender/gen.mjs to the last bit with the capture's place at 0. What it draws from
+ * the seed: the phases of the game's tick, of its frames, of the capture and of the timer; the
+ * capture's place in its 8-step pattern and its phase against the sound (the lead); where each
+ * read falls in its pass, the timer's slips, a few other wakes, and each step's lateness.
+ * Fitted to recordings, with no rule read: where in its pass the read falls, where in its frame
+ * the game fetches, how often something else wakes the thread, how early a timer step may end a
+ * wait, the timer's slip of 1.3 ms, and the capture's lateness, which is another number on
+ * another PC. Measured in recordings: the sender's frame rate, the packets' 10 ms, and the
+ * timer's step of about 15.6 ms with a spread of 1.5 ms. The sender's frame rate (294) and tick
+ * (15 ms) are the owner's PC's; another sender's are options of the clock, with no control on
+ * the page. Until W3-27 the clock drew each read
+ * evenly 48.0 to 63.7 ms after the last, with each step ready up to 13 ms after its time
+ * (W3-16); that clock no longer runs.
  *
- * createClock({ seed }) -> { next(), lead }: one read, { time, since, samples }, per call.
- * createReadClock({ seed, fps, tick, packet, late, place }) -> { next(), lead, place }: one read,
+ * createClock({ seed, fps, tick, packet, late, place }) -> { next(), lead, place }: one read,
  *   { time, since, samples, by }, per call.
  * createSender({ seed, clock, lead, uptime, gate, meanMin }) -> { push(int16), finish(), info() }.
  * No imports; runs as a page script, in a worker and under Node.
@@ -76,21 +106,18 @@
     // (voice_minavg 1.0 of 32767), or a sample at trunc(0.15 x 32767) (voice_minabs 0.15).
     meanMin: 327.67,
     peakMin: 4915,
-    // The read clock (the W3-16 order, item 1). Seconds between two reads, uniform: measured
-    // on Set J's rebuilt read intervals, flat from 48 to 64 ms and none late (W3-14 §3); the
-    // pair gives the microphone runs' mean of 55.85 ms (W3-09 §2).
-    readMin: 0.0480,
-    readMax: 0.0637,
-    // Seconds: each capture step is ready up to this long after its time (uniform). Fitted to
-    // Set D's chunk shares and pairs (the W3-16 order, "The capture's lateness").
-    captureLate: 0.013,
     // Seconds: the span of the seeded phase of the reads' times, a multiple of every float
-    // step up to 24.3 days, so the seed spreads the reads over the float's grid (chosen).
+    // step up to 24.3 days, so the seed spreads the reads over the float's grid (chosen; the
+    // clock's seventh phase).
     phaseSpan: 0.25,
-    // Seconds Steam had been running when the render begins, by default: 9 days, where a
+    // Seconds Steam had been running when the sender's clock starts, by default: 9 days, where a
     // float of seconds moves in steps of 1/16 s. Set D's spurt ends tested on the demo's own
     // chunks single out a Steam of 6.1 to 12.1 days (W3-16 second read); 9 days is the
-    // middle of that range.
+    // middle of that range. It is added to the clock's own time, so with the warm-up it is
+    // Steam's age when the warm-up begins, 4.5 s and the lead before the source's first sample:
+    // 4.5 s is a whole number of the float's steps at every uptime allowed (below 2^22 s, 48
+    // days, the step is at most 0.25 s), so it moves the float's grid nowhere but at an edge,
+    // where the step doubles.
     uptime: 777600,
     // Seconds from Steam's read to the game's relay of the message: arbitrary, it only sets
     // the phase against the game's ticks (the order's table).
@@ -98,13 +125,20 @@
     // Seconds: the game's client tick, on which it adds a message (as VOICE_CHANNEL.tick in
     // voice-channel.js; W3-03 §1, read).
     tick: 0.015,
-    // The clock's two random sources: mulberry32((seed ^ seedMix) >>> 0) for the reads and
-    // mulberry32((seed ^ seedMixCapture) >>> 0) for the capture (arbitrary).
-    seedMix: 0x51ED270B,
-    seedMixCapture: 0x2545F491,
-    // The read clock on the rule as read (createReadClock; docs/work-orders/W3-27-sender-
+    // Samples: the warm-up, 4.5 s of silence the sender reads before the lead and the source
+    // when it makes its clock from the seed (chosen; the W3-27 order's rulings of 2026-11-21).
+    // Nothing models the key's press (W3-11c), and every take the app is held to was made with
+    // the key down before the sound. Every period of the clock at its defaults divides it: 300
+    // ticks, 1,323 frames at 294 a second, 90 passes, 288 timer steps, 144 capture steps, 18
+    // turns of the 8-step pattern, 450 packets of 10 ms or 225 of 20. 4.5 s is the first
+    // multiple of 1.5 s at which the one-step share of the chunk that holds a sample is the
+    // running state's (the clock's start rings with a period of 0.5 s; 1.5 s, the first
+    // ruling's, left the share at the source's first sample 2.5 points under it; measured on
+    // the model, tests/steam-sender.verify.mjs --warm-up).
+    warmUp: 108000,
+    // The sender's clock on the rule as read (createClock; docs/work-orders/W3-27-sender-
     // clock.md, "The rule"; the evidence is finding 28 of tests/REFERENCE_2026.md). Times in
-    // ms. Nothing runs it yet: W3-27b makes it the sender's clock.
+    // ms. Each number is the default of the clock; fps, tick, packet and late are its options.
     clock: Object.freeze({
       // ms: the pass of Steam's pipe server thread, which reads the capture once a pass and
       // then waits for what is left of it in whole milliseconds, truncated; a wake under 1 ms
@@ -114,7 +148,9 @@
       // first frame at or after the tick's time (read); that the fetch wakes Steam's loop is
       // inferred, and fits Sets J and L.
       tick: 15,
-      // The game's frames a second: measured, the owner's net_graph at fps_max 300.
+      // The game's frames a second on the sender's PC: measured, the owner's net_graph at
+      // fps_max 300. Another sender's is the clock's option fps; no set scores the reads at
+      // another rate.
       fps: 294,
       // ms: the fetch falls evenly within this long of its frame's start (fitted, Set J; weak).
       fetchSpread: 1,
@@ -164,7 +200,7 @@
   });
 
   const SILENT = 0, ACTIVE = 1, HANGING = 2, ENDED = 3;
-  const MAX_CHUNK = 3 * STEAM_SENDER.grid;        // a microphone's read never brings more (see createClock)
+  const MAX_CHUNK = 3 * STEAM_SENDER.grid;        // a read never brings more (clock.maxSteps; see createClock)
   const HOLD_F = Math.fround(STEAM_SENDER.hold);  // 0.4000000059604645, the code's constant
   const UPTIME_MAX = 4000000;                     // seconds, 46 days: the page's choices end at 36
 
@@ -185,55 +221,10 @@
     };
   }
 
-  // The clock, drawn in exactly the order's order, all arithmetic in doubles as written
-  // (the W3-16 order, item 1; its reference hash pins the grouping):
-  //   A = mulberry32((seed ^ seedMix) >>> 0), B = mulberry32((seed ^ seedMixCapture) >>> 0)
-  //   phase = 0.25 x A(); r = 0.0637 x A(); c0 = 0.03125 x B()
-  //   step j (samples 750 j to 750 j + 749) is ready at
-  //     a[j] = max(a[j-1], c0 + (j + 1) x 0.03125 + 0.013 x B()), a[-1] = -Infinity
-  //   next(): n = the steps with a[j] <= r not yet taken; { time: phase + r, since: r,
-  //     samples: 750 n }; then r = r + (0.0480 + (0.0637 - 0.0480) x A())
-  //   lead = (750 - round(c0 x 24000)) mod 750 (the W3-21 order; read only, drawn from nothing)
-  // With 13 ms of lateness under one step, a read 48 to 63.7 ms after the last finds one to
-  // three steps (a chunk is at most 2250 samples); only a read before the first step is ready
-  // finds none. The clock knows nothing of uptime: the sender adds it.
-  function createClock(opts) {
-    const o = opts || {};
-    const S = STEAM_SENDER;
-    const seed = setting(o.seed, 0xC0FFEE, 'seed');
-    const A = mulberry32(((seed ^ S.seedMix) >>> 0));
-    const B = mulberry32(((seed ^ S.seedMixCapture) >>> 0));
-    const STEP = S.grid / S.rate;                 // 0.03125 s, exact
-    const phase = S.phaseSpan * A();
-    let r = S.readMax * A();
-    const c0 = STEP * B();
-    // The capture's phase against the sound, in samples (W3-21): the steps' edges lie c0
-    // after the multiples of 31.25 ms of the source when the sender puts this many zeros
-    // before it. Read only; drawing it takes nothing from A or B. Chosen: nothing read or
-    // measured ties the capture's phase to c0 (itself the clock's own uniform draw over one
-    // step, chosen); c0 is a source of one uniform number that draws nothing new.
-    const lead = (S.grid - Math.round(c0 * S.rate)) % S.grid;
-    let j = 0;
-    let ready = Math.max(-Infinity, c0 + (j + 1) * STEP + S.captureLate * B());   // a[0]
-    return Object.freeze({
-      lead,
-      next() {
-        let n = 0;
-        while (ready <= r) {
-          n++; j++;
-          ready = Math.max(ready, c0 + (j + 1) * STEP + S.captureLate * B());
-        }
-        const read = { time: phase + r, since: r, samples: S.grid * n };
-        r = r + (S.readMin + (S.readMax - S.readMin) * A());
-        return read;
-      },
-    });
-  }
-
-  // The read clock on the rule as read (docs/work-orders/W3-27-sender-clock.md, "The rule",
-  // where each step below is written out; STEAM_SENDER.clock has the numbers and their
-  // standing). Held to the reference generator, tests/steam-sender/gen.mjs, to the last bit
-  // with place 0, which needs every sum grouped as written here. Nothing calls it yet.
+  // The clock: the rule as read (docs/work-orders/W3-27-sender-clock.md, "The rule", where
+  // each step below is written out; STEAM_SENDER.clock has the numbers and their standing).
+  // Held to the reference generator, tests/steam-sender/gen.mjs, to the last bit with place 0,
+  // which needs every sum grouped as written here. All times in ms, all arithmetic in doubles.
   //   - A pass starts at a wake or a timeout; its read is made 0.05 to 1.55 ms later; it then
   //     waits, in whole milliseconds, for what is left of start + 50 ms. A wake that leaves
   //     under 1 ms ends the pass; an earlier one only makes it wait again.
@@ -245,15 +236,33 @@
   //   - Capture step k (from 1) can be read at the end of the packet that holds its last
   //     sample, plus its lateness: the capture had made `place` steps before the clock
   //     started (they are not read), so step k ends 31.25 (k + place) ms into the capture's
-  //     packets, and is never ready before capPhase + 31.25 k.
-  //   - A read brings the steps ready at its time and not yet taken, three at most.
-  // opts: seed, fps (10 to 1000), tick (ms, 5 to 100), packet (ms, 10 or 20), late (ms, 0 to
-  // 31.25), place (a whole number below 8, or 16 with 20 ms packets; drawn when left out, and
-  // the draw is made either way). Returns { next(), lead, place }: next() gives { time, since,
-  // samples, by }, time and since in seconds as createClock's, by what ended the pass before
-  // the read ('start', 'game', 'timeout' or 'other'); lead, the capture's phase against the
-  // sound (0 to 749 samples, as createClock's); place, the capture's place in its pattern.
-  function createReadClock(opts) {
+  //     packets, and is never ready before capPhase + 31.25 k. So a read is never earlier
+  //     than the end of the last step it takes, which the render's stream and the live chain
+  //     rest on (steamBoundTick in engine/steam.js).
+  //   - A read brings the steps ready at its time and not yet taken, three at most (the
+  //     sender's MAX_CHUNK); a step left over by the limit is the next read's.
+  // The clock knows nothing of uptime: the sender adds it.
+  // opts, each the default when left out, and one given that is not a finite number or is
+  // outside its range a RangeError that names it:
+  //   seed (0xC0FFEE);
+  //   fps, the sender's game's frames a second (294, 10 to 1000): 294 measured on the owner's
+  //     PC at fps_max 300; at any other rate the reads are the rule's own figures, which no set
+  //     scores;
+  //   tick, its game's tick (15 ms, 5 to 100): read, TF2's client tick; another tick is the
+  //     rule's own figure;
+  //   packet, the capture's packets (10 ms, or 20): 10 measured on three sets, its cause
+  //     inferred; 20 measured on another PC in two stretches, why is not read;
+  //   late, the capture's lateness (9 ms, 0 to 31.25): fitted on the owner's PC (Set L), holds
+  //     on Set D; 20 fits another PC (Set Q); no cause read;
+  //   place (a whole number below 8, or 16 with 20 ms packets; drawn when left out, and the
+  //     draw is made either way): chosen, for the tests.
+  // createSender makes its clock from the seed alone; a test that wants another sender makes
+  // the clock itself and gives it with its lead (and the sender then reads no warm-up). Returns { next(), lead, place }: next() gives
+  // { time, since, samples, by }, time and since in seconds (time is since plus the phase on
+  // the float's grid), by what ended the pass before the read ('start', 'game', 'timeout' or
+  // 'other'); lead, the capture's phase against the sound (0 to 749 samples); place, the
+  // capture's place in its pattern.
+  function createClock(opts) {
     const o = opts || {};
     const S = STEAM_SENDER, K = S.clock;
     const seed = setting(o.seed, 0xC0FFEE, 'seed');
@@ -376,8 +385,9 @@
   // samples a whole number from 0 to 2250; the reads count the lead's zeros), lead (the
   // zeros read before the source, a whole number from 0 to 749: the seeded clock's draw when
   // left out, 0 with a caller's clock; given, it overrides either), uptime (seconds the sender's Steam had been
-  // running when the render begins, 0 to 4,000,000; default 777600: it is added to every
-  // read's time before the narrowing to a float, and changes the hold only), gate (false:
+  // running when its clock starts, 0 to 4,000,000; default 777600: it is added to every
+  // read's time before the narrowing to a float, and changes the hold only; with the seeded
+  // clock that is when the warm-up begins), gate (false:
   // every chunk that is not empty counts as active, and a read with no samples does
   // nothing), meanMin (in place of 327.67: the page's threshold control; the peak rule does
   // not move).
@@ -392,15 +402,15 @@
   // A message is { tick, spurt, first, last, start, end, pcm }: the game tick it reaches the
   // receiver on; the spurt's number (from 0); its first and last frame, numbered through the
   // whole render (last = first - 1 for an end marker alone); start, the source sample of frame
-  // first's first sample (negative in a pre-roll or the lead before sample 0, which are
-  // zeros); end, whether it carries the end marker; pcm, its frames' samples (an Int16Array of
+  // first's first sample (negative in a pre-roll, the lead or the warm-up before sample 0,
+  // which are zeros); end, whether it carries the end marker; pcm, its frames' samples (an Int16Array of
   // 480 a frame, the padding of a last frame included). Or { tick, silence }: the silence
   // record, in samples.
   //
   // info(): { spurts: [{ start, frames, preroll }], chunks, messages, uptime, lead }: each
   // spurt's start (in samples of the source), its frame count and the pre-roll it was given;
-  // the chunks read that were not empty; the messages sent; the uptime and the lead it ran
-  // with. It keeps at most 2400 + 2250 + 479 samples of sound.
+  // the chunks read that were not empty, the warm-up's not counted; the messages sent; the
+  // uptime and the lead it ran with. It keeps at most 2400 + 2250 + 479 samples of sound.
   function createSender(opts) {
     const o = opts || {};
     const S = STEAM_SENDER, FRAME = S.frame;
@@ -422,15 +432,19 @@
     // clock's draw, or a caller's (0 with a caller's clock when none is given).
     const lead = o.lead !== undefined ? o.lead : o.clock === undefined ? clock.lead : 0;
     const LEAD_S = lead / S.rate;
+    // The warm-up (the W3-27 order's rulings of 2026-11-21): the seeded clock's 4.5 s of
+    // silence before the lead; none with a caller's clock.
+    const WARM = o.clock === undefined ? S.warmUp : 0, WARM_S = WARM / S.rate;
 
     const past = new Int16Array(S.preroll);     // the last silent sound, oldest first
     const chunk = new Int16Array(MAX_CHUNK);     // the capture since the last frame
     const kept = new Int16Array(FRAME - 1);      // what the last chunk left of a frame
     let pastLen = 0, chunkLen = 0, keptLen = 0;
     let state = SILENT, notedF = 0, lastTick = -1, finished = false;
-    // The clock: the last read's time, Steam's float "now" and the time from the render's
-    // start of the read in hand; the samples read; the count the read in hand brings them to.
-    let lastTime = -Infinity, nowF = 0, since = 0, read = 0, target = 0;
+    // The clock: the last read's time, Steam's float "now" and the time from the source's
+    // first sample of the read in hand; the samples read, counted from the lead's first zero
+    // (the warm-up's are below 0); the count the read in hand brings them to.
+    let lastTime = -Infinity, nowF = 0, since = 0, read = -WARM, target = -WARM;
     let frames = 0, spurt = -1, spurtStart = 0, spurtFrames = 0, chunks = 0, messages = 0;
     const spurts = [];
 
@@ -446,7 +460,7 @@
         if (!Number.isInteger(samples) || samples < 0 || samples > MAX_CHUNK) throw new RangeError(`the clock's samples must be a whole number from 0 to ${MAX_CHUNK}`);
         lastTime = time;
         nowF = Math.fround(uptime + time);
-        since = (x.since === undefined ? time : x.since) - LEAD_S;
+        since = (x.since === undefined ? time : x.since) - WARM_S - LEAD_S;
         if (samples > 0) { target = read + samples; return; }
         emptyRead(out);
       }
@@ -517,8 +531,10 @@
       if (holdOver()) { encode(out, 0, 0, true); state = ENDED; }
     }
 
-    // Steam's read, on a chunk that is not empty: the samples read - len .. read - 1.
+    // Steam's read, on a chunk that is not empty: the samples read - len .. read - 1. A chunk
+    // of the warm-up alone goes into the past sound and nothing else, whatever the gate.
     function frame(out, len, forceFinal) {
+      if (read <= 0) { remember(len); return; }
       chunks++;
       const chunkStart = read - len;
       const on = active(len);
@@ -606,17 +622,17 @@
     }
 
     // The first read: the state is silent, so a read with no samples sends nothing. Then the
-    // lead's zeros, read as sound before the source; what they make (only with the gate off
-    // and a caller's clock whose first read is shorter than the lead) comes with the first
-    // push() or finish().
+    // warm-up's zeros and the lead's, read as sound before the source; what they make (only
+    // with the gate off, from a chunk that ends in the lead) comes with the first push() or
+    // finish().
     const pending = [];
     nextRead(pending);
-    if (lead) feed(pending, new Int16Array(lead));
+    if (WARM + lead) feed(pending, new Int16Array(WARM + lead));
 
     return Object.freeze({ push, finish, info });
   }
 
-  const TF2SteamSender = { STEAM_SENDER, createClock, createSender, createReadClock };
+  const TF2SteamSender = { STEAM_SENDER, createClock, createSender };
   if (typeof module !== 'undefined' && module.exports) module.exports = TF2SteamSender;
   else root.TF2SteamSender = TF2SteamSender;
 })(typeof self !== 'undefined' ? self : this);

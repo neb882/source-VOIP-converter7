@@ -61,14 +61,18 @@ and the codec's lookahead. That is a fixed figure for a frame rate and a `voice_
 | ---: | ---: | ---: | ---: | --- |
 | 66.67 | 101.6 ms | 303.9 ms | about 405 ms | read; the panel measured at `fps_max` 67, which waits the same 7 ticks |
 | 100 | 148.0 ms | 350.3 ms | not measured | read |
-| 300 (the default) | 357.0 ms | 559.3 ms | about 660 ms | read; the panel measured |
-| 60 | 113.2 ms | 315.5 ms | not measured | read and arithmetic |
+| 300 (the default) | 345.4 ms | 547.7 ms | about 660 ms | read; the panel measured |
+| 60 | 101.6 ms | 303.9 ms | not measured | read and arithmetic |
 | 30 | 78.4 ms | 280.6 ms | not measured | read and arithmetic |
-| 20 | 90.0 ms | 292.3 ms | not measured | read and arithmetic |
-| 10 | 124.8 ms | 327.1 ms | not measured | read and arithmetic |
+| 20 | 78.4 ms | 280.6 ms | not measured | read and arithmetic |
+| 10 | 113.2 ms | 315.5 ms | not measured | read and arithmetic |
 
 The chain's holds are W3-26b's, 4.6 ms under those before it (the converter's wait in place of the app's resampler's
-and the capture filter's; computed). The panel's figures were measured before W3-26b.
+and the capture filter's; computed), with the queue's zero of W3-27b: since then the time the model gives an opening
+packet to arrive is 42.0 ms where it was 50.5 (measured on the model; finding 28), so the zero is a block of 512
+samples less at 300, 60, 20 and 10 frames a second, and the hold 11.6 ms less there (computed; it was 357.0, 113.2,
+90.0 and 124.8 ms more than with the switch off). The panel's figures were measured before W3-26b; at 300 frames a
+second it would read about 11.6 ms less since W3-27b (computed, not measured).
 
 Under 67 frames a second the queue takes packets, counts down and mixes once a frame (read, W3-23r), and the monitor
 does the same since W3-23b. Moved on to a tick, the queue has then mixed only the blocks of the frames before it, so

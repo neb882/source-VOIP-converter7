@@ -55,11 +55,12 @@ export function referenceFrames(messages, { fps = 300, bufferMs = 100, fadeTime,
     reset() { resets++; if (gain) gain.reset(); }
   } });
   // The channel's latency and the zero, D, as voice-channel.js states them (latency(), zero()): the wait less its
-  // first tick at 15 ms, plus the 0.16 s opening burst, no more than the 0.5 s ring; plus the mean arrival, 50.5 ms,
-  // and codecDelay, on whole 512-sample blocks. zeroSamples is D itself, with codecDelay 0.
+  // first tick at 15 ms, plus the 0.16 s opening burst, no more than the 0.5 s ring; plus the mean arrival, 42.0 ms
+  // since W3-27b (50.5 before it; 42.5 in W3-27b's second fix round only), and codecDelay, on whole 512-sample blocks. zeroSamples is D itself, with
+  // codecDelay 0.
   const latency = Math.min(22050 / RATE, (ch.waitTicks - 1) * 0.015 + 0.16);
   const delay = zeroSamples !== undefined ? 0 : (codecDelay ?? 0);
-  const D = zeroSamples !== undefined ? zeroSamples : N * Math.round(RATE * (latency + 0.0505 + delay) / N);
+  const D = zeroSamples !== undefined ? zeroSamples : N * Math.round(RATE * (latency + 0.042 + delay) / N);
 
   // Spurts, in the order given: a run of messages up to a silence record (the record its last).
   const spurtOf = [], spurts = [], firstOf = [];
