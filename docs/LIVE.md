@@ -62,10 +62,10 @@ and the codec's lookahead. That is a fixed figure for a frame rate and a `voice_
 | 66.67 | 101.6 ms | 303.9 ms | about 405 ms | read; the panel measured at `fps_max` 67, which waits the same 7 ticks |
 | 100 | 148.0 ms | 350.3 ms | not measured | read |
 | 300 (the default) | 345.4 ms | 547.7 ms | about 660 ms | read; the panel measured |
-| 60 | 101.6 ms | 303.9 ms | not measured | read and arithmetic |
-| 30 | 78.4 ms | 280.6 ms | not measured | read and arithmetic |
-| 20 | 78.4 ms | 280.6 ms | not measured | read and arithmetic |
-| 10 | 113.2 ms | 315.5 ms | not measured | read and arithmetic |
+| 60 | 90.0 ms | 292.3 ms | not measured | read, computed and arithmetic |
+| 30 | 66.8 ms | 269.0 ms | not measured | read, computed and arithmetic |
+| 20 | 55.2 ms | 257.4 ms | not measured | read, computed and arithmetic |
+| 10 | 78.4 ms | 280.6 ms | not measured | read, computed and arithmetic |
 
 The chain's holds are W3-26b's, 4.6 ms under those before it (the converter's wait in place of the app's resampler's
 and the capture filter's; computed), with the queue's zero of W3-27b: since then the time the model gives an opening
@@ -73,6 +73,19 @@ packet to arrive is 42.0 ms where it was 50.5 (measured on the model; finding 28
 samples less at 300, 60, 20 and 10 frames a second, and the hold 11.6 ms less there (computed; it was 357.0, 113.2,
 90.0 and 124.8 ms more than with the switch off). The panel's figures were measured before W3-26b; at 300 frames a
 second it would read about 11.6 ms less since W3-27b (computed, not measured).
+
+Since W3-29 the queue's zero is the sender's part, 35.3 ms (measured on the model; finding 28), plus the time from an
+opening message's tick to the first block the queue mixes it in, worked out at each frame rate by the queue's rule
+(computed; finding 22), plus the codec's look-ahead, on whole blocks of 512 samples. Under 67 frames a second the
+zero is then one to three blocks less at `voice_buffer_ms` 100 than with the one constant of 42.0 ms it had before:
+the four rows above under 67 are 11.6 ms less at 60 and 30 frames a second, 23.2 ms at 20 and 34.8 ms at 10 (they
+were 101.6, 78.4, 78.4 and 113.2 ms more than with the switch off; computed, and the chain's own figure). At 66.67,
+100 and 300 frames a second the zero did not move, nor these rows. What moved is the figure, not the sound: the chain
+gives out the render's sample n as its own sample n, so a lower zero puts the same sound later in the render and the
+chain holds back as much less, and from the old hold on its output is the old output, sample for sample, given out
+after the same input (checked at 30 frames a second by `tests/render-channel.verify.mjs`, section 10, W3-29's check
+8). The old figure was the higher by that much: the mean time from the microphone to the queue's output is the zero
+before it is put on whole blocks.
 
 Under 67 frames a second the queue takes packets, counts down and mixes once a frame (read, W3-23r), and the monitor
 does the same since W3-23b. Moved on to a tick, the queue has then mixed only the blocks of the frames before it, so
@@ -121,9 +134,10 @@ the engine's model and in no recording (W3-02c-3a's second read):
 - At 300 frames a second and above each opening of the channel drops 114 to 181 ms, most of it Steam's 100 ms
   pre-roll, and the pauses between phrases are shortened by up to 328 ms.
 - At 66.67 frames a second nothing is dropped, and each phrase waits as the game's does.
-- Under 67 frames a second the monitor's queue runs a frame's steps as a render's does (W3-23a and W3-23b): a phrase
-  that opens it plays early against its source by 8 to 19 ms in the mean at 60 to 10 frames a second, and at 30 and
-  under more sound is faded (measured on the model; finding 22's added lines). It sits a frame's mixing later than at 67, as above.
+- Under 67 frames a second the monitor's queue runs a frame's steps as a render's does (W3-23a and W3-23b), and at 30
+  and under more sound is faded (measured on the model; finding 22's added lines). Since W3-29 the zero follows the
+  queue's rule there, so the figure the panel gives is the queue's own mean delay to within half a block (computed).
+  The monitor sits a frame's mixing later than at 67, as above.
 - Long unbroken sound dips about 4.5 dB from minute 5 or 6 at 66.67 frames a second and from minute 15 or 16 at
   300, until a pause closes the channel. The monitor has no ten-minute limit, so a session can reach it.
 
