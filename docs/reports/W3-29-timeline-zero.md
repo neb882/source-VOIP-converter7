@@ -71,9 +71,9 @@ Printed before the switch by `node tests/voice-channel.verify.mjs --zero-table` 
 1,000 and 59.94, 66.6, 66.67, 1000/15 and the first double below 1000/15. **1,260 of 17,928 settings move**, every one
 down: 216 rows of the table by one block, 86 by two, 24 by three, 18 by four, 13 by five, 10 by six, one by seven, two
 by eight and two by nine (a row is one setting or a run of whole rates with the same pair of values). The largest are
-at `voice_buffer_ms` 500 at 10 and 11 frames a second (11776 and 12288 to 7680): there a frame holds more ticks than
-the wait, so the frame that adds the opening also ends its wait, and the queue does not wait at all (the rule; check 1
-holds it at `voice_buffer_ms` 40, 100 and 250). At `voice_buffer_ms` 100 the most is four blocks. The switch's commit
+at `voice_buffer_ms` 500 at 10 and 11 frames a second (11776 and 12288 to 7680): there a frame holds at least as
+many ticks as the wait, so the frame that adds the opening also ends its wait, and the wait adds nothing to the delay
+(the rule; check 1 holds the rule against the queue at `voice_buffer_ms` 40, 100 and 250). At `voice_buffer_ms` 100 the most is four blocks. The switch's commit
 message (`d78f099`) says "one to six blocks"; that is wrong at `voice_buffer_ms` 300 and 500, and this table holds.
 
 **Which table this head gives: the order's first table**, not the plan review's further ranges. At 67 frames a second
@@ -267,11 +267,11 @@ These are the order's figures. With the switch off the chain holds back 202.25 m
 - The delay path where the ring caps the wait was measured at 300 frames a second over seeds 1 to 50 only (check 10);
   the order's table over seeds 1 to 400 at 200 to 1,000 frames a second was not measured again.
 - Speech was not rendered (the recordings are the owner's).
-- `pnpm test` (28 of 28 suites, 26 min 9 s) and the browser suite (549 checks, 8 min 13 s) passed on the switched tree with the recorded hashes, before the text of `live.js` changed and before the fix of commit 5; the voice channel suite, the render stream's `--hashes` and the browser suite were run again after both (below).
+- `pnpm test` (28 of 28 suites, 26 min 9 s) and the browser suite (549 checks, 8 min 13 s) passed on the switched tree with the recorded hashes, before the text of `live.js` changed and before the fix of commit 5; after both, the voice channel suite (249 checks) and the browser suite (549 checks, 8 min 4 s) passed again, and the render stream's `--hashes` at the end is byte for byte the one after the switch (`hashes-after.txt`).
 
 ## Process
 
 - Main did not move under the branch (`a7d7120` at the start and at the end).
-- CI (`tests`, the six jobs): the first commit's run passed; the run on `bbe9142` (the hashes) passed, `verify` success. The run on the last push is in the hand-back.
+- CI (`tests`, the six jobs): the runs on `47fe88b` and `bbe9142` passed, and the run on `79850f5` (the last commit that touches code, tests or words outside `docs/`) passed, `verify` success. This report's last edit touches `docs/` only and starts no run.
 - `node tests/cache-number.mjs origin/main --report`: "cached files changed since origin/main (a7d7120): live.js, voice-channel.js" and "the number is v58, not above v58: it must rise". The number is the orchestrator's; `sw.js` is not touched, and no file the site loads was added or renamed.
 - The branch's diff and its commit messages were scanned for recordings, personal details, real SteamIDs and model names: none, but the attribution trailers. The branch's name appears where a report names its branch.
