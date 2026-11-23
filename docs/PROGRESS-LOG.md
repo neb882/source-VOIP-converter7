@@ -823,3 +823,9 @@ jitter as in-order arrival delays through the queue; retires the late-frame fit.
 - open_questions, the band from 11 to 12 kHz: the figures with W3-27b's clock added; "Open: what is left on Set D's two rows (about 1 dB)" became "Open: Set B's rows now about 0.9 dB under, what is left on Set D's two".
 - model.capture replaced (stale since W3-26b and W3-28): "The left channel of a stereo file, resampled to 24 kHz; the capture roll-off a 255-tap filter fitted to the owner's PC; on steam rounded to 16 bits before the sender."
 - model.sender: "when Steam reads its microphone is a seeded model fitted to its packets" became the rule as read, with the warm-up.
+
+## 2026-11-23: W3-29 merged
+
+- live.last_merge: W3-29 put first; the earlier text follows it unchanged after "Before it:". live.cache v58 became v59.
+- in_flight, W3-29 removed (the list is empty): "W3-29, the game timeline's zero at every frame rate (docs/work-orders/W3-29-timeline-zero.md, with 'After the plan review (2026-11-22)'): the queue's zero becomes the sender's part (about 35.3 ms, measured on the model) plus the queue's own rule at the listener's frame rate, in place of the one constant of 42.0 ms. Under 66.67 frames a second a render on the game's queue sits one to four mixer blocks later; the page's default render does not move. Planned and reviewed 2026-11-22; being built on its own branch after W3-27b's merge, then reviewed and read a second time."
+- open_questions: one entry added (W3-29's second read: the capped wait, joined phrases under 67 frames a second, the frame phase and the sender's part as a mean).

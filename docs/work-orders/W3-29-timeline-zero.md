@@ -1,7 +1,8 @@
 # W3-29: the game timeline's zero at every frame rate
 
-**Status 2026-11-22: planned and reviewed; the rulings and the plan review's changes are in "After the plan review
-(2026-11-22)" at the end, which holds wherever it and the text above differ; not built yet.**
+**Status 2026-11-23: built and merged (cache v59). The rulings and the plan review's changes are in "After the plan
+review (2026-11-22)" near the end, which holds wherever it and the text above differ; what was built, and what the
+two readers measured on it, is in "W3-29 as built (2026-11-23)" at the end.**
 Written by a planner on `claude/w3-27b-sender-clock` at `6bc90f6` (expected on `main` as cache v58) from the
 repository and from scratch scripts run on that tree. The sender's warm-up is being changed from 1.5 s to 4.5 s
 after this plan (the W3-27 order, "A second ruling (2026-11-21)"). Every figure here that runs the sender was
@@ -701,3 +702,90 @@ further ranges, and `D` at 144 and 150 frames a second with no codec delay is ex
 from the two tables; not computed on that head). The builder's printed table, computed on its own head, is the
 authority, and its report says which of the two it gives. Everything else of the review stands: the frame clock's
 values by the rule do not depend on the old constant, nor do items 5 to 11.
+
+## W3-29 as built (2026-11-23)
+
+Built on `claude/w3-29-timeline-zero` from `main` at `a7d7120`, in one build and one fix round; merged 2026-11-23
+as cache v59. The builder's report is `docs/reports/W3-29-timeline-zero.md`, with the printed table and the hashes
+beside it in `docs/reports/W3-29/`. A reviewer read the branch for this order's letter and a second reader for the
+model; both found the rule and the code right and asked for changes to the words. The fix round was read by the
+orchestrator only.
+
+**What runs.** `zero()` in `voice-channel.js` is `zeroSeconds()` on whole blocks: `SENDER_SECONDS` (0.0353), plus
+0.16 s and the mean of `first()` over the sender's ticks 0 to 5,119 at the channel's wait and the listener's frame
+rate (the form kept where the ring caps the wait, ruling 3), plus the codec's delay. `ARRIVAL_SECONDS` is gone. A
+timeline's `info` and `counts()` report `zero` and `zeroSeconds`. `engine/`, `steam-sender.js` and
+`tests/predictions/predictions.json` were not touched.
+
+**The sender's part** (measured on the model): 35.3305 ms over the 96,000 openings of layout R, seeds 1 to 12,000,
+a standard error of 0.0465 ms by seed; the builder's figure and the plan reviewer's are the same. The second reader,
+with a harness of its own, has 35.342 ms over seeds 1 to 4,000 (0.080). The mean lies 0.02 ms from the tenth's edge
+at 35.35 ms; with 35.4 the zero would be another at six settings, none of them pinned (the plan review's list).
+
+**What moved** (computed, the builder's table, recomputed by the reviewer from main's module and found the same):
+1,260 of 17,928 settings, every one downward, by one to nine blocks, and at `voice_buffer_ms` 100 by at most four.
+It is this order's own table, not the plan review's further ranges. The list that must not move did not: 66.67,
+1000/15, 100, 300 and 1,000 frames a second with the look-ahead and with no codec delay, and 144 and 150 with the
+look-ahead; 144 and 150 with no codec delay stay 17920. The list holds for a sender's part from 35.195 to
+39.175 ms. No WAV or gain hash of `render-stream` moved, because every recorded case there runs at 300 or 66.67
+frames a second; nine of its `codecInfo` hashes moved by the two added fields and by nothing else. In
+`render-channel` the hashes of section 29 at 60 and 30 frames a second moved and section 24's info was recorded
+again. The message of commit `d78f099` says "one to six" blocks; it is one to nine at buffers of 300 and 500 ms.
+
+**Where an opened phrase lies** (measured on the model; mean `offsetStartMs`, main and then the build). The builder,
+on the suite's talk: -33.7 and +1.1 ms at 10 frames a second, -19.2 and +4.1 at 20, -14.3 and -2.7 at 30, -11.6 and
+0.0 at 50, -7.8 and +3.8 at 60, the same on both from 66.67 up. The second reader, seeds 1 to 20, on the talk:
+-32.1 and +2.8, -18.6 and +4.7, -13.2 and -1.6, -11.0 and +0.6, -7.8 and +3.8; on bursts of its own -38.4 and -3.5,
+-22.4 and +0.8, -10.0 and +1.6, -11.4 and +0.2, -4.8 and +6.9; on the test signal -40.8 and -6.0, -21.4 and +1.8,
+-16.4 and -4.8, -12.6 and -1.0, -6.9 and +4.8. At 66.67 and at 300 frames a second each is the same on both trees
+(-3.8 to -4.4 and +3.1 to +3.9). The second reader's own stepping of the clock, the module's `first()` and
+`createTimeline` agree at every opening it tried (18 rates, six buffers, ticks 0 to 5,119), and under 1000/15 the
+build's render is main's moved by the blocks `D` fell, with no sample differing.
+
+**The live monitor** (the second reader, at 48 kHz): a click's real delay is the same on both trees, and the
+reported figure is nearer to it: 286.0 ms real against 315.5 reported on main and 280.6 on the build at 10 frames a
+second, 269.0 against 280.6 and 269.0 at 30, 297.6 against 303.9 and 292.3 at 60; 300.8 against 303.9 at 66.67 and
+551.1 against 547.7 at 300 on both. Live equals the offline render sample for sample, as before.
+
+**A ruling in the build (2026-11-23).** Check 5 stands as built: the spurt's first slot is held to 0.05 ms and
+`offsetStartMs` to 0.1 ms, because each message played writes n - 1 of its n samples, so 0.2 s into a spurt the
+identity is short by one sample for each message played (the builder's account, confirmed by the reviewer).
+
+**The fix round.** Words: the reason given for the queue's 102 and 345 ms in `README.md` and `docs/ACCURACY.md`; the
+blocks in `docs/LIVE.md` and `tests/predictions/PREDICTIONS.md`; and three statements copied from this order that
+the second read narrowed (below). One check added: `zero()` and the suite's rule against numbers written down at
+ten rates under 67 frames a second.
+
+**Three statements of this order, narrowed** (the record has the figures, finding 22's lines of 2026-11-23):
+
+1. "A phrase that joins a running queue comes early by what the queue cut" holds at 1000/15 and above. Under it the
+   zero moved the whole render later by whole blocks, so joined phrases there start about 30 to 40 ms late of their
+   source in the mean, where on main they started 0.5 ms early to 24 late (measured by the builder and the second
+   reader alike, the talk, seeds 1 to 20). The distance between an opened phrase and a joined one is what it was.
+2. "Within half a mixer block" holds for the rule's mean over the ticks a phrase can open on. A file whose phrases
+   all meet one phase of the frames gets the rule at that phase (the test signal at 10 frames a second, 5 to 6 ms
+   early), and a file that begins with sound at 10 frames a second usually opens early and loses some of its head
+   (the builder: early in 16 of 20 seeds, 23 ms lost in the mean, 50 before; the second reader, on its own harness:
+   early at every seed, 22 to 38 ms lost, 57 to 73 before).
+3. The window of 5,120 ticks is a whole period only at some whole rates. It is the first 76.8 s of a render, which
+   is where a render lies (chosen). Against a mean over 102,400 ticks `D` differs at a few settings (36 and 46
+   frames a second at some buffers), and just under 1000/15 the two means are far apart (66.666 frames a second:
+   -8.81 against -1.87 ms for the mean less the wait; computed by the builder and the second reader alike).
+
+**Open, not built** (each the second reader's, measured once, unless it says otherwise):
+
+- Where the ring caps the wait (ruling 3 kept the form), an opened phrase is first heard late: +10 ms at 66.67
+  frames a second with `voice_buffer_ms` 500, +28 to +37 at 100 with 500, +82 to +134 at 300 with 300. At
+  `voice_buffer_ms` 100 and 300 frames a second, the page's default, it is +3 to +4 ms.
+- With another frame phase (ruling 2 fixed it) `D` would rise one block at 60 frames a second (62 of 64 phases), at
+  40 (63 of 64) and at 50 (48 of 64), and stay at 10, 20, 24 and 30.
+- The sender's part is a mean. By the bursts' level it is 33.5 ms at 400 and 36.6 at 10,000; onsets like a voice's,
+  with ramps of 20 to 50 ms, give 34.1 to 36.2; one seed's own figure spreads by 3.8 ms (27.5 to 39.0), and
+  `zeroSeconds` does not report that part.
+- A demo's zero (`arrivalZero`, ruling 4) and a zero that follows the seed's capture phase, as "Not in this order"
+  has them.
+
+**The private takes.** No private run was made, because none could differ: every row of the accuracy suite renders
+at 66.67, 100, 294, 295, 300 or 336 frames a second with `voice_buffer_ms` 100, the retiming tool at 300, and at
+each of those `zero()` gives the same `D` on main and on the build, with the look-ahead and without (computed by the
+orchestrator on both trees).
