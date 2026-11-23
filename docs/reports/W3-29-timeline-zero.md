@@ -258,7 +258,7 @@ These are the order's figures. With the switch off the chain holds back 202.25 m
 
 ## Not done, and questions
 
-- **Question for a ruling (check 5's band).** Is the band of check 5 to be read at the spurt's first slot (0.05 ms,
+- **Ruled 2026-11-23: it stands as built (fix round 1).** The question was check 5's band. Is the band of check 5 to be read at the spurt's first slot (0.05 ms,
   as built and as the planner measured it), with `offsetStartMs` held to 0.1 ms, or is `offsetStartMs` to be held to
   the exact count of samples its messages dropped? The build takes the first.
 - The level figures of the order's ruling 10 (measured again: 33.38, 35.20 and 36.39 ms; the documents give these).
@@ -267,7 +267,74 @@ These are the order's figures. With the switch off the chain holds back 202.25 m
 - The delay path where the ring caps the wait was measured at 300 frames a second over seeds 1 to 50 only (check 10);
   the order's table over seeds 1 to 400 at 200 to 1,000 frames a second was not measured again.
 - Speech was not rendered (the recordings are the owner's).
-- `pnpm test` (28 of 28 suites, 26 min 9 s) and the browser suite (549 checks, 8 min 13 s) passed on the switched tree with the recorded hashes, before the text of `live.js` changed and before the fix of commit 5; after both, the voice channel suite (249 checks) and the browser suite (549 checks, 8 min 4 s) passed again, and the render stream's `--hashes` at the end is byte for byte the one after the switch (`hashes-after.txt`).
+- Open, not built (fix round 1; the second reader's figures, measured once, not measured again here): a phrase that
+  opens where the ring caps the wait is first heard late, +10 ms at 66.67 frames a second with `voice_buffer_ms` 500,
+  +28 to +37 ms at 100 with 500 and +82 to +134 ms at 300 with 300; the order's ruling 3 kept the capped form there.
+  With another phase of the frames against the render's start, D would rise a block at 60 frames a second (at 62 of 64
+  phases), at 40 (63 of 64) and at 50 (48 of 64), and stay at 10, 20, 24 and 30; the order's ruling 2 keeps the phase
+  fixed.
+- `pnpm test` (every suite passed, 26 min 9 s) and the browser suite (passed, 8 min 13 s) on the switched tree with the recorded hashes, before the text of `live.js` changed and before the fix of commit 5; after both, the voice channel suite and the browser suite (8 min 4 s) passed again, and the render stream's `--hashes` at the end is byte for byte the one after the switch (`hashes-after.txt`).
+
+## Fix round 1 (2026-11-23)
+
+The review and the second read asked for words, one check and no change to the rule. The ruling on the question of
+check 5: it stands as built; its comment now gives the reason (a message writes n - 1 of its n samples) and the
+measured ranges. `voice-channel.js` changed in comments only, and no render hash moved: the render stream's `--hashes`
+after this round is byte for byte `docs/reports/W3-29/hashes-after.txt`.
+
+What changed:
+1. `README.md` and `docs/ACCURACY.md`: the reason for the live monitor's 102 ms at 66.67 frames a second and 345 ms at
+   300 is the queue's zero (the sender's part plus the queue's part by its rule), no longer the arrival constant.
+2. `docs/LIVE.md`: under 67 frames a second, with the look-ahead the monitor holds, the zero is none to four blocks
+   less (four at 11, 21 and 22 frames a second, none at 53 to 55, 57 to 59 and 59.94; the printed table agrees with the
+   reviewer), and one to three at the rows' rates.
+3. `tests/predictions/PREDICTIONS.md`: D also falls a block at some settings of 67 frames a second and above, and
+   stays at some under 67, with the pointer to the table.
+4. `tests/voicequeue/synthetic-results.mjs`: the comment names the zero's three parts.
+5. This report: no counts of checks or suites.
+6. A check of literal pins in `tests/voice-channel.verify.mjs`: `zero()` and the suite's rule at `voice_buffer_ms`
+   100, with the look-ahead and with none, at 10, 20, 24, 30, 40, 50, 59.94, 60 and 66 frames a second, as the order
+   has them (7680 and 7680, 8704 and 8704, 9216 and 9216, 10240 and 9728, 10240 and 9728, 11264 and 10752, 12288 and
+   11776, 11776 and 11776, 12800 and 12288); the printed table agrees with each. The break (the means over 1,000 ticks
+   in the module and in the suite's rule alike) moves none of the nine; it moves D at 35 frames a second with the
+   look-ahead (10752 to 10240; computed), so 35 frames a second (10752 and 10240) is pinned too, and the check fails on
+   the break there. Checks 2 and 9 fail on it as well, at the even clock, where the module keeps its closed form and
+   the broken suite's walk over 1,000 ticks does not give it (67 frames a second, `voice_buffer_ms` 20).
+7. Joined phrases (`README.md`, `docs/VOICE-PATH.md`, the comment in `voice-channel.js` at `createTimeline`, finding
+   22's added line). Measured on the model, `process()` on the queue, the render suite's `talk(60, 24000, 1)` at render
+   seeds 1 to 20, the mean `offsetStartMs` of joined phrases, then of opened ones; before is the commit before the
+   switch:
+
+   | Frames a second | Joined, ms | Late of | Joined before, ms | Opened, ms | Opened before, ms |
+   | ---: | ---: | ---: | ---: | ---: | ---: |
+   | 10 | +34.3 | 61 of 82 | -0.5 | +2.8 | -32.1 |
+   | 20 | +41.2 | 55 of 70 | +18.0 | +4.7 | -18.6 |
+   | 30 | +35.5 | 52 of 70 | +23.9 | -1.6 | -13.2 |
+   | 50 | +29.1 | 50 of 73 | +17.5 | +0.6 | -11.0 |
+   | 60 | +29.7 | 49 of 75 | +18.1 | +3.8 | -7.8 |
+   | 66.67 | +15.8 | 48 of 78 | the same | -3.8 | the same |
+   | 300 | -142.8 | 8 of 126 | the same | +3.2 | the same |
+
+   These are the second reader's figures to the tenth. The distance between an opened and a joined phrase is what it
+   was; only where both lie against the source moved, by the blocks D fell.
+8. The half block (`README.md`, `docs/VOICE-PATH.md`, finding 22's added line), measured on the model with
+   `process()`: the public test signal at 10 frames a second opens -5.2 ms from its source in the mean (render seeds 1
+   to 8; -40.0 before; the second reader -6.0); the render suite's layouts P and Q at 60 frames a second +8.0 ms (render
+   seeds 1 to 8; -3.6 before; the reader +6.9 and -4.8, within 1.2 ms); a 1 kHz tone at -20 dBFS from a file's first
+   sample, 2 s, at 10 frames a second: early in 16 of render seeds 1 to 20, and those 16 lose 4.2 to 55.2 ms of the
+   head, 22.8 ms in the mean of the 20 (before: 19 of 20, 0.3 to 88.9 ms, 50.2 in the mean). **That last differs from
+   the second reader's** ("always opens early and loses 22 to 38 ms, 57 to 73 before"): on this harness, and on the
+   model alone with the relay (`engineRun`, level 1000 from 0 to 2 s, seeds 1 to 20: early in 13, up to 61.7 ms lost),
+   some seeds open late and lose nothing. The documents give this build's figures.
+9. The window of 5,120 ticks (the comment at `MEAN_TICKS` and finding 22's added line), computed by the suite's rule
+   against ticks 0 to 102,399: 0.018, 0.019 and 0.015 ms apart at 24, 66 and 59.94 frames a second; up to 0.416 ms at
+   the whole rates from 10 to 66 (52 frames a second, a wait of 16 ticks); D differs at 7 settings of rate, wait and
+   codec delay, which are 155 of 57,000 settings of the whole rates 10 to 66, `voice_buffer_ms` 1 to 500 and two codec
+   delays (36 frames a second at 112 to 138 ms, 44 at 341 to 363, 46 at 1 to 21, 44 to 65 and 305 to 326, 47 at 405 to
+   425, all with the look-ahead; 52 at 135 to 153 with none); at 66.666 frames a second -8.81 against -1.87 ms. These
+   agree with the second reader's. No code changed: the window is chosen, the first 76.8 s of a render from frame 0 on
+   its first sample.
+10. This section, and the two open points under "Not done".
 
 ## Process
 

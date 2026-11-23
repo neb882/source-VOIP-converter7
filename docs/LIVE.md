@@ -77,8 +77,10 @@ second it would read about 11.6 ms less since W3-27b (computed, not measured).
 Since W3-29 the queue's zero is the sender's part, 35.3 ms (measured on the model; finding 28), plus the time from an
 opening message's tick to the first block the queue mixes it in, worked out at each frame rate by the queue's rule
 (computed; finding 22), plus the codec's look-ahead, on whole blocks of 512 samples. Under 67 frames a second the
-zero is then one to three blocks less at `voice_buffer_ms` 100 than with the one constant of 42.0 ms it had before:
-the four rows above under 67 are 11.6 ms less at 60 and 30 frames a second, 23.2 ms at 20 and 34.8 ms at 10 (they
+zero is then none to four blocks less at `voice_buffer_ms` 100 with the codec's look-ahead the monitor holds than with
+the one constant of 42.0 ms it had before (four at 11, 21 and 22 frames a second, none at 53 to 55, 57 to 59 and
+59.94; computed, `docs/reports/W3-29/zero-table.md`), and one to three blocks at the rows' rates: the four rows above
+under 67 are 11.6 ms less at 60 and 30 frames a second, 23.2 ms at 20 and 34.8 ms at 10 (they
 were 101.6, 78.4, 78.4 and 113.2 ms more than with the switch off; computed, and the chain's own figure). At 66.67,
 100 and 300 frames a second the zero did not move, nor these rows. What moved is the figure, not the sound: the chain
 gives out the render's sample n as its own sample n, so a lower zero puts the same sound later in the render and the
