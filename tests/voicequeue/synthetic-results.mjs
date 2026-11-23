@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const { createSender, STEAM_SENDER } = require('../../steam-sender.js');
-const { createTimeline, VOICE_CHANNEL } = require('../../voice-channel.js');
+const { createTimeline, relayTick, VOICE_CHANNEL } = require('../../voice-channel.js');
 
 const RATE = STEAM_SENDER.rate, OUT = VOICE_CHANNEL.rate, PER_FRAME = OUT * STEAM_SENDER.frame / RATE;   // 882
 const SLOT = OUT * 0.02, MID = SLOT / 2, INTO = 0.2;
@@ -27,8 +27,11 @@ const SLOT = OUT * 0.02, MID = SLOT / 2, INTO = 0.2;
 // Returns the timeline's info (44.1 kHz positions), the sender's messages and what was pushed
 // to the timeline ({ tick, samples, source } for each message). uptime: the sender's, in
 // seconds (left out: the sender's default). lead: the capture's lead in samples (W3-21; left
-// out: the seeded clock's draw).
-export function engineRun({ loud, seconds, fps, bufferMs, seed, uptime, lead }) {
+// out: the seeded clock's draw). relay (W3-29; default false): each message is pushed on
+// voice-channel.js's relayTick(tick, fps), the tick on which a render's message reaches the channel
+// at jitter 0 (under 1000/15 frames a second the engine's arrival rule; the tick itself above);
+// without it on the sender's own tick, as before. pushed[k].tick is the tick pushed on.
+export function engineRun({ loud, seconds, fps, bufferMs, seed, uptime, lead, relay = false }) {
   const n = Math.round(seconds * RATE);
   const signal = new Int16Array(n);
   for (const [a, b] of loud) signal.fill(1000, Math.max(0, Math.round(a * RATE)), Math.min(n, Math.round(b * RATE)));
@@ -38,8 +41,8 @@ export function engineRun({ loud, seconds, fps, bufferMs, seed, uptime, lead }) 
   const pushed = [];
   for (const m of messages) {
     const x = m.silence !== undefined
-      ? { tick: m.tick, pcm: new Float32Array(Math.round(m.silence * OUT / RATE)), source: -1 }
-      : { tick: m.tick, pcm: new Float32Array(PER_FRAME * (m.last - m.first + 1)), source: Math.round(m.start * OUT / RATE) };
+      ? { tick: relay ? relayTick(m.tick, fps) : m.tick, pcm: new Float32Array(Math.round(m.silence * OUT / RATE)), source: -1 }
+      : { tick: relay ? relayTick(m.tick, fps) : m.tick, pcm: new Float32Array(PER_FRAME * (m.last - m.first + 1)), source: Math.round(m.start * OUT / RATE) };
     timeline.push(x);
     pushed.push({ tick: x.tick, samples: x.pcm.length, source: x.source });
   }
@@ -47,8 +50,8 @@ export function engineRun({ loud, seconds, fps, bufferMs, seed, uptime, lead }) 
 }
 
 // spans: [[start, end)] in source seconds. For each, the offset in ms (output less source,
-// the timeline's zero D taken out: latency, the mean arrival and the codec's delay, on whole
-// blocks; voice-channel.js, createTimeline) at the first 20 ms slot that plays a sample at least 0.2 s into the span
+// the timeline's zero D taken out: the sender's part, the queue's part and the codec's delay,
+// on whole blocks; voice-channel.js, createTimeline) at the first 20 ms slot that plays a sample at least 0.2 s into the span
 // (or its first slot, if none does), and at its last slot; null where nothing of it played.
 // The timeline's info.source gives the source position at each slot's centre, so the offset
 // there is exact.

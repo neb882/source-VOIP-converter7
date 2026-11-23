@@ -130,7 +130,7 @@
       queueLatency: (fps, buffer) => {
         const ticks = TF2VoiceChannel.waitTicks(buffer, fps), tick = TF2VoiceChannel.VOICE_CHANNEL.tick, more = frameHold(fps);
         return `Microphone to speaker: what the voice chain holds back (the game's voice queue: a new phrase waits ${ticks} ticks, ${Math.round((ticks - 1) * tick * 1000)} ms, at fps_max ${+Number(fps).toFixed(2)} and voice_buffer_ms ${buffer}, `
-          + 'with its opening burst, the packet\'s way and the codec\'s lookahead, '
+          + 'with its opening burst, the time Steam takes to send it and the queue to first mix it, and the codec\'s lookahead, '
           + (more > 0 ? `and ${(1000 * more / TF2VoiceChannel.VOICE_CHANNEL.rate).toFixed(0)} ms of a frame's mixing, since under 67 frames a second the queue mixes once a frame, ` : '')
           + 'in the place of Steam\'s longest capture chunk and its pre-roll; the filters\' waits), the playback queue and the audio device\'s buffers';
       },

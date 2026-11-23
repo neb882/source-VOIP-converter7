@@ -641,23 +641,31 @@ add('demo voice on the game\'s timeline at 66.67 fps, auto-gain off', 24000, () 
 // water ('steam, dsp_room 137 (no room)' among them). The other 36 did not
 // move. The arrival constant (42.5 ms in that round, 42.0 again in round 3)
 // moves none of them.
+// W3-29 (the zero by the queue's rule, voice-channel.js) adds zero and
+// zeroSeconds to codecInfo.channel, and re-recorded the codecInfo hashes of the
+// nine cases that have a channel, in a commit of its own, from the run in which
+// every other check passed: the seven on the game's timeline (at 300 and 66.67
+// frames a second, where D does not move) and the two of a demo's voice on it.
+// Their WAV and GAIN_GOLDEN hashes did not move, and with the two fields taken
+// out of codecInfo.channel every codecInfo hash is the one recorded before
+// (docs/reports/W3-29-timeline-zero.md). No other hash moved.
 const GOLDEN = {
   // W3-02g: a demo's own packets on the game's timeline, recorded once from the run in which every
   // other check of this suite passed (every recorded hash above and below unmoved, and these two
   // cases streamed at their plans equal to process()), and every check of
   // tests/render-channel.verify.mjs, in a commit of their own.
-  "demo voice on the game's timeline": ["0e339664734108571cf3bdd723070f02b391becf8bd8dcc7d0c1e64474541ceb", "88939d83252ac45b55fdd69d2412c55d425b8d48d54e180c9bbb8de1ec4b93bd"],
-  "demo voice on the game's timeline at 66.67 fps, auto-gain off": ["fa987b36a70fc7cfe5362097940b1149b27c97c2799dce61dd5556a5a269ecb0", "70ba435eb738bd7fcf92c068739c8cc4359e8e2cf6ada53bbb676383aa6ec453"],
+  "demo voice on the game's timeline": ["0e339664734108571cf3bdd723070f02b391becf8bd8dcc7d0c1e64474541ceb", "9efae9536f2d8c74a221c6891a2dbaec42f50b76ffa044d366478c5c260b2ab9"],
+  "demo voice on the game's timeline at 66.67 fps, auto-gain off": ["fa987b36a70fc7cfe5362097940b1149b27c97c2799dce61dd5556a5a269ecb0", "3464473315541a04f54937ab1ad53c838afa9d3837a796c14a58854452e52a54"],
   // W3-02c-2: the renders on the game's timeline (opts.timeline 'game'), recorded once from
   // the run in which every check of tests/render-channel.verify.mjs passed, in a commit of
   // their own. No hash above or below moved.
-  "steam, timeline game": ["6cf2fe0d846bd48fa5f2b3e26d19f203646e5aa6e7da52f8f0193adc6a9f87c0", "0b0e02a3d4a243c4203b53aa8131479fa385552f68a0593be9cfa46ef0989b82"],
-  "steam, timeline game at 66.67 fps": ["b5e7e7fc55cba2e9bf3a67db5c02035b17fa5228e818da82194be81935abe26b", "9038083a8dcb9f2cb3b5b0fbbcf43483678141885806a5e355839e1311ed6165"],
-  "steam, timeline game, gate off": ["80c9205decb03fb13356fafadc6652fbc9760321e263140f5d721c7577fd36f8", "18d5489185d93457d832e55886f4bb37c6a8016f774b04ae2217c437abf84a2e"],
-  "steam, timeline game, loss 15%, jitter 50 ms": ["466a966825b680fe750c8bf5e22c6d6b241d3ca604eca15c9229ad96f8b8b922", "dec4270e62023d5eb913c2313a3258eb3f69b925c019277909b8a3e303684ae2"],
-  "steam, timeline game, auto-gain off, voice_scale 0.5": ["3ec1c202f40252663c868f97cd9a5b09edec54bd83e37622057c106d93f54613", "70b40ae76b19c4136f4415fa8fcc8b1e0b2d848b63110a51935ffac4c476a0cc"],
-  "steam, timeline game, device at 44100 Hz": ["f8589c4657cc9190d701a8983f42475eff7590ea05bcc45717041e078e89034f", "0b0e02a3d4a243c4203b53aa8131479fa385552f68a0593be9cfa46ef0989b82"],
-  "steam, timeline game, room: preset 6, seed 7": ["a152110bfd64b9d0fd587d3e20fe519721da4f4abd972eff4d68f1026660506a", "91adb5d99aa35203858d8159be0e02d3c41030c7058df3d98709e23df046dd9f"],
+  "steam, timeline game": ["6cf2fe0d846bd48fa5f2b3e26d19f203646e5aa6e7da52f8f0193adc6a9f87c0", "9a0ce71f2dd6a88d42fd2c93056e2b483e451a7478a8c6e9c76a8f46a24cb89a"],
+  "steam, timeline game at 66.67 fps": ["b5e7e7fc55cba2e9bf3a67db5c02035b17fa5228e818da82194be81935abe26b", "7b65870c5630e0ffa1e22d278783e8e5fa573e437378db35158009fa82e68f44"],
+  "steam, timeline game, gate off": ["80c9205decb03fb13356fafadc6652fbc9760321e263140f5d721c7577fd36f8", "6699e31b7000c5d143b90b7518d874b6a8d7a68d155fdc2f88915020eed9a620"],
+  "steam, timeline game, loss 15%, jitter 50 ms": ["466a966825b680fe750c8bf5e22c6d6b241d3ca604eca15c9229ad96f8b8b922", "5a59672f86411837de13db9f9e3b78cf5eaf3909d0cce9c2faf612bc0777a0d6"],
+  "steam, timeline game, auto-gain off, voice_scale 0.5": ["3ec1c202f40252663c868f97cd9a5b09edec54bd83e37622057c106d93f54613", "45ef052b88cd08382eebc42ddcccd8d6b35e96baa6a053eed58f939b8be78840"],
+  "steam, timeline game, device at 44100 Hz": ["f8589c4657cc9190d701a8983f42475eff7590ea05bcc45717041e078e89034f", "9a0ce71f2dd6a88d42fd2c93056e2b483e451a7478a8c6e9c76a8f46a24cb89a"],
+  "steam, timeline game, room: preset 6, seed 7": ["a152110bfd64b9d0fd587d3e20fe519721da4f4abd972eff4d68f1026660506a", "5621ff63940bdd59e7a542f4f59fcf48c5049d5880173f71dca301537b9d8848"],
   "steam": ["82fb5aa6fd048f04adb2b6ad348a9b69365f1d2db4005054d329e2930f3f3cf3", "1e99553d1be95e3778e938b5ccfbf2e8b797cbe52b7bb4db56c58e1395cbdf42"],
   "steam_48": ["cb106e3f224599e2a7d6bb5d8b3cea9092d99c91a8d9b736f5248d80a819e483", "f2d0bc919678d26d9c0893d1a49a20ff1aed231910a8600ddf95fb83cef1f08e"],
   "celt_22": ["8cc3cb51c948a21b6257e07495b5ce2ccb9871297d43561431d7b2ab4baf9142", "9bd2fb89789a272ca4c6ed7467eca4d5454d368133a14441b04c8d91c7c36573"],

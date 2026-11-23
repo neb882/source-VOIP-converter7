@@ -32,7 +32,11 @@
  * inUse, playing, starved, count, opens, waitTicks, dropped, drops, fraction }, in
  * 16-bit units; createTimeline(opts), the game's clock around one channel, at
  * 1/32768 of them, over a whole length or with no end (the live monitor's, W3-02c-3);
- * zero(bufferMs, fps, codecDelay), the samples the timeline takes out (D);
+ * zero(bufferMs, fps, codecDelay), the samples the timeline takes out (D), and
+ * zeroSeconds(bufferMs, fps, codecDelay), the same before it is put on whole blocks: the
+ * sender's part (SENDER_SECONDS) plus the queue's part by its rule at the listener's
+ * frame rate plus the codec's delay (W3-29); relayTick(tick, fps), the engine's arrival
+ * at jitter 0 that the rule uses;
  * arrivalZero(bufferMs, fps), the zero for packets that come with their own arrival
  * ticks, a demo's (W3-02g), which createTimeline takes as zeroSamples.
  * No imports; runs as a page script, in a worker and under Node.
@@ -84,29 +88,21 @@
   // first log and 16 of its 17 restarts (W3-03, "Checked against the owner's console log").
   const OPENING_SECONDS = 0.16;
 
-  // How much later than latency() a restarted spurt plays, in the mean, with Steam's sender
-  // (steam-sender.js), in the sender's frame: a message's source is the position of the first
-  // sample of it that was captured (the sender's `start`, at 44.1 kHz), before any codec. It
-  // is the time the opening packet takes to arrive after its last sample was captured, the
-  // model's figure, not the game's. A caller whose sources are earlier than that by a codec's
-  // delay says so with createTimeline's codecDelay, which is added to it. Measured on
-  // 2026-11-21 (W3-27b, docs/work-orders/W3-27-sender-clock.md, "The arrival constant" and
-  // "After the plan review"), on the sender's clock as read: offsetStartMs plus
-  // (D - 44100 x latency) / 44.1 of every opened spurt of the suite's layouts P and Q
-  // (tests/voice-channel.verify.mjs: 2 s spurts after 300, 500 and 1200 ms, and after 900, 600
-  // and 1200 ms), at 300 and 66.67 fps, no codecDelay, pooled, with the sender's warm-up of 4.5 s
-  // (the order's rulings of 2026-11-21 and 2026-11-22, W3-27b's fix rounds): over seeds 1 to
-  // 2,400, 21,935 spurts, mean 42.160 ms (42.97 at 300 fps over 9,935, 41.49 at 66.67 over 12,000; a
-  // standard error of 0.12 ms taken by seed), taken to the half millisecond: 42.0 ms. Over
-  // seeds 1 to 800 alone it was 42.273 ms (0.20 by seed), which rounds to 42.5 from 0.02 ms above
-  // the edge: 800 seeds do not tell the side, and the second fix round's 42.5 ms is taken back.
-  // The side is heard where the zero's block edge lies between 42.0 and 42.5 ms, a block of 512
-  // samples apart: with the codec's look-ahead at 120.01 to 130 frames a second at voice_buffer_ms 100, 240.01 to 260 at 50, 60.01 to 65 at 200 and 48.01 to 52 at 250; with no codecDelay at 140.01 to 150 at 100, 280.01 to 300 at 50, 70.01 to 75 at 200 and 56.01 to 60 at 250
-  // (computed in steps of 0.01 fps). With the warm-up of 1.5 s it was 41.956 ms (seeds 1 to 800),
-  // and with none 42.144. About 5 ms of it is a convention and not the sender's timing: the
-  // capture's packets begin 0 to 10 ms after the time the sound is counted from (5 ms in the
-  // mean). On the clock of W3-16 it was 50.5 ms (seeds 1 to 50, W3-02c-1).
-  const ARRIVAL_SECONDS = 0.042;
+  // The sender's part of the zero (W3-29, docs/work-orders/W3-29-timeline-zero.md, "The sender's
+  // part" and the ruling 1 of "After the plan review"): how long after the first sample of a spurt
+  // that opens with the sender's full pre-roll of 2400 samples its opening message leaves, less the
+  // opening's eight 20 ms frames (OPENING_SECONDS, which latency() counts). It does not depend on the
+  // listener's frame rate. Measured on the model on 2026-11-22 (tests/voicequeue/reference-zero.mjs,
+  // SENDER_MEASURED; tests/voice-channel.verify.mjs --arrival measures it again): the mean of
+  // 15 ms x tick - start / 24 - 160 ms over the opening message of every spurt of layout R (22 s
+  // at 24 kHz, eight bursts of 1 s at the constant level 1000
+  // after pauses of over 1.5 s), steam-sender.js alone, seeds 1 to 12,000: 35.3305 ms over 96,000
+  // openings, every one with a full pre-roll (a standard error of 0.0465 ms by seed), taken to the
+  // tenth of a millisecond (chosen): 35.3 ms. The mean lies 0.02 ms from the tenth's edge at 35.35 ms.
+  // It moves with the level by about 2 ms (33.3 ms at 400, 36.4 at 10000; the plan's measurement), and
+  // about 5 ms of it is a convention: the capture's packets begin 0 to 10 ms after the time the sound is
+  // counted from, drawn from the seed, and the zero takes the mean of that phase.
+  const SENDER_SECONDS = 0.0353;
 
   const finiteOr = (x, d) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
   const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
@@ -128,17 +124,116 @@
       (waitTicks(bufferMs, fps) - 1) * VOICE_CHANNEL.tick + OPENING_SECONDS);
   }
 
-  // The samples the game's timeline takes out, D (createTimeline's zero; the reasoning is
-  // there): the delay at which a restarted spurt plays, latency(bufferMs, fps), plus the mean
-  // time its opening packet takes to arrive after its last sample (ARRIVAL_SECONDS) plus
-  // codecDelay (seconds, default 0; a finite number >= 0, else a RangeError), on whole mixer
-  // blocks. With no codecDelay, 12800 samples at 66.67 fps, 14848 at 100, 24064 at 300; with
-  // the Opus codec's 156 samples at 24 kHz, 13312, 15360 and 24064. A caller with no end (the
-  // live monitor's chain) holds its sound back by it.
-  function zero(bufferMs, fps, codecDelay) {
+  // The queue's rule for the zero (W3-29, docs/work-orders/W3-29-timeline-zero.md, "The receiver's
+  // rule"). Times are in half samples at 44.1 kHz: tick i at 1323 i, mixer block b at 1024 b, frame k
+  // at (88200 k) / rate, rate the frame rate limited to 10..1000 as waitTicks limits it (createTimeline's
+  // clock, as read: W3-23r). The frame clock runs where a frame is longer than a tick (under 1000/15
+  // frames a second).
+  const HALF = 2 * VOICE_CHANNEL.rate, TICK_HALF = Math.round(HALF * VOICE_CHANNEL.tick), BLOCK_HALF = 2 * VOICE_CHANNEL.mixBlock;
+  const clockRate = (fps) => clamp(finiteOr(fps, VOICE_CHANNEL.fps), VOICE_CHANNEL.fpsRange[0], VOICE_CHANNEL.fpsRange[1]);
+  const onFrames = (rate) => HALF / rate > TICK_HALF;
+
+  // relayTick(tick, fps): the tick on which the message the sender gave `tick` reaches the channel at
+  // jitter 0, the rule of engine/network.js's steamFrameArrivals written again here (this module imports
+  // nothing; tests/render-channel.verify.mjs holds the two equal tick for tick). Under the frame clock
+  // the message is in the listener's list from tick + 1, leaves at the listener's first frame k with
+  // (88200 k) / rate > 1323 (tick + 1), and reaches the channel on ceil(((88200 k) / rate) / 1323) - 2;
+  // on the even clock (1000/15 frames a second and above) it is the tick itself. fps is read as
+  // waitTicks reads it; tick is a whole number, else a RangeError.
+  function relayTick(tick, fps) {
+    if (!Number.isInteger(tick)) throw new RangeError('relayTick takes a whole tick');
+    const rate = clockRate(fps);
+    if (!onFrames(rate)) return tick;
+    const frame = (k) => (HALF * k) / rate, enter = TICK_HALF * (tick + 1);
+    let k = Math.floor(enter * rate / HALF);
+    while (frame(k) > enter) k--;
+    while (frame(k) <= enter) k++;
+    return Math.ceil(frame(k) / TICK_HALF) - 2;
+  }
+
+  // first(p, wait, rate): the half samples from the sender's tick p to the start of the first mixer
+  // block that plays an opening sent on that tick, on a channel that waits `wait` ticks (the order's
+  // "The receiver's rule", as createTimeline runs it). On the even clock the message is added on tick p,
+  // the wait ends on tick p + wait - 1, and the opening plays from the first block that starts at or
+  // after it. Under the frame clock: the message comes on a = relayTick(p); frame k1, the first at or
+  // after tick a, adds it and runs every tick it has, all of which count toward the wait, those before
+  // tick a too; the wait ends on tick i1 + wait - 1, i1 the first tick frame k1 runs; frame k2, the first
+  // at or after that tick, runs it, and the opening plays from k2's first block. Each "first tick a frame
+  // runs" and "first block" is found by the clock's own comparisons, 1323 i <= F(k) and 1024 b <= F(k).
+  function first(p, wait, rate) {
+    if (!onFrames(rate)) return BLOCK_HALF * Math.ceil(TICK_HALF * (p + wait - 1) / BLOCK_HALF) - TICK_HALF * p;
+    const frame = (k) => (HALF * k) / rate;
+    const atOrAfter = (t) => {                   // the least frame k with F(k) >= t
+      let k = Math.max(0, Math.ceil(t * rate / HALF));
+      while (k > 0 && frame(k - 1) >= t) k--;
+      while (frame(k) < t) k++;
+      return k;
+    };
+    const after = (k, unit) => {                 // the first tick (or block) frame k runs: the least n with unit x n > F(k - 1)
+      if (k === 0) return 0;
+      const t = frame(k - 1);
+      let n = Math.floor(t / unit) + 1;
+      while (n > 0 && unit * (n - 1) > t) n--;
+      while (unit * n <= t) n++;
+      return n;
+    };
+    const k1 = atOrAfter(TICK_HALF * relayTick(p, rate));
+    const k2 = atOrAfter(TICK_HALF * (after(k1, TICK_HALF) + wait - 1));
+    return BLOCK_HALF * after(k2, BLOCK_HALF) - TICK_HALF * p;
+  }
+
+  // The mean of first(p) in half samples over the sender's ticks 0 to 5,119 (chosen): the first 76.8 s of
+  // a render, from frame 0 on the render's first sample (the order's ruling 2), which is where a render
+  // lies. It is a whole period of ticks, frames and blocks at 10, 20, 30, 40, 50 and 60 frames a second;
+  // not at every whole rate. Against the mean over ticks 0 to 102,399 (computed, fix round 1), less the
+  // wait: 0.018 ms apart at 24 frames a second, 0.019 at 66 and 0.015 at 59.94; up to 0.42 ms at the
+  // whole rates from 10 to 66 (52 frames a second, a wait of 16 ticks); D differs at 7 settings of rate,
+  // wait and codec delay there (155 of 57,000 settings of the whole rates 10 to 66, voice_buffer_ms 1 to
+  // 500 and two codec delays: at 36 frames a second with voice_buffer_ms 112 to 138 and the look-ahead,
+  // at 46 with 1 to 21, 44 to 65 and 305 to 326, among them); and just under 1000/15 the frames drift
+  // past the ticks so slowly that the two are far apart (at 66.666 frames a second -8.81 ms over the
+  // first 5,120 ticks against -1.87 over 102,400). On the even clock it is 1323 (wait - 1) + 511.5 exactly (arithmetic: 1323 is odd, so over
+  // any 1,024 ticks in a row 1323 n takes each remainder of 1,024 once), and that closed form is used.
+  // Under the frame clock it is the sum over the ticks, worked out once for each wait and rate and kept
+  // (the table is emptied when it passes 64 entries).
+  const MEAN_TICKS = 5120;
+  const means = new Map();
+  function meanFirst(wait, rate) {
+    if (!onFrames(rate)) return TICK_HALF * (wait - 1) + (BLOCK_HALF - 1) / 2;
+    const key = `${wait} ${rate}`;
+    if (means.has(key)) return means.get(key);
+    let sum = 0;
+    for (let p = 0; p < MEAN_TICKS; p++) sum += first(p, wait, rate);
+    if (means.size >= 64) means.clear();
+    means.set(key, sum / MEAN_TICKS);
+    return sum / MEAN_TICKS;
+  }
+
+  // zeroSeconds(bufferMs, fps, codecDelay) (W3-29): the zero in seconds, before it is put on whole
+  // blocks: the sender's part (SENDER_SECONDS), plus the queue's part, plus codecDelay. The queue's
+  // part is the opening's eight frames (OPENING_SECONDS) and the mean of first() at the channel's wait,
+  // but where the wait is longer than the ring's 0.5 s holds (latency() is then 0.5 s) the form kept
+  // there (chosen): min(0.16 s + mean first(wait), 0.5 s + mean first(1)). On the even clock that is
+  // latency() + 5.80 ms. bufferMs and fps are read as waitTicks reads them; codecDelay (seconds,
+  // default 0) is a finite number of 0 or more, else a RangeError.
+  function zeroSeconds(bufferMs, fps, codecDelay) {
     const delay = codecDelay === undefined ? 0 : codecDelay;
     if (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0) throw new RangeError('createTimeline\'s codecDelay is a finite number of seconds, 0 or more');
-    return VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (latency(bufferMs, fps) + ARRIVAL_SECONDS + delay) / VOICE_CHANNEL.mixBlock);
+    const wait = waitTicks(bufferMs, fps), rate = clockRate(fps);
+    const queue = Math.min(OPENING_SECONDS + meanFirst(wait, rate) / HALF,
+      VOICE_CHANNEL.ring / VOICE_CHANNEL.rate + meanFirst(1, rate) / HALF);
+    return SENDER_SECONDS + queue + delay;
+  }
+
+  // The samples the game's timeline takes out, D (createTimeline's zero; the reasoning is there): the
+  // zero in seconds, zeroSeconds(bufferMs, fps, codecDelay), on whole mixer blocks of 512 samples,
+  // 512 round(44100 x zeroSeconds / 512) (W3-29; until then latency() + 42.0 ms + codecDelay on whole
+  // blocks). codecDelay is seconds, default 0, a finite number of 0 or more, else a RangeError. With no
+  // codecDelay, 12800 samples at 66.67 fps, 14848 at 100, 24064 at 300, and 11776 at 60, 9728 at 30,
+  // 7680 at 10; with the Opus codec's 156 samples at 24 kHz, 13312, 15360 and 24064, and 11776, 10240
+  // and 7680 (computed). A caller with no end (the live monitor's chain) holds its sound back by it.
+  function zero(bufferMs, fps, codecDelay) {
+    return VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * zeroSeconds(bufferMs, fps, codecDelay) / VOICE_CHANNEL.mixBlock);
   }
 
   // frameHold(fps) (W3-23b, docs/work-orders/W3-23-low-frame-rates.md, the plan review's edit 11 and "W3-23b: after
@@ -166,6 +261,11 @@
   // (docs/work-orders/W3-02g-demo-packets.md, "The zero"; eight frames opened 17 of 20 spurts of
   // Set D's demo, measured, finding 25). 4096 samples at 66.67 fps, 6144 at 100, 14848 at 300.
   // The game has no such figure: it is the model's, for lining a render up with its source.
+  // W3-29 left it as it is (the order's ruling 4): it counts none of the queue's part of zero(),
+  // the time from an opening's tick to its first block less the wait, which with no relay is
+  // +5.8 ms on the even clock and -46.7 ms at 10 frames a second, -36.7 at 20, -18.3 at 30, -6.7 at
+  // 50 and -5.0 at 60 (computed, the order's "Not in this order"). A zero for a demo that counts it
+  // is not built yet; no page path runs a demo's packets on the queue.
   function arrivalZero(bufferMs, fps) {
     return VOICE_CHANNEL.mixBlock * Math.round(VOICE_CHANNEL.rate * (latency(bufferMs, fps) - OPENING_SECONDS) / VOICE_CHANNEL.mixBlock);
   }
@@ -339,14 +439,26 @@
   // At 1000/15 and above (66.67, the default 300) the clock is the one above, to the last sample. A
   // timeline with no end (the live monitor's chain) takes the same clock as a whole length at every
   // frame rate (W3-23b, 2026-11-14; until then it kept the clock above at every rate).
-  // D, the zero, is taken out so that a restarted spurt sits where the source has it, in the
-  // mean: the delay at which a restarted spurt plays (latency) plus the mean time its opening
-  // packet takes to arrive after its last sample (ARRIVAL_SECONDS) plus what the caller took
-  // off each source for its codec (codecDelay), on whole blocks so that the channel's blocks
-  // are the mixer's: D = 512 x round(44100 x (latency + arrival + codecDelay) / 512). With no
-  // codecDelay, 12800 samples at 66.67 fps, 14848 at 100, 24064 at 300; with the Opus codec's
-  // 156 samples at 24 kHz (6.5 ms), 13312, 15360 and 24064. The game has no such figure: it is
-  // the model's, for lining a render up with its source. A caller whose packets come with their
+  // D, the zero, is taken out so that a phrase that opens the channel with the sender's full
+  // pre-roll is first heard where its source has it, in the model's mean (W3-29,
+  // docs/work-orders/W3-29-timeline-zero.md, "The zero, defined"): the sender's part
+  // (SENDER_SECONDS: from the spurt's first sample to its opening message's tick, less the
+  // opening's eight frames), plus the queue's part at this clock (the opening's eight frames and
+  // the mean time from the message's tick to the first block that plays it, first(), which holds
+  // the wait), plus what the caller took off each source for its codec (codecDelay), on whole
+  // blocks so that the channel's blocks are the mixer's: D = 512 x round(44100 x zeroSeconds /
+  // 512), zeroSeconds(bufferMs, fps, codecDelay). Under the frame clock the queue's part follows
+  // the frames as this timeline runs them, from frame 0 on the render's first sample (W3-23's
+  // ruling 3), so at a whole frame rate it is that phase's; where the wait is longer than the ring
+  // holds, the form kept there (zeroSeconds). On the block grid a phrase that opens the channel
+  // starts up to half a block (5.8 ms) from its source in the mean, by D / 44100 - zeroSeconds,
+  // which info reports. D moves every output sample alike, so a phrase that joins a running channel
+  // keeps its distance from the opened phrase before it. At 1000/15 and above it then comes early by
+  // what the queue cut; under 1000/15, where D fell by whole blocks with W3-29, most joined phrases now
+  // start late of their source (fix round 1's measurement, docs/reports/W3-29-timeline-zero.md). With no codecDelay, 12800 samples at 66.67 fps, 14848 at 100, 24064
+  // at 300; with the Opus codec's 156 samples at 24 kHz (6.5 ms), 13312, 15360 and 24064. The
+  // game has no such figure: it is the model's, for lining a render up with its source. Until
+  // W3-29, D was latency plus one constant of 42.0 ms (W3-27b) plus codecDelay. A caller whose packets come with their
   // own arrival ticks (a demo's, W3-02g) gives D itself as zeroSamples (arrivalZero() has the
   // reasoning). Output before sample 0 is dropped, and so is output past length unless the
   // timeline plays out (playOut, below). The mixer runs one sample ahead of what it plays (W3-10's upsampler read, section
@@ -410,11 +522,15 @@
   //     be at or past length + over, where nothing of the source is heard after the open, and then
   //     it is past everything finish() returns. held() does not count what the play-out keeps.
   //
-  // info: { timeline: 'game', fps, bufferMs, codecDelay, waitTicks, latency, packets, opens, appended,
+  // info: { timeline: 'game', fps, bufferMs, codecDelay, waitTicks, latency, zero, zeroSeconds, packets, opens, appended,
   // gainResets, droppedSamples, drops: [{ time, ms }], spurts: [{ start, end, opened,
   // offsetStartMs, offsetEndMs, droppedMs }], source: Int32Array }, and over (playOut, only where the
   // timeline ran on past length).
   //   - latency: the channel's own figure, latency(bufferMs, fps), not D.
+  //   - zero: D, the samples taken out (W3-29); zeroSeconds: the zero before it was put on whole blocks,
+  //     zeroSeconds(bufferMs, fps, codecDelay), or null where the caller gave zeroSamples (a demo's
+  //     packets). zero / 44100 - zeroSeconds is what the block grid leaves at this setting: an opened
+  //     spurt's offsetStartMs is that much early in the model's mean, and a reader can take it out.
   //   - A spurt is a run of messages up to a silence record (the record is its last). start and
   //     end are source seconds (the first sound message's first sample; the last one's end).
   //     opened: its first message opened a channel (else it was appended). An offset is how
@@ -431,7 +547,7 @@
   //     sample 0.
   //   - appended: the spurts that did not open a channel; gainResets: the channel's calls to
   //     the gain's reset (one per open).
-  // counts(), at any time: { timeline, fps, bufferMs, codecDelay, waitTicks, latency, packets,
+  // counts(), at any time: { timeline, fps, bufferMs, codecDelay, waitTicks, latency, zero, zeroSeconds, packets,
   // opens, appended, gainResets, droppedSamples }, as info will have them for the calls so far
   // (under the frame clock, opens, appended, gainResets and droppedSamples count the messages
   // added so far, not those still waiting for their frame).
@@ -485,6 +601,7 @@
     const ch = createChannel(endless ? { fps, bufferMs, fadeTime: o.fadeTime, gain, listDrops: false } : { fps, bufferMs, fadeTime: o.fadeTime, gain });
     const lat = latency(bufferMs, fps);
     const D = given ? o.zeroSamples : zero(bufferMs, fps, codecDelay);
+    const zs = given ? null : zeroSeconds(bufferMs, fps, codecDelay);
     const TICK = Math.round(2 * VOICE_CHANNEL.rate * VOICE_CHANNEL.tick);      // 1323 half samples
     const N = VOICE_CHANNEL.mixBlock, BLOCK = 2 * N;                          // 512 samples; 1024
     const PER_MS = VOICE_CHANNEL.rate / 1000;
@@ -708,7 +825,7 @@
       return take();
     }
 
-    const counts = () => ({ timeline: 'game', fps, bufferMs, codecDelay, waitTicks: ch.waitTicks, latency: lat,
+    const counts = () => ({ timeline: 'game', fps, bufferMs, codecDelay, waitTicks: ch.waitTicks, latency: lat, zero: D, zeroSeconds: zs,
       packets, opens: ch.opens, appended, gainResets, droppedSamples: ch.dropped });
     const held = () => pSource.length + pSpurt.length + pIn.length + pOut.length + spurts.length + drops.length + unheard.length
       + (slots ? slots.length : 0) + ch.drops.length + (waiting.length - waitHead);
@@ -746,7 +863,7 @@
         unheard.length = 0;
       }
       const info = {
-        timeline: 'game', fps, bufferMs, codecDelay, waitTicks: ch.waitTicks, latency: lat,
+        timeline: 'game', fps, bufferMs, codecDelay, waitTicks: ch.waitTicks, latency: lat, zero: D, zeroSeconds: zs,
         packets: pSource.length, opens: ch.opens, appended: spurts.filter((s) => !s.opened).length, gainResets,
         droppedSamples: ch.dropped, drops,
         spurts: spurts.map((s) => ({
@@ -778,7 +895,7 @@
     return Object.freeze({ push, advance, finish, counts, held });
   }
 
-  const TF2VoiceChannel = { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, frameHold, createChannel, createTimeline };
+  const TF2VoiceChannel = { VOICE_CHANNEL, SENDER_SECONDS, waitTicks, latency, zero, zeroSeconds, relayTick, arrivalZero, frameHold, createChannel, createTimeline };
   if (typeof module !== 'undefined' && module.exports) module.exports = TF2VoiceChannel;
   else root.TF2VoiceChannel = TF2VoiceChannel;
 })(typeof self !== 'undefined' ? self : this);

@@ -30,6 +30,8 @@
 //   kept from the block before (a case for a test to look for).
 // Synthetic only: no recording, log or file of the game is read.
 
+import { suiteZero, suiteZeroSeconds } from './reference-zero.mjs';
+
 const RATE = 44100;
 const TICK = 1323, BLOCK = 1024, N = 512;               // half samples; samples a block
 const SLOT = 882, MID = 441, INTO = 8820, PER_MS = 44.1;
@@ -54,13 +56,15 @@ export function referenceFrames(messages, { fps = 300, bufferMs = 100, fadeTime,
     process: (pcm) => Float64Array.from(gain ? gain.process(pcm) : pcm, (v) => v * 32768),
     reset() { resets++; if (gain) gain.reset(); }
   } });
-  // The channel's latency and the zero, D, as voice-channel.js states them (latency(), zero()): the wait less its
-  // first tick at 15 ms, plus the 0.16 s opening burst, no more than the 0.5 s ring; plus the mean arrival, 42.0 ms
-  // since W3-27b (50.5 before it; 42.5 in W3-27b's second fix round only), and codecDelay, on whole 512-sample blocks. zeroSamples is D itself, with
-  // codecDelay 0.
+  // The channel's latency as voice-channel.js states it (latency()): the wait less its first tick at 15 ms, plus the
+  // 0.16 s opening burst, no more than the 0.5 s ring. The zero, D, by the suite's own writing of the queue's rule
+  // (W3-29, ./reference-zero.mjs: the sender's part, plus the queue's part at this clock, plus codecDelay, on whole
+  // 512-sample blocks; until W3-29 latency + 42.0 ms + codecDelay). zeroSamples is D itself, with codecDelay 0 and
+  // no zeroSeconds (null).
   const latency = Math.min(22050 / RATE, (ch.waitTicks - 1) * 0.015 + 0.16);
   const delay = zeroSamples !== undefined ? 0 : (codecDelay ?? 0);
-  const D = zeroSamples !== undefined ? zeroSamples : N * Math.round(RATE * (latency + 0.042 + delay) / N);
+  const D = zeroSamples !== undefined ? zeroSamples : suiteZero(shownBuffer, shownFps, delay);
+  const zeroSeconds = zeroSamples !== undefined ? null : suiteZeroSeconds(shownBuffer, shownFps, delay);
 
   // Spurts, in the order given: a run of messages up to a silence record (the record its last).
   const spurtOf = [], spurts = [], firstOf = [];
@@ -201,7 +205,7 @@ export function referenceFrames(messages, { fps = 300, bufferMs = 100, fadeTime,
     for (const { i, pos, at } of pastSlots) if (at < length + over) source[i] = pos;
   }
   const info = {
-    timeline: 'game', fps: shownFps, bufferMs: shownBuffer, codecDelay: delay, waitTicks: ch.waitTicks, latency,
+    timeline: 'game', fps: shownFps, bufferMs: shownBuffer, codecDelay: delay, waitTicks: ch.waitTicks, latency, zero: D, zeroSeconds,
     packets: messages.length, opens: ch.opens, appended: spurts.filter((s) => !s.opened).length, gainResets: resets,
     droppedSamples: ch.dropped, drops,
     spurts: spurts.map((s) => ({ start: s.start, end: s.end, opened: s.opened, offsetStartMs: s.startMs !== null ? s.startMs : s.first,

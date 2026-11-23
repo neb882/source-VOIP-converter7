@@ -12,10 +12,15 @@
 //   node tests/voice-channel.verify.mjs --server-logs       the log tool's checks on a real server's
 //                                                           log alone (W3-25), each run even after
 //                                                           one fails
-//   node tests/voice-channel.verify.mjs --arrival           the arrival constant measured again over
-//                                                           seeds 1 to 2,400 (W3-27b), about a
-//                                                           quarter of an hour, each check run even after one
-//                                                           fails
+//   node tests/voice-channel.verify.mjs --arrival           the zero's sender's part measured again over
+//                                                           seeds 1 to 12,000 of layout R (W3-29, check 4;
+//                                                           until W3-29 the arrival constant over 2,400
+//                                                           seeds), about half a minute
+//   node tests/voice-channel.verify.mjs --zero              the zero's checks by the queue's rule alone
+//                                                           (W3-29), each run even after one fails
+//   node tests/voice-channel.verify.mjs --zero-table        prints the stop rule's table of W3-29: every
+//                                                           setting where the zero by the rule differs
+//                                                           from the zero of latency() + 42.0 ms
 //
 // The public checks write a console log in the game's format from a seeded run of the
 // channel itself under a mixer of their own, turn it into a fixture with
@@ -40,12 +45,13 @@ import { createReferenceChannel, referenceWaitTicks, referenceLatency } from './
 import { engineRun, syntheticResults } from './voicequeue/synthetic-results.mjs';
 import { FAULTS, validFixture, replayFixture } from './voicequeue/replay.mjs';
 import { frameClockRuns, frameRate, frameTime, referenceFrames } from './voicequeue/reference-frames.mjs';
+import { SENDER_MEASURED, SUITE_SENDER_SECONDS, suiteFirsts, suiteMeanFirst, suiteQueueSeconds, suiteWait, suiteZero, suiteZeroSeconds } from './voicequeue/reference-zero.mjs';
 import { mulberry32, UNRELATED, synthesize, synthesizeServer } from './voicequeue/synthetic-log.mjs';
 
 const require = createRequire(import.meta.url);
 const V = require('../voice-channel.js');
 const { createSender } = require('../steam-sender.js');
-const { VOICE_CHANNEL, waitTicks, latency, zero, arrivalZero, frameHold, createChannel, createTimeline } = V;
+const { VOICE_CHANNEL, SENDER_SECONDS, waitTicks, latency, zero, zeroSeconds, relayTick, arrivalZero, frameHold, createChannel, createTimeline } = V;
 const TOOL = fileURLToPath(new URL('./voicequeue/log-to-fixture.mjs', import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
 // Set for the copies of this script that the public checks start: they only replay.
@@ -258,10 +264,11 @@ function publicChecks() {
     const page = vm.createContext({}), worker = vm.createContext({ self: {} });
     vm.runInContext(src, page); vm.runInContext(src, worker);
     // W3-02a exported four names; W3-02b adds createTimeline; W3-02c-3a adds zero; W3-02g adds arrivalZero; W3-23b's
-    // fix round adds frameHold.
+    // fix round adds frameHold; W3-29 adds SENDER_SECONDS, zeroSeconds and relayTick.
+    const NAMES = ['VOICE_CHANNEL', 'SENDER_SECONDS', 'waitTicks', 'latency', 'zero', 'zeroSeconds', 'relayTick', 'arrivalZero', 'frameHold', 'createChannel', 'createTimeline'];
     check('it loads as a page script and in a worker as TF2VoiceChannel, with no imports',
-      ['VOICE_CHANNEL', 'waitTicks', 'latency', 'zero', 'arrivalZero', 'frameHold', 'createChannel', 'createTimeline'].every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
-      && Object.keys(V).join() === 'VOICE_CHANNEL,waitTicks,latency,zero,arrivalZero,frameHold,createChannel,createTimeline' && !/\bimport\b|\brequire\(/.test(src));
+      NAMES.every((k) => k in page.TF2VoiceChannel && k in worker.self.TF2VoiceChannel)
+      && Object.keys(V).join() === NAMES.join() && !/\bimport\b|\brequire\(/.test(src));
     check('its constants are frozen: 22050, 0.015 s, 100 ms, 300 fps, 0.1 s, 512 and 513; the fraction 0.999 and the unit 32768', Object.isFrozen(VOICE_CHANNEL) && Object.isFrozen(VOICE_CHANNEL.fpsRange)
       && VOICE_CHANNEL.fraction === 0.999 && VOICE_CHANNEL.unit === 32768 && VOICE_CHANNEL.ring === 22050 && VOICE_CHANNEL.tick === 0.015 && VOICE_CHANNEL.bufferMs === 100 && VOICE_CHANNEL.fps === 300
       && VOICE_CHANNEL.fadeTime === 0.1 && VOICE_CHANNEL.mixBlock === 512 && VOICE_CHANNEL.firstBlock === 513 && VOICE_CHANNEL.rate === 44100);
@@ -866,6 +873,7 @@ function publicChecks() {
   onOpenChecks();
   playOutChecks();
   arrivalZeroChecks();
+  zeroRuleChecks();
   console.log(`\n${passed} voice channel checks passed`);
 }
 
@@ -1168,26 +1176,17 @@ function serverLogChecks() {
 // ---------------------------------------------------------------------------------------
 // The game's timeline (createTimeline, W3-02b): the channel on the clock of "The model".
 
-// The zero (W3-02c-1, item 3): latency plus the mean arrival time of a spurt's opening packet,
-// on whole 512-sample blocks (item 2). Read again here from the order, not from the module.
-// W3-27b (docs/work-orders/W3-27-sender-clock.md, "The arrival constant", "After the plan
-// review" and check 6): on the sender's clock as read the arrival is the mean of offsetStartMs
-// + (D - 44100 x latency) / 44.1 over every opened spurt of this suite's layouts P and Q, seeds
-// 1 to ARRIVAL_SEEDS, at 300 and 66.67 fps, both layouts pooled, with no codecDelay. ARRIVAL_MEASURED is
-// that measurement as recorded from the build, with its standard error taken by seed; the constant
-// is its mean to the half millisecond. `--arrival` measures it again (about a quarter of an hour)
-// and holds it to these figures and to the constant. The W3-27 order's third ruling (2026-11-22)
-// took it over seeds 1 to 2,400: with the warm-up of 4.5 s seeds 1 to 800 gave 42.273 ms over
-// 7,307 spurts (0.20 ms by seed), which rounds to 42.5 from 0.02 ms above the edge, and the second
-// fix round took 42.5 from it; over 2,400 seeds the mean is 42.160 ms, so the constant is 42.0 again.
-// With the warm-up of 1.5 s seeds 1 to 800 gave 41.956 ms over 7,314 spurts, and with none 42.144 ms
-// over 7,319. Until W3-27b the constant was 50.5 ms (seeds 1 to 50 on W3-16's clock,
-// docs/reports/W3-02c1-channel-as-read.md).
-const ARRIVAL_SEEDS = 2400;
-const ARRIVAL_MEASURED = Object.freeze({ mean: 42.16042864224155, spurts: 21935, at300: 42.9685358458096, n300: 9935, at67: 41.491383219954685, n67: 12000, seBySeed: 0.1171219141837828 });
-const ARRIVAL_MS = 42.0;
+// The zero (W3-02c-1, item 3, and W3-29): since W3-29 the sender's part plus the queue's part by its rule at the
+// listener's frame rate plus the codec's delay, on whole 512-sample blocks (item 2), by the suite's own writing of
+// the rule (tests/voicequeue/reference-zero.mjs), not by the module's. Until W3-29 it was latency plus one constant,
+// the mean arrival time of a spurt's opening packet: 42.0 ms from W3-27b (the mean of offsetStartMs + (D - 44100 x
+// latency) / 44.1 over every opened spurt of layouts P and Q, seeds 1 to 2,400, at 300 and 66.67 fps: 42.160 ms over
+// 21,935 spurts, a standard error of 0.117 ms by seed, measured on the model), 50.5 ms before it (seeds 1 to 50 on
+// W3-16's clock, docs/reports/W3-02c1-channel-as-read.md). That constant was the sender's part and the queue's
+// part at even ticks added, and under 66.67 fps the queue's part is another (docs/work-orders/W3-29-timeline-zero.md,
+// "Why").
 // codecDelay: seconds the caller took off each source for its codec (createTimeline's option).
-const zeroOf = (bufferMs, fps, codecDelay = 0) => 512 * Math.round(44100 * (latency(bufferMs, fps) + ARRIVAL_MS / 1000 + codecDelay) / 512);
+const zeroOf = (bufferMs, fps, codecDelay = 0) => suiteZero(bufferMs, fps, codecDelay);
 // The Opus codec's look-ahead, 156 samples at 24 kHz: what W3-02c-2 takes off each source.
 const OPUS_DELAY = 156 / 24000;
 
@@ -1462,11 +1461,12 @@ function timelineChecks() {
     // W3-27b: with the arrival at 42.0 ms (50.5 before), D with no codecDelay is 12800, 14848
     // and 24064 (13312, 15360 and 24064 before), and with the codec's look-ahead 13312, 15360
     // and 24064 (13312, 15360 and 24576 before). At 42.5 ms (W3-27b's second fix round, which the
-    // third ruling took back) every one of them was the same.
+    // third ruling took back) every one of them was the same. W3-29 (the zero by the queue's rule)
+    // moves none of the six: the pins stand (the order's "Recorded hashes and pins").
     const plain = gridRun(undefined, { 66.67: 12800, 100: 14848, 300: 24064 });
     check('every block\'s first output sample is a multiple of 512 from the output\'s start at 67, 100 and 300 fps: D is 12800, 14848 and 24064 samples', plain.ok, plain.seen);
-    // At 66.67 fps latency + arrival + codecDelay is 298.5 ms, 2.4 ms over the edge where D
-    // becomes 12800 (296.05 ms).
+    // At 66.67 fps the zero before the grid is 297.6 ms with the codec's look-ahead (W3-29; it was
+    // 298.5 ms with the arrival constant), 1.6 ms over the edge where D becomes 12800 (296.05 ms).
     const opus = gridRun(OPUS_DELAY, { 66.67: 13312, 100: 15360, 300: 24064 });
     let refused = 0;
     for (const bad of [-0.001, NaN, Infinity, '0.0065', null]) { try { createTimeline({ length: 10, codecDelay: bad }); } catch (e) { if (e instanceof RangeError) refused++; } }
@@ -1594,7 +1594,7 @@ function timelineChecks() {
   // that a spurt opening 100 ms early fails; the other two are W3-02b's, as re-derived for
   // W3-16's clock, moved by D's shift and rounded outward to the millisecond.
   console.log('The timeline: spurts of 2 s with 300, 500 and 1200 ms of silence (seeds 1 to 50)');
-  const opened = { 300: [], 66.67: [] };   // offsetStartMs of every opened spurt, layouts P and Q
+  const opened = { 300: [], 66.67: [] };   // offsetStartMs of every opened spurt, layouts P and Q (and at 100 fps, W3-29, below)
   const collect = (runs, fps) => { for (const r of runs) for (const s of r.info.spurts) if (s.opened) opened[fps].push(s.offsetStartMs); };
   {
     const runs = sweep([0.3, 0.5, 1.2], 300);
@@ -1639,35 +1639,42 @@ function timelineChecks() {
     check('67 fps: the same spurt opens a channel (the queue holds only 0.25 s), starting -60 to +50 ms from the source',
       slow.every((r) => r.sp[1].opened && r.sp[1].offsetStartMs >= -60 && r.sp[1].offsetStartMs <= 50), range(slow.map((r) => r.sp[1].offsetStartMs)));
   }
-  console.log('The timeline: the zero (W3-02c-1)');
+  console.log('The timeline: the zero (W3-02c-1; W3-29, check 6)');
   {
-    // The zero takes out the mean arrival time: over both layouts' opened spurts each rate's
-    // mean offsetStartMs is within the block grid's half block (5.8 ms) of 0, and with the
-    // grid's own move taken out ((D - 44100 x (latency + arrival)) / 44.1 ms) the two rates'
-    // spurts average to the arrival constant's precision.
+    // The zero takes out the mean delay of an opening: over both layouts' opened spurts each rate's mean
+    // offsetStartMs is within the block grid's half block (5.8 ms) of 0, and with the grid's own move taken out
+    // ((D - 44100 x zeroSeconds) / 44.1 ms, by the suite's rule) the spurts average to 0 within 3 standard errors
+    // (W3-29's check 6: at 66.67 and 100 fps). At 300 fps the ring caps the wait: the form kept there gives the
+    // zero, and an opened spurt's offsetStartMs, read at least 0.2 s into it, is late of it by what the queue drops
+    // from its start; the check holds what is measured there, the mean with the grid out within 4 ms of 0 (the
+    // plan review's change 7; the reviewer had +1.9 ms over these seeds).
     //
     // W3-21 (the capture's phase): the bound with the grid taken out was 0.1 ms, the precision
     // of a constant fitted on these very seeds. It is now 3 standard errors of this run's mean,
-    // the standard error taken by spurt (about 0.65 ms, so a bound of about 1.95 ms). The spurts
-    // are not independent within a seed: by seed the standard error is larger (1.444 ms on the
-    // same run, measured by the order's second reader; 1.404 ms as printed below, from each
-    // seed's mean over its spurts). Measured
+    // the standard error taken by spurt. The spurts are not independent within a seed: by seed the
+    // standard error is larger (printed below, from each seed's mean over its spurts). Measured
     // 2026-11-13 over seeds 1 to 400 by block of seeds (1-200, 51-200, 201-400), the mean with
     // the grid out lay between +0.4 and +3.6 ms, at lead 0 and with the lead alike (seeds 1 to
     // 50: +0.02 at lead 0, -0.30 with the lead); the lead moved it by -0.3 to -0.75 ms, paired
     // by seed (docs/reports/W3-21-capture-phase.md). That was W3-16's clock with its constant
-    // of 50.5 ms; on the clock as read (W3-27b) the constant is measured over seeds 1 to 2,400
-    // (ARRIVAL_MEASURED, above; --arrival), and these 50 seeds are a part of that measurement.
+    // of 50.5 ms. Since W3-29 the zero's sender's part is measured over seeds 1 to 12,000 of
+    // layout R (check 4, SENDER_MEASURED; --arrival).
     // The count opened at 300 fps was 205 before W3-21, 206 with the seeded runs' phase, 204 on
     // the clock of W3-27b, 210 with its warm-up of 1.5 s (fix round 1), and is 203 with 4.5 s.
     const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length;
     const se = (v) => { const m = mean(v); return Math.sqrt(v.reduce((a, x) => a + (x - m) ** 2, 0) / (v.length - 1) / v.length); };
-    const grid = (fps) => (zeroOf(100, fps) - 44100 * (latency(100, fps) + ARRIVAL_MS / 1000)) / 44.1;
-    const m300 = mean(opened[300]), m67 = mean(opened[66.67]);
-    const both = [...opened[300].map((x) => x + grid(300)), ...opened[66.67].map((x) => x + grid(66.67))];
-    const pooled = mean(both), bound = Math.max(0.1, 3 * se(both));
+    // D added back is the one the timeline ran with (zero(), which check 2 holds to the rule), and the zero before the
+    // grid is the suite's own, so the grid's part read from zeroSeconds is the suite's and not the module's.
+    const grid = (fps, delay = 0) => (zero(100, fps, delay) - 44100 * suiteZeroSeconds(100, fps, delay)) / 44.1;
+    opened[100] = [];
+    for (const lay of [layout([0.3, 0.5, 1.2]), layout([0.9, 0.6, 1.2])]) {
+      for (let seed = 1; seed <= 50; seed++) for (const x of engineRun({ ...lay, fps: 100, seed }).info.spurts) if (x.opened) opened[100].push(x.offsetStartMs);
+    }
+    const m300 = mean(opened[300]), m67 = mean(opened[66.67]), m100 = mean(opened[100]);
+    const both = [...opened[66.67].map((x) => x + grid(66.67)), ...opened[100].map((x) => x + grid(100))];
+    const pooled = mean(both), bound = 3 * se(both), at300 = mean(opened[300].map((x) => x + grid(300)));
     // The same spurts by seed, grid out, made again here with the seeded lead and with lead 0
-    // (engineRun's lead): each seed's mean over its opened spurts of both layouts and rates.
+    // (engineRun's lead): each seed's mean over its opened spurts of both layouts at 300 and 66.67 fps.
     const bySeed = (lead) => Array.from({ length: 50 }, (_, k) => {
       const v = [];
       for (const fps of [300, 66.67]) for (const lay of [layout([0.3, 0.5, 1.2]), layout([0.9, 0.6, 1.2])]) {
@@ -1676,9 +1683,9 @@ function timelineChecks() {
       return mean(v);
     });
     const seedLead = bySeed(undefined), seedZero = bySeed(0);
-    check(`an opened spurt's offsetStartMs averages within 5.8 ms of 0 at 300 and at 67 fps (layouts P and Q, seeds 1 to 50), and with the block grid taken out (measured ${pooled.toFixed(3)} ms) to within 3 standard errors of these 50 seeds, the standard error taken by spurt (${bound.toFixed(2)} ms; by seed it is larger, as the spurts of a seed are not independent); over seeds 1 to ${ARRIVAL_SEEDS} the arrival is the constant to within 0.3 ms (below, and --arrival)`,
-      opened[300].length === 203 && opened[66.67].length === 250 && Math.abs(m300) <= 5.8 && Math.abs(m67) <= 5.8 && Math.abs(pooled) <= bound,
-      `300 fps ${m300.toFixed(2)} ms over ${opened[300].length}, 67 fps ${m67.toFixed(2)} ms over ${opened[66.67].length}; the grid moves them ${grid(300).toFixed(2)} and ${grid(66.67).toFixed(2)}; both, grid out: ${pooled.toFixed(3)} ms, 3 standard errors ${(3 * se(both)).toFixed(3)} ms by spurt; by seed the standard error is ${se(seedLead).toFixed(3)} ms`);
+    check(`check 6: an opened spurt's offsetStartMs averages within 5.8 ms of 0 at 66.67 and at 100 fps (layouts P and Q, seeds 1 to 50), and with the block grid taken out (measured ${pooled.toFixed(3)} ms) to within 3 standard errors of 0, the standard error taken by spurt (${bound.toFixed(2)} ms; by seed it is larger, as the spurts of a seed are not independent); at 300 fps, where the ring caps the wait, the mean with the grid out within 4 ms of 0 (measured ${at300.toFixed(3)} ms)`,
+      opened[300].length === 203 && opened[66.67].length === 250 && Math.abs(m67) <= 5.8 && Math.abs(m100) <= 5.8 && Math.abs(pooled) <= bound && Math.abs(at300) <= 4,
+      `66.67 fps ${m67.toFixed(2)} ms over ${opened[66.67].length}, 100 fps ${m100.toFixed(2)} over ${opened[100].length}, 300 fps ${m300.toFixed(2)} over ${opened[300].length}; the grid moves them ${grid(66.67).toFixed(2)}, ${grid(100).toFixed(2)} and ${grid(300).toFixed(2)}; 66.67 and 100, grid out: ${pooled.toFixed(3)} ms, 3 standard errors ${bound.toFixed(3)} ms by spurt; 300, grid out: ${at300.toFixed(3)} ms; by seed (300 and 66.67) the standard error is ${se(seedLead).toFixed(3)} ms`);
     // W3-21, paired: on the same seeds, the zero with the capture's lead less the zero at lead 0,
     // seed by seed, lies within 3 standard errors (by seed) of 0. The order's second reader
     // measured -0.325 ms with a standard error of 0.580. A lead that moved the messages' ticks
@@ -1699,20 +1706,14 @@ function timelineChecks() {
       }
       return tl.finish().info.spurts.filter((x) => x.opened).map((x) => x.offsetStartMs);
     };
-    const inFrame = { 300: [], 66.67: [] };
-    for (const fps of [300, 66.67]) for (const lay of [layout([0.3, 0.5, 1.2]), layout([0.9, 0.6, 1.2])]) for (let seed = 1; seed <= 50; seed++) inFrame[fps].push(...shifted(lay, fps, seed));
-    const gridC = (fps) => (zeroOf(100, fps, OPUS_DELAY) - 44100 * (latency(100, fps) + ARRIVAL_MS / 1000 + OPUS_DELAY)) / 44.1;
-    const c300 = mean(inFrame[300]), c67 = mean(inFrame[66.67]);
-    const bothC = [...inFrame[300].map((x) => x + gridC(300)), ...inFrame[66.67].map((x) => x + gridC(66.67))];
-    const pooledC = mean(bothC), boundC = Math.max(0.1, 3 * se(bothC));
-    check(`with sources earlier by the codec's 156 samples and codecDelay 156 / 24000, the same spurts average within 5.8 ms of 0 at 300 and 67 fps, and with the grid taken out (measured ${pooledC.toFixed(3)} ms) to within 3 standard errors of these 50 seeds (${boundC.toFixed(2)} ms), as above`,
-      inFrame[300].length === 203 && inFrame[66.67].length === 250 && Math.abs(c300) <= 5.8 && Math.abs(c67) <= 5.8 && Math.abs(pooledC) <= boundC,
-      `300 fps ${c300.toFixed(2)} ms, 67 fps ${c67.toFixed(2)} ms; the grid moves them ${gridC(300).toFixed(2)} and ${gridC(66.67).toFixed(2)}; both, grid out: ${pooledC.toFixed(3)} ms, 3 standard errors ${(3 * se(bothC)).toFixed(3)} ms`);
-    // W3-27b, check 6: the constant is the recorded measurement over seeds 1 to 2,400 (the third
-    // ruling), taken to the half millisecond, and within 0.3 ms of it (--arrival measures it again).
-    check(`the arrival constant, ${ARRIVAL_MS} ms, is the mean recorded over seeds 1 to ${ARRIVAL_SEEDS} of both layouts at 300 and 66.67 fps (${ARRIVAL_MEASURED.mean.toFixed(3)} ms over ${ARRIVAL_MEASURED.spurts} opened spurts) to the half millisecond, and within 0.3 ms of it; these 50 seeds' mean with only latency() out is within 3 standard errors of it`,
-      ARRIVAL_MS === Math.round(2 * ARRIVAL_MEASURED.mean) / 2 && Math.abs(ARRIVAL_MEASURED.mean - ARRIVAL_MS) <= 0.3 && Math.abs(pooled + ARRIVAL_MS - ARRIVAL_MEASURED.mean) <= bound,
-      `these 50 seeds: ${(pooled + ARRIVAL_MS).toFixed(3)} ms`);
+    const inFrame = { 300: [], 66.67: [], 100: [] };
+    for (const fps of [300, 66.67, 100]) for (const lay of [layout([0.3, 0.5, 1.2]), layout([0.9, 0.6, 1.2])]) for (let seed = 1; seed <= 50; seed++) inFrame[fps].push(...shifted(lay, fps, seed));
+    const c67 = mean(inFrame[66.67]), c100 = mean(inFrame[100]);
+    const bothC = [...inFrame[66.67].map((x) => x + grid(66.67, OPUS_DELAY)), ...inFrame[100].map((x) => x + grid(100, OPUS_DELAY))];
+    const pooledC = mean(bothC), boundC = 3 * se(bothC), at300C = mean(inFrame[300].map((x) => x + grid(300, OPUS_DELAY)));
+    check(`with sources earlier by the codec's 156 samples and codecDelay 156 / 24000, the same spurts average within 5.8 ms of 0 at 66.67 and 100 fps, and with the grid taken out (measured ${pooledC.toFixed(3)} ms) to within 3 standard errors of 0 (${boundC.toFixed(2)} ms), and at 300 fps within 4 ms of 0 with the grid out (${at300C.toFixed(3)} ms), as above`,
+      inFrame[300].length === 203 && inFrame[66.67].length === 250 && inFrame[100].length === opened[100].length && Math.abs(c67) <= 5.8 && Math.abs(c100) <= 5.8 && Math.abs(pooledC) <= boundC && Math.abs(at300C) <= 4,
+      `66.67 fps ${c67.toFixed(2)} ms, 100 fps ${c100.toFixed(2)} ms; the grid moves them ${grid(66.67, OPUS_DELAY).toFixed(2)} and ${grid(100, OPUS_DELAY).toFixed(2)}; both, grid out: ${pooledC.toFixed(3)} ms, 3 standard errors ${boundC.toFixed(3)} ms; 300, grid out: ${at300C.toFixed(3)} ms`);
   }
   console.log('The timeline: the 400 ppm (one 60 s spurt, seeds 1 to 10)');
   {
@@ -2007,7 +2008,9 @@ function frameClockChecks() {
     new BigInt64Array(below.buffer)[0] -= 1n;
     const messages = madeUpMessages(5, 900), length = 44100 * 14 + 5 * 37;
     const runAt = (fps) => framesRun(messages, { fps, length });
-    const withoutFps = (info) => { const { fps, ...rest } = info; return infoText(rest); };
+    // W3-29 adds zero and zeroSeconds to the info: they are taken out before the info is hashed, so the
+    // recorded hash stands (the order's "Recorded hashes and pins"), and checked by themselves below.
+    const withoutFps = (info) => { const { fps, zero: z, zeroSeconds: zs, ...rest } = info; return infoText(rest); };
     const a = runAt(66.67), b = runAt(1000 / 15), c = runAt(66.6), d = runAt(below[0]);
     const hashes = [sha256(new Uint8Array(a.samples.buffer)), sha256(withoutFps(a.info))];
     const even = evenTimeline(messages, { fps: 66.67, bufferMs: 100, length });
@@ -2058,7 +2061,7 @@ function callsRun(messages, opts, advanceEvery = 0, tail = 0) {
   if (tail) calls.push(tl.advance(lastTick + tail));
   return { tl, calls };
 }
-const INFO_FIELDS = ['timeline', 'fps', 'bufferMs', 'codecDelay', 'waitTicks', 'latency', 'packets', 'opens', 'appended', 'gainResets', 'droppedSamples'];
+const INFO_FIELDS = ['timeline', 'fps', 'bufferMs', 'codecDelay', 'waitTicks', 'latency', 'zero', 'zeroSeconds', 'packets', 'opens', 'appended', 'gainResets', 'droppedSamples'];
 
 function endlessChecks() {
   console.log('The timeline with no end (W3-02c-3a)');
@@ -2161,14 +2164,9 @@ function endlessChecks() {
     check('the exported zero: 13,312, 15,360 and 24,064 samples at 66.67, 100 and 300 fps with the codec\'s 156 samples, 24,064 at 300 with none; the suite\'s own reading; a codecDelay that is not a finite number of 0 or more refused',
       z.join() === '13312,15360,24064' && zero(100, 300) === 24064 && zero(100, 300, 0) === 24064 && [66.67, 100, 300].every((fps) => zero(100, fps, OPUS_DELAY) === zeroOf(100, fps, OPUS_DELAY))
       && zero(undefined, undefined) === zeroOf(100, 300) && refused === 5, `${z.join(', ')}; ${zero(100, 300)}`);
-    // The side of the constant (the W3-27 order's third ruling of 2026-11-22, item 2): where the
-    // block's edge lies between 42.0 and 42.5 ms the zero is a block of 512 samples apart. With
-    // the codec's look-ahead that is at 120.01 to 130 fps at voice_buffer_ms 100, 240.01 to 260
-    // at 50, 60.01 to 65 at 200 and 48.01 to 52 at 250; with no codec delay at 140.01 to 150 at
-    // 100, 280.01 to 300 at 50, 70.01 to 75 at 200 and 56.01 to 60 at 250 (computed in steps of
-    // 0.01 fps). At 125 fps the constant of 42.0 ms gives 16896, one of 42.5 would give 17408.
-    check('the side of the constant: zero(100, 125) with the codec\'s look-ahead is 16,896 samples, as at 42.0 ms (at 42.5 ms it would be 17,408)',
-      zero(100, 125, OPUS_DELAY) === 16896, `${zero(100, 125, OPUS_DELAY)}`);
+    // The side of the arrival constant (W3-27b's third ruling, item 2: zero(100, 125) with the codec's look-ahead
+    // 16,896 at 42.0 ms, 17,408 at 42.5) went with the constant (W3-29); the zero by the rule is held over the stop
+    // rule's whole grid by check 2 (the zero's checks, below).
   }
 }
 
@@ -2312,14 +2310,17 @@ function arrivalZeroChecks() {
           all++;
           const plain = timelineRun(messages, { fps, bufferMs, fadeTime, length }, { advanceEvery });
           const given = timelineRun(messages, { fps, bufferMs, fadeTime, length, zeroSamples: zeroOf(bufferMs, fps) }, { advanceEvery });
+          // W3-29: the one member that differs is zeroSeconds, null where zeroSamples is given.
+          const { zeroSeconds: a, ...pi } = plain.info, { zeroSeconds: b, ...gi } = given.info;
           if (plain.samples.length === given.samples.length && plain.samples.every((v, i) => Object.is(v, given.samples[i]))
-              && JSON.stringify(plain.info, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)) === JSON.stringify(given.info, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)))
+              && a === zeroSeconds(bufferMs, fps) && b === null
+              && JSON.stringify(pi, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)) === JSON.stringify(gi, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)))
             same++;
           else if (!first) first = `${fps} fps, seed ${seed}`;
         }
       }
     }
-    check('createTimeline with zeroSamples equal to the D it computes for the same settings: the same samples and info, member for member (48 streams at six settings, with and without advance())',
+    check('createTimeline with zeroSamples equal to the D it computes for the same settings: the same samples and info, member for member, but zeroSeconds, which is null with zeroSamples (48 streams at six settings, with and without advance())',
       same === all, first || `${all} runs`);
   }
   {
@@ -2619,63 +2620,312 @@ function playOutChecks() {
 }
 
 // ---------------------------------------------------------------------------------------
-// The arrival constant measured again (W3-27b, docs/work-orders/W3-27-sender-clock.md, check 6,
-// and "After the plan review"): offsetStartMs + (D - 44100 x latency) / 44.1, D the zero the
-// timeline ran with, over every opened spurt of seeds 1 to ARRIVAL_SEEDS (2,400 since the third
-// ruling) of layouts P and Q at 300 and 66.67 fps, pooled, with no codecDelay, and its standard
-// error taken by seed. It does not depend on the constant (D is added back). About a quarter of
-// an hour, so it runs only with --arrival.
-function arrivalChecks() {
-  console.log(`The arrival constant over seeds 1 to ${ARRIVAL_SEEDS} (W3-27b, check 6, and the W3-27 order's third ruling)`);
-  const layout = (silences) => {
+// The game timeline's zero by the queue's rule (W3-29, docs/work-orders/W3-29-timeline-zero.md, "The
+// checks", 1, 2, 4, 5, 9 and 10, with "After the plan review"; check 6 is in the timeline's section above, 3,
+// 7 and 8 and a demo's part of 9 in tests/render-channel.verify.mjs): the zero is the sender's part plus the
+// queue's part at the listener's frame rate plus the codec's delay. The suite's rule
+// (tests/voicequeue/reference-zero.mjs) steps the clock as createTimeline does; nothing here is copied from
+// the module.
+
+// Layout R (the order's "The sender's part"): 22 s at 24 kHz, zeros but for eight bursts of 1 s at the
+// constant level 1000; every pause is over 1.5 s, so every spurt opens with the sender's full pre-roll.
+const LAYOUT_R = [0.7, 3.313, 6.021, 8.857, 11.409, 14.133, 16.799, 19.571];
+// The sender alone over seeds from..to: for the opening message of every spurt, 15 ms x tick - start / 24
+// - 160 ms (start in samples at 24 kHz, as the sender reports it); the mean, the openings, how many had a
+// pre-roll short of 2400, the openings by their frames, and the standard error by seed (each seed's mean).
+function senderPart(from, to) {
+  const R = 24000, signal = new Int16Array(22 * R);
+  for (const t of LAYOUT_R) signal.fill(1000, Math.round(t * R), Math.round((t + 1) * R));
+  const all = [], seeds = [], frames = {};
+  let short = 0;
+  for (let seed = from; seed <= to; seed++) {
+    const s = createSender({ seed }), messages = [...s.push(signal), ...s.finish()], spurts = s.info().spurts, seen = new Set(), own = [];
+    for (const m of messages) {
+      if (m.silence !== undefined || seen.has(m.spurt)) continue;
+      seen.add(m.spurt);
+      if (spurts[m.spurt].preroll !== 2400) { short++; continue; }
+      const f = m.last - m.first + 1;
+      frames[f] = (frames[f] || 0) + 1;
+      own.push(15 * m.tick - m.start / 24 - 160);
+    }
+    all.push(...own);
+    seeds.push(own.reduce((a, x) => a + x, 0) / own.length);
+  }
+  const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length, sm = mean(seeds);
+  return { mean: mean(all), openings: all.length, short, frames, seBySeed: Math.sqrt(seeds.reduce((a, x) => a + (x - sm) ** 2, 0) / (seeds.length - 1) / seeds.length) };
+}
+// The recorded figures against a run: the counts exact, the mean and the standard error to 1e-9 ms.
+const sameAsRecorded = (got, rec) => got.openings === rec.openings && got.short === 0 && Math.abs(got.mean - rec.mean) < 1e-9 && Math.abs(got.seBySeed - rec.seBySeed) < 1e-9
+  && isDeepStrictEqual(got.frames, { ...rec.frames });
+// The stop rule's grid (the order's "What must not move, and what moves"): nine buffers, the codec's
+// look-ahead and no codec delay, every whole frame rate from 10 to 1,000 and 59.94, 66.6, 66.67, 1000/15
+// and the first double below 1000/15 (the plan review's change 5).
+const BELOW = (() => { const b = new Float64Array([1000 / 15]); new BigInt64Array(b.buffer)[0] -= 1n; return b[0]; })();
+const GRID_BUFFERS = [20, 40, 50, 100, 150, 200, 250, 300, 500];
+const GRID_RATES = [...Array.from({ length: 991 }, (_, i) => 10 + i), 59.94, 66.6, 66.67, 1000 / 15, BELOW];
+const fpsName = (fps) => (fps === 1000 / 15 ? '1000/15' : fps === BELOW ? 'the double below 1000/15' : String(fps));
+
+function zeroRuleChecks() {
+  console.log('The game timeline\'s zero by the queue\'s rule (W3-29)');
+  {
+    // Check 1: the rule against the queue, opening by opening. One message of eight frames of a constant on a fresh
+    // timeline, pushed on relayTick(p) (and under 1000/15 on tick p too); its first output sample that is not 0 is
+    // sample (1323 p + first(p)) / 2 - Z by the suite's rule, Z the timeline's zeroSamples: 0 up to tick 18 and
+    // 512 x (floor(1323 p / 1024) - 24) after, so that a run makes few blocks of output before the opening (the
+    // order had 0 throughout; a later Z moves every output sample by Z alone). Wherever the ring does not cap the wait.
+    const RATES = [10, 20, 24, 30, 40, 50, 59.94, 60, 66, 66.6, 66.67, 100, 150];
+    let all = 0, equal = 0, first = '', settings = 0;
+    for (const bufferMs of [100, 40, 250]) {
+      for (const fps of RATES) {
+        const wait = waitTicks(bufferMs, fps);
+        if ((wait - 1) * 0.015 + 0.16 > 0.5) continue;
+        for (const relay of frameClockRuns(fps) ? [true, false] : [true]) {
+          settings++;
+          const rule = suiteFirsts({ fps, wait, ticks: 440, relay });
+          for (let p = 0; p < 440; p++) {
+            const Z = 512 * Math.max(0, Math.floor(1323 * p / 1024) - 24), want = (1323 * p + rule[p]) / 2 - Z;
+            const tl = createTimeline({ fps, bufferMs, length: want + 1024, zeroSamples: Z });
+            const out = joinAll([tl.push(opening(relay ? relayTick(p, fps) : p, 0)), tl.finish().samples]);
+            all++;
+            const got = soundFrom(out);
+            if (got === want) equal++; else if (!first) first = `voice_buffer_ms ${bufferMs}, ${fps} fps${relay ? '' : ' without the relay'}, tick ${p}: sample ${got}, the rule ${want}`;
+          }
+        }
+      }
+    }
+    check('check 1: the rule against the queue, opening by opening: one message of eight frames on a fresh timeline, pushed on relayTick(p) and under 1000/15 on p too, is first heard where the suite\'s rule says, at voice_buffer_ms 100, 40 and 250, 10 to 150 fps (13 rates), ticks 0 to 439, wherever the ring does not cap the wait',
+      equal === all && all > 25000, first || `${all} openings at ${settings} settings`);
+  }
+  {
+    // Check 2: zeroSeconds against the suite's rule over the stop rule's grid, to 1e-12 s, with the suite's sender
+    // part; on the even clock the suite's mean over ticks 0 to 5,119 is 1323 (wait - 1) + 511.5 exactly; a codecDelay
+    // that is not a finite number of 0 or more is refused, as zero() refuses it.
+    let n = 0, near = 0, worst = 0, first = '', blocks = 0;
+    for (const bufferMs of GRID_BUFFERS) for (const delay of [OPUS_DELAY, 0]) for (const fps of GRID_RATES) {
+      n++;
+      const d = Math.abs(zeroSeconds(bufferMs, fps, delay) - suiteZeroSeconds(bufferMs, fps, delay));
+      worst = Math.max(worst, d);
+      if (d <= 1e-12) near++; else if (!first) first = `voice_buffer_ms ${bufferMs}, ${fpsName(fps)} fps, codec delay ${delay}: ${zeroSeconds(bufferMs, fps, delay)} against ${suiteZeroSeconds(bufferMs, fps, delay)}`;
+      // The switch (W3-29): zero() is zeroSeconds on whole blocks of 512 samples, the suite's own rounding.
+      if (zero(bufferMs, fps, delay) === 512 * Math.round(44100 * suiteZeroSeconds(bufferMs, fps, delay) / 512)) blocks++;
+      else if (!first) first = `voice_buffer_ms ${bufferMs}, ${fpsName(fps)} fps, codec delay ${delay}: zero ${zero(bufferMs, fps, delay)} against the rule's ${zeroOf(bufferMs, fps, delay)}`;
+    }
+    const waits = [...new Set(GRID_BUFFERS.flatMap((b) => GRID_RATES.filter((f) => !frameClockRuns(f)).map((f) => suiteWait(b, f))))];
+    const closed = waits.every((w) => suiteMeanFirst(300, w) === 1323 * (w - 1) + 511.5);
+    let refused = 0;
+    for (const bad of [-0.001, NaN, Infinity, '0.0065', null]) { try { zeroSeconds(100, 300, bad); } catch (e) { if (e instanceof RangeError) refused++; } }
+    check('check 2: zeroSeconds is the sender\'s part plus the suite\'s own queue\'s part plus the codec\'s delay, to 1e-12 s, and zero is that on whole blocks of 512 samples, over the stop rule\'s grid (nine buffers, the codec\'s look-ahead and none, 10 to 1,000 fps and 59.94, 66.6, 66.67, 1000/15 and the double below it); on the even clock the suite\'s mean of first over ticks 0 to 5,119 is 1323 (wait - 1) + 511.5 half samples exactly; a bad codecDelay refused',
+      near === n && blocks === n && closed && refused === 5 && zeroSeconds(undefined, undefined) === zeroSeconds(100, 300, 0),
+      first || `${n} settings, the most apart ${worst} s; the closed form at ${waits.length} waits; ${refused} of 5 refused`);
+  }
+  {
+    // W3-29's fix round 1: literal pins under 1000/15. The live chain's D and the second model take their zero from the
+    // suite's rule, and check 2 holds the module to it, so a change that moved both alike (the means' tick window, the
+    // cap) would pass unseen. Here zero() and the suite's rule are held to numbers written down: D at voice_buffer_ms
+    // 100 with the codec's look-ahead and with no codec delay, as the order's tables and the printed stop table
+    // (docs/reports/W3-29/zero-table.md) have them (computed on 2026-11-22). With the means over 1,000 ticks in place of
+    // 5,120 in the module and the suite's rule alike, none of the order's nine moves; D at 35 fps with the look-ahead does
+    // (10752 to 10240; computed), so 35 fps is pinned too.
+    const PINS = { 10: [7680, 7680], 20: [8704, 8704], 24: [9216, 9216], 30: [10240, 9728], 40: [10240, 9728], 50: [11264, 10752],
+      59.94: [12288, 11776], 60: [11776, 11776], 66: [12800, 12288], 35: [10752, 10240] };
+    const rows = [];
+    let ok = true;
+    for (const [fps, [la, none]] of Object.entries(PINS).map(([f, v]) => [Number(f), v])) {
+      const got = [zero(100, fps, OPUS_DELAY), zero(100, fps), zeroOf(100, fps, OPUS_DELAY), zeroOf(100, fps)];
+      if (!(got[0] === la && got[1] === none && got[2] === la && got[3] === none)) { ok = false; rows.push(`${fps} fps: ${got.join(', ')} where ${la} and ${none}`); }
+    }
+    check('the zero under 1000/15 by number (fix round 1): zero() and the suite\'s rule give D at voice_buffer_ms 100 with the codec\'s look-ahead and with none as written down at 10, 20, 24, 30, 35, 40, 50, 59.94, 60 and 66 fps',
+      ok, rows.join('; ') || 'all ten');
+  }
+  {
+    // Check 4: the sender's part, layout R, seeds 1 to 4,000, the sender alone: the figures recorded in
+    // SENDER_MEASURED (tests/voicequeue/reference-zero.mjs), the counts exact and the means to 1e-9 ms; the module's
+    // SENDER_SECONDS is the mean over seeds 1 to 12,000 to the tenth of a millisecond, and the 4,000 seeds' mean lies
+    // within 0.3 ms of it (--arrival measures the 12,000 seeds again).
+    const got = senderPart(1, SENDER_MEASURED.part.seeds), rec = SENDER_MEASURED.part;
+    check(`check 4: the sender's part over seeds 1 to ${rec.seeds} of layout R is the recorded ${rec.mean.toFixed(3)} ms over ${rec.openings} openings (six, eight and nine frames in ${rec.frames[6]}, ${rec.frames[8]} and ${rec.frames[9]}), every one with a full pre-roll; SENDER_SECONDS is the mean over seeds 1 to ${SENDER_MEASURED.all.seeds} (${SENDER_MEASURED.all.mean.toFixed(4)} ms) to the tenth, and these seeds' mean within 0.3 ms of it`,
+      sameAsRecorded(got, rec) && SENDER_SECONDS === SUITE_SENDER_SECONDS && SENDER_SECONDS === Math.round(10 * SENDER_MEASURED.all.mean) / 10000
+      && Math.abs(got.mean - 1000 * SENDER_SECONDS) <= 0.3,
+      `${got.mean.toFixed(4)} ms over ${got.openings} (${JSON.stringify(got.frames)}, ${got.short} short), a standard error of ${got.seBySeed.toFixed(4)} ms by seed; SENDER_SECONDS ${SENDER_SECONDS}`);
+  }
+  // Layouts P and Q (the timeline's sections above): 2 s spurts at the level 1000 after 300, 500 and 1200 ms of
+  // silence, and after 900, 600 and 1200 ms; for each run, the index of each timeline spurt's first message (a spurt
+  // is a run of messages up to a silence record).
+  const layoutOf = (silences) => {
     const loud = [];
     let t = 0.5;
     for (let k = 0; k <= silences.length; k++) { loud.push([t, t + 2]); t += 2 + (k < silences.length ? silences[k] : 0); }
     return { loud, seconds: t + 1.5 };
   };
-  const mean = (v) => v.reduce((a, x) => a + x, 0) / v.length;
-  const at = { 300: [], 66.67: [] }, bySeed = new Map();
-  for (const fps of [300, 66.67]) {
-    const D = zero(100, fps), add = (D - 44100 * latency(100, fps)) / 44.1;
-    for (const lay of [layout([0.3, 0.5, 1.2]), layout([0.9, 0.6, 1.2])]) {
-      for (let seed = 1; seed <= ARRIVAL_SEEDS; seed++) {
-        for (const x of engineRun({ ...lay, fps, seed }).info.spurts) {
-          if (!x.opened) continue;
-          at[fps].push(x.offsetStartMs + add);
-          if (!bySeed.has(seed)) bySeed.set(seed, []);
-          bySeed.get(seed).push(x.offsetStartMs + add);
-        }
+  const PQ = [layoutOf([0.3, 0.5, 1.2]), layoutOf([0.9, 0.6, 1.2])];
+  const firstsOf = (pushed) => { const out = []; let open = false; pushed.forEach((x, k) => { if (x.source !== -1) { if (!open) out.push(k); open = true; } else open = false; }); return out; };
+  const meanOf = (v) => v.reduce((a, x) => a + x, 0) / v.length;
+  {
+    // Check 5: the identity through the sender. With engineRun's relay (each message on relayTick(tick)), for every
+    // opened spurt with nothing dropped, the delay of its first slot heard (the slot's offset, from info.source, plus
+    // D / 44.1) is 15 p - start + first(p) / 88.2 ms to within 0.05 ms (the slot's half sample and the sample that
+    // pcm[0] is not written of itself), p and start (at 24 kHz, / 24 in ms) read from the spurt's first message and
+    // first() the suite's rule at that tick. offsetStartMs, read at least 0.2 s into the spurt, is that less one
+    // sample (0.023 ms) for each message the spurt has played by then, since each message writes n - 1 of its n
+    // samples (finding 24; createChannel's add() writes n - 1 of a message's n samples): it is held to within 0.1 ms (the
+    // order asked 0.05 ms of offsetStartMs; ruled 2026-11-23 to stand as built). At 10 fps offsetStartMs is later than the
+    // identity, since the queue runs dry between the bursts of a frame and pads: the mean there between 0 and 4 ms.
+    // Measured on the build (seeds 1 to 50): at the first slot -0.034 to -0.012 ms at all eight rates; offsetStartMs
+    // -0.079 to -0.034 ms at 20 to 150 fps, and at 10 fps a mean of +1.67 ms.
+    const rows = [];
+    let ok = true;
+    for (const fps of [20, 30, 50, 60, 66.67, 100, 150, 10]) {
+      // D added back is the one the timeline ran with; the identity's other side is the suite's rule.
+      const rule = suiteFirsts({ fps, wait: waitTicks(100, fps), ticks: 1200 }), D = zero(100, fps), slot = [], start = [];
+      for (const lay of PQ) for (let seed = 1; seed <= 50; seed++) {
+        const r = engineRun({ ...lay, fps, seed, relay: true }), firsts = firstsOf(r.pushed), src = r.info.source;
+        r.info.spurts.forEach((sp, i) => {
+          if (!sp.opened || sp.droppedMs !== 0) return;
+          const m = r.messages[firsts[i]], want = 15 * m.tick - m.start / 24 + rule[m.tick] / 88.2;
+          const from = Math.round(sp.start * 44100), to = Math.round(sp.end * 44100), k = src.findIndex((p) => p >= from && p < to);
+          slot.push((882 * k + 441 - src[k]) / 44.1 + D / 44.1 - want);
+          start.push(sp.offsetStartMs + D / 44.1 - want);
+        });
+      }
+      const span = (v) => `${Math.min(...v).toFixed(3)} to ${Math.max(...v).toFixed(3)}`, m = meanOf(start);
+      const good = slot.length > 200 && slot.every((d) => Math.abs(d) <= 0.05) && (fps === 10 ? m >= 0 && m <= 4 : start.every((d) => Math.abs(d) <= 0.1));
+      if (!good) ok = false;
+      rows.push(`${fps} fps: ${slot.length} spurts, at the first slot ${span(slot)} ms, at offsetStartMs ${span(start)} ms (mean ${m.toFixed(3)})`);
+    }
+    check('check 5: the identity through the sender, with each message on relayTick (layouts P and Q, seeds 1 to 50): an opened spurt with nothing dropped is first heard 15 p - start + first(p) / 88.2 ms after its source, by the suite\'s rule, to within 0.05 ms at 10, 20, 30, 50, 60, 66.67, 100 and 150 fps, and offsetStartMs + D / 44.1 is that to within 0.1 ms (a sample less for each message played by then) but at 10 fps, where it is later by 0 to 4 ms in the mean',
+      ok, rows.join('; '));
+  }
+  {
+    // Check 9, the timeline's part: info and counts() report zero (D) and zeroSeconds, the module's and the suite's;
+    // with zeroSamples zero is the samples given and zeroSeconds null.
+    const rows = [];
+    let ok = true;
+    for (const [fps, bufferMs, codecDelay] of [[300, 100, 0], [66.67, 100, OPUS_DELAY], [30, 100, OPUS_DELAY], [10, 40, 0], [150, 250, OPUS_DELAY]]) {
+      const tl = createTimeline({ fps, bufferMs, codecDelay, length: 44100 }), c = tl.counts();
+      tl.push(opening(40, 0));
+      const { info } = tl.finish();
+      const good = info.zero === zero(bufferMs, fps, codecDelay) && info.zero === zeroOf(bufferMs, fps, codecDelay) && info.zeroSeconds === zeroSeconds(bufferMs, fps, codecDelay)
+        && Math.abs(info.zeroSeconds - suiteZeroSeconds(bufferMs, fps, codecDelay)) <= 1e-12 && c.zero === info.zero && c.zeroSeconds === info.zeroSeconds;
+      if (!good) ok = false;
+      rows.push(`${fps} fps, ${bufferMs} ms: ${info.zero}, ${(1000 * info.zeroSeconds).toFixed(3)} ms`);
+    }
+    const given = createTimeline({ fps: 30, length: 44100, zeroSamples: 4096 }), gi = given.finish().info;
+    check('check 9, the timeline: info and counts() give zero, the samples taken out, zero() and the suite\'s rule, and zeroSeconds, zeroSeconds() and within 1e-12 s of the suite\'s; with zeroSamples zero is the samples given and zeroSeconds null',
+      ok && gi.zero === 4096 && gi.zeroSeconds === null && given.counts().zeroSeconds === null, `${rows.join('; ')}; zeroSamples 4096: ${gi.zero}, ${gi.zeroSeconds}`);
+  }
+  {
+    // Check 10: the ring's cap. At 300 fps (layouts P and Q, seeds 1 to 50) the wait is longer than the ring holds, and
+    // the form kept there gives the zero. The delay of an opened spurt at the slot 100 ms after its first slot heard,
+    // less zeroSeconds (the offset there plus the grid's part), is within 3 ms of 0 in the mean, and at its first slot
+    // heard it is 15 to 35 ms over it: a record of the path, so that a change of it is seen (the planner had +1.2 and
+    // +26.4 ms over seeds 1 to 400).
+    // D added back is the one the timeline ran with; the zero subtracted is the suite's own.
+    const D = zero(100, 300), grid = (D - 44100 * suiteZeroSeconds(100, 300)) / 44.1, at = [], later = [];
+    for (const lay of PQ) for (let seed = 1; seed <= 50; seed++) {
+      const { info } = engineRun({ ...lay, fps: 300, seed });
+      for (const sp of info.spurts) {
+        if (!sp.opened) continue;
+        const from = Math.round(sp.start * 44100), to = Math.round(sp.end * 44100);
+        const i = info.source.findIndex((p) => p >= from && p < to);
+        if (i < 0 || i + 5 >= info.source.length || info.source[i + 5] < from || info.source[i + 5] >= to) continue;
+        const delay = (k) => (882 * k + 441 - info.source[k]) / 44.1 + grid;
+        at.push(delay(i)); later.push(delay(i + 5));
+      }
+    }
+    const mAt = meanOf(at), mLater = meanOf(later);
+    check(`check 10: the ring's cap at 300 fps: an opened spurt's delay less zeroSeconds is within 3 ms of 0 in the mean 100 ms after its first slot heard (measured ${mLater.toFixed(2)} ms) and 15 to 35 ms over it at that first slot (${mAt.toFixed(2)} ms), layouts P and Q, seeds 1 to 50`,
+      at.length > 150 && Math.abs(mLater) <= 3 && mAt >= 15 && mAt <= 35, `${at.length} spurts; the grid's part ${grid.toFixed(2)} ms`);
+  }
+}
+
+// The sender's part over seeds 1 to 12,000 (check 4's measurement whole, about half a minute; with --arrival).
+function senderPartChecks() {
+  console.log(`The sender's part over seeds 1 to ${SENDER_MEASURED.all.seeds} of layout R (W3-29, check 4)`);
+  const got = senderPart(1, SENDER_MEASURED.all.seeds), rec = SENDER_MEASURED.all;
+  check(`the mean, ${got.mean.toFixed(4)} ms over ${got.openings} openings (a standard error of ${got.seBySeed.toFixed(4)} ms by seed; six, eight and nine frames in ${got.frames[6]}, ${got.frames[8]} and ${got.frames[9]}), is SENDER_MEASURED's to 1e-9 ms, every opening with a full pre-roll, and SENDER_SECONDS (${SENDER_SECONDS * 1000} ms) is it to the tenth`,
+    sameAsRecorded(got, rec) && SENDER_SECONDS === Math.round(10 * got.mean) / 10000, `${got.mean}, ${got.seBySeed}, ${JSON.stringify(got.frames)}, ${got.short} short`);
+}
+
+// The stop rule's table (W3-29, "What must not move, and what moves", with the plan review's changes 2 and 3;
+// --zero-table prints it): over the stop rule's grid, every setting at which the zero by the rule (zeroSeconds on
+// whole blocks of 512 samples) differs from the zero before W3-29, latency() + 42.0 ms + the codec's delay on whole
+// blocks, written again here; whole frame rates with the same pair of values in a row are one range. Then the
+// values that must not move, and the range of the sender's part over which each stays, by the suite's own rule.
+const OLD_ARRIVAL = 0.042;
+const oldZero = (bufferMs, fps, delay) => 512 * Math.round(44100 * (latency(bufferMs, fps) + OLD_ARRIVAL + delay) / 512);
+const ruleZero = (bufferMs, fps, delay) => 512 * Math.round(44100 * zeroSeconds(bufferMs, fps, delay) / 512);
+const MUST_STAY = [[66.67, OPUS_DELAY], [66.67, 0], [1000 / 15, OPUS_DELAY], [1000 / 15, 0], [100, OPUS_DELAY], [100, 0], [300, OPUS_DELAY], [300, 0],
+  [1000, OPUS_DELAY], [1000, 0], [144, OPUS_DELAY], [150, OPUS_DELAY]];
+function zeroTable() {
+  const lines = [];
+  const say = (s) => { lines.push(s); console.log(s); };
+  say('The stop rule\'s table: where the zero by the rule differs from the zero before W3-29 (latency() + 42.0 ms + the codec\'s delay), at the sender\'s part '
+    + `${1000 * SENDER_SECONDS} ms (the suite measured ${SENDER_MEASURED.all.mean.toFixed(4)} ms over seeds 1 to ${SENDER_MEASURED.all.seeds}); computed`);
+  say('');
+  say('| voice_buffer_ms | codec delay | frames a second | D before | D by the rule | blocks |');
+  say('| ---: | --- | --- | ---: | ---: | ---: |');
+  let moved = 0, settings = 0;
+  for (const bufferMs of GRID_BUFFERS) {
+    for (const [delay, name] of [[OPUS_DELAY, 'the look-ahead'], [0, 'none']]) {
+      const rows = [];
+      for (const fps of GRID_RATES) {
+        settings++;
+        const a = oldZero(bufferMs, fps, delay), b = ruleZero(bufferMs, fps, delay);
+        if (a === b) continue;
+        moved++;
+        const last = rows[rows.length - 1], whole = Number.isInteger(fps);
+        if (last && whole && last.whole && last.to === fps - 1 && last.a === a && last.b === b) last.to = fps;
+        else rows.push({ from: fps, to: fps, whole, a, b });
+      }
+      for (const r of rows) {
+        const span = r.from === r.to ? fpsName(r.from) : `${r.from} to ${r.to}`;
+        say(`| ${bufferMs} | ${name} | ${span} | ${r.a} | ${r.b} | ${(r.b - r.a) / 512 > 0 ? '+' : ''}${(r.b - r.a) / 512} |`);
       }
     }
   }
-  const all = [...at[300], ...at[66.67]], m = mean(all);
-  const seeds = [...bySeed.values()].map(mean), sm = mean(seeds);
-  const seSeed = Math.sqrt(seeds.reduce((a, x) => a + (x - sm) ** 2, 0) / (seeds.length - 1) / seeds.length);
-  check(`the pooled mean, ${m.toFixed(3)} ms over ${all.length} opened spurts (${mean(at[300]).toFixed(2)} ms at 300 fps over ${at[300].length}, ${mean(at[66.67]).toFixed(2)} at 66.67 over ${at[66.67].length}; a standard error of ${seSeed.toFixed(2)} ms by seed), is within 0.3 ms of the constant, ${ARRIVAL_MS} ms`,
-    Math.abs(m - ARRIVAL_MS) <= 0.3, `${(m - ARRIVAL_MS).toFixed(3)} ms from it`);
-  check('it is the measurement recorded in ARRIVAL_MEASURED, spurt for spurt and to 1e-9 ms in each mean and in the standard error by seed',
-    all.length === ARRIVAL_MEASURED.spurts && at[300].length === ARRIVAL_MEASURED.n300 && at[66.67].length === ARRIVAL_MEASURED.n67
-    && Math.abs(m - ARRIVAL_MEASURED.mean) < 1e-9 && Math.abs(mean(at[300]) - ARRIVAL_MEASURED.at300) < 1e-9 && Math.abs(mean(at[66.67]) - ARRIVAL_MEASURED.at67) < 1e-9
-    && Math.abs(seSeed - ARRIVAL_MEASURED.seBySeed) < 1e-9,
-    `${all.length} spurts, ${m}, ${mean(at[300])}, ${mean(at[66.67])}, ${seSeed}`);
+  say('');
+  say(`${moved} of ${settings} settings move.`);
+  say('');
+  say('Must not move at voice_buffer_ms 100 (the plan review\'s change 2), and the sender\'s part over which each stays by the suite\'s rule:');
+  say('');
+  say('| frames a second | codec delay | D before | D by the rule | stays for S from, to, ms |');
+  say('| --- | --- | ---: | ---: | --- |');
+  let lo = -Infinity, hi = Infinity;
+  for (const [fps, delay] of [...MUST_STAY, [144, 0], [150, 0]]) {
+    const a = oldZero(100, fps, delay), b = ruleZero(100, fps, delay), n = a / 512, q = suiteQueueSeconds(100, fps) + delay;
+    const from = 1000 * ((n - 0.5) * 512 / 44100 - q), to = 1000 * ((n + 0.5) * 512 / 44100 - q);
+    if (MUST_STAY.some(([f, d]) => f === fps && d === delay)) { lo = Math.max(lo, from); hi = Math.min(hi, to); }
+    say(`| ${fpsName(fps)} | ${delay ? 'the look-ahead' : 'none'} | ${a} | ${b} | ${from.toFixed(3)} to ${to.toFixed(3)} |`);
+  }
+  say('');
+  say(`All of the must-not-move values stay for S from ${lo.toFixed(3)} to ${hi.toFixed(3)} ms (at 144 and 150 frames a second with no codec delay the value is listed and is not one the plan review holds).`);
+  return lines;
 }
 
 // ---------------------------------------------------------------------------------------
 
 const argv = process.argv.slice(2);
-let fixtureFile = null, framesOnly = false, playOnly = false, serverOnly = false, arrivalOnly = false;
+let fixtureFile = null, framesOnly = false, playOnly = false, serverOnly = false, arrivalOnly = false, zeroOnly = false;
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--fixture' && i + 1 < argv.length) fixtureFile = argv[++i];
   else if (argv[i] === '--server-logs') serverOnly = true;
   else if (argv[i] === '--frames') framesOnly = true;
   else if (argv[i] === '--play-out') playOnly = true;
   else if (argv[i] === '--arrival') arrivalOnly = true;
-  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>] [--frames] [--play-out] [--server-logs] [--arrival]'); process.exit(2); }
+  else if (argv[i] === '--zero') zeroOnly = true;
+  else if (argv[i] === '--zero-table') { zeroTable(); process.exit(0); }
+  else { console.error('usage: node tests/voice-channel.verify.mjs [--fixture <file>] [--frames] [--play-out] [--server-logs] [--arrival] [--zero] [--zero-table]'); process.exit(2); }
 }
 if (arrivalOnly) {
   keepGoing = true;
-  arrivalChecks();
-  console.log(`\n${passed} voice channel checks passed, ${failed} failed (the arrival constant's alone)`);
+  senderPartChecks();
+  console.log(`\n${passed} voice channel checks passed, ${failed} failed (the sender's part's alone)`);
+  if (failed) process.exitCode = 1;
+}
+else if (zeroOnly) {
+  keepGoing = true;
+  zeroRuleChecks();
+  console.log(`\n${passed} voice channel checks passed, ${failed} failed (the zero's alone)`);
   if (failed) process.exitCode = 1;
 }
 else if (serverOnly) {
