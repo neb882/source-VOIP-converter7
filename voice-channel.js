@@ -182,10 +182,17 @@
     return BLOCK_HALF * after(k2, BLOCK_HALF) - TICK_HALF * p;
   }
 
-  // The mean of first(p) in half samples over the sender's ticks 0 to 5,119 (chosen: 76.8 s, a whole
-  // period of ticks, frames and blocks at 10, 20, 30, 40, 50 and 60 frames a second, not at 24 and 66,
-  // where the period is 25,600 ticks and the mean over 5,120 lies about 0.02 ms from the whole period's,
-  // computed). On the even clock it is 1323 (wait - 1) + 511.5 exactly (arithmetic: 1323 is odd, so over
+  // The mean of first(p) in half samples over the sender's ticks 0 to 5,119 (chosen): the first 76.8 s of
+  // a render, from frame 0 on the render's first sample (the order's ruling 2), which is where a render
+  // lies. It is a whole period of ticks, frames and blocks at 10, 20, 30, 40, 50 and 60 frames a second;
+  // not at every whole rate. Against the mean over ticks 0 to 102,399 (computed, fix round 1), less the
+  // wait: 0.018 ms apart at 24 frames a second, 0.019 at 66 and 0.015 at 59.94; up to 0.42 ms at the
+  // whole rates from 10 to 66 (52 frames a second, a wait of 16 ticks); D differs at 7 settings of rate,
+  // wait and codec delay there (155 of 57,000 settings of the whole rates 10 to 66, voice_buffer_ms 1 to
+  // 500 and two codec delays: at 36 frames a second with voice_buffer_ms 112 to 138 and the look-ahead,
+  // at 46 with 1 to 21, 44 to 65 and 305 to 326, among them); and just under 1000/15 the frames drift
+  // past the ticks so slowly that the two are far apart (at 66.666 frames a second -8.81 ms over the
+  // first 5,120 ticks against -1.87 over 102,400). On the even clock it is 1323 (wait - 1) + 511.5 exactly (arithmetic: 1323 is odd, so over
   // any 1,024 ticks in a row 1323 n takes each remainder of 1,024 once), and that closed form is used.
   // Under the frame clock it is the sum over the ticks, worked out once for each wait and rate and kept
   // (the table is emptied when it passes 64 entries).
@@ -445,8 +452,10 @@
   // ruling 3), so at a whole frame rate it is that phase's; where the wait is longer than the ring
   // holds, the form kept there (zeroSeconds). On the block grid a phrase that opens the channel
   // starts up to half a block (5.8 ms) from its source in the mean, by D / 44100 - zeroSeconds,
-  // which info reports. A phrase that joins a running channel is not moved by D: it comes early
-  // by what the queue cut. With no codecDelay, 12800 samples at 66.67 fps, 14848 at 100, 24064
+  // which info reports. D moves every output sample alike, so a phrase that joins a running channel
+  // keeps its distance from the opened phrase before it. At 1000/15 and above it then comes early by
+  // what the queue cut; under 1000/15, where D fell by whole blocks with W3-29, most joined phrases now
+  // start late of their source (fix round 1's measurement, docs/reports/W3-29-timeline-zero.md). With no codecDelay, 12800 samples at 66.67 fps, 14848 at 100, 24064
   // at 300; with the Opus codec's 156 samples at 24 kHz (6.5 ms), 13312, 15360 and 24064. The
   // game has no such figure: it is the model's, for lining a render up with its source. Until
   // W3-29, D was latency plus one constant of 42.0 ms (W3-27b) plus codecDelay. A caller whose packets come with their

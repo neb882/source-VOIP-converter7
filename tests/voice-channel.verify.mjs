@@ -2719,6 +2719,25 @@ function zeroRuleChecks() {
       first || `${n} settings, the most apart ${worst} s; the closed form at ${waits.length} waits; ${refused} of 5 refused`);
   }
   {
+    // W3-29's fix round 1: literal pins under 1000/15. The live chain's D and the second model take their zero from the
+    // suite's rule, and check 2 holds the module to it, so a change that moved both alike (the means' tick window, the
+    // cap) would pass unseen. Here zero() and the suite's rule are held to numbers written down: D at voice_buffer_ms
+    // 100 with the codec's look-ahead and with no codec delay, as the order's tables and the printed stop table
+    // (docs/reports/W3-29/zero-table.md) have them (computed on 2026-11-22). With the means over 1,000 ticks in place of
+    // 5,120 in the module and the suite's rule alike, none of the order's nine moves; D at 35 fps with the look-ahead does
+    // (10752 to 10240; computed), so 35 fps is pinned too.
+    const PINS = { 10: [7680, 7680], 20: [8704, 8704], 24: [9216, 9216], 30: [10240, 9728], 40: [10240, 9728], 50: [11264, 10752],
+      59.94: [12288, 11776], 60: [11776, 11776], 66: [12800, 12288], 35: [10752, 10240] };
+    const rows = [];
+    let ok = true;
+    for (const [fps, [la, none]] of Object.entries(PINS).map(([f, v]) => [Number(f), v])) {
+      const got = [zero(100, fps, OPUS_DELAY), zero(100, fps), zeroOf(100, fps, OPUS_DELAY), zeroOf(100, fps)];
+      if (!(got[0] === la && got[1] === none && got[2] === la && got[3] === none)) { ok = false; rows.push(`${fps} fps: ${got.join(', ')} where ${la} and ${none}`); }
+    }
+    check('the zero under 1000/15 by number (fix round 1): zero() and the suite\'s rule give D at voice_buffer_ms 100 with the codec\'s look-ahead and with none as written down at 10, 20, 24, 30, 35, 40, 50, 59.94, 60 and 66 fps',
+      ok, rows.join('; ') || 'all ten');
+  }
+  {
     // Check 4: the sender's part, layout R, seeds 1 to 4,000, the sender alone: the figures recorded in
     // SENDER_MEASURED (tests/voicequeue/reference-zero.mjs), the counts exact and the means to 1e-9 ms; the module's
     // SENDER_SECONDS is the mean over seeds 1 to 12,000 to the tenth of a millisecond, and the 4,000 seeds' mean lies
@@ -2748,8 +2767,11 @@ function zeroRuleChecks() {
     // pcm[0] is not written of itself), p and start (at 24 kHz, / 24 in ms) read from the spurt's first message and
     // first() the suite's rule at that tick. offsetStartMs, read at least 0.2 s into the spurt, is that less one
     // sample (0.023 ms) for each message the spurt has played by then, since each message writes n - 1 of its n
-    // samples (finding 24): it is held to within 0.1 ms. At 10 fps offsetStartMs is later than the identity, since the
-    // queue runs dry between the bursts of a frame and pads: the mean there between 0 and 4 ms.
+    // samples (finding 24; createChannel's add() writes n - 1 of a message's n samples): it is held to within 0.1 ms (the
+    // order asked 0.05 ms of offsetStartMs; ruled 2026-11-23 to stand as built). At 10 fps offsetStartMs is later than the
+    // identity, since the queue runs dry between the bursts of a frame and pads: the mean there between 0 and 4 ms.
+    // Measured on the build (seeds 1 to 50): at the first slot -0.034 to -0.012 ms at all eight rates; offsetStartMs
+    // -0.079 to -0.034 ms at 20 to 150 fps, and at 10 fps a mean of +1.67 ms.
     const rows = [];
     let ok = true;
     for (const fps of [20, 30, 50, 60, 66.67, 100, 150, 10]) {
